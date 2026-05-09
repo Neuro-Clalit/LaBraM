@@ -36,10 +36,10 @@ def get_args():
     # Model parameters
     parser.add_argument('--model', default='vqnsp_encoder_base_decoder_3x200x12', type=str, metavar='MODEL',  help='Name of model to train')  
 
-    parser.add_argument('--codebook_n_emd', default=8192, type=int, metavar='MODEL',
-                        help='number of codebook')
-    parser.add_argument('--codebook_emd_dim', default=32, type=int, metavar='MODEL',
-                        help='number of codebook')
+    parser.add_argument('--codebook_size', default=8192, type=int, metavar='MODEL',
+                        help='number of entries in the codebook')
+    parser.add_argument('--quantizer_dim', default=32, type=int, metavar='MODEL',
+                        help='dimension of each codebook entry')
     parser.add_argument('--ema_decay', default=0.99, type=float, metavar='MODEL', help='ema decay for quantizer')
     parser.add_argument('--quantize_kmeans_init', action='store_true', help='enable kmeans_init for quantizer')
 
@@ -118,9 +118,9 @@ def get_model(args, **kwargs):
         args.model,
         pretrained=False,
         as_tokenzer=False,
-        n_code=args.codebook_n_emd,
-        code_dim=args.codebook_emd_dim,
-        EEG_size=args.input_size,
+        num_codebook_tokens=args.codebook_size,
+        quantizer_dim=args.quantizer_dim,
+        eeg_window_size=args.input_size,
         decay=args.ema_decay,
         quantize_kmeans_init=args.quantize_kmeans_init
     )
@@ -156,7 +156,7 @@ def main(args):
         4, # set the time window to 4 so that the sequence length is 4 * 64 = 256
         8, # set the time window to 8 so that the sequence length is 8 * 32 = 256
     ]
-    dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(datasets_train, time_window, stride_size=200)
+    dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(datasets_train, time_window, stride=200)
 
     datasets_val = [
         ["path/to/datasets_val"]

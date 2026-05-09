@@ -46,18 +46,18 @@ def train_one_epoch(model: torch.nn.Module,
             pass
     step_loader = 0
     for data_loader, ch_names in zip(data_loader_list, ch_names_list):
-        input_chans = utils.get_input_chans(ch_names)
+        channel_indices = utils.get_channel_indices(ch_names)
         for step, (batch) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
             # assign learning rate & weight decay for each step
-            it = start_steps + step + step_loader  # global training iteration
+            global_step = start_steps + step + step_loader
             if lr_schedule_values is not None:
                 for i, param_group in enumerate(optimizer.param_groups):
                     if lr_schedule_values is not None:
-                        param_group["lr"] = lr_schedule_values[it] * param_group.get("lr_scale", 1.0)
-            EEG = batch.float().to(device, non_blocking=True) / 100
+                        param_group["lr"] = lr_schedule_values[global_step] * param_group.get("lr_scale", 1.0)
+            eeg_batch = batch.float().to(device, non_blocking=True) / 100
 
             with torch.cuda.amp.autocast(enabled=True):
-                loss, log_loss = model(EEG, input_chans=input_chans)
+                loss, loss_dict = model(eeg_batch, channel_indices=channel_indices)
 
             loss_value = loss.item()
 
@@ -76,9 +76,9 @@ def train_one_epoch(model: torch.nn.Module,
             torch.cuda.synchronize()
 
             metric_logger.update(loss=loss_value)
-            
-            new_log_loss = {k.split('/')[-1]:v for k, v in log_loss.items() if k not in ['total_loss']}
-            metric_logger.update(**new_log_loss)
+
+            filtered_loss_dict = {k.split('/')[-1]:v for k, v in loss_dict.items() if k not in ['total_loss']}
+            metric_logger.update(**filtered_loss_dict)
 
             min_lr = 10.
             max_lr = 0.
@@ -96,7 +96,7 @@ def train_one_epoch(model: torch.nn.Module,
             metric_logger.update(grad_norm=grad_norm)
 
             if log_writer is not None:
-                log_writer.update(**new_log_loss, head="train/loss")
+                log_writer.update(**filtered_loss_dict, head="train/loss")
 
                 log_writer.update(lr=max_lr, head="opt")
                 log_writer.update(min_lr=min_lr, head="opt")
@@ -121,7 +121,7 @@ def train_one_epoch(model: torch.nn.Module,
             codebook_cluster_size = model.module.quantize.cluster_size
         zero_cnt = (codebook_cluster_size == 0).sum().item()
         train_stat = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
-        train_stat['Unused_code'] = zero_cnt
+        train_stat['unused_code'] = zero_cnt
         print(f"Unused code in codebook: {zero_cnt}")
         return train_stat
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
@@ -143,16 +143,16 @@ def evaluate(data_loader_list, model, device, log_writer=None, epoch=None, ch_na
             pass
     
     for data_loader, ch_names in zip(data_loader_list, ch_names_list):
-        input_chans = utils.get_input_chans(ch_names)
+        channel_indices = utils.get_channel_indices(ch_names)
         for step, (batch) in enumerate(metric_logger.log_every(data_loader, 10, header)):
 
-            images = batch.float().to(device, non_blocking=True) / 100
-            loss, log_loss = model(images, input_chans=input_chans)
+            eeg_batch = batch.float().to(device, non_blocking=True) / 100
+            loss, loss_dict = model(eeg_batch, channel_indices=channel_indices)
 
             metric_logger.update(loss=loss.item())
 
-            new_log_loss = {k.split('/')[-1]:v for k, v in log_loss.items() if k not in ['total_loss']}
-        metric_logger.update(**new_log_loss)
+            filtered_loss_dict = {k.split('/')[-1]:v for k, v in loss_dict.items() if k not in ['total_loss']}
+        metric_logger.update(**filtered_loss_dict)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
@@ -181,13 +181,13 @@ def calculate_codebook_usage(data_loader, model, device, log_writer=None, epoch=
     # switch to evaluation mode
     model.eval()
     
-    codebook_num = args.codebook_n_emd
+    codebook_num = args.codebook_size
     codebook_cnt = torch.zeros(codebook_num, dtype=torch.float64).to(device)
 
-    for step, (images) in enumerate(metric_logger.log_every(data_loader, 10, header)):
-        images = images.float().to(device, non_blocking=True) / 100
+    for step, (batch) in enumerate(metric_logger.log_every(data_loader, 10, header)):
+        eeg_batch = batch.float().to(device, non_blocking=True) / 100
 
-        outputs = utils.get_model(model).get_tokens(images)['token'].view(-1)
+        outputs = utils.get_model(model).get_tokens(eeg_batch)['token'].view(-1)
         
         outputs_gather_list = [torch.zeros_like(outputs) for _ in range(utils.get_world_size())]
         torch.distributed.all_gather(outputs_gather_list, outputs)

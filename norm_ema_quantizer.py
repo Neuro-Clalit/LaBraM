@@ -62,22 +62,22 @@ def kmeans(samples, num_clusters, num_iters = 10, use_cosine_sim = False):
 
 
 class EmbeddingEMA(nn.Module):
-    def __init__(self, num_tokens, codebook_dim, decay=0.99, eps=1e-5, kmeans_init=True, codebook_init_path=''):
+    def __init__(self, num_tokens, quantizer_dim, decay=0.99, eps=1e-5, kmeans_init=True, codebook_init_path=''):
         super().__init__()
         self.num_tokens = num_tokens
-        self.codebook_dim = codebook_dim
+        self.quantizer_dim = quantizer_dim
         self.decay = decay
-        self.eps = eps 
-        if codebook_init_path == '':   
+        self.eps = eps
+        if codebook_init_path == '':
             if not kmeans_init:
-                weight = torch.randn(num_tokens, codebook_dim)
+                weight = torch.randn(num_tokens, quantizer_dim)
                 weight = l2norm(weight)
             else:
-                weight = torch.zeros(num_tokens, codebook_dim)
+                weight = torch.zeros(num_tokens, quantizer_dim)
             self.register_buffer('initted', torch.Tensor([not kmeans_init]))
         else:
             print(f"load init codebook weight from {codebook_init_path}")
-            codebook_ckpt_weight = torch.load(codebook_init_path, map_location='cpu')
+            codebook_ckpt_weight = torch.load(codebook_init_path, map_location='cpu', weights_only=False)
             weight = codebook_ckpt_weight.clone()
             self.register_buffer('initted', torch.Tensor([True]))
             
@@ -121,20 +121,20 @@ def norm_ema_inplace(moving_avg, new, decay):
     moving_avg.data.copy_(l2norm(moving_avg.data))
 
 class NormEMAVectorQuantizer(nn.Module):
-    def __init__(self, n_embed, embedding_dim, beta, decay=0.99, eps=1e-5, 
+    def __init__(self, num_codebook_tokens, quantizer_dim, beta, decay=0.99, eps=1e-5,
                 statistic_code_usage=True, kmeans_init=False, codebook_init_path=''):
         super().__init__()
-        self.codebook_dim = embedding_dim
-        self.num_tokens = n_embed
+        self.quantizer_dim = quantizer_dim
+        self.num_tokens = num_codebook_tokens
         self.beta = beta
         self.decay = decay
-        
+
         # learnable = True if orthogonal_reg_weight > 0 else False
-        self.embedding = EmbeddingEMA(self.num_tokens, self.codebook_dim, decay, eps, kmeans_init, codebook_init_path)
-        
+        self.embedding = EmbeddingEMA(self.num_tokens, self.quantizer_dim, decay, eps, kmeans_init, codebook_init_path)
+
         self.statistic_code_usage = statistic_code_usage
         if statistic_code_usage:
-            self.register_buffer('cluster_size', torch.zeros(n_embed))
+            self.register_buffer('cluster_size', torch.zeros(num_codebook_tokens))
         if distributed.is_available() and distributed.is_initialized():
             print("ddp is enable, so use ddp_reduce to sync the statistic_code_usage for each gpu!")
             self.all_reduce_fn = distributed.all_reduce
@@ -151,7 +151,7 @@ class NormEMAVectorQuantizer(nn.Module):
         #z, 'b c h w -> b h w c'
         z = rearrange(z, 'b c h w -> b h w c')
         z = l2norm(z)
-        z_flattened = z.reshape(-1, self.codebook_dim)
+        z_flattened = z.reshape(-1, self.quantizer_dim)
         self.embedding.init_embed_(z_flattened)
         
         d = z_flattened.pow(2).sum(dim=1, keepdim=True) + \

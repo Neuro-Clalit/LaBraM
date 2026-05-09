@@ -56,8 +56,8 @@ def get_args():
                         help='Drop path rate (default: 0.1)')
 
     # Tokenizer parameters
-    parser.add_argument('--codebook_size', default=8192, type=int, help='number of codebook')
-    parser.add_argument('--codebook_dim', default=32, type=int, help='number of codebook')
+    parser.add_argument('--codebook_size', default=8192, type=int, help='number of entries in the codebook')
+    parser.add_argument('--quantizer_dim', default=32, type=int, help='dimension of each codebook entry')
 
     # Optimizer parameters
     parser.add_argument('--opt', default='adamw', type=str, metavar='OPTIMIZER',
@@ -143,8 +143,8 @@ def get_visual_tokenizer(args):
             pretrained=True,
             pretrained_weight=args.tokenizer_weight,
             as_tokenzer=True,
-            n_code=args.codebook_size, 
-            code_dim=args.codebook_dim,
+            num_codebook_tokens=args.codebook_size,
+            quantizer_dim=args.quantizer_dim,
         ).eval()
     return model
 
@@ -181,7 +181,7 @@ def main(args):
         4, # set the time window to 4 so that the sequence length is 4 * 64 = 256
         8, # set the time window to 8 so that the sequence length is 8 * 32 = 256
     ]
-    dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(datasets_train, time_window, stride_size=800, start_percentage=0, end_percentage=1)
+    dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(datasets_train, time_window, stride=800, start_percentage=0, end_percentage=1)
     # prepare visual tokenizer
     vqnsp = get_visual_tokenizer(args).to(device)
 

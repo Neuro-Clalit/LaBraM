@@ -632,7 +632,7 @@ def auto_load_model(args, model, model_without_ddp, optimizer, loss_scaler, mode
                 checkpoint = torch.hub.load_state_dict_from_url(
                     args.resume, map_location='cpu', check_hash=True)
             else:
-                checkpoint = torch.load(args.resume, map_location='cpu')
+                checkpoint = torch.load(args.resume, map_location='cpu', weights_only=False)
             model_without_ddp.load_state_dict(checkpoint['model']) # strict: bool=True, , strict=False
             print("Resume checkpoint %s" % args.resume)
             if 'optimizer' in checkpoint and 'epoch' in checkpoint:
@@ -700,21 +700,21 @@ def create_ds_config(args):
         writer.write(json.dumps(ds_config, indent=2))
 
 
-def build_pretraining_dataset(datasets: list, time_window: list, stride_size=200, start_percentage=0, end_percentage=1):
+def build_pretraining_dataset(datasets: list, time_window: list, stride=200, start_percentage=0, end_percentage=1):
     shock_dataset_list = []
     ch_names_list = []
     for dataset_list, window_size in zip(datasets, time_window):
-        dataset = ShockDataset([Path(file_path) for file_path in dataset_list], window_size * 200, stride_size, start_percentage, end_percentage)
+        dataset = ShockDataset([Path(file_path) for file_path in dataset_list], window_size * 200, stride, start_percentage, end_percentage)
         shock_dataset_list.append(dataset)
         ch_names_list.append(dataset.get_ch_names())
     return shock_dataset_list, ch_names_list
 
 
-def get_input_chans(ch_names):
-    input_chans = [0] # for cls token
+def get_channel_indices(ch_names):
+    channel_indices = [0]  # for cls token
     for ch_name in ch_names:
-        input_chans.append(standard_1020.index(ch_name) + 1)
-    return input_chans
+        channel_indices.append(standard_1020.index(ch_name) + 1)
+    return channel_indices
 
 
 class TUABLoader(torch.utils.data.Dataset):
