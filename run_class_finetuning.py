@@ -321,11 +321,12 @@ def main(args, ds_init):
     else:
         log_writer = None
 
+    pin_memory = args.pin_mem and device.type == 'cuda'
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
-        pin_memory=args.pin_mem,
+        pin_memory=pin_memory,
         drop_last=True,
     )
 
@@ -334,7 +335,7 @@ def main(args, ds_init):
             dataset_val, sampler=sampler_val,
             batch_size=int(1.5 * args.batch_size),
             num_workers=args.num_workers,
-            pin_memory=args.pin_mem,
+            pin_memory=pin_memory,
             drop_last=False
         )
         if type(dataset_test) == list:
@@ -342,7 +343,7 @@ def main(args, ds_init):
                 dataset, sampler=sampler,
                 batch_size=int(1.5 * args.batch_size),
                 num_workers=args.num_workers,
-                pin_memory=args.pin_mem,
+                pin_memory=pin_memory,
                 drop_last=False
             ) for dataset, sampler in zip(dataset_test, sampler_test)]
         else:
@@ -350,7 +351,7 @@ def main(args, ds_init):
                 dataset_test, sampler=sampler_test,
                 batch_size=int(1.5 * args.batch_size),
                 num_workers=args.num_workers,
-                pin_memory=args.pin_mem,
+                pin_memory=pin_memory,
                 drop_last=False
             )
     else:
@@ -369,7 +370,7 @@ def main(args, ds_init):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.finetune, map_location='cpu', check_hash=True)
         else:
-            checkpoint = torch.load(args.finetune, map_location='cpu')
+            checkpoint = torch.load(args.finetune, map_location='cpu', weights_only=False)
 
         print("Load ckpt from %s" % args.finetune)
         checkpoint_model = None
