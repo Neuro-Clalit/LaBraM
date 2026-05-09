@@ -56,7 +56,7 @@ def train_one_epoch(model: torch.nn.Module,
                         param_group["lr"] = lr_schedule_values[global_step] * param_group.get("lr_scale", 1.0)
             eeg_batch = batch.float().to(device, non_blocking=True) / 100
 
-            with torch.cuda.amp.autocast(enabled=True):
+            with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
                 loss, loss_dict = model(eeg_batch, channel_indices=channel_indices)
 
             loss_value = loss.item()
@@ -151,8 +151,8 @@ def evaluate(data_loader_list, model, device, log_writer=None, epoch=None, ch_na
 
             metric_logger.update(loss=loss.item())
 
-            filtered_loss_dict = {k.split('/')[-1]:v for k, v in loss_dict.items() if k not in ['total_loss']}
-        metric_logger.update(**filtered_loss_dict)
+            filtered_loss_dict = {k.split('/')[-1]: v for k, v in loss_dict.items() if k not in ['total_loss']}
+            metric_logger.update(**filtered_loss_dict)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
