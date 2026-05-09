@@ -28,7 +28,7 @@ import torch.distributed as dist
 from torch import inf
 import h5py
 
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from data_processor.dataset import ShockDataset
 import pickle
 from scipy.signal import resample
@@ -225,7 +225,7 @@ class MetricLogger(object):
 
 class TensorboardLogger(object):
     def __init__(self, log_dir):
-        self.writer = SummaryWriter(logdir=log_dir)
+        self.writer = SummaryWriter(log_dir=log_dir)
         self.step = 0
 
     def set_step(self, step=None):
@@ -499,7 +499,7 @@ class NativeScalerWithGradNormCount:
     state_dict_key = "amp_scaler"
 
     def __init__(self):
-        self._scaler = torch.cuda.amp.GradScaler()
+        self._scaler = torch.amp.GradScaler('cuda', enabled=torch.cuda.is_available())
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True, layer_names=None):
         self._scaler.scale(loss).backward(create_graph=create_graph)

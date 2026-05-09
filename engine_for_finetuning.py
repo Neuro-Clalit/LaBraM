@@ -73,7 +73,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             loss, output = train_class_batch(
                 model, samples, targets, criterion, input_chans)
         else:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda', enabled=device.type == 'cuda'):
                 loss, output = train_class_batch(
                     model, samples, targets, criterion, input_chans)
 
@@ -106,9 +106,10 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 optimizer.zero_grad()
                 if model_ema is not None:
                     model_ema.update(model)
-            loss_scale_value = loss_scaler.state_dict()["scale"]
+            loss_scale_value = loss_scaler.state_dict().get("scale", 1.0)
 
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
 
         if is_binary:
             class_acc = utils.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
@@ -177,7 +178,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
             target = target.float().unsqueeze(-1)
         
         # compute output
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast('cuda', enabled=device.type == 'cuda'):
             output = model(EEG, input_chans=input_chans)
             loss = criterion(output, target)
         

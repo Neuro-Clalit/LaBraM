@@ -137,8 +137,8 @@ def get_args():
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default=None,
                         help='path where to tensorboard log')
-    parser.add_argument('--device', default='cuda',
-                        help='device to use for training / testing')
+    parser.add_argument('--device', default='auto',
+                        help='device to use for training / testing (cuda / mps / cpu / auto)')
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
@@ -160,7 +160,7 @@ def get_args():
     parser.add_argument('--pin_mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem')
-    parser.set_defaults(pin_mem=True)
+    parser.set_defaults(pin_mem=torch.cuda.is_available())
 
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
@@ -173,6 +173,12 @@ def get_args():
     parser.add_argument('--enable_deepspeed', action='store_true', default=False)
     parser.add_argument('--dataset', default='TUAB', type=str,
                         help='dataset: TUAB | TUEV')
+    parser.add_argument('--data_path', default='', type=str,
+                        help='root directory of the preprocessed dataset (expects train/val/test subfolders for TUAB, or processed_train/processed_eval/processed_test for TUEV)')
+    parser.add_argument('--debug', action='store_true', default=False,
+                        help='debug mode: tiny data subset, few epochs, small batch size, no workers')
+    parser.add_argument('--debug_samples', default=16, type=int,
+                        help='number of samples per split to keep in debug mode')
 
     known_args, _ = parser.parse_known_args()
 
@@ -212,14 +218,16 @@ def get_models(args):
 
 def get_dataset(args):
     if args.dataset == 'TUAB':
-        train_dataset, test_dataset, val_dataset = utils.prepare_TUAB_dataset("path/to/TUAB")
+        tuab_root = args.data_path or "path/to/TUAB"
+        train_dataset, test_dataset, val_dataset = utils.prepare_TUAB_dataset(tuab_root)
         ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
     elif args.dataset == 'TUEV':
-        train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset("path/to/TUEV")
+        tuev_root = args.data_path or "path/to/TUEV"
+        train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset(tuev_root)
         ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
@@ -228,14 +236,37 @@ def get_dataset(args):
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
+def _apply_debug_overrides(args):
+    if not args.debug:
+        return
+    print("[DEBUG MODE] Overriding training args for fast iteration")
+    args.epochs = max(1, min(args.epochs, 2))
+    args.batch_size = min(args.batch_size, 4)
+    args.num_workers = 0
+    args.warmup_epochs = 0
+    args.save_ckpt = False
+    args.dist_eval = False
+    if args.output_dir:
+        args.log_dir = args.log_dir or args.output_dir
+
+
 def main(args, ds_init):
     utils.init_distributed_mode(args)
 
     if ds_init is not None:
         utils.create_ds_config(args)
 
+    _apply_debug_overrides(args)
+
     print(args)
 
+    if args.device == 'auto':
+        if torch.cuda.is_available():
+            args.device = 'cuda'
+        elif torch.backends.mps.is_available():
+            args.device = 'mps'
+        else:
+            args.device = 'cpu'
     device = torch.device(args.device)
 
     # fix the seed for reproducibility
@@ -244,12 +275,22 @@ def main(args, ds_init):
     np.random.seed(seed)
     # random.seed(seed)
 
-    cudnn.benchmark = True
+    if torch.cuda.is_available():
+        cudnn.benchmark = True
 
     # dataset_train, dataset_test, dataset_val: follows the standard format of torch.utils.data.Dataset.
     # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
+
+    if args.debug:
+        n = args.debug_samples
+        print(f"[DEBUG MODE] Subsetting datasets to first {n} samples per split")
+        dataset_train = torch.utils.data.Subset(dataset_train, list(range(min(n, len(dataset_train)))))
+        if dataset_val is not None:
+            dataset_val = torch.utils.data.Subset(dataset_val, list(range(min(n, len(dataset_val)))))
+        if dataset_test is not None and not isinstance(dataset_test, list):
+            dataset_test = torch.utils.data.Subset(dataset_test, list(range(min(n, len(dataset_test)))))
 
     if args.disable_eval_during_finetuning:
         dataset_val = None
@@ -336,7 +377,7 @@ def main(args, ds_init):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.finetune, map_location='cpu', check_hash=True)
         else:
-            checkpoint = torch.load(args.finetune, map_location='cpu')
+            checkpoint = torch.load(args.finetune, map_location='cpu', weights_only=False)
 
         print("Load ckpt from %s" % args.finetune)
         checkpoint_model = None
