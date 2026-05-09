@@ -212,13 +212,11 @@ class Block(nn.Module):
 class PatchEmbed(nn.Module):
     """ EEG to Patch Embedding
     """
-    def __init__(self, EEG_size=2000, patch_size=200, in_chans=1, embed_dim=200):
+    def __init__(self, eeg_window_size=2000, patch_size=200, in_chans=1, embed_dim=200):
         super().__init__()
-        # EEG_size = to_2tuple(EEG_size)
-        # patch_size = to_2tuple(patch_size)
-        num_patches = 62 * (EEG_size // patch_size)
-        self.patch_shape = (1, EEG_size // patch_size)
-        self.EEG_size = EEG_size
+        num_patches = 62 * (eeg_window_size // patch_size)
+        self.patch_shape = (1, eeg_window_size // patch_size)
+        self.eeg_window_size = eeg_window_size
         self.patch_size = patch_size
         self.num_patches = num_patches
 
@@ -261,7 +259,7 @@ class TemporalConv(nn.Module):
 
 
 class NeuralTransformer(nn.Module):
-    def __init__(self, EEG_size=1600, patch_size=200, in_chans=1, out_chans=8, num_classes=1000, embed_dim=200, depth=12,
+    def __init__(self, eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8, num_classes=1000, embed_dim=200, depth=12,
                  num_heads=10, mlp_ratio=4., qkv_bias=False, qk_norm=None, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
                  drop_path_rate=0., norm_layer=nn.LayerNorm, init_values=None,
                  use_abs_pos_emb=True, use_rel_pos_bias=False, use_shared_rel_pos_bias=False,
@@ -273,8 +271,8 @@ class NeuralTransformer(nn.Module):
         # To identify whether it is neural tokenizer or neural decoder. 
         # For the neural decoder, use linear projection (PatchEmbed) to project codebook dimension to hidden dimension.
         # Otherwise, use TemporalConv to extract temporal features from EEG signals.
-        self.patch_embed = TemporalConv(out_chans=out_chans) if in_chans == 1 else PatchEmbed(EEG_size=EEG_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
-        self.time_window = EEG_size // patch_size
+        self.patch_embed = TemporalConv(out_chans=out_chans) if in_chans == 1 else PatchEmbed(eeg_window_size=eeg_window_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
+        self.time_window = eeg_window_size // patch_size
         self.patch_size = patch_size
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
@@ -346,7 +344,7 @@ class NeuralTransformer(nn.Module):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, input_chans=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
+    def forward_features(self, x, channel_indices=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
         batch_size, n, a, t = x.shape
         input_time_window = a if t == self.patch_size else t
         x = self.patch_embed(x)
@@ -355,7 +353,7 @@ class NeuralTransformer(nn.Module):
 
         x = torch.cat((cls_tokens, x), dim=1)
 
-        pos_embed_used = self.pos_embed[:, input_chans] if input_chans is not None and self.pos_embed is not None else self.pos_embed
+        pos_embed_used = self.pos_embed[:, channel_indices] if channel_indices is not None and self.pos_embed is not None else self.pos_embed
         if self.pos_embed is not None:
             pos_embed = pos_embed_used[:, 1:, :].unsqueeze(2).expand(batch_size, -1, input_time_window, -1).flatten(1, 2)
             pos_embed = torch.cat((pos_embed_used[:,0:1,:].expand(batch_size, -1, -1), pos_embed), dim=1)
@@ -387,12 +385,12 @@ class NeuralTransformer(nn.Module):
             else:
                 return x[:, 0]
 
-    def forward(self, x, input_chans=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
+    def forward(self, x, channel_indices=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
         '''
         x: [batch size, number of electrodes, number of patches, patch size]
         For example, for an EEG sample of 4 seconds with 64 electrodes, x will be [batch size, 64, 4, 200]
         '''
-        x = self.forward_features(x, input_chans=input_chans, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
+        x = self.forward_features(x, channel_indices=channel_indices, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
         x = self.head(x)
         return x
 

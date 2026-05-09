@@ -72,16 +72,16 @@ def train_one_epoch(model: torch.nn.Module, vqnsp: torch.nn.Module,
     for data_loader, ch_names in zip(data_loader_list, ch_names_list):
         if len(data_loader) == 0:
             continue
-        input_chans = utils.get_input_chans(ch_names)
+        channel_indices = utils.get_channel_indices(ch_names)
         for step, (batch) in enumerate(metric_logger.log_every(data_loader, print_freq * args.gradient_accumulation_steps, header)):
             # assign learning rate & weight decay for each step
-            it = start_steps + step + step_loader  # global training iteration
+            global_step = start_steps + step + step_loader
             if lr_schedule_values is not None or wd_schedule_values is not None:
                 for i, param_group in enumerate(optimizer.param_groups):
                     if lr_schedule_values is not None:
-                        param_group["lr"] = lr_schedule_values[it] * param_group["lr_scale"]
+                        param_group["lr"] = lr_schedule_values[global_step] * param_group["lr_scale"]
                     if wd_schedule_values is not None and param_group["weight_decay"] > 0:
-                        param_group["weight_decay"] = wd_schedule_values[it]
+                        param_group["weight_decay"] = wd_schedule_values[global_step]
 
             samples = batch
             samples = samples.float().to(device, non_blocking=True) / 100
@@ -90,7 +90,7 @@ def train_one_epoch(model: torch.nn.Module, vqnsp: torch.nn.Module,
 
             with torch.no_grad():
                 with torch.cuda.amp.autocast():
-                    input_ids = vqnsp.get_codebook_indices(samples, input_chans)
+                    input_ids = vqnsp.get_codebook_indices(samples, channel_indices)
 
                 labels = input_ids[bool_masked_pos]
                 labels_sym = input_ids[~bool_masked_pos]
@@ -98,7 +98,7 @@ def train_one_epoch(model: torch.nn.Module, vqnsp: torch.nn.Module,
             my_context = model.no_sync if args.distributed and (step + 1) % args.gradient_accumulation_steps != 0 else nullcontext
             with my_context():
                 with torch.cuda.amp.autocast(): # enabled=False
-                    outputs = model(samples, input_chans, bool_masked_pos=bool_masked_pos)
+                    outputs = model(samples, channel_indices, bool_masked_pos=bool_masked_pos)
 
                     x_rec, x_rec_sym = outputs
                     loss_rec = loss_fn(x_rec, labels)

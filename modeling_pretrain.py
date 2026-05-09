@@ -26,7 +26,7 @@ def trunc_normal_(tensor, mean=0., std=1.):
 
 
 class TemporalConv(nn.Module):
-    """ Image to Patch Embedding
+    """ EEG to Patch Embedding
     """
     def __init__(self, in_chans=1, out_chans=8):
         super().__init__()
@@ -52,7 +52,7 @@ class TemporalConv(nn.Module):
 
 
 class NeuralTransformerForMaskedEEGModeling(nn.Module):
-    def __init__(self, EEG_size=1600, patch_size=200, in_chans=1, out_chans=8, vocab_size=8192, embed_dim=200, depth=12,
+    def __init__(self, eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8, vocab_size=8192, embed_dim=200, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True, qk_norm=None, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
                  drop_path_rate=0., norm_layer=None, init_values=None, attn_head_dim=None,
                  use_abs_pos_emb=True, use_rel_pos_bias=False, use_shared_rel_pos_bias=False, init_std=0.02):
@@ -125,7 +125,7 @@ class NeuralTransformerForMaskedEEGModeling(nn.Module):
     def get_num_layers(self):
         return len(self.blocks)
 
-    def forward_features(self, x, input_chans, bool_masked_pos):
+    def forward_features(self, x, channel_indices, bool_masked_pos):
         batch_size, c, time_window, _ = x.size()
         x = self.patch_embed(x)
         batch_size, seq_len, _ = x.size()
@@ -133,12 +133,12 @@ class NeuralTransformerForMaskedEEGModeling(nn.Module):
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         mask_token = self.mask_token.expand(batch_size, seq_len, -1)
 
-        # replace the masked visual tokens by mask_token
-        w = bool_masked_pos.unsqueeze(-1).type_as(mask_token)
-        x = x * (1 - w) + mask_token * w
+        # replace masked patches with mask_token
+        mask_weight = bool_masked_pos.unsqueeze(-1).type_as(mask_token)
+        x = x * (1 - mask_weight) + mask_token * mask_weight
 
         x = torch.cat((cls_tokens, x), dim=1)
-        pos_embed_used = self.pos_embed[:, input_chans] if input_chans is not None else self.pos_embed
+        pos_embed_used = self.pos_embed[:, channel_indices] if channel_indices is not None else self.pos_embed
         if self.pos_embed is not None:
             pos_embed = pos_embed_used[:, 1:, :].unsqueeze(2).expand(batch_size, -1, time_window, -1).flatten(1, 2)
             pos_embed = torch.cat((pos_embed[:,0:1,:].expand(batch_size, -1, -1), pos_embed), dim=1)
@@ -154,10 +154,10 @@ class NeuralTransformerForMaskedEEGModeling(nn.Module):
 
         return self.norm(x)
 
-    def forward(self, x, input_chans=None, bool_masked_pos=None, return_all_tokens=False, return_patch_tokens=False, return_all_patch_tokens=False):
+    def forward(self, x, channel_indices=None, bool_masked_pos=None, return_all_tokens=False, return_patch_tokens=False, return_all_patch_tokens=False):
         if bool_masked_pos is None:
             bool_masked_pos = torch.zeros((x.shape[0], x.shape[1] * x.shape[2]), dtype=torch.bool).to(x.device)
-        x = self.forward_features(x, input_chans=input_chans, bool_masked_pos=bool_masked_pos)
+        x = self.forward_features(x, channel_indices=channel_indices, bool_masked_pos=bool_masked_pos)
         if return_all_patch_tokens:
             return x
         x = x[:, 1:]
@@ -178,9 +178,9 @@ class NeuralTransformerForMaskedEEGModeling(nn.Module):
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         mask_token = self.mask_token.expand(batch_size, seq_len, -1)
 
-        # replace the masked EEG tokens by mask_token
-        w = bool_masked_pos.unsqueeze(-1).type_as(mask_token)
-        x = x * (1 - w) + mask_token * w
+        # replace masked patches with mask_token
+        mask_weight = bool_masked_pos.unsqueeze(-1).type_as(mask_token)
+        x = x * (1 - mask_weight) + mask_token * mask_weight
 
         x = torch.cat((cls_tokens, x), dim=1)
         if self.pos_embed is not None:
@@ -232,13 +232,13 @@ class NeuralTransformerForMaskedEEGModeling(nn.Module):
             
 
 class NeuralTransformerForMEM(nn.Module):
-    def __init__(self, EEG_size=1600, patch_size=200, in_chans=1, out_chans=8, vocab_size=8192, embed_dim=200, depth=12,
+    def __init__(self, eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8, vocab_size=8192, embed_dim=200, depth=12,
                  num_heads=10, mlp_ratio=4., qkv_bias=True, qk_norm=None, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
                  drop_path_rate=0., norm_layer=None, init_values=None, attn_head_dim=None,
                  use_abs_pos_emb=True, use_rel_pos_bias=False, use_shared_rel_pos_bias=False, init_std=0.02, **kwargs):
         super().__init__()
         self.patch_size = patch_size
-        self.student = NeuralTransformerForMaskedEEGModeling(EEG_size, patch_size, in_chans, out_chans, vocab_size, embed_dim, depth,
+        self.student = NeuralTransformerForMaskedEEGModeling(eeg_window_size, patch_size, in_chans, out_chans, vocab_size, embed_dim, depth,
                  num_heads, mlp_ratio, qkv_bias, qk_norm, qk_scale, drop_rate, attn_drop_rate, drop_path_rate, norm_layer, init_values, attn_head_dim,
                  use_abs_pos_emb, use_rel_pos_bias, use_shared_rel_pos_bias, init_std)
         
@@ -254,13 +254,13 @@ class NeuralTransformerForMEM(nn.Module):
     def no_weight_decay(self):
         return {'student.cls_token', 'student.pos_embed', 'student.time_embed'}
     
-    def forward(self, x, input_chans=None, bool_masked_pos=None):
-        x_masked = self.student(x, input_chans, bool_masked_pos, return_all_patch_tokens=True)
+    def forward(self, x, channel_indices=None, bool_masked_pos=None):
+        x_masked = self.student(x, channel_indices, bool_masked_pos, return_all_patch_tokens=True)
         x_masked_no_cls = x_masked[:, 1:]
         x_rec = self.lm_head(x_masked_no_cls[bool_masked_pos])
 
         #symetric
-        x_masked_sym = self.student(x, input_chans, ~bool_masked_pos, return_all_patch_tokens=True)
+        x_masked_sym = self.student(x, channel_indices, ~bool_masked_pos, return_all_patch_tokens=True)
         x_masked_no_cls_sym = x_masked_sym[:, 1:]
         x_rec_sym = self.lm_head(x_masked_no_cls_sym[~bool_masked_pos])
 

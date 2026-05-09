@@ -15,8 +15,8 @@ from timm.utils import ModelEma
 import utils
 from einops import rearrange
 
-def train_class_batch(model, samples, target, criterion, ch_names):
-    outputs = model(samples, ch_names)
+def train_class_batch(model, samples, target, criterion, channel_indices):
+    outputs = model(samples, channel_indices)
     loss = criterion(outputs, target)
     return loss, outputs
 
@@ -32,9 +32,9 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     model_ema: Optional[ModelEma] = None, log_writer=None,
                     start_steps=None, lr_schedule_values=None, wd_schedule_values=None,
                     num_training_steps_per_epoch=None, update_freq=None, ch_names=None, is_binary=True):
-    input_chans = None
+    channel_indices = None
     if ch_names is not None:
-        input_chans = utils.get_input_chans(ch_names)
+        channel_indices = utils.get_channel_indices(ch_names)
     model.train(True)
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -52,14 +52,14 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         step = data_iter_step // update_freq
         if step >= num_training_steps_per_epoch:
             continue
-        it = start_steps + step  # global training iteration
+        global_step = start_steps + step
         # Update LR & WD for the first acc
         if lr_schedule_values is not None or wd_schedule_values is not None and data_iter_step % update_freq == 0:
             for i, param_group in enumerate(optimizer.param_groups):
                 if lr_schedule_values is not None:
-                    param_group["lr"] = lr_schedule_values[it] * param_group.get("lr_scale", 1.0)
+                    param_group["lr"] = lr_schedule_values[global_step] * param_group.get("lr_scale", 1.0)
                 if wd_schedule_values is not None and param_group["weight_decay"] > 0:
-                    param_group["weight_decay"] = wd_schedule_values[it]
+                    param_group["weight_decay"] = wd_schedule_values[global_step]
 
         samples = samples.float().to(device, non_blocking=True) / 100
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
@@ -71,11 +71,11 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         if loss_scaler is None:
             samples = samples.half()
             loss, output = train_class_batch(
-                model, samples, targets, criterion, input_chans)
+                model, samples, targets, criterion, channel_indices)
         else:
             with torch.cuda.amp.autocast():
                 loss, output = train_class_batch(
-                    model, samples, targets, criterion, input_chans)
+                    model, samples, targets, criterion, channel_indices)
 
         loss_value = loss.item()
 
@@ -153,9 +153,9 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 @torch.no_grad()
 def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
-    input_chans = None
+    channel_indices = None
     if ch_names is not None:
-        input_chans = utils.get_input_chans(ch_names)
+        channel_indices = utils.get_channel_indices(ch_names)
     if is_binary:
         criterion = torch.nn.BCEWithLogitsLoss()
     else:
@@ -169,17 +169,17 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
     pred = []
     true = []
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
-        EEG = batch[0]
+        eeg_batch = batch[0]
         target = batch[-1]
-        EEG = EEG.float().to(device, non_blocking=True) / 100
-        EEG = rearrange(EEG, 'B N (A T) -> B N A T', T=200)
+        eeg_batch = eeg_batch.float().to(device, non_blocking=True) / 100
+        eeg_batch = rearrange(eeg_batch, 'B N (A T) -> B N A T', T=200)
         target = target.to(device, non_blocking=True)
         if is_binary:
             target = target.float().unsqueeze(-1)
-        
+
         # compute output
         with torch.cuda.amp.autocast():
-            output = model(EEG, input_chans=input_chans)
+            output = model(eeg_batch, channel_indices=channel_indices)
             loss = criterion(output, target)
         
         if is_binary:
@@ -192,7 +192,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
         pred.append(output)
         true.append(target)
 
-        batch_size = EEG.shape[0]
+        batch_size = eeg_batch.shape[0]
         metric_logger.update(loss=loss.item())
         for key, value in results.items():
             metric_logger.meters[key].update(value, n=batch_size)
