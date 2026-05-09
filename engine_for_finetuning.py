@@ -106,9 +106,10 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 optimizer.zero_grad()
                 if model_ema is not None:
                     model_ema.update(model)
-            loss_scale_value = loss_scaler.state_dict()["scale"]
+            loss_scale_value = loss_scaler.state_dict().get("scale", 0)
 
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
 
         if is_binary:
             class_acc = utils.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
