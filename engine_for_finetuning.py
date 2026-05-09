@@ -73,7 +73,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             loss, output = train_class_batch(
                 model, samples, targets, criterion, channel_indices)
         else:
-            with torch.amp.autocast(device.type):
+            with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
                 loss, output = train_class_batch(
                     model, samples, targets, criterion, channel_indices)
 
@@ -178,7 +178,7 @@ def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=
             target = target.float().unsqueeze(-1)
 
         # compute output
-        with torch.amp.autocast(device.type):
+        with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
             output = model(eeg_batch, channel_indices=channel_indices)
             loss = criterion(output, target)
         

@@ -30,7 +30,7 @@ EMBED_DIM = 200
 def _make_model(num_classes: int = 1, use_abs_pos_emb: bool = False) -> NeuralTransformer:
     """Tiny 2-block model suitable for fast CPU unit tests."""
     return NeuralTransformer(
-        EEG_size=T_PATCH,
+        eeg_window_size=T_PATCH,
         patch_size=T_PATCH,
         in_chans=1,
         out_chans=8,
