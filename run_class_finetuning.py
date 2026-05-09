@@ -137,8 +137,8 @@ def get_args():
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default=None,
                         help='path where to tensorboard log')
-    parser.add_argument('--device', default='cuda',
-                        help='device to use for training / testing')
+    parser.add_argument('--device', default='auto',
+                        help='device to use for training / testing (cuda / mps / cpu / auto)')
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
@@ -160,7 +160,7 @@ def get_args():
     parser.add_argument('--pin_mem', action='store_true',
                         help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
     parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem')
-    parser.set_defaults(pin_mem=True)
+    parser.set_defaults(pin_mem=torch.cuda.is_available())
 
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
@@ -260,6 +260,13 @@ def main(args, ds_init):
 
     print(args)
 
+    if args.device == 'auto':
+        if torch.cuda.is_available():
+            args.device = 'cuda'
+        elif torch.backends.mps.is_available():
+            args.device = 'mps'
+        else:
+            args.device = 'cpu'
     device = torch.device(args.device)
 
     # fix the seed for reproducibility
@@ -268,7 +275,8 @@ def main(args, ds_init):
     np.random.seed(seed)
     # random.seed(seed)
 
-    cudnn.benchmark = True
+    if torch.cuda.is_available():
+        cudnn.benchmark = True
 
     # dataset_train, dataset_test, dataset_val: follows the standard format of torch.utils.data.Dataset.
     # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
@@ -369,7 +377,7 @@ def main(args, ds_init):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.finetune, map_location='cpu', check_hash=True)
         else:
-            checkpoint = torch.load(args.finetune, map_location='cpu')
+            checkpoint = torch.load(args.finetune, map_location='cpu', weights_only=False)
 
         print("Load ckpt from %s" % args.finetune)
         checkpoint_model = None
