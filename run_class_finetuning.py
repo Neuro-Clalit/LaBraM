@@ -173,6 +173,12 @@ def get_args():
     parser.add_argument('--enable_deepspeed', action='store_true', default=False)
     parser.add_argument('--dataset', default='TUAB', type=str,
                         help='dataset: TUAB | TUEV')
+    parser.add_argument('--data_path', default='', type=str,
+                        help='root directory of the preprocessed dataset (expects train/val/test subfolders for TUAB, or processed_train/processed_eval/processed_test for TUEV)')
+    parser.add_argument('--debug', action='store_true', default=False,
+                        help='debug mode: tiny data subset, few epochs, small batch size, no workers')
+    parser.add_argument('--debug_samples', default=16, type=int,
+                        help='number of samples per split to keep in debug mode')
 
     known_args, _ = parser.parse_known_args()
 
@@ -212,14 +218,16 @@ def get_models(args):
 
 def get_dataset(args):
     if args.dataset == 'TUAB':
-        train_dataset, test_dataset, val_dataset = utils.prepare_TUAB_dataset("path/to/TUAB")
+        tuab_root = args.data_path or "path/to/TUAB"
+        train_dataset, test_dataset, val_dataset = utils.prepare_TUAB_dataset(tuab_root)
         ch_names = ['EEG FP1', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
         args.nb_classes = 1
         metrics = ["pr_auc", "roc_auc", "accuracy", "balanced_accuracy"]
     elif args.dataset == 'TUEV':
-        train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset("path/to/TUEV")
+        tuev_root = args.data_path or "path/to/TUEV"
+        train_dataset, test_dataset, val_dataset = utils.prepare_TUEV_dataset(tuev_root)
         ch_names = ['EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF', 'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', \
                     'EEG F8-REF', 'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF', 'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF']
         ch_names = [name.split(' ')[-1].split('-')[0] for name in ch_names]
@@ -228,11 +236,27 @@ def get_dataset(args):
     return train_dataset, test_dataset, val_dataset, ch_names, metrics
 
 
+def _apply_debug_overrides(args):
+    if not args.debug:
+        return
+    print("[DEBUG MODE] Overriding training args for fast iteration")
+    args.epochs = max(1, min(args.epochs, 2))
+    args.batch_size = min(args.batch_size, 4)
+    args.num_workers = 0
+    args.warmup_epochs = 0
+    args.save_ckpt = False
+    args.dist_eval = False
+    if args.output_dir:
+        args.log_dir = args.log_dir or args.output_dir
+
+
 def main(args, ds_init):
     utils.init_distributed_mode(args)
 
     if ds_init is not None:
         utils.create_ds_config(args)
+
+    _apply_debug_overrides(args)
 
     print(args)
 
@@ -250,6 +274,15 @@ def main(args, ds_init):
     # ch_names: list of strings, channel names of the dataset. It should be in capital letters.
     # metrics: list of strings, the metrics you want to use. We utilize PyHealth to implement it.
     dataset_train, dataset_test, dataset_val, ch_names, metrics = get_dataset(args)
+
+    if args.debug:
+        n = args.debug_samples
+        print(f"[DEBUG MODE] Subsetting datasets to first {n} samples per split")
+        dataset_train = torch.utils.data.Subset(dataset_train, list(range(min(n, len(dataset_train)))))
+        if dataset_val is not None:
+            dataset_val = torch.utils.data.Subset(dataset_val, list(range(min(n, len(dataset_val)))))
+        if dataset_test is not None and not isinstance(dataset_test, list):
+            dataset_test = torch.utils.data.Subset(dataset_test, list(range(min(n, len(dataset_test)))))
 
     if args.disable_eval_during_finetuning:
         dataset_val = None
