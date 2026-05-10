@@ -26,20 +26,24 @@ jobs:
       - name: Install runtime dependencies (CPU torch)
         run: |
           python -m pip install --upgrade pip
-          # Install numpy 2.x up front: the latest pandas / sklearn /
-          # pyhealth wheels on PyPI are compiled against numpy 2.x, so
-          # leaving numpy 1.x in place (which the CPU torch wheel may
-          # resolve) triggers
-          # `numpy.dtype size changed, may indicate binary incompatibility`
-          # at import time.
-          pip install "numpy>=2.0"
-          # CPU-only torch+torchvision must come from the same index so
-          # their pinned binary ABI stays in sync. timm imports
-          # torchvision.models.feature_extraction transitively, so a
-          # mismatched torchvision wheel causes
-          # `operator torchvision::nms does not exist` at import time.
-          pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          # Pin torch >= 2.5 from the CPU wheel index. The earlier
+          # workflow attempted `pip install numpy>=2.0` before torch,
+          # but the CPU torch wheel for older torch versions pinned
+          # numpy<2, downgrading it. pandas / sklearn / pyhealth
+          # wheels on PyPI are compiled against numpy 2.x and then
+          # hit `numpy.dtype size changed, may indicate binary
+          # incompatibility` (Expected 96 from C header, got 88
+          # from PyObject) at import time.
+          # torch >= 2.5 supports numpy 2.x natively. torchvision
+          # must come from the same index so its pinned C-extension
+          # ABI matches torch (avoids
+          # `operator torchvision::nms does not exist`).
+          pip install --index-url https://download.pytorch.org/whl/cpu \
+              "torch>=2.5" "torchvision>=0.20"
           pip install timm einops h5py pyhealth scikit-learn scipy pandas tensorboard
+
+      - name: Print resolved package versions (diagnostic)
+        run: pip list | grep -iE "^(torch|torchvision|numpy|pandas|scikit|sklearn|pyhealth|timm)"
 
       - name: Install package (editable, with dev extras)
         run: pip install -e ".[dev]"
