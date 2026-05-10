@@ -19,62 +19,62 @@ class SingleShockDataset(Dataset):
         param float start_percentage: Index of percentage of the first sample of the dataset in the data file (inclusive)
         param float end_percentage: Index of percentage of end of dataset sample in data file (not included)
         '''
-        self.__file_path = file_path
-        self.__window_size = window_size
-        self.__stride = stride
-        self.__start_percentage = start_percentage
-        self.__end_percentage = end_percentage
+        self._file_path = file_path
+        self._window_size = window_size
+        self._stride = stride
+        self._start_percentage = start_percentage
+        self._end_percentage = end_percentage
 
-        self.__file = None
-        self.__length = None
-        self.__feature_size = None
+        self._file = None
+        self._length = None
+        self._feature_size = None
 
-        self.__subjects = []
-        self.__global_idxes = []
-        self.__local_idxes = []
-        
-        self.__init_dataset()
+        self._subjects = []
+        self._global_idxes = []
+        self._local_idxes = []
 
-    def __init_dataset(self) -> None:
-        self.__file = h5py.File(str(self.__file_path), 'r')
-        self.__subjects = [i for i in self.__file]
+        self._init_dataset()
+
+    def _init_dataset(self) -> None:
+        self._file = h5py.File(str(self._file_path), 'r')
+        self._subjects = [i for i in self._file]
 
         global_idx = 0
-        for subject in self.__subjects:
-            self.__global_idxes.append(global_idx) # the start index of the subject's sample in the dataset
-            subject_len = self.__file[subject]['eeg'].shape[1]
+        for subject in self._subjects:
+            self._global_idxes.append(global_idx)  # the start index of the subject's sample in the dataset
+            subject_len = self._file[subject]['eeg'].shape[1]
             # total number of samples
-            total_sample_num = (subject_len-self.__window_size) // self.__stride + 1
+            total_sample_num = (subject_len - self._window_size) // self._stride + 1
             # cut out part of samples
-            start_idx = int(total_sample_num * self.__start_percentage) * self.__stride 
-            end_idx = int(total_sample_num * self.__end_percentage - 1) * self.__stride
+            start_idx = int(total_sample_num * self._start_percentage) * self._stride
+            end_idx = int(total_sample_num * self._end_percentage - 1) * self._stride
 
-            self.__local_idxes.append(start_idx)
-            global_idx += (end_idx - start_idx) // self.__stride + 1
-        self.__length = global_idx
+            self._local_idxes.append(start_idx)
+            global_idx += (end_idx - start_idx) // self._stride + 1
+        self._length = global_idx
 
-        self.__feature_size = [i for i in self.__file[self.__subjects[0]]['eeg'].shape]
-        self.__feature_size[1] = self.__window_size
+        self._feature_size = [i for i in self._file[self._subjects[0]]['eeg'].shape]
+        self._feature_size[1] = self._window_size
 
     @property
     def feature_size(self):
-        return self.__feature_size
+        return self._feature_size
 
     def __len__(self):
-        return self.__length
+        return self._length
 
     def __getitem__(self, idx: int):
-        subject_idx = bisect.bisect(self.__global_idxes, idx) - 1
-        item_start_idx = (idx - self.__global_idxes[subject_idx]) * self.__stride + self.__local_idxes[subject_idx]
-        return self.__file[self.__subjects[subject_idx]]['eeg'][:, item_start_idx:item_start_idx+self.__window_size]
-    
-    def free(self) -> None: 
-        if self.__file:
-            self.__file.close()
-            self.__file = None
-    
+        subject_idx = bisect.bisect(self._global_idxes, idx) - 1
+        item_start_idx = (idx - self._global_idxes[subject_idx]) * self._stride + self._local_idxes[subject_idx]
+        return self._file[self._subjects[subject_idx]]['eeg'][:, item_start_idx:item_start_idx + self._window_size]
+
+    def free(self) -> None:
+        if self._file:
+            self._file.close()
+            self._file = None
+
     def get_ch_names(self):
-        return self.__file[self.__subjects[0]]['eeg'].attrs['chOrder']
+        return self._file[self._subjects[0]]['eeg'].attrs['chOrder']
 
 
 class ShockDataset(Dataset):
@@ -83,47 +83,47 @@ class ShockDataset(Dataset):
         '''
         Arguments will be passed to SingleShockDataset. Refer to SingleShockDataset.
         '''
-        self.__file_paths = file_paths
-        self.__window_size = window_size
-        self.__stride = stride
-        self.__start_percentage = start_percentage
-        self.__end_percentage = end_percentage
+        self._file_paths = file_paths
+        self._window_size = window_size
+        self._stride = stride
+        self._start_percentage = start_percentage
+        self._end_percentage = end_percentage
 
-        self.__datasets = []
-        self.__length = None
-        self.__feature_size = None
+        self._datasets = []
+        self._length = None
+        self._feature_size = None
 
-        self.__dataset_idxes = []
-        
-        self.__init_dataset()
+        self._dataset_idxes = []
 
-    def __init_dataset(self) -> None:
-        self.__datasets = [SingleShockDataset(file_path, self.__window_size, self.__stride, self.__start_percentage, self.__end_percentage) for file_path in self.__file_paths]
-        
+        self._init_dataset()
+
+    def _init_dataset(self) -> None:
+        self._datasets = [SingleShockDataset(file_path, self._window_size, self._stride, self._start_percentage, self._end_percentage) for file_path in self._file_paths]
+
         # calculate the number of samples for each subdataset to form the integral indexes
         dataset_idx = 0
-        for dataset in self.__datasets:
-            self.__dataset_idxes.append(dataset_idx)
+        for dataset in self._datasets:
+            self._dataset_idxes.append(dataset_idx)
             dataset_idx += len(dataset)
-        self.__length = dataset_idx
+        self._length = dataset_idx
 
-        self.__feature_size = self.__datasets[0].feature_size
+        self._feature_size = self._datasets[0].feature_size
 
     @property
     def feature_size(self):
-        return self.__feature_size
+        return self._feature_size
 
     def __len__(self):
-        return self.__length
+        return self._length
 
     def __getitem__(self, idx: int):
-        dataset_idx = bisect.bisect(self.__dataset_idxes, idx) - 1
-        item_idx = (idx - self.__dataset_idxes[dataset_idx])
-        return self.__datasets[dataset_idx][item_idx]
-    
+        dataset_idx = bisect.bisect(self._dataset_idxes, idx) - 1
+        item_idx = (idx - self._dataset_idxes[dataset_idx])
+        return self._datasets[dataset_idx][item_idx]
+
     def free(self) -> None:
-        for dataset in self.__datasets:
+        for dataset in self._datasets:
             dataset.free()
-    
+
     def get_ch_names(self):
-        return self.__datasets[0].get_ch_names()
+        return self._datasets[0].get_ch_names()
