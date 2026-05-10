@@ -26,6 +26,13 @@ jobs:
       - name: Install runtime dependencies (CPU torch)
         run: |
           python -m pip install --upgrade pip
+          # Install numpy 2.x up front: the latest pandas / sklearn /
+          # pyhealth wheels on PyPI are compiled against numpy 2.x, so
+          # leaving numpy 1.x in place (which the CPU torch wheel may
+          # resolve) triggers
+          # `numpy.dtype size changed, may indicate binary incompatibility`
+          # at import time.
+          pip install "numpy>=2.0"
           # CPU-only torch+torchvision must come from the same index so
           # their pinned binary ABI stays in sync. timm imports
           # torchvision.models.feature_extraction transitively, so a
