@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labram"
+version = "0.1.0"
+description = "Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "CC BY-NC 4.0" }
+# Runtime dependencies (torch, timm, einops, h5py, pyhealth, scikit-learn,
+# scipy, pandas, tensorboard, mne, numpy) intentionally not pinned here
+# because the project relies on environment-specific torch builds. Use
+# the README install instructions or your own environment manager.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pyflakes"]
+
+[tool.setuptools]
+# Flat top-level modules listed explicitly (no enclosing package).
+py-modules = [
+    "engine_for_finetuning",
+    "engine_for_pretraining",
+    "engine_for_vqnsp",
+    "finetune_args",
+    "finetune_datasets",
+    "finetune_setup",
+    "modeling_finetune",
+    "modeling_pretrain",
+    "modeling_vqnsp",
+    "norm_ema_quantizer",
+    "optim_factory",
+    "run_class_finetuning",
+    "run_labram_pretraining",
+    "run_vqnsp_training",
+]
+
+[tool.setuptools.packages.find]
+include = ["utils*", "data_processor*"]
+
+[tool.pytest.ini_options]
+# Add the repo root to sys.path so tests can import the flat top-level
+# modules (engine_for_finetuning, modeling_finetune, ...) without each
+# test file inserting it manually.
+pythonpath = ["."]
+testpaths = ["tests"]
