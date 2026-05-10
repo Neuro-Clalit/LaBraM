@@ -8,7 +8,6 @@
 # https://github.com/facebookresearch/dino
 # ---------------------------------------------------------
 
-from cgitb import enable
 import math
 import sys
 from typing import Iterable
@@ -89,7 +88,7 @@ def train_one_epoch(model: torch.nn.Module, vqnsp: torch.nn.Module,
             bool_masked_pos = random_masking(samples.flatten(1, 2), mask_ratio=0.5).to(device, non_blocking=True)
 
             with torch.no_grad():
-                with torch.cuda.amp.autocast():
+                with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
                     input_ids = vqnsp.get_codebook_indices(samples, channel_indices)
 
                 labels = input_ids[bool_masked_pos]
@@ -97,7 +96,7 @@ def train_one_epoch(model: torch.nn.Module, vqnsp: torch.nn.Module,
 
             my_context = model.no_sync if args.distributed and (step + 1) % args.gradient_accumulation_steps != 0 else nullcontext
             with my_context():
-                with torch.cuda.amp.autocast(): # enabled=False
+                with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
                     outputs = model(samples, channel_indices, bool_masked_pos=bool_masked_pos)
 
                     x_rec, x_rec_sym = outputs
@@ -121,7 +120,8 @@ def train_one_epoch(model: torch.nn.Module, vqnsp: torch.nn.Module,
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 optimizer.zero_grad()
 
-            torch.cuda.synchronize()
+            if device.type == 'cuda':
+                torch.cuda.synchronize()
             
             mlm_acc = (x_rec.max(-1)[1] == labels).float().mean().item()
             mlm_acc_sym = (x_rec_sym.max(-1)[1] == labels_sym).float().mean().item()
