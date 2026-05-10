@@ -8,7 +8,6 @@
 # https://github.com/facebookresearch/dino
 # ---------------------------------------------------------
 
-from cgitb import enable
 import math
 import sys
 from typing import Iterable
@@ -121,7 +120,8 @@ def train_one_epoch(model: torch.nn.Module, vqnsp: torch.nn.Module,
             if (step + 1) % args.gradient_accumulation_steps == 0:
                 optimizer.zero_grad()
 
-            torch.cuda.synchronize()
+            if device.type == 'cuda':
+                torch.cuda.synchronize()
             
             mlm_acc = (x_rec.max(-1)[1] == labels).float().mean().item()
             mlm_acc_sym = (x_rec_sym.max(-1)[1] == labels_sym).float().mean().item()

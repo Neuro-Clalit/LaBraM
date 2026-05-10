@@ -38,11 +38,12 @@ def train_one_epoch(model: torch.nn.Module,
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
         
-    if hasattr(model.module, 'quantize'):
+    inner_model = utils.get_model(model)
+    if hasattr(inner_model, 'quantize'):
         try:
-            model.module.quantize.reset_cluster_size(device)
+            inner_model.quantize.reset_cluster_size(device)
             print("Reset the codebook statistic info in quantizer before each epoch")
-        except:
+        except AttributeError:
             pass
     step_loader = 0
     for data_loader, ch_names in zip(data_loader_list, ch_names_list):
@@ -72,8 +73,9 @@ def train_one_epoch(model: torch.nn.Module,
             grad_norm = loss_scaler(loss, optimizer, clip_grad=clip_grad,
                                     parameters=model.parameters(), create_graph=is_second_order)
             loss_scale_value = loss_scaler.state_dict()["scale"]
-            
-            torch.cuda.synchronize()
+
+            if device.type == 'cuda':
+                torch.cuda.synchronize()
 
             metric_logger.update(loss=loss_value)
 
@@ -114,11 +116,11 @@ def train_one_epoch(model: torch.nn.Module,
     print("Averaged stats:", metric_logger)
     
     # stat the codebook usage information
-    if hasattr(model.module, 'quantize'):
+    if hasattr(inner_model, 'quantize'):
         try:
-            codebook_cluster_size = model.module.quantize._codebook.cluster_size
-        except:
-            codebook_cluster_size = model.module.quantize.cluster_size
+            codebook_cluster_size = inner_model.quantize._codebook.cluster_size
+        except AttributeError:
+            codebook_cluster_size = inner_model.quantize.cluster_size
         zero_cnt = (codebook_cluster_size == 0).sum().item()
         train_stat = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
         train_stat['unused_code'] = zero_cnt
@@ -134,12 +136,13 @@ def evaluate(data_loader_list, model, device, log_writer=None, epoch=None, ch_na
 
     # switch to evaluation mode
     model.eval()
+    inner_model = utils.get_model(model)
 
-    if hasattr(model.module, 'quantize'):
+    if hasattr(inner_model, 'quantize'):
         try:
-            model.module.quantize.reset_cluster_size(device)
+            inner_model.quantize.reset_cluster_size(device)
             print("Reset the codebook statistic info in quantizer before testing")
-        except:
+        except AttributeError:
             pass
     
     for data_loader, ch_names in zip(data_loader_list, ch_names_list):
@@ -159,11 +162,11 @@ def evaluate(data_loader_list, model, device, log_writer=None, epoch=None, ch_na
     print("Averaged stats:", metric_logger)
 
     # stat the codebook usage information
-    if hasattr(model, 'module') and hasattr(model.module, 'quantize'):
+    if hasattr(inner_model, 'quantize'):
         try:
-            codebook_cluster_size = model.module.quantize._codebook.cluster_size
-        except:
-            codebook_cluster_size = model.module.quantize.cluster_size
+            codebook_cluster_size = inner_model.quantize._codebook.cluster_size
+        except AttributeError:
+            codebook_cluster_size = inner_model.quantize.cluster_size
         zero_cnt = (codebook_cluster_size == 0).sum().item()
         test_stat = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
         test_stat['unused_code'] = zero_cnt
