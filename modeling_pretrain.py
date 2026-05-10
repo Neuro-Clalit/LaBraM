@@ -16,9 +16,6 @@ from functools import partial
 from modeling_finetune import Block, TemporalConv, _cfg
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_ as __call_trunc_normal_
-from einops import rearrange
-import numpy as np
-import torch.nn.functional as F
 
 
 def trunc_normal_(tensor, mean=0., std=1.):

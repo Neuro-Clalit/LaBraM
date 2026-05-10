@@ -14,7 +14,6 @@ from typing import Iterable
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 import utils
 from einops import rearrange

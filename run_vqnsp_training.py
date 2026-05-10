@@ -24,7 +24,7 @@ from optim_factory import create_optimizer
 
 from engine_for_vqnsp import evaluate, train_one_epoch, calculate_codebook_usage
 from utils import NativeScalerWithGradNormCount as NativeScaler
-import modeling_vqnsp
+import modeling_vqnsp  # noqa: F401  -- registers timm models
 import utils
 
 
