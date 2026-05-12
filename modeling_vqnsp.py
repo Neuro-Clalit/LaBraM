@@ -28,11 +28,9 @@ class VQNSP(nn.Module):
                  decay=0.99,
                  quantize_kmeans_init=True,
                  decoder_out_dim=200,
-                 smooth_l1_loss = False,
-                 **kwargs
+                 smooth_l1_loss=False,
                  ):
         super().__init__()
-        print(kwargs)
         if decoder_config['in_chans'] != quantizer_dim:
             print(f"Rewrite the in_chans in decoder from {decoder_config['in_chans']} to {quantizer_dim}")
             decoder_config['in_chans'] = quantizer_dim
@@ -70,8 +68,6 @@ class VQNSP(nn.Module):
             nn.Tanh(),
             nn.Linear(decoder_config['embed_dim'], self.decoder_out_dim),
         )
-
-        self.kwargs = kwargs
 
         self.encode_task_layer.apply(self._init_weights)
         self.decode_task_layer.apply(self._init_weights)

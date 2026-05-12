@@ -127,7 +127,6 @@ def get_model(args):
         args.model,
         pretrained=False,
         drop_path_rate=args.drop_path,
-        drop_block_rate=None,
         use_shared_rel_pos_bias=args.rel_pos_bias,
         use_abs_pos_emb=args.abs_pos_emb,
         init_values=args.layer_scale_init_value,
