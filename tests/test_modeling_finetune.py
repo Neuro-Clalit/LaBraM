@@ -124,19 +124,19 @@ class TestNeuralTransformerForward:
         )
         assert model.time_window == 2
 
-    def test_old_kwarg_silently_ignored(self):
-        # **kwargs catches stray old EEG_size= -- documents the limitation
-        # behind the test_finetune.py bug fixed in PR #4. Test asserts the
-        # rename is final by checking the model uses its default eeg_window_size,
-        # not the value passed under the old name.
-        model = NeuralTransformer(
-            EEG_size=999,  # should be ignored, swallowed by **kwargs
-            patch_size=200, in_chans=1, out_chans=8, num_classes=1,
-            embed_dim=200, depth=2, num_heads=10, init_values=0.1,
-            qkv_bias=True, use_abs_pos_emb=False, use_rel_pos_bias=True,
-        )
-        # Default eeg_window_size is 1600, time_window = 1600 // 200 = 8
-        assert model.time_window == 8
+    def test_old_kwarg_raises_typeerror(self):
+        # After the C3 rename cleanup, NeuralTransformer.__init__ no longer
+        # swallows unknown kwargs. Passing the old EEG_size= name (or any
+        # other typo) now raises TypeError at construction time, which is
+        # what would have caught the test_finetune.py bug fixed in PR #4
+        # before it ever shipped.
+        with pytest.raises(TypeError):
+            NeuralTransformer(
+                EEG_size=999,
+                patch_size=200, in_chans=1, out_chans=8, num_classes=1,
+                embed_dim=200, depth=2, num_heads=10, init_values=0.1,
+                qkv_bias=True, use_abs_pos_emb=False, use_rel_pos_bias=True,
+            )
 
 
 class TestNeuralTransformerGradients:
