@@ -25,8 +25,8 @@ from optim_factory import create_optimizer
 from engine_for_pretraining import train_one_epoch
 from utils import NativeScalerWithGradNormCount as NativeScaler
 import utils
-import modeling_pretrain
-import modeling_vqnsp
+import modeling_pretrain  # noqa: F401  -- registers timm models
+import modeling_vqnsp  # noqa: F401  -- registers timm models
 
 def get_args():
     parser = argparse.ArgumentParser('LaBraM pre-training script', add_help=False)
