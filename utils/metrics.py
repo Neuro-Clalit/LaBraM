@@ -3,10 +3,18 @@
 # Classification metric helpers (binary + multi-class) via pyhealth.
 # ---------------------------------------------------------
 
+from typing import Any, Dict, List
+
 from pyhealth.metrics import binary_metrics_fn, multiclass_metrics_fn
 
 
-def get_metrics(output, target, metrics, is_binary, threshold=0.5):
+def get_metrics(
+    output: Any,
+    target: Any,
+    metrics: List[str],
+    is_binary: bool,
+    threshold: float = 0.5,
+) -> Dict[str, float]:
     if is_binary:
         if 'roc_auc' not in metrics or sum(target) * (len(target) - sum(target)) != 0:
             return binary_metrics_fn(target, output, metrics=metrics, threshold=threshold)

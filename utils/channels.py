@@ -4,6 +4,7 @@
 # ---------------------------------------------------------
 
 from pathlib import Path
+from typing import List, Sequence, Tuple
 
 from data_processor.dataset import ShockDataset
 
@@ -27,14 +28,20 @@ standard_1020 = [
 ]
 
 
-def get_channel_indices(ch_names):
+def get_channel_indices(ch_names: Sequence[str]) -> List[int]:
     channel_indices = [0]  # for cls token
     for ch_name in ch_names:
         channel_indices.append(standard_1020.index(ch_name) + 1)
     return channel_indices
 
 
-def build_pretraining_dataset(datasets: list, time_window: list, stride=200, start_percentage=0, end_percentage=1):
+def build_pretraining_dataset(
+    datasets: List[List[str]],
+    time_window: List[int],
+    stride: int = 200,
+    start_percentage: float = 0,
+    end_percentage: float = 1,
+) -> Tuple[List[ShockDataset], List[List[str]]]:
     shock_dataset_list = []
     ch_names_list = []
     for dataset_list, window_size in zip(datasets, time_window):

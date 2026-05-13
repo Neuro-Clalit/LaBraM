@@ -344,30 +344,67 @@ class NeuralTransformer(nn.Module):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, channel_indices=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
+    def _embed_inputs(self, x, channel_indices=None):
+        """Run patch_embed, concat the CLS token, then add pos and time
+        embeddings and apply pos_drop. Shared by forward_features,
+        forward_intermediate, and get_intermediate_layers so the three paths
+        cannot drift apart.
+
+        Input  x shape: (B, N, A, T) -- B=batch, N=electrodes, A=patches per
+                        electrode, T=patch_size. When T != self.patch_size
+                        (decoder path with patch_size=1), the time window is
+                        derived from T instead of A.
+        Output x shape: (B, N*A + 1, embed_dim) -- CLS token at index 0.
+
+        When channel_indices is None the first (N+1) entries of self.pos_embed
+        are used (CLS slot + first N channels in standard_1020 order). This
+        replaces the previous behavior that hard-broadcast the full 128-row
+        pos_embed table, which silently produced a shape mismatch unless the
+        caller supplied 128 electrodes.
+        """
         batch_size, n, a, t = x.shape
         input_time_window = a if t == self.patch_size else t
+
         x = self.patch_embed(x)
 
-        cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
-
+        cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
 
-        pos_embed_used = self.pos_embed[:, channel_indices] if channel_indices is not None and self.pos_embed is not None else self.pos_embed
         if self.pos_embed is not None:
-            pos_embed = pos_embed_used[:, 1:, :].unsqueeze(2).expand(batch_size, -1, input_time_window, -1).flatten(1, 2)
-            pos_embed = torch.cat((pos_embed_used[:,0:1,:].expand(batch_size, -1, -1), pos_embed), dim=1)
+            if channel_indices is not None:
+                pos_embed_used = self.pos_embed[:, channel_indices]
+            else:
+                pos_embed_used = self.pos_embed[:, : n + 1]
+            pos_embed = (
+                pos_embed_used[:, 1:, :]
+                .unsqueeze(2)
+                .expand(batch_size, -1, input_time_window, -1)
+                .flatten(1, 2)
+            )
+            pos_embed = torch.cat(
+                (pos_embed_used[:, 0:1, :].expand(batch_size, -1, -1), pos_embed),
+                dim=1,
+            )
             x = x + pos_embed
+
         if self.time_embed is not None:
             nc = n if t == self.patch_size else a
-            time_embed = self.time_embed[:, 0:input_time_window, :].unsqueeze(1).expand(batch_size, nc, -1, -1).flatten(1, 2)
+            time_embed = (
+                self.time_embed[:, 0:input_time_window, :]
+                .unsqueeze(1)
+                .expand(batch_size, nc, -1, -1)
+                .flatten(1, 2)
+            )
             x[:, 1:, :] += time_embed
 
-        x = self.pos_drop(x)
-        
+        return self.pos_drop(x)
+
+    def forward_features(self, x, channel_indices=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
+        x = self._embed_inputs(x, channel_indices=channel_indices)
+
         for blk in self.blocks:
             x = blk(x, rel_pos_bias=None)
-        
+
         x = self.norm(x)
         if self.fc_norm is not None:
             if return_all_tokens:
@@ -394,21 +431,8 @@ class NeuralTransformer(nn.Module):
         x = self.head(x)
         return x
 
-    def forward_intermediate(self, x, layer_id=12, norm_output=False):
-        x = self.patch_embed(x)
-        batch_size, seq_len, _ = x.size()
-
-        cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
-        x = torch.cat((cls_tokens, x), dim=1)
-        if self.pos_embed is not None:
-            pos_embed = self.pos_embed[:, 1:, :].unsqueeze(2).expand(batch_size, -1, self.time_window, -1).flatten(1, 2)
-            pos_embed = torch.cat((self.pos_embed[:,0:1,:].expand(batch_size, -1, -1), pos_embed), dim=1)
-            x = x + pos_embed
-        if self.time_embed is not None:
-            time_embed = self.time_embed.unsqueeze(1).expand(batch_size, 62, -1, -1).flatten(1, 2)
-            x[:, 1:, :] += time_embed
-        x = self.pos_drop(x)
-
+    def forward_intermediate(self, x, channel_indices=None, layer_id=12, norm_output=False):
+        x = self._embed_inputs(x, channel_indices=channel_indices)
         rel_pos_bias = self.rel_pos_bias() if self.rel_pos_bias is not None else None
         if isinstance(layer_id, list):
             output_list = []
@@ -417,8 +441,7 @@ class NeuralTransformer(nn.Module):
                 # use last norm for all intermediate layers
                 if l in layer_id:
                     if norm_output:
-                        x_norm = self.fc_norm(self.norm(x[:, 1:]))
-                        output_list.append(x_norm)
+                        output_list.append(self.fc_norm(self.norm(x[:, 1:])))
                     else:
                         output_list.append(x[:, 1:])
             return output_list
@@ -433,22 +456,9 @@ class NeuralTransformer(nn.Module):
             return x[:, 1:]
         else:
             raise NotImplementedError(f"Not support for layer id is {layer_id} now!")
-    
-    def get_intermediate_layers(self, x, use_last_norm=False):
-        x = self.patch_embed(x)
-        batch_size, seq_len, _ = x.size()
 
-        cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
-        x = torch.cat((cls_tokens, x), dim=1)
-        if self.pos_embed is not None:
-            pos_embed = self.pos_embed[:, 1:, :].unsqueeze(2).expand(batch_size, -1, self.time_window, -1).flatten(1, 2)
-            pos_embed = torch.cat((self.pos_embed[:,0:1,:].expand(batch_size, -1, -1), pos_embed), dim=1)
-            x = x + pos_embed
-        if self.time_embed is not None:
-            time_embed = self.time_embed.unsqueeze(1).expand(batch_size, 62, -1, -1).flatten(1, 2)
-            x[:, 1:, :] += time_embed
-        x = self.pos_drop(x)
-
+    def get_intermediate_layers(self, x, channel_indices=None, use_last_norm=False):
+        x = self._embed_inputs(x, channel_indices=channel_indices)
         features = []
         rel_pos_bias = self.rel_pos_bias() if self.rel_pos_bias is not None else None
         for blk in self.blocks:

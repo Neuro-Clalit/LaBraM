@@ -10,26 +10,28 @@
 
 import math
 import sys
-from typing import Iterable
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import torch
 
 import utils
 
-def train_one_epoch(model: torch.nn.Module, 
-                            data_loader_list: Iterable, 
-                            optimizer: torch.optim.Optimizer,
-                            device: torch.device, 
-                            epoch: int, 
-                            loss_scaler, 
-                            clip_grad: float = 0,
-                            log_writer=None, 
-                            lr_scheduler=None, 
-                            start_steps=None,
-                            lr_schedule_values=None,
-                            ch_names_list=None,
-                            args=None,
-                            ):
+
+def train_one_epoch(
+    model: torch.nn.Module,
+    data_loader_list: Iterable,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    epoch: int,
+    loss_scaler,
+    clip_grad: float = 0,
+    log_writer: Optional[Any] = None,
+    lr_scheduler: Optional[Any] = None,
+    start_steps: Optional[int] = None,
+    lr_schedule_values: Optional[Sequence[float]] = None,
+    ch_names_list: Optional[List[List[str]]] = None,
+    args: Optional[Any] = None,
+) -> Dict[str, float]:
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -128,7 +130,15 @@ def train_one_epoch(model: torch.nn.Module,
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 @torch.no_grad()
-def evaluate(data_loader_list, model, device, log_writer=None, epoch=None, ch_names_list=None, args=None):
+def evaluate(
+    data_loader_list: Iterable,
+    model: torch.nn.Module,
+    device: torch.device,
+    log_writer: Optional[Any] = None,
+    epoch: Optional[int] = None,
+    ch_names_list: Optional[List[List[str]]] = None,
+    args: Optional[Any] = None,
+) -> Dict[str, float]:
 
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Validation:'
@@ -175,7 +185,14 @@ def evaluate(data_loader_list, model, device, log_writer=None, epoch=None, ch_na
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 @torch.no_grad()
-def calculate_codebook_usage(data_loader, model, device, log_writer=None, epoch=None, args=None):
+def calculate_codebook_usage(
+    data_loader: Iterable,
+    model: torch.nn.Module,
+    device: torch.device,
+    log_writer: Optional[Any] = None,
+    epoch: Optional[int] = None,
+    args: Optional[Any] = None,
+) -> None:
 
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Calculating codebook usage:'
