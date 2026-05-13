@@ -9,29 +9,51 @@
 # ---------------------------------------------------------
 import math
 import sys
-from typing import Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
 import torch
 from timm.utils import ModelEma
-import utils
 from einops import rearrange
 
-def train_class_batch(model, samples, target, criterion, channel_indices):
+import utils
+
+
+def train_class_batch(
+    model: torch.nn.Module,
+    samples: torch.Tensor,
+    target: torch.Tensor,
+    criterion: torch.nn.Module,
+    channel_indices: Optional[Sequence[int]],
+) -> Tuple[torch.Tensor, torch.Tensor]:
     outputs = model(samples, channel_indices)
     loss = criterion(outputs, target)
     return loss, outputs
 
 
-def get_loss_scale_for_deepspeed(model):
+def get_loss_scale_for_deepspeed(model: torch.nn.Module) -> float:
     optimizer = model.optimizer
     return optimizer.loss_scale if hasattr(optimizer, "loss_scale") else optimizer.cur_scale
 
 
-def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
-                    data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
-                    model_ema: Optional[ModelEma] = None, log_writer=None,
-                    start_steps=None, lr_schedule_values=None, wd_schedule_values=None,
-                    num_training_steps_per_epoch=None, update_freq=None, ch_names=None, is_binary=True):
+def train_one_epoch(
+    model: torch.nn.Module,
+    criterion: torch.nn.Module,
+    data_loader: Iterable,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    epoch: int,
+    loss_scaler,
+    max_norm: float = 0,
+    model_ema: Optional[ModelEma] = None,
+    log_writer: Optional[Any] = None,
+    start_steps: Optional[int] = None,
+    lr_schedule_values: Optional[Sequence[float]] = None,
+    wd_schedule_values: Optional[Sequence[float]] = None,
+    num_training_steps_per_epoch: Optional[int] = None,
+    update_freq: Optional[int] = None,
+    ch_names: Optional[List[str]] = None,
+    is_binary: bool = True,
+) -> Dict[str, float]:
     channel_indices = None
     if ch_names is not None:
         channel_indices = utils.get_channel_indices(ch_names)
@@ -152,7 +174,17 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(data_loader, model, device, header='Test:', ch_names=None, metrics=['acc'], is_binary=True):
+def evaluate(
+    data_loader: Iterable,
+    model: torch.nn.Module,
+    device: torch.device,
+    header: str = 'Test:',
+    ch_names: Optional[List[str]] = None,
+    metrics: Optional[List[str]] = None,
+    is_binary: bool = True,
+) -> Dict[str, float]:
+    if metrics is None:
+        metrics = ['acc']
     channel_indices = None
     if ch_names is not None:
         channel_indices = utils.get_channel_indices(ch_names)

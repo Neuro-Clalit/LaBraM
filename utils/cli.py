@@ -8,7 +8,7 @@ import argparse
 import torch
 
 
-def bool_flag(s):
+def bool_flag(s: str) -> bool:
     """Parse boolean arguments from the command line."""
     FALSY_STRINGS = {"off", "false", "0"}
     TRUTHY_STRINGS = {"on", "true", "1"}
@@ -19,7 +19,7 @@ def bool_flag(s):
     raise argparse.ArgumentTypeError("invalid value for a boolean flag")
 
 
-def get_model(model):
+def get_model(model: torch.nn.Module) -> torch.nn.Module:
     """Return the inner module if `model` is DataParallel/DDP-wrapped, else `model`."""
     if isinstance(model, torch.nn.DataParallel) or isinstance(model, torch.nn.parallel.DistributedDataParallel):
         return model.module

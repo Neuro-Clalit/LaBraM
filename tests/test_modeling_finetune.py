@@ -151,3 +151,45 @@ class TestBlockShape:
         x = torch.randn(2, 16, 200)  # (B, seq_len, dim)
         out = block(x)
         assert out.shape == x.shape
+
+
+class TestEmbedInputs:
+    """Pin the shared _embed_inputs helper extracted in this PR."""
+
+    def test_shape_no_abs_pos_emb(self):
+        # use_abs_pos_emb=False -> pos_embed is None, helper skips it.
+        model = _make_tiny_model(num_classes=1, use_abs_pos_emb=False)
+        x = torch.randn(2, 4, 1, 200)
+        out = model._embed_inputs(x, channel_indices=None)
+        # (B, N*A + 1 cls, embed_dim) = (2, 4*1+1, 200)
+        assert out.shape == (2, 5, 200)
+
+    def test_shape_with_channel_indices(self):
+        model = _make_tiny_model(num_classes=1, use_abs_pos_emb=True)
+        x = torch.randn(2, 4, 1, 200)
+        channel_indices = [0, 1, 2, 3, 4]  # cls + 4 channels
+        out = model._embed_inputs(x, channel_indices=channel_indices)
+        assert out.shape == (2, 5, 200)
+
+    def test_pos_embed_with_channel_indices_none_no_longer_broadcasts_to_128(self):
+        # Regression for the latent pos_embed bug: previously, when
+        # channel_indices=None and use_abs_pos_emb=True, the helper expanded
+        # the full 128-channel pos_embed regardless of x's channel count.
+        # This produced a tensor of shape (B, 128*time_window + 1, ...) that
+        # was then added to (B, N*A + 1, ...) and crashed unless N happened to
+        # be 128.
+        model = _make_tiny_model(num_classes=1, use_abs_pos_emb=True)
+        x = torch.randn(2, 4, 1, 200)  # 4 channels
+        out = model._embed_inputs(x, channel_indices=None)
+        # Must match the patch_embed + cls shape, not 128*time_window+1.
+        assert out.shape == (2, 5, 200)
+
+    def test_full_forward_with_pos_embed_and_no_channel_indices(self):
+        # End-to-end version of the bug fix: forward(x, channel_indices=None)
+        # with use_abs_pos_emb=True used to RuntimeError on the
+        # `x = x + pos_embed` line. Should now succeed.
+        model = _make_tiny_model(num_classes=1, use_abs_pos_emb=True)
+        x = torch.randn(2, 4, 1, 200)
+        out = model(x, channel_indices=None)
+        assert out.shape == (2, 1)
+

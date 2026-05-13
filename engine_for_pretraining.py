@@ -10,16 +10,17 @@
 
 import math
 import sys
-from typing import Iterable
+from contextlib import nullcontext
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import torch
 import torch.nn as nn
+from einops import rearrange
 
 import utils
-from einops import rearrange
-from contextlib import nullcontext
 
-def random_masking(x, mask_ratio):
+
+def random_masking(x: torch.Tensor, mask_ratio: float) -> torch.Tensor:
         """
         Perform per-sample random masking by per-sample shuffling.
         Per-sample shuffling is done by argsort random noise.
@@ -52,11 +53,23 @@ def random_masking(x, mask_ratio):
         return mask.to(torch.bool)
 
 
-def train_one_epoch(model: torch.nn.Module, vqnsp: torch.nn.Module,
-                    data_loader_list: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, loss_scaler, max_norm: float = 0,
-                    log_writer=None, lr_scheduler=None, start_steps=None,
-                    lr_schedule_values=None, wd_schedule_values=None, ch_names_list=None, args=None):
+def train_one_epoch(
+    model: torch.nn.Module,
+    vqnsp: torch.nn.Module,
+    data_loader_list: Iterable,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    epoch: int,
+    loss_scaler,
+    max_norm: float = 0,
+    log_writer: Optional[Any] = None,
+    lr_scheduler: Optional[Any] = None,
+    start_steps: Optional[int] = None,
+    lr_schedule_values: Optional[Sequence[float]] = None,
+    wd_schedule_values: Optional[Sequence[float]] = None,
+    ch_names_list: Optional[List[List[str]]] = None,
+    args: Optional[Any] = None,
+) -> Dict[str, float]:
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))

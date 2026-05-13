@@ -42,6 +42,8 @@ def resolve_device(requested: str) -> torch.device:
 
 
 def subset_for_debug(dataset, n: int):
+    """None passthrough; for a single Dataset return a torch.utils.data.Subset
+    of the first min(n, len) items; for a list of Datasets apply recursively."""
     if dataset is None:
         return None
     if isinstance(dataset, list):

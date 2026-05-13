@@ -5,13 +5,14 @@
 # ---------------------------------------------------------
 
 import math
+from typing import Any, Iterable, List, Optional, Union
 
 import numpy as np
 import torch
 from torch import inf
 
 
-def get_grad_norm(parameters, norm_type=2):
+def get_grad_norm(parameters: Union[torch.Tensor, Iterable[torch.Tensor]], norm_type: float = 2) -> float:
     if isinstance(parameters, torch.Tensor):
         parameters = [parameters]
     parameters = list(filter(lambda p: p.grad is not None, parameters))
@@ -24,7 +25,11 @@ def get_grad_norm(parameters, norm_type=2):
     return total_norm
 
 
-def get_grad_norm_(parameters, norm_type: float = 2.0, layer_names=None) -> torch.Tensor:
+def get_grad_norm_(
+    parameters: Union[torch.Tensor, Iterable[torch.Tensor]],
+    norm_type: float = 2.0,
+    layer_names: Optional[List[str]] = None,
+) -> torch.Tensor:
     if isinstance(parameters, torch.Tensor):
         parameters = [parameters]
 
@@ -53,10 +58,19 @@ def get_grad_norm_(parameters, norm_type: float = 2.0, layer_names=None) -> torc
 class NativeScalerWithGradNormCount:
     state_dict_key = "amp_scaler"
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._scaler = torch.amp.GradScaler('cuda', enabled=torch.cuda.is_available())
 
-    def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True, layer_names=None):
+    def __call__(
+        self,
+        loss: torch.Tensor,
+        optimizer: torch.optim.Optimizer,
+        clip_grad: Optional[float] = None,
+        parameters: Optional[Iterable[torch.Tensor]] = None,
+        create_graph: bool = False,
+        update_grad: bool = True,
+        layer_names: Optional[List[str]] = None,
+    ) -> Optional[torch.Tensor]:
         self._scaler.scale(loss).backward(create_graph=create_graph)
         if update_grad:
             if clip_grad is not None:
@@ -72,15 +86,22 @@ class NativeScalerWithGradNormCount:
             norm = None
         return norm
 
-    def state_dict(self):
+    def state_dict(self) -> dict:
         return self._scaler.state_dict()
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict: dict) -> None:
         self._scaler.load_state_dict(state_dict)
 
 
-def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epochs=0,
-                     start_warmup_value=0, warmup_steps=-1):
+def cosine_scheduler(
+    base_value: float,
+    final_value: float,
+    epochs: int,
+    niter_per_ep: int,
+    warmup_epochs: int = 0,
+    start_warmup_value: float = 0,
+    warmup_steps: int = -1,
+) -> np.ndarray:
     warmup_schedule = np.array([])
     warmup_iters = warmup_epochs * niter_per_ep
     if warmup_steps > 0:
