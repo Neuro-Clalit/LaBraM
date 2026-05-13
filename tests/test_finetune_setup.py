@@ -1,10 +1,4 @@
 """Tests for finetune_setup helpers (carved out of run_class_finetuning in PR #3)."""
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import argparse
 from types import SimpleNamespace
 
 import torch

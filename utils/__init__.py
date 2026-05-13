@@ -14,6 +14,7 @@ from utils.checkpoint import (
     create_ds_config,
     load_state_dict,
     save_model,
+    save_nan_model,
 )
 from utils.cli import bool_flag, get_model
 from utils.datasets_tuh import (
@@ -75,6 +76,7 @@ __all__ = [
     'prepare_TUAB_dataset',
     'prepare_TUEV_dataset',
     'save_model',
+    'save_nan_model',
     'save_on_master',
     'setup_for_distributed',
     'standard_1020',

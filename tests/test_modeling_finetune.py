@@ -5,11 +5,6 @@ channel_indices) and the basic forward shapes for the building blocks
 that do *not* depend on the channel-pos-embed broadcast (which has a
 known limitation when channel_indices is None and use_abs_pos_emb is on).
 """
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import pytest
 import torch
 

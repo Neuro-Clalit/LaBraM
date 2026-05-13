@@ -1,9 +1,4 @@
 """Tests for utils.channels.{standard_1020, get_channel_indices}."""
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import pytest
 
 from utils.channels import get_channel_indices, standard_1020
