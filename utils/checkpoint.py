@@ -23,6 +23,30 @@ def _load_checkpoint_for_ema(model_ema, checkpoint):
     model_ema._load_checkpoint(mem_file)
 
 
+def save_nan_model(args, model):
+    """Snapshot the model's state_dict when training NaNs out, for offline debug.
+
+    engine_for_vqnsp.train_one_epoch calls this right before sys.exit(1) when
+    the loss becomes non-finite. Best-effort: if anything in here itself fails
+    (no output_dir, disk full, no module to unwrap) we swallow the error so
+    the original NaN failure is what surfaces to the user, not a secondary
+    exception from the rescue path.
+    """
+    output_dir = getattr(args, 'output_dir', None)
+    if not output_dir:
+        return
+    try:
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        inner = model.module if hasattr(model, 'module') else model
+        save_on_master(
+            {'model': inner.state_dict(), 'args': args},
+            Path(output_dir) / 'nan_checkpoint.pth',
+        )
+        print(f"Saved NaN-loss state to {output_dir}/nan_checkpoint.pth")
+    except Exception as e:
+        print(f"save_nan_model: failed to dump checkpoint ({e}); continuing to exit")
+
+
 def load_state_dict(model, state_dict, prefix='', ignore_missing="relative_position_index"):
     missing_keys = []
     unexpected_keys = []

@@ -14,8 +14,8 @@ import torch.nn as nn
 from functools import partial
 
 from modeling_finetune import Block, TemporalConv, _cfg
-from timm.models.registry import register_model
-from timm.models.layers import trunc_normal_ as __call_trunc_normal_
+from timm.models import register_model
+from timm.layers import trunc_normal_ as __call_trunc_normal_
 
 
 def trunc_normal_(tensor, mean=0., std=1.):

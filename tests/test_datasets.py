@@ -5,11 +5,6 @@ match the layout the dataset expects:
     /<subject>/eeg                -> (n_channels, n_samples)
     /<subject>/eeg.attrs[chOrder] -> list of channel name strings
 """
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import h5py
 import numpy as np
 import pytest
