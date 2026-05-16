@@ -1,28 +1,7 @@
-"""Tests for runner_common helpers (extracted from the three runners).
-
-Currently SKIPPED at module level. Locally all 14 tests in this file pass on
-the same SHA, but on CI they fail in ~75 seconds with a failure mode I
-cannot inspect: the MCP tooling exposes only the check-run summary
-(`completed/failure`), not the run log content, and the local proxy
-refuses the actions/log endpoints. The wider test suite (67 tests) is
-unaffected and continues to gate the rest of the work.
-
-Re-enable by deleting the `pytest.skip(..., allow_module_level=True)`
-line below once the CI failure is reproducible -- the diagnostic
-workflow already added an explicit `Probe critical imports` step and a
-`pytest --tb=long -rA` run, so the next failing CI page should print
-the actual traceback.
-"""
-import pytest
-
-pytest.skip(
-    "runner_common tests skipped on CI pending log access to identify "
-    "the install/collection-time failure",
-    allow_module_level=True,
-)
-
+"""Tests for runner_common helpers (extracted from the three runners)."""
 from types import SimpleNamespace
 
+import pytest
 import torch
 import torch.utils.data
 
