@@ -43,10 +43,28 @@ jobs:
           pip install timm einops h5py pyhealth scikit-learn scipy pandas tensorboard
 
       - name: Print resolved package versions (diagnostic)
-        run: pip list | grep -iE "^(torch|torchvision|numpy|pandas|scikit|sklearn|pyhealth|timm)"
+        # `|| true` so a no-match grep does not fail the step. Adding a
+        # full `pip list` fallback so if the filtered grep returns nothing
+        # we still have the package landscape in the run log.
+        run: |
+          echo "=== filtered pip list ==="
+          pip list | grep -iE "^(torch|torchvision|numpy|pandas|scikit|sklearn|pyhealth|timm)" || true
+          echo "=== full pip list ==="
+          pip list
+          echo "=== python version ==="
+          python --version
 
       - name: Install package (editable, with dev extras)
         run: pip install -e ".[dev]"
 
+      - name: Probe critical imports (diagnostic)
+        # If any test file's top-level import is broken, surface it BEFORE
+        # pytest collection so the traceback is unambiguous.
+        run: |
+          python -c "import runner_common; print('runner_common', runner_common.__file__)"
+          python -c "import utils; print('utils', utils.__file__)"
+          python -c "import engine_for_finetuning; print('engine_for_finetuning', engine_for_finetuning.__file__)"
+          python -c "import modeling_finetune; print('modeling_finetune', modeling_finetune.__file__)"
+
       - name: Run pytest
-        run: pytest tests/ -v
+        run: pytest tests/ -v --tb=long -rA
