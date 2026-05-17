@@ -24,23 +24,26 @@ jobs:
           cache: pip
 
       - name: Install runtime dependencies (CPU torch)
+        # Versions pinned exactly so future upstream releases cannot break CI
+        # asymmetrically with local development. CI on PR #17 (2026-05-12)
+        # was green with floating versions; every CI run since 2026-05-13
+        # failed in ~80s with a failure mode not readable via the MCP
+        # tooling. The asymmetry implies an upstream wheel republish in
+        # that window. Pin everything that we touch transitively.
         run: |
           python -m pip install --upgrade pip
-          # Pin torch >= 2.5 from the CPU wheel index. The earlier
-          # workflow attempted `pip install numpy>=2.0` before torch,
-          # but the CPU torch wheel for older torch versions pinned
-          # numpy<2, downgrading it. pandas / sklearn / pyhealth
-          # wheels on PyPI are compiled against numpy 2.x and then
-          # hit `numpy.dtype size changed, may indicate binary
-          # incompatibility` (Expected 96 from C header, got 88
-          # from PyObject) at import time.
-          # torch >= 2.5 supports numpy 2.x natively. torchvision
-          # must come from the same index so its pinned C-extension
-          # ABI matches torch (avoids
-          # `operator torchvision::nms does not exist`).
           pip install --index-url https://download.pytorch.org/whl/cpu \
-              "torch>=2.5" "torchvision>=0.20"
-          pip install timm einops h5py pyhealth scikit-learn scipy pandas tensorboard
+              "torch==2.5.1" "torchvision==0.20.1"
+          pip install \
+              "numpy<2.2" \
+              "timm==1.0.11" \
+              "einops==0.8.0" \
+              "h5py==3.12.1" \
+              "pyhealth==1.1.6" \
+              "scikit-learn==1.5.2" \
+              "scipy==1.14.1" \
+              "pandas==2.2.3" \
+              "tensorboard==2.18.0"
 
       - name: Print resolved package versions (diagnostic)
         run: pip list | grep -iE "^(torch|torchvision|numpy|pandas|scikit|sklearn|pyhealth|timm)"
