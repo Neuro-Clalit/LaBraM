@@ -11,7 +11,7 @@ import torch
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 
-from utils.distributed import is_dist_avail_and_initialized
+from labram.utils.distributed import is_dist_avail_and_initialized
 
 
 class SmoothedValue(object):

@@ -4,26 +4,26 @@
 # Prefer importing from the focused submodules in new code.
 # ---------------------------------------------------------
 
-from utils.channels import (
+from labram.utils.channels import (
     build_pretraining_dataset,
     get_channel_indices,
     standard_1020,
 )
-from utils.checkpoint import (
+from labram.utils.checkpoint import (
     auto_load_model,
     create_ds_config,
     load_state_dict,
     save_model,
     save_nan_model,
 )
-from utils.cli import bool_flag, get_model
-from utils.datasets_tuh import (
+from labram.utils.cli import bool_flag, get_model
+from labram.utils.datasets_tuh import (
     TUABLoader,
     TUEVLoader,
     prepare_TUAB_dataset,
     prepare_TUEV_dataset,
 )
-from utils.distributed import (
+from labram.utils.distributed import (
     GatherLayer,
     all_gather_batch,
     all_gather_batch_with_grad,
@@ -36,9 +36,9 @@ from utils.distributed import (
     save_on_master,
     setup_for_distributed,
 )
-from utils.logging import MetricLogger, SmoothedValue, TensorboardLogger
-from utils.metrics import get_metrics
-from utils.training import (
+from labram.utils.logging import MetricLogger, SmoothedValue, TensorboardLogger
+from labram.utils.metrics import get_metrics
+from labram.utils.training import (
     NativeScalerWithGradNormCount,
     cosine_scheduler,
     get_grad_norm,

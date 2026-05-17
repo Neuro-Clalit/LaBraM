@@ -18,13 +18,13 @@ from timm.models import create_model
 from timm.loss import LabelSmoothingCrossEntropy
 from timm.utils import ModelEma
 
-import modeling_finetune  # noqa: F401  -- registers timm models
-import runner_common
-import utils
-from engine_for_finetuning import evaluate, train_one_epoch
-from finetune_args import get_args
-from finetune_datasets import get_dataset_bundle
-from finetune_setup import (
+import labram.models.finetune  # noqa: F401  -- registers timm models
+import labram.runners.common as runner_common
+import labram.utils as utils
+from labram.engines.finetune import evaluate, train_one_epoch
+from labram.runners.finetune_args import get_args
+from labram.runners.finetune_datasets import get_dataset_bundle
+from labram.runners.finetune_setup import (
     apply_debug_overrides,
     build_dataloaders,
     build_samplers,
@@ -32,8 +32,8 @@ from finetune_setup import (
     resolve_device,
     subset_for_debug,
 )
-from optim_factory import LayerDecayValueAssigner, create_optimizer, get_parameter_groups
-from utils import NativeScalerWithGradNormCount as NativeScaler
+from labram.optim_factory import LayerDecayValueAssigner, create_optimizer, get_parameter_groups
+from labram.utils import NativeScalerWithGradNormCount as NativeScaler
 
 
 # Tensorboard names that can be reported per-epoch from val/test stats dicts.

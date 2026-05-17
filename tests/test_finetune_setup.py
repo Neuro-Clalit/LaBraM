@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import torch
 import torch.utils.data
 
-from finetune_setup import (
+from labram.runners.finetune_setup import (
     DataLoaders,
     apply_debug_overrides,
     build_dataloaders,

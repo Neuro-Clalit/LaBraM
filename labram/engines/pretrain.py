@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
-import utils
+import labram.utils as utils
 
 
 def random_masking(x: torch.Tensor, mask_ratio: float) -> torch.Tensor:

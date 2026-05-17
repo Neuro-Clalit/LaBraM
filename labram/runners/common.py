@@ -21,7 +21,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import torch.utils.data
 
-import utils
+import labram.utils as utils
 
 
 def setup_environment(args, init_cudnn_benchmark: bool = True) -> Tuple[torch.device, int, int]:

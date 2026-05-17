@@ -12,7 +12,7 @@ from pathlib import Path
 import torch
 from timm.utils import get_state_dict
 
-from utils.distributed import get_world_size, save_on_master
+from labram.utils.distributed import get_world_size, save_on_master
 
 
 def _load_checkpoint_for_ema(model_ema, checkpoint):

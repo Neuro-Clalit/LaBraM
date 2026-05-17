@@ -21,9 +21,9 @@ import pytest
 import torch
 import torch.nn as nn
 
-from engine_for_vqnsp import evaluate, train_one_epoch
-from modeling_vqnsp import VQNSP
-from utils import NativeScalerWithGradNormCount
+from labram.engines.vqnsp import evaluate, train_one_epoch
+from labram.models.vqnsp import VQNSP
+from labram.utils import NativeScalerWithGradNormCount
 
 
 N_CHANNELS = 4

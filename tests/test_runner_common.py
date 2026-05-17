@@ -5,7 +5,7 @@ import pytest
 import torch
 import torch.utils.data
 
-import runner_common
+import labram.runners.common as runner_common
 
 
 class _SyntheticDataset(torch.utils.data.Dataset):
