@@ -8,9 +8,6 @@
 # https://github.com/facebookresearch/dino
 # ---------------------------------------------------------
 
-import datetime
-import json
-import os
 import time
 from pathlib import Path
 
@@ -22,6 +19,7 @@ from timm.loss import LabelSmoothingCrossEntropy
 from timm.utils import ModelEma
 
 import modeling_finetune  # noqa: F401  -- registers timm models
+import runner_common
 import utils
 from engine_for_finetuning import evaluate, train_one_epoch
 from finetune_args import get_args
@@ -111,10 +109,7 @@ def main(args, ds_init):
         dataset_train, dataset_val, dataset_test, num_tasks, global_rank, args.dist_eval,
     )
 
-    log_writer = None
-    if global_rank == 0 and args.log_dir is not None:
-        os.makedirs(args.log_dir, exist_ok=True)
-        log_writer = utils.TensorboardLogger(log_dir=args.log_dir)
+    log_writer = runner_common.create_log_writer(args, global_rank)
 
     pin_memory = args.pin_mem and device.type == 'cuda'
     loaders = build_dataloaders(
@@ -189,14 +184,8 @@ def main(args, ds_init):
         loss_scaler = NativeScaler()
 
     print("Use step level LR scheduler!")
-    lr_schedule_values = utils.cosine_scheduler(
-        args.lr, args.min_lr, args.epochs, num_training_steps_per_epoch,
-        warmup_epochs=args.warmup_epochs, warmup_steps=args.warmup_steps,
-    )
-    if args.weight_decay_end is None:
-        args.weight_decay_end = args.weight_decay
-    wd_schedule_values = utils.cosine_scheduler(
-        args.weight_decay, args.weight_decay_end, args.epochs, num_training_steps_per_epoch)
+    lr_schedule_values = runner_common.make_lr_schedule(args, num_training_steps_per_epoch)
+    wd_schedule_values = runner_common.make_wd_schedule(args, num_training_steps_per_epoch)
     print("Max WD = %.7f, Min WD = %.7f" % (max(wd_schedule_values), min(wd_schedule_values)))
 
     if args.nb_classes == 1:
@@ -275,15 +264,11 @@ def main(args, ds_init):
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch, 'n_parameters': n_parameters}
 
-        if args.output_dir and utils.is_main_process():
-            if log_writer is not None:
-                log_writer.flush()
-            with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
-                f.write(json.dumps(log_stats) + "\n")
+        if log_writer is not None and args.output_dir and utils.is_main_process():
+            log_writer.flush()
+        runner_common.append_log_line(args, log_stats)
 
-    total_time = time.time() - start_time
-    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    print('Training time {}'.format(total_time_str))
+    runner_common.print_training_time(start_time)
 
 
 if __name__ == '__main__':
