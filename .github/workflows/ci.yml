@@ -21,7 +21,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
+          # NOTE: pip cache disabled. A poisoned cache from before
+          # 2026-05-13 could explain why every CI run since then fails
+          # in ~80 seconds with a fresh checkout but identical local
+          # behaviour. Force fresh wheels per run.
 
       - name: Install runtime dependencies (CPU torch)
         # Pin only what's necessary: torch+torchvision from CPU index
