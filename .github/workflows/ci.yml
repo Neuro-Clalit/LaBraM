@@ -43,7 +43,7 @@ jobs:
           pip install timm einops h5py pyhealth scikit-learn scipy pandas tensorboard
 
       - name: Print resolved package versions (diagnostic)
-        run: pip list | grep -iE "^(torch|torchvision|numpy|pandas|scikit|sklearn|pyhealth|timm)"
+        run: pip list | grep -iE "^(torch|torchvision|numpy|pandas|scikit|sklearn|pyhealth|timm)" || true
 
       - name: Install package (editable, with dev extras)
         run: pip install -e ".[dev]"

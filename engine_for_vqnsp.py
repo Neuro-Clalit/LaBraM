@@ -73,7 +73,7 @@ def train_one_epoch(
             is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
             grad_norm = loss_scaler(loss, optimizer, clip_grad=clip_grad,
                                     parameters=model.parameters(), create_graph=is_second_order)
-            loss_scale_value = loss_scaler.state_dict()["scale"]
+            loss_scale_value = loss_scaler.state_dict().get("scale", 1.0)
 
             if device.type == 'cuda':
                 torch.cuda.synchronize()
