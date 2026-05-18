@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 from functools import partial
 
-from modeling_finetune import Block, TemporalConv, _cfg
+from labram.models.finetune import Block, TemporalConv, _cfg
 from timm.models import register_model
 from timm.layers import trunc_normal_ as __call_trunc_normal_
 

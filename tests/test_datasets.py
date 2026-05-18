@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 import pytest
 
-from data_processor.dataset import SingleShockDataset, ShockDataset
+from labram.data_processor.dataset import SingleShockDataset, ShockDataset
 
 
 N_CHANNELS = 4

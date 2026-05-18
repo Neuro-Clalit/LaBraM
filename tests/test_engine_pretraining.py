@@ -20,10 +20,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from engine_for_pretraining import random_masking, train_one_epoch
-from modeling_pretrain import NeuralTransformerForMEM
-from modeling_vqnsp import VQNSP
-from utils import NativeScalerWithGradNormCount
+from labram.engines.pretrain import random_masking, train_one_epoch
+from labram.models.pretrain import NeuralTransformerForMEM
+from labram.models.vqnsp import VQNSP
+from labram.utils import NativeScalerWithGradNormCount
 
 
 N_CHANNELS = 4

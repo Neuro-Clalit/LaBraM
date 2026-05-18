@@ -8,7 +8,7 @@ from typing import List
 
 import torch.utils.data
 
-import utils
+import labram.utils as utils
 
 
 # Channel montage shared by TUAB and TUEV TUH-EEG corpora.

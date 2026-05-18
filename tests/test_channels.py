@@ -1,7 +1,7 @@
 """Tests for utils.channels.{standard_1020, get_channel_indices}."""
 import pytest
 
-from utils.channels import get_channel_indices, standard_1020
+from labram.utils.channels import get_channel_indices, standard_1020
 
 
 class TestGetChannelIndices:

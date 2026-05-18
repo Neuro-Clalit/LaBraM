@@ -8,7 +8,7 @@ known limitation when channel_indices is None and use_abs_pos_emb is on).
 import pytest
 import torch
 
-from modeling_finetune import (
+from labram.models.finetune import (
     Block,
     NeuralTransformer,
     PatchEmbed,

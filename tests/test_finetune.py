@@ -3,9 +3,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from engine_for_finetuning import train_class_batch, train_one_epoch, evaluate
-from modeling_finetune import NeuralTransformer
-from utils import NativeScalerWithGradNormCount
+from labram.engines.finetune import train_class_batch, train_one_epoch, evaluate
+from labram.models.finetune import NeuralTransformer
+from labram.utils import NativeScalerWithGradNormCount
 
 # -----------------------------------------------------------------------
 # Constants – small enough for fast CPU tests

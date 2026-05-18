@@ -16,8 +16,8 @@ from einops import rearrange
 from timm.layers import trunc_normal_
 from timm.models import register_model
 
-from modeling_finetune import NeuralTransformer
-from norm_ema_quantizer import NormEMAVectorQuantizer
+from labram.models.finetune import NeuralTransformer
+from labram.models.norm_ema_quantizer import NormEMAVectorQuantizer
 
 class VQNSP(nn.Module):
     def __init__(self,

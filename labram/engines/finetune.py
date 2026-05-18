@@ -15,7 +15,7 @@ import torch
 from timm.utils import ModelEma
 from einops import rearrange
 
-import utils
+import labram.utils as utils
 
 
 def train_class_batch(

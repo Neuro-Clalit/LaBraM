@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import torch
 
-import utils
+import labram.utils as utils
 
 
 def train_one_epoch(

@@ -6,7 +6,7 @@
 from pathlib import Path
 from typing import List, Sequence, Tuple
 
-from data_processor.dataset import ShockDataset
+from labram.data_processor.dataset import ShockDataset
 
 
 standard_1020 = [

@@ -18,32 +18,9 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=7", "pyflakes"]
 
-[tool.setuptools]
-# Flat top-level modules listed explicitly (no enclosing package).
-py-modules = [
-    "engine_for_finetuning",
-    "engine_for_pretraining",
-    "engine_for_vqnsp",
-    "finetune_args",
-    "finetune_datasets",
-    "finetune_setup",
-    "modeling_finetune",
-    "modeling_pretrain",
-    "modeling_vqnsp",
-    "norm_ema_quantizer",
-    "optim_factory",
-    "run_class_finetuning",
-    "run_labram_pretraining",
-    "run_vqnsp_training",
-    "runner_common",
-]
-
 [tool.setuptools.packages.find]
-include = ["utils*", "data_processor*"]
+include = ["labram*"]
 
 [tool.pytest.ini_options]
-# Add the repo root to sys.path so tests can import the flat top-level
-# modules (engine_for_finetuning, modeling_finetune, ...) without each
-# test file inserting it manually.
 pythonpath = ["."]
 testpaths = ["tests"]
