@@ -18,6 +18,7 @@ from timm.models import register_model
 
 from labram.models.finetune import NeuralTransformer
 from labram.models.norm_ema_quantizer import NormEMAVectorQuantizer
+from labram.utils.checkpoint import load_pretrained_weights
 
 class VQNSP(nn.Module):
     def __init__(self,
@@ -170,6 +171,16 @@ class VQNSP(nn.Module):
 
         return loss, log
 
+def _load_vqnsp_weights(model: nn.Module, pretrained_weight: str) -> None:
+    """Load and filter a VQNSP checkpoint into *model* in-place."""
+    weights = load_pretrained_weights(pretrained_weight)
+    keys = list(weights.keys())
+    for k in keys:
+        if k.startswith(("loss", "teacher", "scaling")):
+            del weights[k]
+    model.load_state_dict(weights)
+
+
 def get_model_default_params():
     return dict(eeg_window_size=1600, patch_size=200, in_chans=1, num_classes=1000, embed_dim=200, depth=12, num_heads=10,
                              mlp_ratio=4., qkv_bias=True,  qk_scale=None, drop_rate=0., attn_drop_rate=0., drop_path_rate=0.,
@@ -198,22 +209,7 @@ def vqnsp_encoder_base_decoder_3x200x12(pretrained=False, pretrained_weight=None
     if as_tokenzer:
         assert pretrained
         assert pretrained_weight is not None
-
-        if pretrained_weight.startswith('https'):
-            weights = torch.hub.load_state_dict_from_url(pretrained_weight, map_location='cpu', check_hash=True)
-        else:
-            weights = torch.load(pretrained_weight, map_location='cpu', weights_only=False)
-
-        if 'model' in weights:
-            weights = weights['model']
-        else:
-            weights = weights["state_dict"]
-        keys = list(weights.keys())
-
-        for k in keys:
-            if k.startswith("loss") or k.startswith("teacher") or k.startswith("scaling"):
-                del weights[k]
-        model.load_state_dict(weights)
+        _load_vqnsp_weights(model, pretrained_weight)
     return model
 
 @register_model
@@ -239,22 +235,7 @@ def vqnsp_encoder_large_decoder_3x200x24(pretrained=False, pretrained_weight=Non
     if as_tokenzer:
         assert pretrained
         assert pretrained_weight is not None
-
-        if pretrained_weight.startswith('https'):
-            weights = torch.hub.load_state_dict_from_url(pretrained_weight, map_location='cpu', check_hash=True)
-        else:
-            weights = torch.load(pretrained_weight, map_location='cpu', weights_only=False)
-
-        if 'model' in weights:
-            weights = weights['model']
-        else:
-            weights = weights["state_dict"]
-        keys = list(weights.keys())
-
-        for k in keys:
-            if k.startswith("loss") or k.startswith("teacher") or k.startswith("scaling"):
-                del weights[k]
-        model.load_state_dict(weights)
+        _load_vqnsp_weights(model, pretrained_weight)
     return model
 
 

@@ -18,6 +18,7 @@ import torch.nn as nn
 from einops import rearrange
 
 import labram.utils as utils
+from labram.engines.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 
 def random_masking(x: torch.Tensor, mask_ratio: float) -> torch.Tensor:
@@ -85,14 +86,8 @@ def train_one_epoch(
             continue
         channel_indices = utils.get_channel_indices(ch_names)
         for step, (batch) in enumerate(metric_logger.log_every(data_loader, print_freq * args.gradient_accumulation_steps, header)):
-            # assign learning rate & weight decay for each step
             global_step = start_steps + step + step_loader
-            if lr_schedule_values is not None or wd_schedule_values is not None:
-                for i, param_group in enumerate(optimizer.param_groups):
-                    if lr_schedule_values is not None:
-                        param_group["lr"] = lr_schedule_values[global_step] * param_group["lr_scale"]
-                    if wd_schedule_values is not None and param_group["weight_decay"] > 0:
-                        param_group["weight_decay"] = wd_schedule_values[global_step]
+            apply_lr_wd_schedule(optimizer, global_step, lr_schedule_values, wd_schedule_values)
 
             samples = batch
             samples = samples.float().to(device, non_blocking=True) / 100
@@ -148,29 +143,12 @@ def train_one_epoch(
 
             metric_logger.update(loss=loss_value)
             metric_logger.update(loss_scale=loss_scale_value)
-            min_lr = 10.
-            max_lr = 0.
-            for group in optimizer.param_groups:
-                min_lr = min(min_lr, group["lr"])
-                max_lr = max(max_lr, group["lr"])
 
-            metric_logger.update(lr=max_lr)
-            metric_logger.update(min_lr=min_lr)
-            weight_decay_value = None
-            for group in optimizer.param_groups:
-                if group["weight_decay"] > 0:
-                    weight_decay_value = group["weight_decay"]
-            metric_logger.update(weight_decay=weight_decay_value)
-            metric_logger.update(grad_norm=grad_norm)
+            log_lr_wd_grad_metrics(metric_logger, optimizer, grad_norm, log_writer)
 
             if log_writer is not None:
                 log_writer.update(loss=loss_value, head="loss")
                 log_writer.update(loss_scale=loss_scale_value, head="opt")
-                log_writer.update(lr=max_lr, head="opt")
-                log_writer.update(min_lr=min_lr, head="opt")
-                log_writer.update(weight_decay=weight_decay_value, head="opt")
-                log_writer.update(grad_norm=grad_norm, head="opt")
-
                 log_writer.set_step()
 
             if lr_scheduler is not None:

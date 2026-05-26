@@ -15,6 +15,22 @@ from timm.utils import get_state_dict
 from labram.utils.distributed import get_world_size, save_on_master
 
 
+def load_pretrained_weights(path: str) -> dict:
+    """Load a checkpoint from a URL or local path and return the model state dict.
+
+    Handles both ``{'model': ...}`` and ``{'state_dict': ...}`` checkpoint layouts.
+    """
+    if path.startswith('https'):
+        weights = torch.hub.load_state_dict_from_url(path, map_location='cpu', check_hash=True)
+    else:
+        weights = torch.load(path, map_location='cpu', weights_only=False)
+    if 'model' in weights:
+        return weights['model']
+    if 'state_dict' in weights:
+        return weights['state_dict']
+    return weights
+
+
 def _load_checkpoint_for_ema(model_ema, checkpoint):
     """Workaround for ModelEma._load_checkpoint to accept an already-loaded object."""
     mem_file = io.BytesIO()

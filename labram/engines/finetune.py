@@ -16,6 +16,7 @@ from timm.utils import ModelEma
 from einops import rearrange
 
 import labram.utils as utils
+from labram.engines.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 
 def train_class_batch(
@@ -77,11 +78,7 @@ def train_one_epoch(
         global_step = start_steps + step
         # Update LR & WD for the first acc
         if lr_schedule_values is not None or wd_schedule_values is not None and data_iter_step % update_freq == 0:
-            for i, param_group in enumerate(optimizer.param_groups):
-                if lr_schedule_values is not None:
-                    param_group["lr"] = lr_schedule_values[global_step] * param_group.get("lr_scale", 1.0)
-                if wd_schedule_values is not None and param_group["weight_decay"] > 0:
-                    param_group["weight_decay"] = wd_schedule_values[global_step]
+            apply_lr_wd_schedule(optimizer, global_step, lr_schedule_values, wd_schedule_values)
 
         samples = samples.float().to(device, non_blocking=True) / 100
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
@@ -141,30 +138,13 @@ def train_one_epoch(
         metric_logger.update(loss=loss_value)
         metric_logger.update(class_acc=class_acc)
         metric_logger.update(loss_scale=loss_scale_value)
-        min_lr = 10.
-        max_lr = 0.
-        for group in optimizer.param_groups:
-            min_lr = min(min_lr, group["lr"])
-            max_lr = max(max_lr, group["lr"])
 
-        metric_logger.update(lr=max_lr)
-        metric_logger.update(min_lr=min_lr)
-        weight_decay_value = None
-        for group in optimizer.param_groups:
-            if group["weight_decay"] > 0:
-                weight_decay_value = group["weight_decay"]
-        metric_logger.update(weight_decay=weight_decay_value)
-        metric_logger.update(grad_norm=grad_norm)
+        log_lr_wd_grad_metrics(metric_logger, optimizer, grad_norm, log_writer)
 
         if log_writer is not None:
             log_writer.update(loss=loss_value, head="loss")
             log_writer.update(class_acc=class_acc, head="loss")
             log_writer.update(loss_scale=loss_scale_value, head="opt")
-            log_writer.update(lr=max_lr, head="opt")
-            log_writer.update(min_lr=min_lr, head="opt")
-            log_writer.update(weight_decay=weight_decay_value, head="opt")
-            log_writer.update(grad_norm=grad_norm, head="opt")
-
             log_writer.set_step()
 
     # gather the stats from all processes
