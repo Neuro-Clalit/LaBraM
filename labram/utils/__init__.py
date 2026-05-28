@@ -12,6 +12,7 @@ from labram.utils.channels import (
 from labram.utils.checkpoint import (
     auto_load_model,
     create_ds_config,
+    load_pretrained_weights,
     load_state_dict,
     save_model,
     save_nan_model,
@@ -20,6 +21,7 @@ from labram.utils.cli import bool_flag, get_model
 from labram.utils.datasets_tuh import (
     TUABLoader,
     TUEVLoader,
+    TUHLoader,
     prepare_TUAB_dataset,
     prepare_TUEV_dataset,
 )
@@ -53,6 +55,7 @@ __all__ = [
     'SmoothedValue',
     'TUABLoader',
     'TUEVLoader',
+    'TUHLoader',
     'TensorboardLogger',
     'all_gather_batch',
     'all_gather_batch_with_grad',
@@ -72,6 +75,7 @@ __all__ = [
     'init_distributed_mode',
     'is_dist_avail_and_initialized',
     'is_main_process',
+    'load_pretrained_weights',
     'load_state_dict',
     'prepare_TUAB_dataset',
     'prepare_TUEV_dataset',
