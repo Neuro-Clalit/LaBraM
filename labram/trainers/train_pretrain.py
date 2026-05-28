@@ -18,7 +18,7 @@ import torch.nn as nn
 from einops import rearrange
 
 import labram.utils as utils
-from labram.engines.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
+from labram.trainers.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 
 def random_masking(x: torch.Tensor, mask_ratio: float) -> torch.Tensor:

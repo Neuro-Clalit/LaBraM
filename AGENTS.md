@@ -61,7 +61,7 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.finet
 ## Repository Layout
 
 - `labram/models/`: model definitions for tokenizer, pre-training, fine-tuning, and vector quantization.
-- `labram/engines/`: training and evaluation loops for each phase.
+- `labram/trainers/`: training and evaluation loops for each phase (`train_finetune.py`, `train_pretrain.py`, `train_vqnsp.py`); shared helpers in `base.py`.
 - `labram/runners/`: command-line entry points and setup code. `common.py` owns shared DDP setup, dataloaders, and scheduling helpers.
 - `labram/utils/`: channel metadata, checkpointing, distributed utilities, metrics, logging, and training schedules.
 - `labram/data_processor/`: HDF5-backed pre-training datasets and preprocessing helpers.

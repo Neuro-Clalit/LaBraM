@@ -2,23 +2,18 @@
 # Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
 # By Wei-Bang Jiang
 # Based on BEiT-v2, timm, DeiT, and DINO code bases
-# https://github.com/microsoft/unilm/tree/master/beitv2
-# https://github.com/rwightman/pytorch-image-models/tree/master/timm
-# https://github.com/facebookresearch/deit/
-# https://github.com/facebookresearch/dino
 # ---------------------------------------------------------
 
 import torch
-from torch import nn
+import torch.nn as nn
 import torch.nn.functional as F
-from functools import partial
 from einops import rearrange
 from timm.layers import trunc_normal_
-from timm.models import register_model
 
-from labram.models.finetune import NeuralTransformer
-from labram.models.norm_ema_quantizer import NormEMAVectorQuantizer
+from labram.models.neural_transformer import NeuralTransformer
+from labram.models.quantizer import NormEMAVectorQuantizer
 from labram.utils.checkpoint import load_pretrained_weights
+
 
 class VQNSP(nn.Module):
     def __init__(self,
@@ -171,7 +166,8 @@ class VQNSP(nn.Module):
 
         return loss, log
 
-def _load_vqnsp_weights(model: nn.Module, pretrained_weight: str) -> None:
+
+def load_vqnsp_weights(model: nn.Module, pretrained_weight: str) -> None:
     """Load and filter a VQNSP checkpoint into *model* in-place."""
     weights = load_pretrained_weights(pretrained_weight)
     keys = list(weights.keys())
@@ -179,65 +175,3 @@ def _load_vqnsp_weights(model: nn.Module, pretrained_weight: str) -> None:
         if k.startswith(("loss", "teacher", "scaling")):
             del weights[k]
     model.load_state_dict(weights)
-
-
-def get_model_default_params():
-    return dict(eeg_window_size=1600, patch_size=200, in_chans=1, num_classes=1000, embed_dim=200, depth=12, num_heads=10,
-                             mlp_ratio=4., qkv_bias=True,  qk_scale=None, drop_rate=0., attn_drop_rate=0., drop_path_rate=0.,
-                             norm_layer=partial(nn.LayerNorm, eps=1e-6), init_values=0., use_abs_pos_emb=True,
-                             use_rel_pos_bias=False, use_shared_rel_pos_bias=False, use_mean_pooling=True, init_scale=0.001)
-
-@register_model
-def vqnsp_encoder_base_decoder_3x200x12(pretrained=False, pretrained_weight=None, as_tokenzer=False, eeg_window_size=1600,
-                                            num_codebook_tokens=8192, quantizer_dim=32, **kwargs):
-    encoder_config, decoder_config = get_model_default_params(), get_model_default_params()
-
-    # encoder settings
-    encoder_config['eeg_window_size'] = eeg_window_size
-    encoder_config['num_classes'] = 0
-    # decoder settings
-    decoder_config['eeg_window_size'] = eeg_window_size // decoder_config['patch_size']
-    decoder_config['patch_size'] = 1
-    decoder_config['in_chans'] = quantizer_dim
-    decoder_config['num_classes'] = 0
-    decoder_config['depth'] = 3
-    decoder_out_dim = 200
-
-    model = VQNSP(encoder_config, decoder_config, num_codebook_tokens, quantizer_dim,
-                 decoder_out_dim=decoder_out_dim, **kwargs)
-
-    if as_tokenzer:
-        assert pretrained
-        assert pretrained_weight is not None
-        _load_vqnsp_weights(model, pretrained_weight)
-    return model
-
-@register_model
-def vqnsp_encoder_large_decoder_3x200x24(pretrained=False, pretrained_weight=None, as_tokenzer=False, eeg_window_size=1600,
-                                            num_codebook_tokens=8192, quantizer_dim=32, **kwargs):
-    encoder_config, decoder_config = get_model_default_params(), get_model_default_params()
-
-    # encoder settings
-    encoder_config['eeg_window_size'] = eeg_window_size
-    encoder_config['num_classes'] = 0
-    encoder_config['depth'] = 24
-    # decoder settings
-    decoder_config['eeg_window_size'] = eeg_window_size // decoder_config['patch_size']
-    decoder_config['patch_size'] = 1
-    decoder_config['in_chans'] = quantizer_dim
-    decoder_config['num_classes'] = 0
-    decoder_config['depth'] = 3
-    decoder_out_dim = 200
-
-    model = VQNSP(encoder_config, decoder_config, num_codebook_tokens, quantizer_dim,
-                 decoder_out_dim=decoder_out_dim, **kwargs)
-
-    if as_tokenzer:
-        assert pretrained
-        assert pretrained_weight is not None
-        _load_vqnsp_weights(model, pretrained_weight)
-    return model
-
-
-if __name__ == '__main__':
-    pass

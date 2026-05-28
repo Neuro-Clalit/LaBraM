@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from labram.engines.finetune import train_class_batch, train_one_epoch, evaluate
-from labram.models.finetune import NeuralTransformer
+from labram.trainers.train_finetune import train_class_batch, train_one_epoch, evaluate
+from labram.models.neural_transformer import NeuralTransformer
 from labram.utils import NativeScalerWithGradNormCount
 
 # -----------------------------------------------------------------------

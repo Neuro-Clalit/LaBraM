@@ -14,10 +14,10 @@ from pathlib import Path
 
 from timm.models import create_model
 
-import labram.models.vqnsp  # noqa: F401  -- registers timm models
+import labram.models.registry  # noqa: F401  -- registers timm models
 import labram.runners.common as runner_common
 import labram.utils as utils
-from labram.engines.vqnsp import calculate_codebook_usage, evaluate, train_one_epoch
+from labram.trainers.train_vqnsp import calculate_codebook_usage, evaluate, train_one_epoch
 from labram.optim_factory import create_optimizer
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
 

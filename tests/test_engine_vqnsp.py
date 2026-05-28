@@ -21,7 +21,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from labram.engines.vqnsp import evaluate, train_one_epoch
+from labram.trainers.train_vqnsp import evaluate, train_one_epoch
 from labram.models.vqnsp import VQNSP
 from labram.utils import NativeScalerWithGradNormCount
 

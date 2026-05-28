@@ -8,12 +8,9 @@ known limitation when channel_indices is None and use_abs_pos_emb is on).
 import pytest
 import torch
 
-from labram.models.finetune import (
-    Block,
-    NeuralTransformer,
-    PatchEmbed,
-    TemporalConv,
-)
+from labram.models.att_blocks import Block
+from labram.models.layers import PatchEmbed, TemporalConv
+from labram.models.neural_transformer import NeuralTransformer
 
 
 class TestTemporalConv:

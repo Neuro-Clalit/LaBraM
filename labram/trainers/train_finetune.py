@@ -16,7 +16,7 @@ from timm.utils import ModelEma
 from einops import rearrange
 
 import labram.utils as utils
-from labram.engines.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
+from labram.trainers.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 
 def train_class_batch(

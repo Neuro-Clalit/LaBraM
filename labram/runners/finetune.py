@@ -18,10 +18,10 @@ from timm.models import create_model
 from timm.loss import LabelSmoothingCrossEntropy
 from timm.utils import ModelEma
 
-import labram.models.finetune  # noqa: F401  -- registers timm models
+import labram.models.registry  # noqa: F401  -- registers timm models
 import labram.runners.common as runner_common
 import labram.utils as utils
-from labram.engines.finetune import evaluate, train_one_epoch
+from labram.trainers.train_finetune import evaluate, train_one_epoch
 from labram.runners.finetune_args import get_args
 from labram.runners.finetune_datasets import get_dataset_bundle
 from labram.runners.finetune_setup import (

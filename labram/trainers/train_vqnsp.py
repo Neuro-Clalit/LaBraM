@@ -15,7 +15,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 import torch
 
 import labram.utils as utils
-from labram.engines.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
+from labram.trainers.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 
 def _get_codebook_zero_count(inner_model: torch.nn.Module) -> Optional[int]:

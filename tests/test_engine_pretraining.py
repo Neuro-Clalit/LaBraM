@@ -20,8 +20,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from labram.engines.pretrain import random_masking, train_one_epoch
-from labram.models.pretrain import NeuralTransformerForMEM
+from labram.trainers.train_pretrain import random_masking, train_one_epoch
+from labram.models.masked_eeg import NeuralTransformerForMEM
 from labram.models.vqnsp import VQNSP
 from labram.utils import NativeScalerWithGradNormCount
 
