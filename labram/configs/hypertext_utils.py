@@ -71,10 +71,12 @@ def from_json_local(json_file: str) -> Any:
     if not os.path.isfile(json_file):
         raise FileExistsError(f'Not exist json_file: {json_file}')
     with open(json_file, 'r') as f:
-        return jsonpickle.decode(f.read())
+        # keys=True opts in to jsonpickle 5.0's future default (preserves non-string
+        # dict keys); aligns encode/decode and silences the deprecation warning.
+        return jsonpickle.decode(f.read(), keys=True)
 
 def to_json_local(obj: Any, json_file: str, indent: int = 4, encoder: json.JSONEncoder = NumpyEncoder) -> str:
-    json_str = jsonpickle.encode(obj)
+    json_str = jsonpickle.encode(obj, keys=True)
     # load the encoded JSON so we can save it with in a pretty
     # format with indentations (jsonpickle does not support this)
     json_dict = json.loads(json_str)
