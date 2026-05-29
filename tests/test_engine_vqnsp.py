@@ -20,7 +20,9 @@ import pytest
 import torch
 import torch.nn as nn
 
-from labram.trainers.train_vqnsp import evaluate, train_one_epoch
+from labram.train.train_vqnsp import evaluate, train_one_epoch
+from labram.configs.optim_config import OptimizerConfig
+from labram.configs.train_config import OutputConfig
 from labram.models.vqnsp import VQNSP
 from labram.utils import NativeScalerWithGradNormCount
 
@@ -124,11 +126,11 @@ class TestTrainOneEpoch:
             device=torch.device('cpu'),
             epoch=0,
             loss_scaler=loss_scaler,
-            clip_grad=None,
+            optim_cfg=OptimizerConfig(clip_grad=None),
+            output_cfg=OutputConfig(output_dir=''),
             start_steps=0,
             lr_schedule_values=None,
             ch_names_list=[_ch_names()],
-            output_dir='',
         )
         return model, stats, before, cluster_size_before
 

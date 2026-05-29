@@ -5,6 +5,7 @@
 # ---------------------------------------------------------
 
 import math
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -12,6 +13,7 @@ from timm.layers import trunc_normal_
 
 from labram.models.att_blocks import Block
 from labram.models.layers import PatchEmbed, TemporalConv
+from labram.configs.model_config import TransformerArchConfig
 
 
 def _cfg(url='', **kwargs):
@@ -33,11 +35,13 @@ class NeuralTransformerBase(nn.Module):
     their own forward. The submodule attribute paths are intentionally preserved
     so saved checkpoints (e.g. labram-base.pth) remain loadable across both
     subclasses: stripping the ``student.`` prefix in
-    ``runners.finetune_setup.load_finetune_checkpoint`` is enough to map a
+    ``runs.finetune_setup.load_finetune_checkpoint`` is enough to map a
     pre-train state_dict onto the fine-tune model.
     """
 
     def __init__(self,
+                 config: Optional[TransformerArchConfig] = None,
+                 *,
                  eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8,
                  embed_dim=200, depth=12, num_heads=10, mlp_ratio=4.,
                  qkv_bias=False, qk_norm=None, qk_scale=None,
@@ -45,6 +49,26 @@ class NeuralTransformerBase(nn.Module):
                  norm_layer=nn.LayerNorm, init_values=None, attn_head_dim=None,
                  use_abs_pos_emb=True, use_rel_pos_bias=False,
                  init_std=0.02, use_norm=True):
+        # Serialisable fields from config override keyword defaults.
+        # Non-serialisable callables (norm_layer, qk_norm) stay as kwargs.
+        if config is not None:
+            eeg_window_size  = config.eeg_window_size
+            patch_size       = config.patch_size
+            in_chans         = config.in_chans
+            out_chans        = config.out_chans
+            embed_dim        = config.embed_dim
+            depth            = config.depth
+            num_heads        = config.num_heads
+            mlp_ratio        = config.mlp_ratio
+            qkv_bias         = config.qkv_bias
+            drop_rate        = config.drop_rate
+            attn_drop_rate   = config.attn_drop_rate
+            drop_path_rate   = config.drop_path_rate
+            init_values      = config.init_values
+            use_abs_pos_emb  = config.use_abs_pos_emb
+            use_rel_pos_bias = config.use_rel_pos_bias
+            init_std         = config.init_std
+            use_norm         = config.use_norm
         super().__init__()
         self.num_features = self.embed_dim = embed_dim
         self.patch_size = patch_size
@@ -182,11 +206,35 @@ class NeuralTransformerBase(nn.Module):
 
 
 class NeuralTransformer(NeuralTransformerBase):
-    def __init__(self, eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8, num_classes=1000, embed_dim=200, depth=12,
-                 num_heads=10, mlp_ratio=4., qkv_bias=False, qk_norm=None, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
+    def __init__(self,
+                 config: Optional[TransformerArchConfig] = None,
+                 *,
+                 eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8, num_classes=1000,
+                 embed_dim=200, depth=12, num_heads=10, mlp_ratio=4., qkv_bias=False,
+                 qk_norm=None, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
                  drop_path_rate=0., norm_layer=nn.LayerNorm, init_values=None,
                  use_abs_pos_emb=True, use_rel_pos_bias=False, use_shared_rel_pos_bias=False,
                  use_mean_pooling=True, init_scale=0.001):
+        if config is not None:
+            eeg_window_size      = config.eeg_window_size
+            patch_size           = config.patch_size
+            in_chans             = config.in_chans
+            out_chans            = config.out_chans
+            num_classes          = config.num_classes
+            embed_dim            = config.embed_dim
+            depth                = config.depth
+            num_heads            = config.num_heads
+            mlp_ratio            = config.mlp_ratio
+            qkv_bias             = config.qkv_bias
+            drop_rate            = config.drop_rate
+            attn_drop_rate       = config.attn_drop_rate
+            drop_path_rate       = config.drop_path_rate
+            init_values          = config.init_values
+            use_abs_pos_emb      = config.use_abs_pos_emb
+            use_rel_pos_bias     = config.use_rel_pos_bias
+            use_shared_rel_pos_bias = config.use_shared_rel_pos_bias
+            use_mean_pooling     = config.use_mean_pooling
+            init_scale           = config.init_scale
         super().__init__(
             eeg_window_size=eeg_window_size, patch_size=patch_size, in_chans=in_chans,
             out_chans=out_chans, embed_dim=embed_dim, depth=depth, num_heads=num_heads,

@@ -3,7 +3,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from labram.trainers.train_finetune import train_class_batch, train_one_epoch, evaluate
+from labram.train.train_finetune import train_class_batch, train_one_epoch, evaluate
+from labram.configs.optim_config import OptimizerConfig
+from labram.configs.train_config import TrainerConfig
 from labram.models.neural_transformer import NeuralTransformer
 from labram.utils import NativeScalerWithGradNormCount
 
@@ -60,11 +62,12 @@ def _make_epoch_args(model, loader, criterion, is_binary: bool):
         device=torch.device("cpu"),
         epoch=0,
         loss_scaler=loss_scaler,
+        trainer_cfg=TrainerConfig(update_freq=1),
+        optim_cfg=OptimizerConfig(clip_grad=None),
         start_steps=0,
         lr_schedule_values=[1e-4] * n_steps,
         wd_schedule_values=[0.05] * n_steps,
         num_training_steps_per_epoch=n_steps,
-        update_freq=1,
         is_binary=is_binary,
     )
 
@@ -170,11 +173,12 @@ class TestTrainOneEpoch:
             device=torch.device("cpu"),
             epoch=0,
             loss_scaler=loss_scaler,
+            trainer_cfg=TrainerConfig(update_freq=2),
+            optim_cfg=OptimizerConfig(clip_grad=None),
             start_steps=0,
             lr_schedule_values=[1e-4] * n_steps,
             wd_schedule_values=[0.05] * n_steps,
             num_training_steps_per_epoch=n_steps,
-            update_freq=2,
             is_binary=True,
         )
         assert "loss" in stats

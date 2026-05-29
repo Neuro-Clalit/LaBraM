@@ -4,10 +4,10 @@ across the runner scripts, the optimizer factory, and the data-processor.
 Single source of truth — config dataclass fields reference these constants
 instead of re-stating literals. Inventory was swept from:
 
-* labram/runners/pretrain.py argparse + main()
-* labram/runners/vqnsp.py argparse + main()
-* labram/runners/finetune_args.py argparse
-* labram/runners/finetune_setup.py (debug overrides)
+* labram/runs/run_pretrain.py argparse + main()
+* labram/runs/run_vqnsp.py argparse + main()
+* labram/runs/finetune_args.py argparse
+* labram/runs/finetune_setup.py (debug overrides)
 * labram/optim_factory.py (per-optimizer hyperparam fallbacks)
 * labram/data_processor/dataset.py SingleShockDataset.__init__
 * labram/utils/training.py cosine_scheduler
@@ -103,8 +103,8 @@ DEFAULT_FUSED_NOVOGRAD_BETAS: tuple = (0.95, 0.98)
 DEFAULT_NUM_WORKERS: int = 10
 DEFAULT_PIN_MEM: bool = True
 # build_pretraining_dataset arguments
-DEFAULT_PRETRAIN_STRIDE: int = 800        # pretrain.py
-DEFAULT_VQNSP_STRIDE: int = 200           # vqnsp.py
+DEFAULT_PRETRAIN_STRIDE: int = 800        # run_pretrain.py
+DEFAULT_VQNSP_STRIDE: int = 200           # run_vqnsp.py
 DEFAULT_DATASET_DEFAULT_STRIDE: int = 200  # build_pretraining_dataset signature
 DEFAULT_DATASET_START_PERCENTAGE: float = 0.0
 DEFAULT_DATASET_END_PERCENTAGE: float = 1.0
@@ -134,3 +134,31 @@ DEFAULT_VQNSP_DIST_EVAL: bool = True
 
 # ---------- LR/WD scheduler (utils/training.cosine_scheduler) ----------
 DEFAULT_COSINE_START_WARMUP_VALUE: float = 0.0
+
+# ---------- Transformer architecture (NeuralTransformerBase) ----------
+# Defaults match the "base" variant used in almost all production factories.
+DEFAULT_ARCH_EEG_WINDOW_SIZE: int = 1600
+DEFAULT_ARCH_PATCH_SIZE: int = 200
+DEFAULT_ARCH_IN_CHANS: int = 1
+DEFAULT_ARCH_OUT_CHANS: int = 8
+DEFAULT_ARCH_NUM_CLASSES: int = 0
+DEFAULT_ARCH_EMBED_DIM: int = 200
+DEFAULT_ARCH_DEPTH: int = 12
+DEFAULT_ARCH_NUM_HEADS: int = 10
+DEFAULT_ARCH_MLP_RATIO: float = 4.0
+DEFAULT_ARCH_QKV_BIAS: bool = False
+DEFAULT_ARCH_DROP_RATE: float = 0.0
+DEFAULT_ARCH_ATTN_DROP_RATE: float = 0.0
+DEFAULT_ARCH_DROP_PATH_RATE: float = 0.0
+DEFAULT_ARCH_USE_ABS_POS_EMB: bool = True
+DEFAULT_ARCH_USE_REL_POS_BIAS: bool = False
+DEFAULT_ARCH_USE_SHARED_REL_POS_BIAS: bool = False
+DEFAULT_ARCH_USE_MEAN_POOLING: bool = True
+DEFAULT_ARCH_INIT_STD: float = 0.02
+DEFAULT_ARCH_INIT_SCALE: float = 0.001
+DEFAULT_ARCH_USE_NORM: bool = True
+# NeuralTransformerForMEM (pre-train head)
+DEFAULT_ARCH_VOCAB_SIZE: int = DEFAULT_CODEBOOK_SIZE  # 8192
+# VQNSP tokenizer
+DEFAULT_ARCH_DECODER_OUT_DIM: int = 200
+DEFAULT_ARCH_SMOOTH_L1_LOSS: bool = False

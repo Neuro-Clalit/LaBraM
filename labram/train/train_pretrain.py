@@ -2,10 +2,6 @@
 # Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
 # By Wei-Bang Jiang
 # Based on BEiT-v2, timm, DeiT, and DINO code bases
-# https://github.com/microsoft/unilm/tree/master/beitv2
-# https://github.com/rwightman/pytorch-image-models/tree/master/timm
-# https://github.com/facebookresearch/deit/
-# https://github.com/facebookresearch/dino
 # ---------------------------------------------------------
 
 import math
@@ -18,40 +14,24 @@ import torch.nn as nn
 from einops import rearrange
 
 import labram.utils as utils
-from labram.trainers.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
+from labram.configs.optim_config import OptimizerConfig
+from labram.configs.train_config import TrainerConfig
+from labram.train.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 
 def random_masking(x: torch.Tensor, mask_ratio: float) -> torch.Tensor:
-        """
-        Perform per-sample random masking by per-sample shuffling.
-        Per-sample shuffling is done by argsort random noise.
-        x: [N, L, D], sequence
-        """
-        N, L, D = x.shape  # batch, length, dim
-        len_keep = int(L * (1 - mask_ratio))
-        
-        noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
-        
-        # sort noise for each sample
-        ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
-        ids_restore = torch.argsort(ids_shuffle, dim=1)
-
-        # keep the first subset
-        ids_keep = ids_shuffle[:, :len_keep]
-        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
-
-        # generate the binary mask: 0 is keep, 1 is remove
-        mask = torch.ones([N, L], device=x.device)
-        mask[:, :len_keep] = 0
-        # unshuffle to get the binary mask
-        mask = torch.gather(mask, dim=1, index=ids_restore)
-        # mask = np.hstack([
-        #     np.zeros(len_keep),
-        #     np.ones(L - len_keep),
-        # ])
-        # np.random.shuffle(mask)
-
-        return mask.to(torch.bool)
+    """Per-sample random masking via per-sample shuffling."""
+    N, L, D = x.shape
+    len_keep = int(L * (1 - mask_ratio))
+    noise = torch.rand(N, L, device=x.device)
+    ids_shuffle = torch.argsort(noise, dim=1)
+    ids_restore = torch.argsort(ids_shuffle, dim=1)
+    ids_keep = ids_shuffle[:, :len_keep]
+    x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+    mask = torch.ones([N, L], device=x.device)
+    mask[:, :len_keep] = 0
+    mask = torch.gather(mask, dim=1, index=ids_restore)
+    return mask.to(torch.bool)
 
 
 def train_one_epoch(
@@ -62,15 +42,15 @@ def train_one_epoch(
     device: torch.device,
     epoch: int,
     loss_scaler,
-    max_norm: float = 0,
+    trainer_cfg: TrainerConfig,
+    optim_cfg: OptimizerConfig,
+    distributed: bool = False,
     log_writer: Optional[Any] = None,
     lr_scheduler: Optional[Any] = None,
     start_steps: Optional[int] = None,
     lr_schedule_values: Optional[Sequence[float]] = None,
     wd_schedule_values: Optional[Sequence[float]] = None,
     ch_names_list: Optional[List[List[str]]] = None,
-    gradient_accumulation_steps: int = 1,
-    distributed: bool = False,
 ) -> Dict[str, float]:
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -80,13 +60,15 @@ def train_one_epoch(
     print_freq = 10
 
     loss_fn = nn.CrossEntropyLoss()
+    grad_accum = trainer_cfg.gradient_accumulation_steps
+    clip_grad  = optim_cfg.clip_grad or 0
 
     step_loader = 0
     for data_loader, ch_names in zip(data_loader_list, ch_names_list):
         if len(data_loader) == 0:
             continue
         channel_indices = utils.get_channel_indices(ch_names)
-        for step, (batch) in enumerate(metric_logger.log_every(data_loader, print_freq * gradient_accumulation_steps, header)):
+        for step, (batch) in enumerate(metric_logger.log_every(data_loader, print_freq * grad_accum, header)):
             global_step = start_steps + step + step_loader
             apply_lr_wd_schedule(optimizer, global_step, lr_schedule_values, wd_schedule_values)
 
@@ -98,52 +80,45 @@ def train_one_epoch(
             with torch.no_grad():
                 with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
                     input_ids = vqnsp.get_codebook_indices(samples, channel_indices)
-
                 labels = input_ids[bool_masked_pos]
                 labels_sym = input_ids[~bool_masked_pos]
 
-            my_context = model.no_sync if distributed and (step + 1) % gradient_accumulation_steps != 0 else nullcontext
+            my_context = (model.no_sync if distributed and (step + 1) % grad_accum != 0
+                          else nullcontext)
             with my_context():
                 with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
                     outputs = model(samples, channel_indices, bool_masked_pos=bool_masked_pos)
-
                     x_rec, x_rec_sym = outputs
                     loss_rec = loss_fn(x_rec, labels)
                     loss_rec_sym = loss_fn(x_rec_sym, labels_sym)
                     loss = loss_rec + loss_rec_sym
 
             loss_value = loss.item()
-
             if not math.isfinite(loss_value):
                 print(f"Loss is {loss_value}, stopping training at rank {utils.get_rank()}", force=True)
-                
                 sys.exit(1)
 
-            # this attribute is added by timm on one optimizer (adahessian)
             is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
-            loss /= gradient_accumulation_steps
-            grad_norm = loss_scaler(loss, optimizer, clip_grad=max_norm,
-                                    parameters=model.parameters(), create_graph=is_second_order, update_grad=(step + 1) % gradient_accumulation_steps == 0)
+            loss /= grad_accum
+            grad_norm = loss_scaler(loss, optimizer, clip_grad=clip_grad,
+                                    parameters=model.parameters(), create_graph=is_second_order,
+                                    update_grad=(step + 1) % grad_accum == 0)
             loss_scale_value = loss_scaler.state_dict().get("scale", 1.0)
-            if (step + 1) % gradient_accumulation_steps == 0:
+            if (step + 1) % grad_accum == 0:
                 optimizer.zero_grad()
 
             if device.type == 'cuda':
                 torch.cuda.synchronize()
-            
+
             mlm_acc = (x_rec.max(-1)[1] == labels).float().mean().item()
             mlm_acc_sym = (x_rec_sym.max(-1)[1] == labels_sym).float().mean().item()
-            metric_logger.update(mlm_acc=mlm_acc)
-            metric_logger.update(mlm_acc_sym=mlm_acc_sym)
-            metric_logger.update(loss_rec=loss_rec.item() / 2)
+            metric_logger.update(mlm_acc=mlm_acc, mlm_acc_sym=mlm_acc_sym,
+                                 loss_rec=loss_rec.item() / 2, loss=loss_value,
+                                 loss_scale=loss_scale_value)
 
             if log_writer is not None:
-                log_writer.update(mlm_acc=mlm_acc, head="loss")
-                log_writer.update(mlm_acc_sym=mlm_acc_sym, head="loss")
-                log_writer.update(loss_rec=loss_rec.item() / 2, head="loss")
-
-            metric_logger.update(loss=loss_value)
-            metric_logger.update(loss_scale=loss_scale_value)
+                log_writer.update(mlm_acc=mlm_acc, mlm_acc_sym=mlm_acc_sym,
+                                  loss_rec=loss_rec.item() / 2, head="loss")
 
             log_lr_wd_grad_metrics(metric_logger, optimizer, grad_norm, log_writer)
 
@@ -155,8 +130,68 @@ def train_one_epoch(
             if lr_scheduler is not None:
                 lr_scheduler.step_update(start_steps + step + step_loader)
         step_loader += step
-    # gather the stats from all processes
+
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
+
+def train_loop(
+    config,  # PretrainRunConfig — avoid circular import by not typing it
+    model: torch.nn.Module,
+    model_without_ddp: torch.nn.Module,
+    vqnsp: torch.nn.Module,
+    data_loader_list,
+    optimizer,
+    device: torch.device,
+    loss_scaler,
+    lr_schedule_values,
+    wd_schedule_values,
+    train_ch_names_list,
+    log_writer,
+    args,
+    n_parameters: int,
+    num_training_steps_per_epoch: int,
+) -> None:
+    """Epoch loop extracted from the runner so runner.main() only owns setup."""
+    import labram.utils as utils
+    import labram.runs.common as runner_common
+
+    print(f"Start training for {config.trainer.epochs} epochs")
+    import time
+    start_time = time.time()
+
+    for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
+        if args.distributed:
+            for dl in data_loader_list:
+                dl.sampler.set_epoch(epoch)
+        if log_writer is not None:
+            log_writer.set_step(epoch * num_training_steps_per_epoch)
+
+        train_stats = train_one_epoch(
+            model, vqnsp, data_loader_list, optimizer, device, epoch, loss_scaler,
+            trainer_cfg=config.trainer,
+            optim_cfg=config.optimizer,
+            distributed=getattr(args, 'distributed', False),
+            log_writer=log_writer,
+            start_steps=epoch * num_training_steps_per_epoch,
+            lr_schedule_values=lr_schedule_values,
+            wd_schedule_values=wd_schedule_values,
+            ch_names_list=train_ch_names_list,
+        )
+
+        if config.output.output_dir:
+            utils.save_model(
+                args=args, model=model, model_without_ddp=model_without_ddp,
+                optimizer=optimizer, loss_scaler=loss_scaler, epoch=epoch,
+                save_ckpt_freq=config.output.save_ckpt_freq,
+            )
+
+        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                     'epoch': epoch, 'n_parameters': n_parameters}
+
+        if log_writer is not None and config.output.output_dir and utils.is_main_process():
+            log_writer.flush()
+        runner_common.append_log_line(args, log_stats)
+
+    runner_common.print_training_time(start_time)

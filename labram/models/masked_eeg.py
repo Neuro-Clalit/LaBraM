@@ -4,18 +4,45 @@
 # Based on BEiT-v2, timm, DeiT, and DINO code bases
 # ---------------------------------------------------------
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
 from timm.layers import trunc_normal_
 
 from labram.models.neural_transformer import NeuralTransformerBase
+from labram.configs.model_config import NeuralTransformerForMEMConfig
 
 
 class NeuralTransformerForMaskedEEGModeling(NeuralTransformerBase):
-    def __init__(self, eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8, vocab_size=8192, embed_dim=200, depth=12,
-                 num_heads=12, mlp_ratio=4., qkv_bias=True, qk_norm=None, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
-                 drop_path_rate=0., norm_layer=None, init_values=None, attn_head_dim=None,
-                 use_abs_pos_emb=True, use_rel_pos_bias=False, use_shared_rel_pos_bias=False, init_std=0.02):
+    def __init__(self,
+                 config: Optional[NeuralTransformerForMEMConfig] = None,
+                 *,
+                 eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8,
+                 vocab_size=8192, embed_dim=200, depth=12,
+                 num_heads=12, mlp_ratio=4., qkv_bias=True, qk_norm=None, qk_scale=None,
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.,
+                 norm_layer=None, init_values=None, attn_head_dim=None,
+                 use_abs_pos_emb=True, use_rel_pos_bias=False,
+                 use_shared_rel_pos_bias=False, init_std=0.02):
+        if config is not None:
+            eeg_window_size  = config.eeg_window_size
+            patch_size       = config.patch_size
+            in_chans         = config.in_chans
+            out_chans        = config.out_chans
+            vocab_size       = config.vocab_size
+            embed_dim        = config.embed_dim
+            depth            = config.depth
+            num_heads        = config.num_heads
+            mlp_ratio        = config.mlp_ratio
+            qkv_bias         = config.qkv_bias
+            drop_rate        = config.drop_rate
+            attn_drop_rate   = config.attn_drop_rate
+            drop_path_rate   = config.drop_path_rate
+            init_values      = config.init_values
+            use_abs_pos_emb  = config.use_abs_pos_emb
+            use_rel_pos_bias = config.use_rel_pos_bias
+            init_std         = config.init_std
         super().__init__(
             eeg_window_size=eeg_window_size, patch_size=patch_size, in_chans=in_chans,
             out_chans=out_chans, embed_dim=embed_dim, depth=depth, num_heads=num_heads,
@@ -130,17 +157,53 @@ class NeuralTransformerForMaskedEEGModeling(NeuralTransformerBase):
 
 
 class NeuralTransformerForMEM(nn.Module):
-    def __init__(self, eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8, vocab_size=8192, embed_dim=200, depth=12,
-                 num_heads=10, mlp_ratio=4., qkv_bias=True, qk_norm=None, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
-                 drop_path_rate=0., norm_layer=None, init_values=None, attn_head_dim=None,
-                 use_abs_pos_emb=True, use_rel_pos_bias=False, use_shared_rel_pos_bias=False, init_std=0.02):
+    """Wrapper used by the pre-training runner and registry.
+
+    Owns the masked / unmasked lm_head pair and a projection_head.
+    The inner ``NeuralTransformerForMaskedEEGModeling`` (``self.student``)
+    acts as the feature backbone; its own lm_head is not used here.
+    """
+
+    def __init__(self,
+                 config: Optional[NeuralTransformerForMEMConfig] = None,
+                 *,
+                 eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8,
+                 vocab_size=8192, embed_dim=200, depth=12,
+                 num_heads=10, mlp_ratio=4., qkv_bias=True, qk_norm=None, qk_scale=None,
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.,
+                 norm_layer=None, init_values=None, attn_head_dim=None,
+                 use_abs_pos_emb=True, use_rel_pos_bias=False,
+                 use_shared_rel_pos_bias=False, init_std=0.02):
         super().__init__()
+        if config is not None:
+            eeg_window_size  = config.eeg_window_size
+            patch_size       = config.patch_size
+            in_chans         = config.in_chans
+            out_chans        = config.out_chans
+            vocab_size       = config.vocab_size
+            embed_dim        = config.embed_dim
+            depth            = config.depth
+            num_heads        = config.num_heads
+            mlp_ratio        = config.mlp_ratio
+            qkv_bias         = config.qkv_bias
+            drop_rate        = config.drop_rate
+            attn_drop_rate   = config.attn_drop_rate
+            drop_path_rate   = config.drop_path_rate
+            init_values      = config.init_values
+            use_abs_pos_emb  = config.use_abs_pos_emb
+            use_rel_pos_bias = config.use_rel_pos_bias
+            init_std         = config.init_std
         self.patch_size = patch_size
         self.student = NeuralTransformerForMaskedEEGModeling(
-            eeg_window_size, patch_size, in_chans, out_chans, vocab_size, embed_dim, depth,
-            num_heads, mlp_ratio, qkv_bias, qk_norm, qk_scale, drop_rate, attn_drop_rate,
-            drop_path_rate, norm_layer, init_values, attn_head_dim,
-            use_abs_pos_emb, use_rel_pos_bias, use_shared_rel_pos_bias, init_std,
+            eeg_window_size=eeg_window_size, patch_size=patch_size,
+            in_chans=in_chans, out_chans=out_chans, vocab_size=vocab_size,
+            embed_dim=embed_dim, depth=depth, num_heads=num_heads,
+            mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_norm=qk_norm,
+            qk_scale=qk_scale, drop_rate=drop_rate, attn_drop_rate=attn_drop_rate,
+            drop_path_rate=drop_path_rate, norm_layer=norm_layer,
+            init_values=init_values, attn_head_dim=attn_head_dim,
+            use_abs_pos_emb=use_abs_pos_emb, use_rel_pos_bias=use_rel_pos_bias,
+            use_shared_rel_pos_bias=use_shared_rel_pos_bias, init_std=init_std,
         )
         self.lm_head = nn.Linear(embed_dim, vocab_size)
         self.projection_head = nn.Sequential(

@@ -19,7 +19,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from labram.trainers.train_pretrain import random_masking, train_one_epoch
+from labram.train.train_pretrain import random_masking, train_one_epoch
+from labram.configs.train_config import TrainerConfig
+from labram.configs.optim_config import OptimizerConfig
 from labram.models.masked_eeg import NeuralTransformerForMEM
 from labram.models.vqnsp import VQNSP
 from labram.utils import NativeScalerWithGradNormCount
@@ -166,13 +168,13 @@ class TestTrainOneEpochSmoke:
             device=torch.device('cpu'),
             epoch=0,
             loss_scaler=loss_scaler,
-            max_norm=None,
+            trainer_cfg=TrainerConfig(gradient_accumulation_steps=1),
+            optim_cfg=OptimizerConfig(clip_grad=None),
+            distributed=False,
             start_steps=0,
             lr_schedule_values=None,
             wd_schedule_values=None,
             ch_names_list=[_ch_names()],
-            gradient_accumulation_steps=1,
-            distributed=False,
         )
         return student, stats, before
 
