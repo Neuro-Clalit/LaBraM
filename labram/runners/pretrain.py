@@ -17,101 +17,28 @@ from timm.models import create_model
 import labram.models.registry  # noqa: F401  -- registers timm models
 import labram.runners.common as runner_common
 import labram.utils as utils
+from labram.configs.runner_configs import PretrainRunConfig, parse_overrides
 from labram.trainers.train_pretrain import train_one_epoch
 from labram.optim_factory import create_optimizer
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
 
 
-def get_args():
-    parser = argparse.ArgumentParser('LaBraM pre-training script', add_help=False)
-    parser.add_argument('--batch_size', default=64, type=int)
-    parser.add_argument('--epochs', default=300, type=int)
-    parser.add_argument('--save_ckpt_freq', default=20, type=int)
+def parse_cli() -> argparse.Namespace:
+    """Thin CLI: a config file path plus optional dotted-key overrides.
 
-    # tokenizer settings
-    parser.add_argument("--tokenizer_weight", type=str)
-    parser.add_argument("--tokenizer_model", type=str, default="vqnsp_encoder_base_decoder_3x200x12")
-
-    # Model parameters
-    parser.add_argument('--model', default='labram_base_patch200_1600_8k_vocab', type=str, metavar='MODEL',
-                        help='Name of model to train')
-    parser.add_argument('--rel_pos_bias', action='store_true')
-    parser.add_argument('--disable_rel_pos_bias', action='store_true', dest='rel_pos_bias')
-    parser.set_defaults(rel_pos_bias=False)
-    parser.add_argument('--abs_pos_emb', action='store_true')
-    parser.set_defaults(abs_pos_emb=True)
-    parser.add_argument('--layer_scale_init_value', default=0.1, type=float,
-                        help="0.1 for base, 1e-5 for large. set 0 to disable layer scale")
-
-    parser.add_argument('--input_size', default=1600, type=int,
-                        help='EEG input size for backbone')
-
-    parser.add_argument('--drop_path', type=float, default=0.1, metavar='PCT',
-                        help='Drop path rate (default: 0.1)')
-
-    # Tokenizer parameters
-    parser.add_argument('--codebook_size', default=8192, type=int, help='number of entries in the codebook')
-    parser.add_argument('--quantizer_dim', default=32, type=int, help='dimension of each codebook entry')
-
-    # Optimizer parameters
-    parser.add_argument('--opt', default='adamw', type=str, metavar='OPTIMIZER',
-                        help='Optimizer (default: "adamw"')
-    parser.add_argument('--opt_eps', default=1e-8, type=float, metavar='EPSILON',
-                        help='Optimizer Epsilon (default: 1e-8)')
-    parser.add_argument('--opt_betas', default=None, type=float, nargs='+', metavar='BETA',
-                        help='Optimizer Betas (default: None, use opt default)')
-    parser.add_argument('--clip_grad', type=float, default=None, metavar='NORM',
-                        help='Clip gradient norm (default: None, no clipping)')
-    parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
-                        help='SGD momentum (default: 0.9)')
-    parser.add_argument('--weight_decay', type=float, default=0.05,
-                        help='weight decay (default: 0.05)')
-    parser.add_argument('--weight_decay_end', type=float, default=None, help="""Final value of the
-        weight decay. We use a cosine schedule for WD.
-        (Set the same value with args.weight_decay to keep weight decay no change)""")
-
-    parser.add_argument('--lr', type=float, default=5e-4, metavar='LR',
-                        help='learning rate (default: 5e-4)')
-    parser.add_argument('--warmup_lr', type=float, default=1e-6, metavar='LR',
-                        help='warmup learning rate (default: 1e-6)')
-    parser.add_argument('--min_lr', type=float, default=1e-5, metavar='LR',
-                        help='lower lr bound for cyclic schedulers that hit 0 (1e-5)')
-
-    parser.add_argument('--warmup_epochs', type=int, default=5, metavar='N',
-                        help='epochs to warmup LR, if scheduler supports')
-    parser.add_argument('--warmup_steps', type=int, default=-1, metavar='N',
-                        help='epochs to warmup LR, if scheduler supports')
-
-    parser.add_argument('--output_dir', default='',
-                        help='path where to save, empty for no saving')
-    parser.add_argument('--log_dir', default=None,
-                        help='path where to tensorboard log')
-    parser.add_argument('--device', default='cuda',
-                        help='device to use for training / testing')
-    parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--resume', default='', help='resume from checkpoint')
-    parser.add_argument('--auto_resume', action='store_true')
-    parser.add_argument('--no_auto_resume', action='store_false', dest='auto_resume')
-    parser.set_defaults(auto_resume=True)
-
-    parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
-                        help='start epoch')
-    parser.add_argument('--num_workers', default=10, type=int)
-    parser.add_argument('--pin_mem', action='store_true',
-                        help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
-    parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem',
-                        help='')
-    parser.set_defaults(pin_mem=True)
-
-    # distributed training parameters
-    parser.add_argument('--world_size', default=1, type=int,
-                        help='number of distributed processes')
-    parser.add_argument('--local_rank', default=-1, type=int)
-    parser.add_argument('--dist_on_itp', action='store_true')
-    parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
-
-    parser.add_argument('--gradient_accumulation_steps', default=1, type=int)
-
+    Example:
+        python -m labram.runners.pretrain \
+            --config conf/pretrain.yaml \
+            --set trainer.epochs=5 optimizer.lr=1e-4
+    """
+    parser = argparse.ArgumentParser('LaBraM pre-training (config-driven)', add_help=True)
+    parser.add_argument('--config', type=str, default=None,
+                        help='Path to a JSON or YAML PretrainRunConfig file. '
+                             'Omit to use built-in defaults.')
+    parser.add_argument('--set', dest='overrides', nargs='*', default=[],
+                        metavar='KEY=VALUE',
+                        help='Dotted-path overrides applied after loading, '
+                             'e.g. --set trainer.epochs=5 optimizer.lr=1e-4')
     return parser.parse_args()
 
 
@@ -140,9 +67,15 @@ def get_visual_tokenizer(args):
     ).eval()
 
 
-def main(args):
+def main(config: PretrainRunConfig):
+    # Flat namespace adapter for legacy consumers (init_distributed_mode,
+    # create_optimizer, auto_load_model, save_model, cosine_scheduler).
+    # Mutations to `args` (e.g. rank, gpu, distributed, resume) do NOT
+    # propagate back to `config`.
+    args = config.to_namespace()
+
     device, num_tasks, global_rank = runner_common.setup_environment(args)
-    print(args)
+    print(config)
 
     model = get_model(args)
     patch_size = model.patch_size
@@ -150,18 +83,15 @@ def main(args):
     args.window_size = (1, args.input_size // patch_size)
     args.patch_size = patch_size
 
-    # get dataset
-    # datasets with the same montage can be packed within a sublist
-    datasets_train = [
-        ["path/to/dataset1", "path/to/dataset2"],  # e.g., 64 channels for dataset1 and dataset2
-        ["path/to/dataset3", "path/to/dataset4"],  # e.g., 32 channels for dataset3 and dataset4
-    ]
-    # time window for each sublist; sequence length is window * channel_count
-    time_window = [4, 8]
+    # Dataset spec lives on the typed config. ``datasets_train`` is a nested
+    # list of HDF5 paths grouped by channel montage (see DataConfig docstring).
     dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(
-        datasets_train, time_window, stride=800, start_percentage=0, end_percentage=1,
+        config.data.datasets_train,
+        config.data.time_window,
+        stride=config.data.stride,
+        start_percentage=config.data.start_percentage,
+        end_percentage=config.data.end_percentage,
     )
-    # prepare visual tokenizer
     vqnsp = get_visual_tokenizer(args).to(device)
 
     num_training_steps_per_epoch = (
@@ -245,8 +175,20 @@ def main(args):
     runner_common.print_training_time(start_time)
 
 
+def build_config(cli: argparse.Namespace) -> PretrainRunConfig:
+    """Load config from file (if given) and apply CLI overrides."""
+    overrides = parse_overrides(cli.overrides)
+    return PretrainRunConfig.load_config(cli.config, **overrides)
+
+
 if __name__ == '__main__':
-    opts = get_args()
-    if opts.output_dir:
-        Path(opts.output_dir).mkdir(parents=True, exist_ok=True)
-    main(opts)
+    cli = parse_cli()
+    config = build_config(cli)
+
+    if config.output.output_dir:
+        out_dir = Path(config.output.output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        # Snapshot the resolved config alongside the run for reproducibility.
+        config.save_to(str(out_dir / 'run_config.yaml'))
+
+    main(config)
