@@ -42,7 +42,7 @@ def train_one_epoch(
     start_steps: Optional[int] = None,
     lr_schedule_values: Optional[Sequence[float]] = None,
     ch_names_list: Optional[List[List[str]]] = None,
-    args: Optional[Any] = None,
+    output_dir: str = '',
 ) -> Dict[str, float]:
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -74,7 +74,7 @@ def train_one_epoch(
 
             if not math.isfinite(loss_value):
                 print("Loss is {}, stopping training".format(loss_value), force=True)
-                utils.save_nan_model(args, model)
+                utils.save_nan_model(output_dir, model)
                 sys.exit(1)
 
             optimizer.zero_grad()
@@ -121,7 +121,6 @@ def evaluate(
     log_writer: Optional[Any] = None,
     epoch: Optional[int] = None,
     ch_names_list: Optional[List[List[str]]] = None,
-    args: Optional[Any] = None,
 ) -> Dict[str, float]:
 
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -165,9 +164,9 @@ def calculate_codebook_usage(
     data_loader: Iterable,
     model: torch.nn.Module,
     device: torch.device,
+    codebook_size: int,
     log_writer: Optional[Any] = None,
     epoch: Optional[int] = None,
-    args: Optional[Any] = None,
 ) -> None:
 
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -175,7 +174,7 @@ def calculate_codebook_usage(
 
     model.eval()
 
-    codebook_num = args.codebook_size
+    codebook_num = codebook_size
     codebook_cnt = torch.zeros(codebook_num, dtype=torch.float64).to(device)
 
     for step, (batch) in enumerate(metric_logger.log_every(data_loader, 10, header)):

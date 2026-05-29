@@ -15,7 +15,6 @@ second, then assert:
 - train_one_epoch is also wired up to advance the encoder parameters.
 """
 from functools import partial
-from types import SimpleNamespace
 
 import pytest
 import torch
@@ -106,14 +105,6 @@ def _ch_names():
     return ['FP1', 'FP2', 'F3', 'F4']
 
 
-def _make_args():
-    return SimpleNamespace(
-        distributed=False,
-        gradient_accumulation_steps=1,
-        clip_grad=None,
-    )
-
-
 class TestTrainOneEpoch:
     @pytest.fixture
     def trained(self, request):
@@ -137,7 +128,7 @@ class TestTrainOneEpoch:
             start_steps=0,
             lr_schedule_values=None,
             ch_names_list=[_ch_names()],
-            args=_make_args(),
+            output_dir='',
         )
         return model, stats, before, cluster_size_before
 
@@ -181,7 +172,6 @@ class TestEvaluate:
             log_writer=None,
             epoch=0,
             ch_names_list=[_ch_names()],
-            args=_make_args(),
         )
         assert 'loss' in stats
         assert stats['loss'] > 0
@@ -202,7 +192,6 @@ class TestEvaluate:
             log_writer=None,
             epoch=0,
             ch_names_list=[_ch_names()],
-            args=_make_args(),
         )
         # evaluate() is decorated with @torch.no_grad(); learnable encoder
         # parameters should be byte-identical afterwards.

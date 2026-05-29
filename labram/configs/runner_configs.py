@@ -1,238 +1,67 @@
-"""Typed, nested run configurations for LaBraM training scripts.
+"""Top-level run configurations for LaBraM training scripts.
 
-Top-level `*RunConfig` subclasses contain `model`, `optimizer`, `trainer`,
-`data`, `output`, and `distributed` member configs. Field defaults are
-sourced from :mod:`labram.configs.defaults` so every literal that used to
-live in a `parser.add_argument(default=...)` call has exactly one home.
+Each `*RunConfig` composes the shared sub-configs with phase-specific
+model/tokenizer settings. Sub-config types live in their own modules:
 
-A run config loaded from JSON/YAML can be flattened to an
-``argparse.Namespace`` via :meth:`RunConfig.to_namespace`. The flat
-namespace is what legacy consumers (``init_distributed_mode``,
-``create_optimizer``, ``auto_load_model``, ``save_model``) read from —
-the typed config remains the user-facing surface.
+    labram.configs.data_config    — DataConfig
+    labram.configs.model_config   — PretrainModelConfig, VQNSPModelConfig,
+                                    FinetuneModelConfig, TokenizerConfig,
+                                    FinetuneCheckpointConfig
+    labram.configs.optim_config   — OptimizerConfig
+    labram.configs.train_config   — TrainerConfig, OutputConfig, DistributedConfig
+
+``RunConfig.to_namespace()`` flattens every leaf field into an
+``argparse.Namespace`` for legacy consumers (``init_distributed_mode``,
+``create_optimizer``, ``auto_load_model``, ``save_model``) that read a
+flat ``args.X`` surface. Mutations to the namespace are isolated from the
+typed config.
 """
 
 from argparse import Namespace
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 from labram.configs.base_configs import ConfigBase
+from labram.configs.data_config import DataConfig
 from labram.configs.defaults import (
-    DEFAULT_ATTN_DROP_RATE,
-    DEFAULT_AUTO_RESUME,
-    DEFAULT_BATCH_SIZE,
-    DEFAULT_CODEBOOK_SIZE,
-    DEFAULT_DATASET_END_PERCENTAGE,
-    DEFAULT_DATASET_START_PERCENTAGE,
-    DEFAULT_DEVICE,
-    DEFAULT_DIST_EVAL,
-    DEFAULT_DIST_ON_ITP,
-    DEFAULT_DIST_URL,
-    DEFAULT_DROP,
-    DEFAULT_DROP_PATH,
-    DEFAULT_FINETUNE_ABS_POS_EMB,
-    DEFAULT_FINETUNE_CHECKPOINT,
-    DEFAULT_FINETUNE_DATASET,
     DEFAULT_FINETUNE_DATA_PATH,
+    DEFAULT_FINETUNE_DATASET,
     DEFAULT_FINETUNE_DEBUG,
     DEFAULT_FINETUNE_DEBUG_SAMPLES,
     DEFAULT_FINETUNE_DEVICE,
     DEFAULT_FINETUNE_DISABLE_EVAL,
     DEFAULT_FINETUNE_DISABLE_WD_ON_REL_POS_BIAS,
-    DEFAULT_FINETUNE_EPOCHS,
     DEFAULT_FINETUNE_ENABLE_DEEPSPEED,
-    DEFAULT_FINETUNE_INIT_SCALE,
-    DEFAULT_FINETUNE_INPUT_SIZE,
+    DEFAULT_FINETUNE_EPOCHS,
     DEFAULT_FINETUNE_LABEL_SMOOTHING,
     DEFAULT_FINETUNE_LAYER_DECAY,
     DEFAULT_FINETUNE_LR,
     DEFAULT_FINETUNE_MIN_LR,
-    DEFAULT_FINETUNE_MODEL,
     DEFAULT_FINETUNE_MODEL_EMA,
     DEFAULT_FINETUNE_MODEL_EMA_DECAY,
     DEFAULT_FINETUNE_MODEL_EMA_FORCE_CPU,
-    DEFAULT_FINETUNE_MODEL_FILTER_NAME,
-    DEFAULT_FINETUNE_MODEL_KEY,
-    DEFAULT_FINETUNE_MODEL_PREFIX,
-    DEFAULT_FINETUNE_NB_CLASSES,
-    DEFAULT_FINETUNE_QKV_BIAS,
-    DEFAULT_FINETUNE_REL_POS_BIAS,
     DEFAULT_FINETUNE_ROBUST_TEST,
     DEFAULT_FINETUNE_SAVE_CKPT_FREQ,
-    DEFAULT_FINETUNE_USE_MEAN_POOLING,
-    DEFAULT_GRADIENT_ACCUMULATION_STEPS,
-    DEFAULT_LAYER_SCALE_INIT_VALUE,
-    DEFAULT_LOCAL_RANK,
-    DEFAULT_LOG_DIR,
-    DEFAULT_MIN_LR,
-    DEFAULT_MOMENTUM,
-    DEFAULT_NUM_WORKERS,
-    DEFAULT_OPT_EPS,
-    DEFAULT_OPTIMIZER,
-    DEFAULT_OUTPUT_DIR,
-    DEFAULT_PIN_MEM,
-    DEFAULT_PRETRAIN_ABS_POS_EMB,
-    DEFAULT_PRETRAIN_EPOCHS,
-    DEFAULT_PRETRAIN_INPUT_SIZE,
-    DEFAULT_PRETRAIN_LR,
-    DEFAULT_PRETRAIN_MODEL,
-    DEFAULT_PRETRAIN_REL_POS_BIAS,
-    DEFAULT_PRETRAIN_SAVE_CKPT_FREQ,
-    DEFAULT_PRETRAIN_STRIDE,
-    DEFAULT_QUANTIZER_DIM,
-    DEFAULT_RESUME,
-    DEFAULT_SAVE_CKPT,
-    DEFAULT_SEED,
-    DEFAULT_START_EPOCH,
-    DEFAULT_TIME_WINDOWS,
-    DEFAULT_TOKENIZER_MODEL,
-    DEFAULT_TOKENIZER_WEIGHT,
-    DEFAULT_UPDATE_FREQ,
     DEFAULT_VQNSP_DIST_EVAL,
-    DEFAULT_VQNSP_EMA_DECAY,
     DEFAULT_VQNSP_EPOCHS,
-    DEFAULT_VQNSP_INPUT_SIZE,
     DEFAULT_VQNSP_LR,
-    DEFAULT_VQNSP_MODEL,
-    DEFAULT_VQNSP_QUANTIZE_KMEANS_INIT,
     DEFAULT_VQNSP_SAVE_CKPT_FREQ,
     DEFAULT_VQNSP_STRIDE,
     DEFAULT_VQNSP_WEIGHT_DECAY,
-    DEFAULT_WARMUP_EPOCHS,
-    DEFAULT_WARMUP_LR,
-    DEFAULT_WARMUP_STEPS,
-    DEFAULT_WEIGHT_DECAY,
-    DEFAULT_WORLD_SIZE,
 )
+from labram.configs.model_config import (
+    FinetuneCheckpointConfig,
+    FinetuneModelConfig,
+    PretrainModelConfig,
+    TokenizerConfig,
+    VQNSPModelConfig,
+)
+from labram.configs.optim_config import OptimizerConfig
+from labram.configs.train_config import DistributedConfig, OutputConfig, TrainerConfig
 
 
 # ============================================================
-# Shared sub-configs
-# ============================================================
-
-
-@dataclass
-class OutputConfig(ConfigBase):
-    output_dir: str = DEFAULT_OUTPUT_DIR
-    log_dir: str = DEFAULT_LOG_DIR
-    resume: str = DEFAULT_RESUME
-    auto_resume: bool = DEFAULT_AUTO_RESUME
-    save_ckpt: bool = DEFAULT_SAVE_CKPT
-    save_ckpt_freq: int = DEFAULT_PRETRAIN_SAVE_CKPT_FREQ
-
-
-@dataclass
-class DistributedConfig(ConfigBase):
-    world_size: int = DEFAULT_WORLD_SIZE
-    local_rank: int = DEFAULT_LOCAL_RANK
-    dist_on_itp: bool = DEFAULT_DIST_ON_ITP
-    dist_url: str = DEFAULT_DIST_URL
-    device: str = DEFAULT_DEVICE
-    seed: int = DEFAULT_SEED
-    dist_eval: bool = DEFAULT_DIST_EVAL
-
-
-@dataclass
-class OptimizerConfig(ConfigBase):
-    opt: str = DEFAULT_OPTIMIZER
-    opt_eps: float = DEFAULT_OPT_EPS
-    opt_betas: Optional[List[float]] = None
-    momentum: float = DEFAULT_MOMENTUM
-    weight_decay: float = DEFAULT_WEIGHT_DECAY
-    weight_decay_end: Optional[float] = None
-    lr: float = DEFAULT_PRETRAIN_LR
-    warmup_lr: float = DEFAULT_WARMUP_LR
-    min_lr: float = DEFAULT_MIN_LR
-    warmup_epochs: int = DEFAULT_WARMUP_EPOCHS
-    warmup_steps: int = DEFAULT_WARMUP_STEPS
-    clip_grad: Optional[float] = None
-
-
-@dataclass
-class TrainerConfig(ConfigBase):
-    batch_size: int = DEFAULT_BATCH_SIZE
-    epochs: int = DEFAULT_PRETRAIN_EPOCHS
-    start_epoch: int = DEFAULT_START_EPOCH
-    gradient_accumulation_steps: int = DEFAULT_GRADIENT_ACCUMULATION_STEPS
-    update_freq: int = DEFAULT_UPDATE_FREQ
-
-
-@dataclass
-class DataConfig(ConfigBase):
-    """Pre-training and VQNSP dataset spec. ``datasets_train`` mirrors the
-    nested-list layout build_pretraining_dataset expects: outer list groups
-    files that share a channel montage."""
-
-    num_workers: int = DEFAULT_NUM_WORKERS
-    pin_mem: bool = DEFAULT_PIN_MEM
-    datasets_train: List[List[str]] = field(default_factory=list)
-    datasets_val: List[List[str]] = field(default_factory=list)
-    time_window: List[int] = field(default_factory=lambda: list(DEFAULT_TIME_WINDOWS))
-    val_time_window: List[int] = field(default_factory=list)
-    stride: int = DEFAULT_PRETRAIN_STRIDE
-    start_percentage: float = DEFAULT_DATASET_START_PERCENTAGE
-    end_percentage: float = DEFAULT_DATASET_END_PERCENTAGE
-
-
-@dataclass
-class TokenizerConfig(ConfigBase):
-    tokenizer_model: str = DEFAULT_TOKENIZER_MODEL
-    tokenizer_weight: str = DEFAULT_TOKENIZER_WEIGHT
-    codebook_size: int = DEFAULT_CODEBOOK_SIZE
-    quantizer_dim: int = DEFAULT_QUANTIZER_DIM
-
-
-# ============================================================
-# Phase-specific model configs
-# ============================================================
-
-
-@dataclass
-class PretrainModelConfig(ConfigBase):
-    model: str = DEFAULT_PRETRAIN_MODEL
-    input_size: int = DEFAULT_PRETRAIN_INPUT_SIZE
-    rel_pos_bias: bool = DEFAULT_PRETRAIN_REL_POS_BIAS
-    abs_pos_emb: bool = DEFAULT_PRETRAIN_ABS_POS_EMB
-    layer_scale_init_value: float = DEFAULT_LAYER_SCALE_INIT_VALUE
-    drop_path: float = DEFAULT_DROP_PATH
-
-
-@dataclass
-class VQNSPModelConfig(ConfigBase):
-    model: str = DEFAULT_VQNSP_MODEL
-    input_size: int = DEFAULT_VQNSP_INPUT_SIZE
-    ema_decay: float = DEFAULT_VQNSP_EMA_DECAY
-    quantize_kmeans_init: bool = DEFAULT_VQNSP_QUANTIZE_KMEANS_INIT
-
-
-@dataclass
-class FinetuneModelConfig(ConfigBase):
-    model: str = DEFAULT_FINETUNE_MODEL
-    input_size: int = DEFAULT_FINETUNE_INPUT_SIZE
-    qkv_bias: bool = DEFAULT_FINETUNE_QKV_BIAS
-    rel_pos_bias: bool = DEFAULT_FINETUNE_REL_POS_BIAS
-    abs_pos_emb: bool = DEFAULT_FINETUNE_ABS_POS_EMB
-    layer_scale_init_value: float = DEFAULT_LAYER_SCALE_INIT_VALUE
-    drop: float = DEFAULT_DROP
-    attn_drop_rate: float = DEFAULT_ATTN_DROP_RATE
-    drop_path: float = DEFAULT_DROP_PATH
-    use_mean_pooling: bool = DEFAULT_FINETUNE_USE_MEAN_POOLING
-    init_scale: float = DEFAULT_FINETUNE_INIT_SCALE
-    nb_classes: int = DEFAULT_FINETUNE_NB_CLASSES
-
-
-@dataclass
-class FinetuneCheckpointConfig(ConfigBase):
-    """Checkpoint-loading knobs that only apply during fine-tuning."""
-
-    finetune: str = DEFAULT_FINETUNE_CHECKPOINT
-    model_key: str = DEFAULT_FINETUNE_MODEL_KEY
-    model_prefix: str = DEFAULT_FINETUNE_MODEL_PREFIX
-    model_filter_name: str = DEFAULT_FINETUNE_MODEL_FILTER_NAME
-
-
-# ============================================================
-# Top-level run configs
+# Base run config
 # ============================================================
 
 
@@ -251,9 +80,10 @@ class RunConfig(ConfigBase):
         """Flatten every leaf field into a single ``argparse.Namespace``.
 
         Legacy consumers (``init_distributed_mode``, ``create_optimizer``,
-        ``auto_load_model``, ``save_model``, ``cosine_scheduler``) read a flat
-        ``args.X`` surface and sometimes mutate it. We give them a separate
-        Namespace so those mutations don't leak back into the typed config.
+        ``auto_load_model``, ``save_model``) read a flat ``args.X`` surface
+        and sometimes mutate it. We give them a separate Namespace so those
+        mutations (rank, gpu, distributed, resume) don't leak back into the
+        typed config.
         """
         ns = Namespace()
         for sub_name, sub in self.__dict__.items():
@@ -265,6 +95,11 @@ class RunConfig(ConfigBase):
         return ns
 
 
+# ============================================================
+# Phase-specific run configs
+# ============================================================
+
+
 @dataclass
 class PretrainRunConfig(RunConfig):
     model: PretrainModelConfig = field(default_factory=PretrainModelConfig)
@@ -274,9 +109,6 @@ class PretrainRunConfig(RunConfig):
 @dataclass
 class VQNSPRunConfig(RunConfig):
     model: VQNSPModelConfig = field(default_factory=VQNSPModelConfig)
-    # vqnsp.py defaults differ from the shared OptimizerConfig defaults
-    # (lower lr, lower wd); we still expose the same OptimizerConfig type
-    # but adjust at construction time below.
     optimizer: OptimizerConfig = field(
         default_factory=lambda: OptimizerConfig(
             lr=DEFAULT_VQNSP_LR,
@@ -295,7 +127,6 @@ class VQNSPRunConfig(RunConfig):
     output: OutputConfig = field(
         default_factory=lambda: OutputConfig(save_ckpt_freq=DEFAULT_VQNSP_SAVE_CKPT_FREQ),
     )
-    # VQNSP-only flags
     disable_eval: bool = False
     eval: bool = False
     calculate_codebook_usage: bool = False
@@ -305,7 +136,6 @@ class VQNSPRunConfig(RunConfig):
 class FinetuneRunConfig(RunConfig):
     model: FinetuneModelConfig = field(default_factory=FinetuneModelConfig)
     finetune_checkpoint: FinetuneCheckpointConfig = field(default_factory=FinetuneCheckpointConfig)
-    # finetune defaults: different lr/min_lr/layer_decay defaults
     optimizer: OptimizerConfig = field(
         default_factory=lambda: OptimizerConfig(
             lr=DEFAULT_FINETUNE_LR,
@@ -321,7 +151,6 @@ class FinetuneRunConfig(RunConfig):
     output: OutputConfig = field(
         default_factory=lambda: OutputConfig(save_ckpt_freq=DEFAULT_FINETUNE_SAVE_CKPT_FREQ),
     )
-
     layer_decay: float = DEFAULT_FINETUNE_LAYER_DECAY
     smoothing: float = DEFAULT_FINETUNE_LABEL_SMOOTHING
     model_ema: bool = DEFAULT_FINETUNE_MODEL_EMA
@@ -339,14 +168,14 @@ class FinetuneRunConfig(RunConfig):
 
 
 # ============================================================
-# CLI override parsing
+# CLI override parsing (shared by all run scripts)
 # ============================================================
 
 
 def _coerce_override(s: str):
-    """Map a CLI override value (string) to a Python literal.
+    """Map a CLI override string to a Python literal.
 
-    Order matters: None, then bool, then int, then float, then string.
+    Order: None → bool → int → float → str.
     """
     if s.lower() == 'none':
         return None
@@ -366,7 +195,7 @@ def _coerce_override(s: str):
 
 
 def parse_overrides(items: List[str]) -> dict:
-    """Parse ``--set key.sub=value`` arguments into a dict suitable for
+    """Parse ``--set key.sub=value`` strings into a dict for
     :meth:`ConfigBase.update`."""
     out: dict = {}
     for raw in items:

@@ -13,7 +13,6 @@ run finishes in ~1 second, then assert that:
 - the optimizer step actually moves model parameters.
 """
 from functools import partial
-from types import SimpleNamespace
 
 import pytest
 import torch
@@ -144,13 +143,6 @@ def _ch_names():
     return ['FP1', 'FP2', 'F3', 'F4']
 
 
-def _make_args(distributed: bool = False, gradient_accumulation_steps: int = 1, clip_grad: float = None):
-    return SimpleNamespace(
-        distributed=distributed,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        clip_grad=clip_grad,
-    )
-
 
 class TestTrainOneEpochSmoke:
     @pytest.fixture
@@ -179,7 +171,8 @@ class TestTrainOneEpochSmoke:
             lr_schedule_values=None,
             wd_schedule_values=None,
             ch_names_list=[_ch_names()],
-            args=_make_args(),
+            gradient_accumulation_steps=1,
+            distributed=False,
         )
         return student, stats, before
 

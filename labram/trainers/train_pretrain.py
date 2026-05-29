@@ -69,7 +69,8 @@ def train_one_epoch(
     lr_schedule_values: Optional[Sequence[float]] = None,
     wd_schedule_values: Optional[Sequence[float]] = None,
     ch_names_list: Optional[List[List[str]]] = None,
-    args: Optional[Any] = None,
+    gradient_accumulation_steps: int = 1,
+    distributed: bool = False,
 ) -> Dict[str, float]:
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -85,7 +86,7 @@ def train_one_epoch(
         if len(data_loader) == 0:
             continue
         channel_indices = utils.get_channel_indices(ch_names)
-        for step, (batch) in enumerate(metric_logger.log_every(data_loader, print_freq * args.gradient_accumulation_steps, header)):
+        for step, (batch) in enumerate(metric_logger.log_every(data_loader, print_freq * gradient_accumulation_steps, header)):
             global_step = start_steps + step + step_loader
             apply_lr_wd_schedule(optimizer, global_step, lr_schedule_values, wd_schedule_values)
 
@@ -101,7 +102,7 @@ def train_one_epoch(
                 labels = input_ids[bool_masked_pos]
                 labels_sym = input_ids[~bool_masked_pos]
 
-            my_context = model.no_sync if args.distributed and (step + 1) % args.gradient_accumulation_steps != 0 else nullcontext
+            my_context = model.no_sync if distributed and (step + 1) % gradient_accumulation_steps != 0 else nullcontext
             with my_context():
                 with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
                     outputs = model(samples, channel_indices, bool_masked_pos=bool_masked_pos)
@@ -120,11 +121,11 @@ def train_one_epoch(
 
             # this attribute is added by timm on one optimizer (adahessian)
             is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
-            loss /= args.gradient_accumulation_steps
+            loss /= gradient_accumulation_steps
             grad_norm = loss_scaler(loss, optimizer, clip_grad=max_norm,
-                                    parameters=model.parameters(), create_graph=is_second_order, update_grad=(step + 1) % args.gradient_accumulation_steps == 0)
+                                    parameters=model.parameters(), create_graph=is_second_order, update_grad=(step + 1) % gradient_accumulation_steps == 0)
             loss_scale_value = loss_scaler.state_dict().get("scale", 1.0)
-            if (step + 1) % args.gradient_accumulation_steps == 0:
+            if (step + 1) % gradient_accumulation_steps == 0:
                 optimizer.zero_grad()
 
             if device.type == 'cuda':

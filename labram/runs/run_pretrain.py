@@ -15,7 +15,7 @@ from pathlib import Path
 from timm.models import create_model
 
 import labram.models.registry  # noqa: F401  -- registers timm models
-import labram.runners.common as runner_common
+import labram.runs.common as runner_common
 import labram.utils as utils
 from labram.configs.runner_configs import PretrainRunConfig, parse_overrides
 from labram.trainers.train_pretrain import train_one_epoch
@@ -27,7 +27,7 @@ def parse_cli() -> argparse.Namespace:
     """Thin CLI: a config file path plus optional dotted-key overrides.
 
     Example:
-        python -m labram.runners.pretrain \
+        python -m labram.runs.pretrain \
             --config conf/pretrain.yaml \
             --set trainer.epochs=5 optimizer.lr=1e-4
     """
@@ -151,12 +151,14 @@ def main(config: PretrainRunConfig):
         train_stats = train_one_epoch(
             model, vqnsp, data_loader_train_list,
             optimizer, device, epoch, loss_scaler,
-            args.clip_grad, log_writer=log_writer,
+            max_norm=config.optimizer.clip_grad or 0,
+            log_writer=log_writer,
             start_steps=epoch * num_training_steps_per_epoch,
             lr_schedule_values=lr_schedule_values,
             wd_schedule_values=wd_schedule_values,
             ch_names_list=train_ch_names_list,
-            args=args,
+            gradient_accumulation_steps=config.trainer.gradient_accumulation_steps,
+            distributed=getattr(args, 'distributed', False),
         )
         if args.output_dir:
             utils.save_model(
