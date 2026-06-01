@@ -5,7 +5,6 @@
 # ---------------------------------------------------------
 
 import math
-from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -40,35 +39,28 @@ class NeuralTransformerBase(nn.Module):
     """
 
     def __init__(self,
-                 config: Optional[TransformerArchConfig] = None,
+                 config: TransformerArchConfig,
                  *,
-                 eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8,
-                 embed_dim=200, depth=12, num_heads=10, mlp_ratio=4.,
-                 qkv_bias=False, qk_norm=None, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.,
-                 norm_layer=nn.LayerNorm, init_values=None, attn_head_dim=None,
-                 use_abs_pos_emb=True, use_rel_pos_bias=False,
-                 init_std=0.02, use_norm=True):
-        # Serialisable fields from config override keyword defaults.
-        # Non-serialisable callables (norm_layer, qk_norm) stay as kwargs.
-        if config is not None:
-            eeg_window_size  = config.eeg_window_size
-            patch_size       = config.patch_size
-            in_chans         = config.in_chans
-            out_chans        = config.out_chans
-            embed_dim        = config.embed_dim
-            depth            = config.depth
-            num_heads        = config.num_heads
-            mlp_ratio        = config.mlp_ratio
-            qkv_bias         = config.qkv_bias
-            drop_rate        = config.drop_rate
-            attn_drop_rate   = config.attn_drop_rate
-            drop_path_rate   = config.drop_path_rate
-            init_values      = config.init_values
-            use_abs_pos_emb  = config.use_abs_pos_emb
-            use_rel_pos_bias = config.use_rel_pos_bias
-            init_std         = config.init_std
-            use_norm         = config.use_norm
+                 norm_layer=nn.LayerNorm, qk_norm=None, qk_scale=None,
+                 attn_head_dim=None):
+        # Non-serialisable callables (norm_layer, qk_norm) stay as keyword args.
+        eeg_window_size  = config.eeg_window_size
+        patch_size       = config.patch_size
+        in_chans         = config.in_chans
+        out_chans        = config.out_chans
+        embed_dim        = config.embed_dim
+        depth            = config.depth
+        num_heads        = config.num_heads
+        mlp_ratio        = config.mlp_ratio
+        qkv_bias         = config.qkv_bias
+        drop_rate        = config.drop_rate
+        attn_drop_rate   = config.attn_drop_rate
+        drop_path_rate   = config.drop_path_rate
+        init_values      = config.init_values
+        use_abs_pos_emb  = config.use_abs_pos_emb
+        use_rel_pos_bias = config.use_rel_pos_bias
+        init_std         = config.init_std
+        use_norm         = config.use_norm
         super().__init__()
         self.num_features = self.embed_dim = embed_dim
         self.patch_size = patch_size
@@ -207,48 +199,18 @@ class NeuralTransformerBase(nn.Module):
 
 class NeuralTransformer(NeuralTransformerBase):
     def __init__(self,
-                 config: Optional[TransformerArchConfig] = None,
+                 config: TransformerArchConfig,
                  *,
-                 eeg_window_size=1600, patch_size=200, in_chans=1, out_chans=8, num_classes=1000,
-                 embed_dim=200, depth=12, num_heads=10, mlp_ratio=4., qkv_bias=False,
-                 qk_norm=None, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
-                 drop_path_rate=0., norm_layer=nn.LayerNorm, init_values=None,
-                 use_abs_pos_emb=True, use_rel_pos_bias=False, use_shared_rel_pos_bias=False,
-                 use_mean_pooling=True, init_scale=0.001):
-        if config is not None:
-            eeg_window_size      = config.eeg_window_size
-            patch_size           = config.patch_size
-            in_chans             = config.in_chans
-            out_chans            = config.out_chans
-            num_classes          = config.num_classes
-            embed_dim            = config.embed_dim
-            depth                = config.depth
-            num_heads            = config.num_heads
-            mlp_ratio            = config.mlp_ratio
-            qkv_bias             = config.qkv_bias
-            drop_rate            = config.drop_rate
-            attn_drop_rate       = config.attn_drop_rate
-            drop_path_rate       = config.drop_path_rate
-            init_values          = config.init_values
-            use_abs_pos_emb      = config.use_abs_pos_emb
-            use_rel_pos_bias     = config.use_rel_pos_bias
-            use_shared_rel_pos_bias = config.use_shared_rel_pos_bias
-            use_mean_pooling     = config.use_mean_pooling
-            init_scale           = config.init_scale
-        super().__init__(
-            eeg_window_size=eeg_window_size, patch_size=patch_size, in_chans=in_chans,
-            out_chans=out_chans, embed_dim=embed_dim, depth=depth, num_heads=num_heads,
-            mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_norm=qk_norm, qk_scale=qk_scale,
-            drop_rate=drop_rate, attn_drop_rate=attn_drop_rate, drop_path_rate=drop_path_rate,
-            norm_layer=norm_layer, init_values=init_values, attn_head_dim=None,
-            use_abs_pos_emb=use_abs_pos_emb, use_rel_pos_bias=use_rel_pos_bias,
-            init_std=0.02, use_norm=not use_mean_pooling,
-        )
-        self.num_classes = num_classes
-        self.time_window = eeg_window_size // patch_size
+                 norm_layer=nn.LayerNorm, qk_norm=None, qk_scale=None):
+        from dataclasses import replace as _replace
+        # fc_norm handles the pooled representation; base norm is only used when not pooling
+        base_cfg = _replace(config, use_norm=not config.use_mean_pooling, init_std=0.02)
+        super().__init__(base_cfg, norm_layer=norm_layer, qk_norm=qk_norm, qk_scale=qk_scale)
+        self.num_classes = config.num_classes
+        self.time_window = config.eeg_window_size // config.patch_size
 
-        self.fc_norm = norm_layer(embed_dim) if use_mean_pooling else None
-        self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+        self.fc_norm = norm_layer(config.embed_dim) if config.use_mean_pooling else None
+        self.head = nn.Linear(config.embed_dim, config.num_classes) if config.num_classes > 0 else nn.Identity()
 
         if isinstance(self.head, nn.Linear):
             trunc_normal_(self.head.weight, std=.02)
@@ -256,8 +218,8 @@ class NeuralTransformer(NeuralTransformerBase):
         self.fix_init_weight()
 
         if isinstance(self.head, nn.Linear):
-            self.head.weight.data.mul_(init_scale)
-            self.head.bias.data.mul_(init_scale)
+            self.head.weight.data.mul_(config.init_scale)
+            self.head.bias.data.mul_(config.init_scale)
 
     def get_classifier(self):
         return self.head

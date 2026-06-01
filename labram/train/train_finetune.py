@@ -249,21 +249,22 @@ def train_loop(
     optimizer,
     device: torch.device,
     loss_scaler,
-    lr_schedule_values,
-    wd_schedule_values,
     log_writer,
     ch_names,
     metrics,
-    args,
     n_parameters: int,
     num_training_steps_per_epoch: int,
-    dataset_val,
-    dataset_test,
     model_ema=None,
+    enable_deepspeed: bool = False,
 ) -> None:
     """Epoch loop extracted from the runner."""
     import time
     import labram.runs.common as runner_common
+
+    lr_schedule_values = runner_common.make_lr_schedule(
+        config.optimizer, config.trainer, num_training_steps_per_epoch)
+    wd_schedule_values = runner_common.make_wd_schedule(
+        config.optimizer, config.trainer, num_training_steps_per_epoch)
 
     nb_classes = config.model.nb_classes
     is_binary = nb_classes == 1
@@ -273,7 +274,7 @@ def train_loop(
     max_accuracy = max_accuracy_test = 0.0
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
-        if args.distributed:
+        if config.distributed.distributed:
             loaders.train.sampler.set_epoch(epoch)
         if log_writer is not None:
             log_writer.set_step(epoch * num_training_steps_per_epoch * config.trainer.update_freq)
@@ -295,10 +296,11 @@ def train_loop(
 
         if config.output.output_dir and config.output.save_ckpt:
             utils.save_model(
-                args=args, model=model, model_without_ddp=model_without_ddp,
+                output_cfg=config.output, trainer_cfg=config.trainer,
+                model=model, model_without_ddp=model_without_ddp,
                 optimizer=optimizer, loss_scaler=loss_scaler,
                 epoch=epoch, model_ema=model_ema,
-                save_ckpt_freq=config.output.save_ckpt_freq)
+                enable_deepspeed=enable_deepspeed)
 
         if loaders.val is not None:
             val_stats = evaluate(loaders.val, model, device, header='Val:',
@@ -312,9 +314,11 @@ def train_loop(
                 max_accuracy = val_stats["accuracy"]
                 if config.output.output_dir and config.output.save_ckpt:
                     utils.save_model(
-                        args=args, model=model, model_without_ddp=model_without_ddp,
+                        output_cfg=config.output, trainer_cfg=config.trainer,
+                        model=model, model_without_ddp=model_without_ddp,
                         optimizer=optimizer, loss_scaler=loss_scaler,
-                        epoch="best", model_ema=model_ema)
+                        epoch="best", model_ema=model_ema,
+                        enable_deepspeed=enable_deepspeed)
                 max_accuracy_test = test_stats["accuracy"]
             print(f'Max accuracy val: {max_accuracy:.2f}%, test: {max_accuracy_test:.2f}%')
 
@@ -331,6 +335,6 @@ def train_loop(
 
         if log_writer is not None and config.output.output_dir and utils.is_main_process():
             log_writer.flush()
-        runner_common.append_log_line(args, log_stats)
+        runner_common.append_log_line(config.output, log_stats)
 
     runner_common.print_training_time(start_time)

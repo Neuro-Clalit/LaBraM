@@ -36,14 +36,14 @@ Use module entry points under `labram.runners` for maintained training commands:
 
 ```bash
 # Train VQNSP tokenizer.
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.vqnsp \
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.vqnsp \
   --output_dir ./checkpoints/vqnsp/ --log_dir ./log/vqnsp/ \
   --model vqnsp_encoder_base_decoder_3x200x12 \
   --codebook_n_emd 8192 --codebook_emd_dim 64 --quantize_kmeans_init \
   --batch_size 128 --opt adamw --epochs 100
 
 # Pre-train LaBraM.
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.pretrain \
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.pretrain \
   --output_dir ./checkpoints/labram_base --log_dir ./log/labram_base \
   --model labram_base_patch200_1600_8k_vocab \
   --tokenizer_model vqnsp_encoder_base_decoder_3x200x12 \
@@ -51,7 +51,7 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.pretr
   --batch_size 64 --lr 5e-4 --epochs 50
 
 # Fine-tune on TUAB.
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.finetune \
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.finetune \
   --output_dir ./checkpoints/finetune_tuab_base/ --log_dir ./log/finetune_tuab_base \
   --model labram_base_patch200_200 --finetune ./checkpoints/labram-base.pth \
   --dataset TUAB --batch_size 64 --lr 5e-4 --epochs 50 \

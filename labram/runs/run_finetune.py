@@ -7,7 +7,6 @@
 import argparse
 import numpy as np
 import torch
-import torch.backends.cudnn as cudnn
 from pathlib import Path
 
 from timm.models import create_model
@@ -22,7 +21,7 @@ from labram.train.train_finetune import evaluate, train_loop
 from labram.runs.finetune_datasets import get_dataset_bundle
 from labram.runs.finetune_setup import (
     build_dataloaders, build_samplers, load_finetune_checkpoint,
-    resolve_device, subset_for_debug,
+    subset_for_debug,
 )
 from labram.optim_factory import LayerDecayValueAssigner, create_optimizer, get_parameter_groups
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
@@ -50,11 +49,13 @@ def get_model(config: FinetuneRunConfig):
 
 
 def main(config: FinetuneRunConfig):
-    args = config.to_namespace()
-    utils.init_distributed_mode(args)
+    # setup_environment handles distributed init, device resolution, and seeding.
+    # For finetune, config.distributed.device defaults to 'auto', which
+    # setup_environment resolves to cuda/mps/cpu.
+    device, num_tasks, global_rank = runner_common.setup_environment(config)
 
     if config.enable_deepspeed:
-        utils.create_ds_config(args)
+        utils.create_ds_config(config.output, config.trainer, config.optimizer)
 
     if config.debug:
         print("[DEBUG MODE] Overriding training schedule for fast iteration")
@@ -66,17 +67,8 @@ def main(config: FinetuneRunConfig):
         config.distributed.dist_eval = False
         if config.output.output_dir:
             config.output.log_dir = config.output.log_dir or config.output.output_dir
-        args = config.to_namespace()
 
     print(config)
-
-    device = resolve_device(config.distributed.device)
-    args.device = str(device)
-    seed = config.distributed.seed + utils.get_rank()
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    if torch.cuda.is_available():
-        cudnn.benchmark = True
 
     bundle = get_dataset_bundle(config.dataset, config.data_path)
     config.model.nb_classes = bundle.nb_classes
@@ -98,7 +90,7 @@ def main(config: FinetuneRunConfig):
         num_tasks, global_rank, config.distributed.dist_eval,
     )
 
-    log_writer = runner_common.create_log_writer(args, global_rank)
+    log_writer = runner_common.create_log_writer(config.output, global_rank)
     pin_memory = config.data.pin_mem and device.type == 'cuda'
     loaders = build_dataloaders(
         dataset_train, dataset_val, dataset_test,
@@ -110,10 +102,9 @@ def main(config: FinetuneRunConfig):
 
     model = get_model(config)
     patch_size = model.patch_size
-    args.window_size = (1, config.model.input_size // patch_size)
-    args.patch_size = patch_size
+    window_size = (1, config.model.input_size // patch_size)
 
-    load_finetune_checkpoint(model, args)
+    load_finetune_checkpoint(model, config.finetune_checkpoint)
     model.to(device)
 
     model_ema = None
@@ -147,22 +138,21 @@ def main(config: FinetuneRunConfig):
             model, config.optimizer.weight_decay, skip_weight_decay_list,
             assigner.get_layer_id if assigner else None,
             assigner.get_scale if assigner else None)
+        from argparse import Namespace as _NS
+        _ds_args = _NS(distributed=config.distributed.distributed, gpu=config.distributed.gpu)
         model, optimizer, _, _ = ds_init(
-            args=args, model=model, model_parameters=optimizer_params,
-            dist_init_required=not args.distributed)
+            args=_ds_args, model=model, model_parameters=optimizer_params,
+            dist_init_required=not config.distributed.distributed)
     else:
-        if args.distributed:
+        if config.distributed.distributed:
             model = torch.nn.parallel.DistributedDataParallel(
-                model, device_ids=[args.gpu], find_unused_parameters=True)
+                model, device_ids=[config.distributed.gpu], find_unused_parameters=True)
             model_without_ddp = model.module
         optimizer = create_optimizer(
-            args, model_without_ddp, skip_list=skip_weight_decay_list,
+            config.optimizer, model_without_ddp, skip_list=skip_weight_decay_list,
             get_num_layer=assigner.get_layer_id if assigner else None,
             get_layer_scale=assigner.get_scale if assigner else None)
         loss_scaler = NativeScaler()
-
-    lr_schedule_values = runner_common.make_lr_schedule(args, num_training_steps_per_epoch)
-    wd_schedule_values = runner_common.make_wd_schedule(args, num_training_steps_per_epoch)
 
     nb_classes = config.model.nb_classes
     if nb_classes == 1:
@@ -173,8 +163,12 @@ def main(config: FinetuneRunConfig):
         criterion = torch.nn.CrossEntropyLoss()
 
     utils.auto_load_model(
-        args=args, model=model, model_without_ddp=model_without_ddp,
-        optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema)
+        output_cfg=config.output, trainer_cfg=config.trainer,
+        model=model, model_without_ddp=model_without_ddp,
+        optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema,
+        enable_deepspeed=config.enable_deepspeed,
+        model_ema_enabled=config.model_ema,
+    )
 
     if config.eval:
         accuracy, balanced_accuracy = [], []
@@ -192,14 +186,12 @@ def main(config: FinetuneRunConfig):
         model=model, model_without_ddp=model_without_ddp,
         criterion=criterion, loaders=loaders,
         optimizer=optimizer, device=device, loss_scaler=loss_scaler,
-        lr_schedule_values=lr_schedule_values,
-        wd_schedule_values=wd_schedule_values,
         log_writer=log_writer,
         ch_names=ch_names, metrics=metrics,
-        args=args, n_parameters=n_parameters,
+        n_parameters=n_parameters,
         num_training_steps_per_epoch=num_training_steps_per_epoch,
-        dataset_val=dataset_val, dataset_test=dataset_test,
         model_ema=model_ema,
+        enable_deepspeed=config.enable_deepspeed,
     )
 
 

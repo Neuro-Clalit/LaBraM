@@ -11,7 +11,7 @@ with one addition: mask-token splicing between `patch_embed` and the cls
 concat.
 
 ```python
-# labram/models/pretrain.py  (NeuralTransformerForMaskedEEGModeling.forward_features)
+# labram/models/run_pretrain.py  (NeuralTransformerForMaskedEEGModeling.forward_features)
 batch_size, c, time_window, _ = x.size()
 x = self.patch_embed(x)
 batch_size, seq_len, _ = x.size()

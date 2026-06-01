@@ -56,6 +56,8 @@ from labram.configs.defaults import (
     DEFAULT_VQNSP_QUANTIZE_KMEANS_INIT,
 )
 
+DEFAULT_QUANTIZER_BETA: float = 1.0
+
 
 @dataclass
 class TokenizerConfig(ConfigBase):
@@ -153,11 +155,20 @@ class NeuralTransformerForMEMConfig(TransformerArchConfig):
 
 
 @dataclass
+class QuantizerConfig(ConfigBase):
+    """Config for NormEMAVectorQuantizer."""
+    num_codebook_tokens: int = DEFAULT_CODEBOOK_SIZE
+    quantizer_dim: int = DEFAULT_QUANTIZER_DIM
+    decay: float = DEFAULT_VQNSP_EMA_DECAY
+    kmeans_init: bool = DEFAULT_VQNSP_QUANTIZE_KMEANS_INIT
+    beta: float = DEFAULT_QUANTIZER_BETA
+
+
+@dataclass
 class VQNSPArchConfig(ConfigBase):
     """Architecture config for a VQNSP tokenizer (encoder + decoder + quantizer)."""
     encoder: TransformerArchConfig = field(default_factory=TransformerArchConfig)
     decoder: TransformerArchConfig = field(default_factory=TransformerArchConfig)
-    num_codebook_tokens: int = DEFAULT_CODEBOOK_SIZE
-    quantizer_dim: int = DEFAULT_QUANTIZER_DIM
+    quantizer: QuantizerConfig = field(default_factory=QuantizerConfig)
     decoder_out_dim: int = DEFAULT_ARCH_DECODER_OUT_DIM
     smooth_l1_loss: bool = DEFAULT_ARCH_SMOOTH_L1_LOSS

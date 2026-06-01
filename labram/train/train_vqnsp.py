@@ -187,14 +187,12 @@ def train_loop(
     model_without_ddp: torch.nn.Module,
     data_loader_train_list,
     data_loader_val_list,
+    train_ch_names_list,
+    val_ch_names_list,
     optimizer,
     device: torch.device,
     loss_scaler,
-    lr_schedule_values,
-    train_ch_names_list,
-    val_ch_names_list,
     log_writer,
-    args,
     n_learnable_parameters: int,
     num_training_steps_per_epoch: int,
 ) -> None:
@@ -202,11 +200,14 @@ def train_loop(
     import time
     import labram.runs.common as runner_common
 
+    lr_schedule_values = runner_common.make_lr_schedule(
+        config.optimizer, config.trainer, num_training_steps_per_epoch)
+
     print(f"Start training for {config.trainer.epochs} epochs")
     start_time = time.time()
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
-        if args.distributed:
+        if config.distributed.distributed:
             for dl in data_loader_train_list:
                 dl.sampler.set_epoch(epoch)
         if log_writer is not None:
@@ -224,9 +225,9 @@ def train_loop(
 
         if config.output.output_dir:
             utils.save_model(
-                args=args, model=model, model_without_ddp=model_without_ddp,
+                output_cfg=config.output, trainer_cfg=config.trainer,
+                model=model, model_without_ddp=model_without_ddp,
                 optimizer=optimizer, loss_scaler=loss_scaler, epoch=epoch,
-                save_ckpt_freq=config.output.save_ckpt_freq,
             )
 
         if data_loader_val_list is not None:
@@ -247,6 +248,6 @@ def train_loop(
 
         if log_writer is not None and config.output.output_dir and utils.is_main_process():
             log_writer.flush()
-        runner_common.append_log_line(args, log_stats)
+        runner_common.append_log_line(config.output, log_stats)
 
     runner_common.print_training_time(start_time)

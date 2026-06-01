@@ -142,27 +142,29 @@ def train_loop(
     model_without_ddp: torch.nn.Module,
     vqnsp: torch.nn.Module,
     data_loader_list,
+    train_ch_names_list,
     optimizer,
     device: torch.device,
     loss_scaler,
-    lr_schedule_values,
-    wd_schedule_values,
-    train_ch_names_list,
     log_writer,
-    args,
     n_parameters: int,
     num_training_steps_per_epoch: int,
 ) -> None:
     """Epoch loop extracted from the runner so runner.main() only owns setup."""
+    import time
     import labram.utils as utils
     import labram.runs.common as runner_common
 
+    lr_schedule_values = runner_common.make_lr_schedule(
+        config.optimizer, config.trainer, num_training_steps_per_epoch)
+    wd_schedule_values = runner_common.make_wd_schedule(
+        config.optimizer, config.trainer, num_training_steps_per_epoch)
+
     print(f"Start training for {config.trainer.epochs} epochs")
-    import time
     start_time = time.time()
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
-        if args.distributed:
+        if config.distributed.distributed:
             for dl in data_loader_list:
                 dl.sampler.set_epoch(epoch)
         if log_writer is not None:
@@ -172,7 +174,7 @@ def train_loop(
             model, vqnsp, data_loader_list, optimizer, device, epoch, loss_scaler,
             trainer_cfg=config.trainer,
             optim_cfg=config.optimizer,
-            distributed=getattr(args, 'distributed', False),
+            distributed=config.distributed.distributed,
             log_writer=log_writer,
             start_steps=epoch * num_training_steps_per_epoch,
             lr_schedule_values=lr_schedule_values,
@@ -182,9 +184,9 @@ def train_loop(
 
         if config.output.output_dir:
             utils.save_model(
-                args=args, model=model, model_without_ddp=model_without_ddp,
+                output_cfg=config.output, trainer_cfg=config.trainer,
+                model=model, model_without_ddp=model_without_ddp,
                 optimizer=optimizer, loss_scaler=loss_scaler, epoch=epoch,
-                save_ckpt_freq=config.output.save_ckpt_freq,
             )
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
@@ -192,6 +194,6 @@ def train_loop(
 
         if log_writer is not None and config.output.output_dir and utils.is_main_process():
             log_writer.flush()
-        runner_common.append_log_line(args, log_stats)
+        runner_common.append_log_line(config.output, log_stats)
 
     runner_common.print_training_time(start_time)

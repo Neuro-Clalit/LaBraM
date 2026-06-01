@@ -16,7 +16,9 @@ from timm.models import register_model
 
 from labram.configs.model_config import (
     NeuralTransformerForMEMConfig,
+    QuantizerConfig,
     TransformerArchConfig,
+    VQNSPArchConfig,
 )
 from labram.models.masked_eeg import NeuralTransformerForMEM
 from labram.models.neural_transformer import NeuralTransformer, _cfg
@@ -166,14 +168,24 @@ def _vqnsp_base_arch(eeg_window_size: int = 1600, **overrides) -> TransformerArc
 def vqnsp_encoder_base_decoder_3x200x12(pretrained=False, pretrained_weight=None,
                                          as_tokenzer=False, eeg_window_size=1600,
                                          num_codebook_tokens=8192, quantizer_dim=32,
-                                         **kwargs):
+                                         decay=0.99, quantize_kmeans_init=True, **kwargs):
+    _strip_timm_kwargs(kwargs)
     enc_cfg = _vqnsp_base_arch(eeg_window_size=eeg_window_size)
     dec_cfg = _vqnsp_base_arch(
         eeg_window_size=eeg_window_size // 200,
         patch_size=1, in_chans=quantizer_dim, depth=3,
     )
-    model = VQNSP(enc_cfg, dec_cfg, num_codebook_tokens, quantizer_dim,
-                  decoder_out_dim=200, **_strip_timm_kwargs(kwargs))
+    arch_cfg = VQNSPArchConfig(
+        encoder=enc_cfg, decoder=dec_cfg,
+        quantizer=QuantizerConfig(
+            num_codebook_tokens=num_codebook_tokens,
+            quantizer_dim=quantizer_dim,
+            decay=decay,
+            kmeans_init=quantize_kmeans_init,
+        ),
+        decoder_out_dim=200,
+    )
+    model = VQNSP(arch_cfg)
     if as_tokenzer:
         assert pretrained and pretrained_weight is not None
         load_vqnsp_weights(model, pretrained_weight)
@@ -184,14 +196,24 @@ def vqnsp_encoder_base_decoder_3x200x12(pretrained=False, pretrained_weight=None
 def vqnsp_encoder_large_decoder_3x200x24(pretrained=False, pretrained_weight=None,
                                           as_tokenzer=False, eeg_window_size=1600,
                                           num_codebook_tokens=8192, quantizer_dim=32,
-                                          **kwargs):
+                                          decay=0.99, quantize_kmeans_init=True, **kwargs):
+    _strip_timm_kwargs(kwargs)
     enc_cfg = _vqnsp_base_arch(eeg_window_size=eeg_window_size, depth=24)
     dec_cfg = _vqnsp_base_arch(
         eeg_window_size=eeg_window_size // 200,
         patch_size=1, in_chans=quantizer_dim, depth=3,
     )
-    model = VQNSP(enc_cfg, dec_cfg, num_codebook_tokens, quantizer_dim,
-                  decoder_out_dim=200, **_strip_timm_kwargs(kwargs))
+    arch_cfg = VQNSPArchConfig(
+        encoder=enc_cfg, decoder=dec_cfg,
+        quantizer=QuantizerConfig(
+            num_codebook_tokens=num_codebook_tokens,
+            quantizer_dim=quantizer_dim,
+            decay=decay,
+            kmeans_init=quantize_kmeans_init,
+        ),
+        decoder_out_dim=200,
+    )
+    model = VQNSP(arch_cfg)
     if as_tokenzer:
         assert pretrained and pretrained_weight is not None
         load_vqnsp_weights(model, pretrained_weight)

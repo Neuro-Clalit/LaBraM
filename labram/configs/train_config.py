@@ -51,3 +51,6 @@ class DistributedConfig(ConfigBase):
     device: str = DEFAULT_DEVICE
     seed: int = DEFAULT_SEED
     dist_eval: bool = DEFAULT_DIST_EVAL
+    # Runtime fields — set by setup_environment after init_distributed_mode runs.
+    distributed: bool = False
+    gpu: int = 0

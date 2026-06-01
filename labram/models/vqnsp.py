@@ -4,8 +4,6 @@
 # Based on BEiT-v2, timm, DeiT, and DINO code bases
 # ---------------------------------------------------------
 
-from typing import Union
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,89 +12,57 @@ from timm.layers import trunc_normal_
 
 from labram.models.neural_transformer import NeuralTransformer
 from labram.models.quantizer import NormEMAVectorQuantizer
-from labram.configs.model_config import TransformerArchConfig, VQNSPArchConfig
+from labram.configs.model_config import VQNSPArchConfig
 from labram.utils.checkpoint import load_pretrained_weights
 
 
 class VQNSP(nn.Module):
-    def __init__(self,
-                 encoder_config: Union[TransformerArchConfig, dict],
-                 decoder_config: Union[TransformerArchConfig, dict],
-                 num_codebook_tokens=8192,
-                 quantizer_dim=32,
-                 decay=0.99,
-                 quantize_kmeans_init=True,
-                 decoder_out_dim=200,
-                 smooth_l1_loss=False,
-                 ):
+    def __init__(self, config: VQNSPArchConfig):
         super().__init__()
-        # Accept either a typed TransformerArchConfig or a legacy plain dict.
-        if isinstance(encoder_config, dict):
-            enc_cfg = TransformerArchConfig(**{
-                k: v for k, v in encoder_config.items()
-                if TransformerArchConfig.exist(k)
-            })
-            _enc_dict = encoder_config
-        else:
-            enc_cfg = encoder_config
-            _enc_dict = enc_cfg.__dict__
+        enc_cfg = config.encoder
+        q_cfg = config.quantizer
 
-        if isinstance(decoder_config, dict):
-            if decoder_config.get('in_chans', quantizer_dim) != quantizer_dim:
-                print(f"Rewrite the in_chans in decoder from {decoder_config['in_chans']} to {quantizer_dim}")
-                decoder_config = dict(decoder_config)
-                decoder_config['in_chans'] = quantizer_dim
-            dec_cfg = TransformerArchConfig(**{
-                k: v for k, v in decoder_config.items()
-                if TransformerArchConfig.exist(k)
-            })
-            _dec_dict = decoder_config
-        else:
-            if decoder_config.in_chans != quantizer_dim:
-                print(f"Rewrite the in_chans in decoder from {decoder_config.in_chans} to {quantizer_dim}")
-                decoder_config.in_chans = quantizer_dim
-            dec_cfg = decoder_config
-            _dec_dict = dec_cfg.__dict__
+        dec_cfg = config.decoder
+        if dec_cfg.in_chans != q_cfg.quantizer_dim:
+            from dataclasses import replace as _replace
+            dec_cfg = _replace(dec_cfg, in_chans=q_cfg.quantizer_dim)
+            print(f"Rewrite decoder in_chans to {q_cfg.quantizer_dim}")
 
-        print('Final encoder config', _enc_dict)
+        print('Encoder config', enc_cfg.__dict__)
         self.encoder = NeuralTransformer(enc_cfg)
 
-        print('Final decoder config', _dec_dict)
+        print('Decoder config', dec_cfg.__dict__)
         self.decoder = NeuralTransformer(dec_cfg)
 
-        self.quantize = NormEMAVectorQuantizer(
-            num_codebook_tokens=num_codebook_tokens, quantizer_dim=quantizer_dim, beta=1.0,
-            kmeans_init=quantize_kmeans_init, decay=decay,
-        )
+        self.quantize = NormEMAVectorQuantizer(q_cfg)
 
         self.patch_size = enc_cfg.patch_size
         self.token_shape = (62, enc_cfg.eeg_window_size // self.patch_size)
-
-        self.decoder_out_dim = decoder_out_dim
+        self.decoder_out_dim = config.decoder_out_dim
 
         enc_dim = enc_cfg.embed_dim
         dec_dim = dec_cfg.embed_dim
         self.encode_task_layer = nn.Sequential(
             nn.Linear(enc_dim, enc_dim),
             nn.Tanh(),
-            nn.Linear(enc_dim, quantizer_dim),
+            nn.Linear(enc_dim, q_cfg.quantizer_dim),
         )
         self.decode_task_layer = nn.Sequential(
             nn.Linear(dec_dim, dec_dim),
             nn.Tanh(),
-            nn.Linear(dec_dim, self.decoder_out_dim),
+            nn.Linear(dec_dim, config.decoder_out_dim),
         )
         self.decode_task_layer_angle = nn.Sequential(
             nn.Linear(dec_dim, dec_dim),
             nn.Tanh(),
-            nn.Linear(dec_dim, self.decoder_out_dim),
+            nn.Linear(dec_dim, config.decoder_out_dim),
         )
 
         self.encode_task_layer.apply(self._init_weights)
         self.decode_task_layer.apply(self._init_weights)
         self.decode_task_layer_angle.apply(self._init_weights)
 
-        self.loss_fn = F.smooth_l1_loss if smooth_l1_loss else F.mse_loss
+        self.loss_fn = F.smooth_l1_loss if config.smooth_l1_loss else F.mse_loss
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):

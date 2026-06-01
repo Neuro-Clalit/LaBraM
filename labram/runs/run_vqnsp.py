@@ -53,8 +53,7 @@ def _log_model_param_counts(model):
 
 
 def main(config: VQNSPRunConfig):
-    args = config.to_namespace()
-    device, num_tasks, global_rank = runner_common.setup_environment(args)
+    device, num_tasks, global_rank = runner_common.setup_environment(config)
     print(config)
 
     model = get_model(config)
@@ -86,7 +85,7 @@ def main(config: VQNSPRunConfig):
             dataset_val_list, num_tasks, global_rank, config.distributed.dist_eval,
         )
 
-    log_writer = runner_common.create_log_writer(args, global_rank)
+    log_writer = runner_common.create_log_writer(config.output, global_rank)
 
     data_loader_train_list = runner_common.build_dataloader_list(
         dataset_train_list, sampler_train_list,
@@ -108,16 +107,16 @@ def main(config: VQNSPRunConfig):
 
     total_batch_size = config.trainer.batch_size * num_tasks
     scaled_lr = total_batch_size / 128 * config.optimizer.lr
-    args.lr = scaled_lr
+    config.optimizer.lr = scaled_lr
     print(f"LR = {scaled_lr:.8f}  batch = {total_batch_size}  steps/epoch = {num_training_steps_per_epoch}")
 
-    optimizer = create_optimizer(args, model_without_ddp)
+    optimizer = create_optimizer(config.optimizer, model_without_ddp)
     loss_scaler = NativeScaler()
-    model, model_without_ddp = runner_common.wrap_distributed(args, model)
+    model, model_without_ddp = runner_common.wrap_distributed(config.distributed, model)
 
-    lr_schedule_values = runner_common.make_lr_schedule(args, num_training_steps_per_epoch)
     utils.auto_load_model(
-        args=args, model=model, model_without_ddp=model_without_ddp,
+        output_cfg=config.output, trainer_cfg=config.trainer,
+        model=model, model_without_ddp=model_without_ddp,
         optimizer=optimizer, loss_scaler=loss_scaler,
     )
 
@@ -137,11 +136,10 @@ def main(config: VQNSPRunConfig):
         model=model, model_without_ddp=model_without_ddp,
         data_loader_train_list=data_loader_train_list,
         data_loader_val_list=data_loader_val_list,
-        optimizer=optimizer, device=device, loss_scaler=loss_scaler,
-        lr_schedule_values=lr_schedule_values,
         train_ch_names_list=train_ch_names_list,
         val_ch_names_list=val_ch_names_list,
-        log_writer=log_writer, args=args,
+        optimizer=optimizer, device=device, loss_scaler=loss_scaler,
+        log_writer=log_writer,
         n_learnable_parameters=n_learnable_parameters,
         num_training_steps_per_epoch=num_training_steps_per_epoch,
     )

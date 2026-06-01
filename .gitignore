@@ -15,3 +15,5 @@ checkpoints/
 build/
 dist/
 .pytest_cache/
+.air/
+.claude/settings.local.json

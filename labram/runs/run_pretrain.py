@@ -28,41 +28,40 @@ def parse_cli() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def get_model(args):
-    print(f"Creating model: {args.model}")
+def get_model(config: PretrainRunConfig):
+    m, t = config.model, config.tokenizer
+    print(f"Creating model: {m.model}")
     return create_model(
-        args.model,
+        m.model,
         pretrained=False,
-        drop_path_rate=args.drop_path,
-        use_shared_rel_pos_bias=args.rel_pos_bias,
-        use_abs_pos_emb=args.abs_pos_emb,
-        init_values=args.layer_scale_init_value,
-        vocab_size=args.codebook_size,
+        drop_path_rate=m.drop_path,
+        use_shared_rel_pos_bias=m.rel_pos_bias,
+        use_abs_pos_emb=m.abs_pos_emb,
+        init_values=m.layer_scale_init_value,
+        vocab_size=t.codebook_size,
     )
 
 
-def get_visual_tokenizer(args):
-    print(f"Creating visual tokenizer: {args.tokenizer_model}")
+def get_visual_tokenizer(config: PretrainRunConfig):
+    t = config.tokenizer
+    print(f"Creating visual tokenizer: {t.tokenizer_model}")
     return create_model(
-        args.tokenizer_model,
+        t.tokenizer_model,
         pretrained=True,
-        pretrained_weight=args.tokenizer_weight,
+        pretrained_weight=t.tokenizer_weight,
         as_tokenzer=True,
-        num_codebook_tokens=args.codebook_size,
-        quantizer_dim=args.quantizer_dim,
+        num_codebook_tokens=t.codebook_size,
+        quantizer_dim=t.quantizer_dim,
     ).eval()
 
 
 def main(config: PretrainRunConfig):
-    args = config.to_namespace()
-    device, num_tasks, global_rank = runner_common.setup_environment(args)
+    device, num_tasks, global_rank = runner_common.setup_environment(config)
     print(config)
 
-    model = get_model(args)
+    model = get_model(config)
     patch_size = model.patch_size
     print("Patch size = %s" % str(patch_size))
-    args.window_size = (1, args.input_size // patch_size)
-    args.patch_size = patch_size
 
     dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(
         config.data.datasets_train,
@@ -71,21 +70,21 @@ def main(config: PretrainRunConfig):
         start_percentage=config.data.start_percentage,
         end_percentage=config.data.end_percentage,
     )
-    vqnsp = get_visual_tokenizer(args).to(device)
+    vqnsp = get_visual_tokenizer(config).to(device)
 
     num_training_steps_per_epoch = (
-        sum(len(d) for d in dataset_train_list) // args.batch_size // num_tasks
+        sum(len(d) for d in dataset_train_list) // config.trainer.batch_size // num_tasks
     )
 
     sampler_train_list = runner_common.build_distributed_train_sampler_list(
         dataset_train_list, num_tasks, global_rank,
     )
-    log_writer = runner_common.create_log_writer(args, global_rank)
+    log_writer = runner_common.create_log_writer(config.output, global_rank)
 
     data_loader_list = runner_common.build_dataloader_list(
         dataset_train_list, sampler_train_list,
-        batch_size=args.batch_size, num_workers=args.num_workers,
-        pin_memory=args.pin_mem, drop_last=True,
+        batch_size=config.trainer.batch_size, num_workers=config.data.num_workers,
+        pin_memory=config.data.pin_mem, drop_last=True,
     )
 
     model.to(device)
@@ -95,21 +94,18 @@ def main(config: PretrainRunConfig):
     print('number of params:', n_parameters)
     print("Tokenizer = %s" % str(vqnsp))
 
-    total_batch_size = args.batch_size * num_tasks * args.gradient_accumulation_steps
-    print("LR = %.8f" % args.lr)
+    total_batch_size = config.trainer.batch_size * num_tasks * config.trainer.gradient_accumulation_steps
+    print("LR = %.8f" % config.optimizer.lr)
     print("Batch size = %d" % total_batch_size)
     print("Training steps/epoch = %d" % num_training_steps_per_epoch)
 
-    model, model_without_ddp = runner_common.wrap_distributed(args, model)
-    optimizer = create_optimizer(args, model_without_ddp)
+    model, model_without_ddp = runner_common.wrap_distributed(config.distributed, model)
+    optimizer = create_optimizer(config.optimizer, model_without_ddp)
     loss_scaler = NativeScaler()
 
-    lr_schedule_values = runner_common.make_lr_schedule(args, num_training_steps_per_epoch)
-    wd_schedule_values = runner_common.make_wd_schedule(args, num_training_steps_per_epoch)
-    print("Max WD = %.7f, Min WD = %.7f" % (max(wd_schedule_values), min(wd_schedule_values)))
-
     utils.auto_load_model(
-        args=args, model=model, model_without_ddp=model_without_ddp,
+        output_cfg=config.output, trainer_cfg=config.trainer,
+        model=model, model_without_ddp=model_without_ddp,
         optimizer=optimizer, loss_scaler=loss_scaler,
     )
 
@@ -117,11 +113,9 @@ def main(config: PretrainRunConfig):
         config=config,
         model=model, model_without_ddp=model_without_ddp,
         vqnsp=vqnsp, data_loader_list=data_loader_list,
-        optimizer=optimizer, device=device, loss_scaler=loss_scaler,
-        lr_schedule_values=lr_schedule_values,
-        wd_schedule_values=wd_schedule_values,
         train_ch_names_list=train_ch_names_list,
-        log_writer=log_writer, args=args,
+        optimizer=optimizer, device=device, loss_scaler=loss_scaler,
+        log_writer=log_writer,
         n_parameters=n_parameters,
         num_training_steps_per_epoch=num_training_steps_per_epoch,
     )
