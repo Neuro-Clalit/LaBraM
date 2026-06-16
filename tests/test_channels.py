@@ -1,7 +1,7 @@
-"""Tests for utils.channels.{standard_1020, get_channel_indices}."""
+"""Tests for data.eeg_constants.{standard_1020, get_channel_indices}."""
 import pytest
 
-from labram.utils.channels import get_channel_indices, standard_1020
+from labram.data.eeg_constants import get_channel_indices, standard_1020
 
 
 class TestGetChannelIndices:

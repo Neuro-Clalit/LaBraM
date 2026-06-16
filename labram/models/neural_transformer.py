@@ -10,8 +10,7 @@ import torch
 import torch.nn as nn
 from timm.layers import trunc_normal_
 
-from labram.models.att_blocks import Block
-from labram.models.layers import PatchEmbed, TemporalConv
+from labram.layers import Block, PatchEmbed, TemporalConv
 
 
 def _cfg(url='', **kwargs):

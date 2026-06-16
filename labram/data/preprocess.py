@@ -1,3 +1,8 @@
+# --------------------------------------------------------
+# Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
+# Lightweight EEG preprocessing / masking helpers.
+# ---------------------------------------------------------
+
 import random
 import numpy as np
 import torch

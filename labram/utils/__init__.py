@@ -4,11 +4,8 @@
 # Prefer importing from the focused submodules in new code.
 # ---------------------------------------------------------
 
-from labram.utils.channels import (
-    build_pretraining_dataset,
-    get_channel_indices,
-    standard_1020,
-)
+from labram.data.eeg_constants import get_channel_indices, standard_1020
+from labram.data.pretraining import build_pretraining_dataset
 from labram.utils.checkpoint import (
     auto_load_model,
     create_ds_config,
@@ -17,14 +14,14 @@ from labram.utils.checkpoint import (
     save_model,
     save_nan_model,
 )
-from labram.utils.cli import bool_flag, get_model
-from labram.utils.datasets_tuh import (
+from labram.data.tuh_datasets import (
     TUABLoader,
     TUEVLoader,
     TUHLoader,
     prepare_TUAB_dataset,
     prepare_TUEV_dataset,
 )
+from labram.utils.cli import bool_flag, get_model
 from labram.utils.distributed import (
     GatherLayer,
     all_gather_batch,

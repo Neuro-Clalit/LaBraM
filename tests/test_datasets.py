@@ -1,4 +1,4 @@
-"""Tests for data_processor.dataset.{SingleShockDataset, ShockDataset}.
+"""Tests for data.hdf5_datasets.{SingleShockDataset, ShockDataset}.
 
 Builds tiny synthetic HDF5 files in tmp_path (the pytest fixture) that
 match the layout the dataset expects:
@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 import pytest
 
-from labram.data_processor.dataset import SingleShockDataset, ShockDataset
+from labram.data.hdf5_datasets import SingleShockDataset, ShockDataset
 
 
 N_CHANNELS = 4

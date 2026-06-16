@@ -60,11 +60,12 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.finet
 
 ## Repository Layout
 
+- `labram/layers/`: neural-network primitives, one per module (`drop_path`, `mlp`, `attention`, `patch_embed`, `transformer_block`), re-exported from `labram.layers`.
 - `labram/models/`: model definitions for tokenizer, pre-training, fine-tuning, and vector quantization.
+- `labram/data/`: all data concerns — channel layouts/index helpers (`eeg_constants`), HDF5 pre-training datasets (`hdf5_datasets`), TUH loaders (`tuh_datasets`), per-task bundles (`bundles`), preprocessing (`preprocess`), and pre-training assembly (`pretraining`); public API on `labram.data`.
 - `labram/trainers/`: training and evaluation loops for each phase (`train_finetune.py`, `train_pretrain.py`, `train_vqnsp.py`); shared helpers in `base.py`.
 - `labram/runners/`: command-line entry points and setup code. `common.py` owns shared DDP setup, dataloaders, and scheduling helpers.
-- `labram/utils/`: channel metadata, checkpointing, distributed utilities, metrics, logging, and training schedules.
-- `labram/data_processor/`: HDF5-backed pre-training datasets and preprocessing helpers.
+- `labram/utils/`: checkpointing, distributed utilities, metrics, logging, and training schedules; `__init__` also re-exports the `labram.data` public API for backward compatibility.
 - `dataset_maker/`: scripts that convert raw EEG datasets into HDF5 or pickle artifacts.
 - `tests/`: pytest coverage using synthetic data.
 
@@ -73,7 +74,7 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.finet
 - Preserve the existing package style and module boundaries. Avoid unrelated refactors while changing training, runner, or model code.
 - Prefer `python -m labram.runners.<phase>` entry points over legacy top-level script names when documenting or testing training flows.
 - Keep test additions synthetic and lightweight unless the task explicitly requires external EEG data.
-- Be careful with channel order. The standard 10-20 layout is defined in `labram/utils/channels.py`, and fine-tuning setup reorders checkpoint weights to match target dataset channel order.
+- Be careful with channel order. The standard 10-20 layout is defined in `labram/data/eeg_constants.py`, and fine-tuning setup reorders checkpoint weights to match target dataset channel order.
 - Distributed training uses DDP setup in `labram/runners/common.py`. Metric logging should stay gated on main-process checks.
 - Models are registered through `timm.models.register_model` and instantiated with `timm.models.create_model`.
 - Fine-tuning checkpoint loading discards or adapts classification heads; avoid breaking transfer-learning behavior.
