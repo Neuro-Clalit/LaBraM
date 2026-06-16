@@ -7,7 +7,9 @@
 import torch
 import torch.nn as nn
 
-from labram.models.layers import Attention, DropPath, Mlp
+from labram.layers.attention import Attention
+from labram.layers.drop_path import DropPath
+from labram.layers.mlp import Mlp
 
 
 class Block(nn.Module):

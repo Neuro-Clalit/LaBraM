@@ -1,14 +1,13 @@
 # --------------------------------------------------------
 # Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
-# Channel-name ordering and pretraining dataset assembly.
+# EEG channel-name layouts and channel-index helpers.
 # ---------------------------------------------------------
 
-from pathlib import Path
-from typing import List, Sequence, Tuple
-
-from labram.data_processor.dataset import ShockDataset
+from typing import List, Sequence
 
 
+# Canonical 10-20 channel ordering used across all datasets. Position in this
+# list (plus 1 for the leading CLS slot) is the index a model expects.
 standard_1020 = [
     'FP1', 'FPZ', 'FP2',
     'AF9', 'AF7', 'AF5', 'AF3', 'AF1', 'AFZ', 'AF2', 'AF4', 'AF6', 'AF8', 'AF10',
@@ -28,6 +27,15 @@ standard_1020 = [
 ]
 
 
+# Channel montage shared by the TUAB and TUEV TUH-EEG corpora (raw EDF names).
+TUH_EEG_CH_NAMES = [
+    'EEG FP1-REF', 'EEG FP2-REF', 'EEG F3-REF', 'EEG F4-REF', 'EEG C3-REF', 'EEG C4-REF',
+    'EEG P3-REF', 'EEG P4-REF', 'EEG O1-REF', 'EEG O2-REF', 'EEG F7-REF', 'EEG F8-REF',
+    'EEG T3-REF', 'EEG T4-REF', 'EEG T5-REF', 'EEG T6-REF', 'EEG A1-REF', 'EEG A2-REF',
+    'EEG FZ-REF', 'EEG CZ-REF', 'EEG PZ-REF', 'EEG T1-REF', 'EEG T2-REF',
+]
+
+
 def get_channel_indices(ch_names: Sequence[str]) -> List[int]:
     channel_indices = [0]  # for cls token
     for ch_name in ch_names:
@@ -35,20 +43,6 @@ def get_channel_indices(ch_names: Sequence[str]) -> List[int]:
     return channel_indices
 
 
-def build_pretraining_dataset(
-    datasets: List[List[str]],
-    time_window: List[int],
-    stride: int = 200,
-    start_percentage: float = 0,
-    end_percentage: float = 1,
-) -> Tuple[List[ShockDataset], List[List[str]]]:
-    shock_dataset_list = []
-    ch_names_list = []
-    for dataset_list, window_size in zip(datasets, time_window):
-        dataset = ShockDataset(
-            [Path(file_path) for file_path in dataset_list],
-            window_size * 200, stride, start_percentage, end_percentage,
-        )
-        shock_dataset_list.append(dataset)
-        ch_names_list.append(dataset.get_ch_names())
-    return shock_dataset_list, ch_names_list
+def normalize_ch_names(raw_names: List[str]) -> List[str]:
+    """Strip the 'EEG '/'-REF' decorations to match the standard 10-20 names."""
+    return [name.split(' ')[-1].split('-')[0] for name in raw_names]

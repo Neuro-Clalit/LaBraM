@@ -1,3 +1,8 @@
+# --------------------------------------------------------
+# Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
+# HDF5-backed pre-training datasets.
+# ---------------------------------------------------------
+
 import h5py
 import bisect
 from pathlib import Path

@@ -52,11 +52,12 @@ pip install -r requirements.txt
 
 ### Package layout
 
-- `labram/models/` — Model definitions split by abstraction level: `layers.py` (DropPath, Mlp, Attention, PatchEmbed, TemporalConv), `blocks.py` (transformer Block), `neural_transformer.py` (shared backbone), `masked_eeg.py` (pre-training heads), `vqnsp.py` (tokenizer), `quantizer.py` (VQ with EMA), `registry.py` (all timm `@register_model` factories)
+- `labram/layers/` — Neural-network primitives, one responsibility per module: `drop_path.py` (DropPath), `mlp.py` (Mlp), `attention.py` (Attention), `patch_embed.py` (PatchEmbed, TemporalConv), `transformer_block.py` (Block); all re-exported from `labram.layers`
+- `labram/models/` — Model definitions: `neural_transformer.py` (shared backbone), `masked_eeg.py` (pre-training heads), `vqnsp.py` (tokenizer), `quantizer.py` (VQ with EMA), `registry.py` (all timm `@register_model` factories)
+- `labram/data/` — All data concerns: `eeg_constants.py` (standard 10-20 layout, channel-index helpers), `hdf5_datasets.py` (`SingleShockDataset`/`ShockDataset` for pre-training), `tuh_datasets.py` (TUAB/TUEV loaders + split assembly), `bundles.py` (per-task `DatasetBundle`/`get_dataset_bundle` for fine-tuning), `preprocess.py` (masking/normalization helpers), `pretraining.py` (`build_pretraining_dataset`); public API re-exported from `labram.data`
 - `labram/trainers/` — Per-phase training/eval loops (`train_vqnsp.py`, `train_pretrain.py`, `train_finetune.py`); shared LR/metric helpers in `base.py`
 - `labram/runners/` — Entry-point scripts invoked via `python -m`; `common.py` holds shared DDP setup, LR schedules, and dataloader construction used by all three runners
-- `labram/utils/` — `channels.py` (standard 10-20 layout), `checkpoint.py`, `distributed.py`, `training.py` (cosine LR, layer decay), `logging.py` (MetricLogger, TensorboardLogger)
-- `labram/data_processor/` — `SingleShockDataset` / `ShockDataset`: HDF5-backed datasets for pre-training
+- `labram/utils/` — `checkpoint.py`, `distributed.py`, `training.py` (cosine LR, layer decay), `logging.py` (MetricLogger, TensorboardLogger), `metrics.py`, `cli.py`; `__init__.py` also re-exports the `labram.data` public API for backward compatibility
 - `dataset_maker/` — Preprocessing scripts that convert raw EEG files (`.cnt`/`.edf`/`.bdf`) to HDF5 (`make_h5dataset_for_pretrain.py`) and TUH datasets to pickle (`make_TUAB.py`, `make_TUEV.py`)
 
 ### Data flow
@@ -69,7 +70,7 @@ pip install -r requirements.txt
 
 ### Key cross-cutting concerns
 
-**Channel handling**: 62-channel standard 10-20 layout is defined in `utils/channels.py::standard_1020`. `get_channel_indices()` maps each dataset's channel names to this standard order. Fine-tuning setup (`runners/finetune_setup.py`) reorders loaded checkpoint weights to match the target dataset channel order — this is critical for transfer learning.
+**Channel handling**: 62-channel standard 10-20 layout is defined in `data/eeg_constants.py::standard_1020`. `get_channel_indices()` maps each dataset's channel names to this standard order. Fine-tuning setup (`runners/finetune_setup.py`) reorders loaded checkpoint weights to match the target dataset channel order — this is critical for transfer learning.
 
 **Distributed training**: DDP initialized in `runners/common.py::setup_environment()`. All metric logging is gated on `utils.is_main_process()`. `--auto_resume` resumes from the latest checkpoint automatically.
 
