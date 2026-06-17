@@ -128,22 +128,25 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
     return DataLoaders(train=train_loader, val=val_loader, test=test_loader)
 
 
-def load_finetune_checkpoint(model: torch.nn.Module, args) -> None:
-    """Load weights from args.finetune into model, with the same key remapping
-    the original runner used (strip 'student.' prefix, drop head/relpos keys)."""
-    if not args.finetune:
+def load_finetune_checkpoint(model: torch.nn.Module, ckpt_cfg) -> None:
+    """Load weights from ckpt_cfg.finetune into model.
+
+    Accepts a FinetuneCheckpointConfig or any object with finetune, model_key,
+    model_filter_name, and model_prefix attributes.
+    """
+    if not ckpt_cfg.finetune:
         return
 
-    if args.finetune.startswith('https'):
+    if ckpt_cfg.finetune.startswith('https'):
         checkpoint = torch.hub.load_state_dict_from_url(
-            args.finetune, map_location='cpu', check_hash=True)
+            ckpt_cfg.finetune, map_location='cpu', check_hash=True)
     else:
-        checkpoint = torch.load(args.finetune, map_location='cpu', weights_only=False)
+        checkpoint = torch.load(ckpt_cfg.finetune, map_location='cpu', weights_only=False)
 
-    print("Load ckpt from %s" % args.finetune)
+    print("Load ckpt from %s" % ckpt_cfg.finetune)
 
     checkpoint_model = None
-    for model_key in args.model_key.split('|'):
+    for model_key in ckpt_cfg.model_key.split('|'):
         if model_key in checkpoint:
             checkpoint_model = checkpoint[model_key]
             print("Load state_dict by model_key = %s" % model_key)
@@ -151,7 +154,7 @@ def load_finetune_checkpoint(model: torch.nn.Module, args) -> None:
     if checkpoint_model is None:
         checkpoint_model = checkpoint
 
-    if args.model_filter_name != '':
+    if ckpt_cfg.model_filter_name != '':
         new_dict = OrderedDict()
         for key, value in checkpoint_model.items():
             if key.startswith('student.'):
@@ -168,4 +171,4 @@ def load_finetune_checkpoint(model: torch.nn.Module, args) -> None:
         if "relative_position_index" in key:
             checkpoint_model.pop(key)
 
-    utils.load_state_dict(model, checkpoint_model, prefix=args.model_prefix)
+    utils.load_state_dict(model, checkpoint_model, prefix=ckpt_cfg.model_prefix)

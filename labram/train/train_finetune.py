@@ -16,7 +16,10 @@ from timm.utils import ModelEma
 from einops import rearrange
 
 import labram.utils as utils
-from labram.trainers.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
+from labram.configs.optim_config import OptimizerConfig
+from labram.configs.train_config import TrainerConfig
+from labram.losses import build_classification_criterion
+from labram.train.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 
 def train_class_batch(
@@ -44,17 +47,20 @@ def train_one_epoch(
     device: torch.device,
     epoch: int,
     loss_scaler,
-    max_norm: float = 0,
+    trainer_cfg: TrainerConfig,
+    optim_cfg: OptimizerConfig,
+    num_training_steps_per_epoch: Optional[int] = None,
     model_ema: Optional[ModelEma] = None,
     log_writer: Optional[Any] = None,
     start_steps: Optional[int] = None,
     lr_schedule_values: Optional[Sequence[float]] = None,
     wd_schedule_values: Optional[Sequence[float]] = None,
-    num_training_steps_per_epoch: Optional[int] = None,
-    update_freq: Optional[int] = None,
     ch_names: Optional[List[str]] = None,
     is_binary: bool = True,
 ) -> Dict[str, float]:
+    update_freq = trainer_cfg.update_freq
+    max_norm    = optim_cfg.clip_grad or 0
+
     channel_indices = None
     if ch_names is not None:
         channel_indices = utils.get_channel_indices(ch_names)
@@ -168,10 +174,7 @@ def evaluate(
     channel_indices = None
     if ch_names is not None:
         channel_indices = utils.get_channel_indices(ch_names)
-    if is_binary:
-        criterion = torch.nn.BCEWithLogitsLoss()
-    else:
-        criterion = torch.nn.CrossEntropyLoss()
+    criterion = build_classification_criterion(1 if is_binary else 2)
 
     metric_logger = utils.MetricLogger(delimiter="  ")
     #header = 'Test:'
@@ -220,3 +223,116 @@ def evaluate(
     ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
     ret['loss'] = metric_logger.loss.global_avg
     return ret
+
+
+_LOGGED_EVAL_KEYS = (
+    'accuracy', 'balanced_accuracy', 'f1_weighted', 'pr_auc', 'roc_auc', 'cohen_kappa', 'loss',
+)
+
+
+def _log_eval_stats(log_writer, stats, head, epoch):
+    if log_writer is None:
+        return
+    for key, value in stats.items():
+        if key in _LOGGED_EVAL_KEYS:
+            log_writer.update(**{key: value}, head=head, step=epoch)
+
+
+def train_loop(
+    config,  # FinetuneRunConfig
+    model: torch.nn.Module,
+    model_without_ddp: torch.nn.Module,
+    criterion: torch.nn.Module,
+    loaders,
+    optimizer,
+    device: torch.device,
+    loss_scaler,
+    log_writer,
+    ch_names,
+    metrics,
+    n_parameters: int,
+    num_training_steps_per_epoch: int,
+    model_ema=None,
+    enable_deepspeed: bool = False,
+) -> None:
+    """Epoch loop extracted from the runner."""
+    import time
+    import labram.runs.common as runner_common
+
+    lr_schedule_values = runner_common.make_lr_schedule(
+        config.optimizer, config.trainer, num_training_steps_per_epoch)
+    wd_schedule_values = runner_common.make_wd_schedule(
+        config.optimizer, config.trainer, num_training_steps_per_epoch)
+
+    nb_classes = config.model.nb_classes
+    is_binary = nb_classes == 1
+
+    print(f"Start training for {config.trainer.epochs} epochs")
+    start_time = time.time()
+    max_accuracy = max_accuracy_test = 0.0
+
+    for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
+        if config.distributed.distributed:
+            loaders.train.sampler.set_epoch(epoch)
+        if log_writer is not None:
+            log_writer.set_step(epoch * num_training_steps_per_epoch * config.trainer.update_freq)
+
+        train_stats = train_one_epoch(
+            model, criterion, loaders.train, optimizer,
+            device, epoch, loss_scaler,
+            trainer_cfg=config.trainer,
+            optim_cfg=config.optimizer,
+            num_training_steps_per_epoch=num_training_steps_per_epoch,
+            model_ema=model_ema,
+            log_writer=log_writer,
+            start_steps=epoch * num_training_steps_per_epoch,
+            lr_schedule_values=lr_schedule_values,
+            wd_schedule_values=wd_schedule_values,
+            ch_names=ch_names,
+            is_binary=is_binary,
+        )
+
+        if config.output.output_dir and config.output.save_ckpt:
+            utils.save_model(
+                output_cfg=config.output, trainer_cfg=config.trainer,
+                model=model, model_without_ddp=model_without_ddp,
+                optimizer=optimizer, loss_scaler=loss_scaler,
+                epoch=epoch, model_ema=model_ema,
+                enable_deepspeed=enable_deepspeed)
+
+        if loaders.val is not None:
+            val_stats = evaluate(loaders.val, model, device, header='Val:',
+                                 ch_names=ch_names, metrics=metrics, is_binary=is_binary)
+            print(f"Val EEG accuracy: {val_stats['accuracy']:.2f}%")
+            test_stats = evaluate(loaders.test, model, device, header='Test:',
+                                  ch_names=ch_names, metrics=metrics, is_binary=is_binary)
+            print(f"Test EEG accuracy: {test_stats['accuracy']:.2f}%")
+
+            if max_accuracy < val_stats["accuracy"]:
+                max_accuracy = val_stats["accuracy"]
+                if config.output.output_dir and config.output.save_ckpt:
+                    utils.save_model(
+                        output_cfg=config.output, trainer_cfg=config.trainer,
+                        model=model, model_without_ddp=model_without_ddp,
+                        optimizer=optimizer, loss_scaler=loss_scaler,
+                        epoch="best", model_ema=model_ema,
+                        enable_deepspeed=enable_deepspeed)
+                max_accuracy_test = test_stats["accuracy"]
+            print(f'Max accuracy val: {max_accuracy:.2f}%, test: {max_accuracy_test:.2f}%')
+
+            _log_eval_stats(log_writer, val_stats, head="val", epoch=epoch)
+            _log_eval_stats(log_writer, test_stats, head="test", epoch=epoch)
+
+            log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                         **{f'val_{k}': v for k, v in val_stats.items()},
+                         **{f'test_{k}': v for k, v in test_stats.items()},
+                         'epoch': epoch, 'n_parameters': n_parameters}
+        else:
+            log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                         'epoch': epoch, 'n_parameters': n_parameters}
+
+        if log_writer is not None and config.output.output_dir and utils.is_main_process():
+            log_writer.flush()
+        runner_common.append_log_line(config.output, log_stats)
+
+    runner_common.print_training_time(start_time)

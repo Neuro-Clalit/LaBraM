@@ -16,14 +16,14 @@ pytest tests/ -v
 pytest tests/test_runner_common.py -v
 
 # Train VQNSP tokenizer (8-GPU)
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.vqnsp \
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.vqnsp \
   --output_dir ./checkpoints/vqnsp/ --log_dir ./log/vqnsp/ \
   --model vqnsp_encoder_base_decoder_3x200x12 \
   --codebook_n_emd 8192 --codebook_emd_dim 64 --quantize_kmeans_init \
   --batch_size 128 --opt adamw --epochs 100
 
 # Pre-train LaBraM (8-GPU)
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.pretrain \
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.pretrain \
   --output_dir ./checkpoints/labram_base --log_dir ./log/labram_base \
   --model labram_base_patch200_1600_8k_vocab \
   --tokenizer_model vqnsp_encoder_base_decoder_3x200x12 \
@@ -31,7 +31,7 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.pretr
   --batch_size 64 --lr 5e-4 --epochs 50
 
 # Fine-tune on TUAB (8-GPU)
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.finetune \
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.finetune \
   --output_dir ./checkpoints/finetune_tuab_base/ --log_dir ./log/finetune_tuab_base \
   --model labram_base_patch200_200 --finetune ./checkpoints/labram-base.pth \
   --dataset TUAB --batch_size 64 --lr 5e-4 --epochs 50 \
@@ -52,12 +52,14 @@ pip install -r requirements.txt
 
 ### Package layout
 
-- `labram/layers/` — Neural-network primitives, one responsibility per module: `drop_path.py` (DropPath), `mlp.py` (Mlp), `attention.py` (Attention), `patch_embed.py` (PatchEmbed, TemporalConv), `transformer_block.py` (Block); all re-exported from `labram.layers`
-- `labram/models/` — Model definitions: `neural_transformer.py` (shared backbone), `masked_eeg.py` (pre-training heads), `vqnsp.py` (tokenizer), `quantizer.py` (VQ with EMA), `registry.py` (all timm `@register_model` factories)
-- `labram/data/` — All data concerns: `eeg_constants.py` (standard 10-20 layout, channel-index helpers), `hdf5_datasets.py` (`SingleShockDataset`/`ShockDataset` for pre-training), `tuh_datasets.py` (TUAB/TUEV loaders + split assembly), `bundles.py` (per-task `DatasetBundle`/`get_dataset_bundle` for fine-tuning), `preprocess.py` (masking/normalization helpers), `pretraining.py` (`build_pretraining_dataset`); public API re-exported from `labram.data`
-- `labram/trainers/` — Per-phase training/eval loops (`train_vqnsp.py`, `train_pretrain.py`, `train_finetune.py`); shared LR/metric helpers in `base.py`
-- `labram/runners/` — Entry-point scripts invoked via `python -m`; `common.py` holds shared DDP setup, LR schedules, and dataloader construction used by all three runners
-- `labram/utils/` — `checkpoint.py`, `distributed.py`, `training.py` (cosine LR, layer decay), `logging.py` (MetricLogger, TensorboardLogger), `metrics.py`, `cli.py`; `__init__.py` also re-exports the `labram.data` public API for backward compatibility
+- `labram/layers/` — Neural-network primitives, one responsibility per module: `drop_path.py`, `mlp.py`, `attention.py`, `patch_embed.py` (PatchEmbed, TemporalConv), `transformer_block.py` (Block); all re-exported from `labram.layers`
+- `labram/models/` — Config-driven model definitions: `neural_transformer.py` (shared backbone), `masked_eeg.py` (pre-training heads), `vqnsp.py` (tokenizer), `quantizer.py` (VQ with EMA), `registry.py` (all timm `@register_model` factories)
+- `labram/data/` — All data concerns: `eeg_constants.py` (standard 10-20 layout, channel-index helpers), `hdf5_datasets.py` (`SingleShockDataset`/`ShockDataset`), `tuh_datasets.py` (TUAB/TUEV loaders), `bundles.py` (per-task `DatasetBundle`/`get_dataset_bundle`), `preprocess.py`, `pretraining.py` (`build_pretraining_dataset`); public API on `labram.data`
+- `labram/losses/` — Configurable training losses: `config.py` (`LossConfig`), `spectral.py` (`SpectralReconstructionLoss`), `vqnsp.py` (`get_vqnsp_losses`), `classification.py` (`build_classification_criterion`)
+- `labram/configs/` — Dataclass config tree on `ConfigBase` (JSON/YAML round-trip): model/data/optim/train/runner configs + `defaults/*.json`; constructors are config-driven (`VQNSP(VQNSPArchConfig)`, `NeuralTransformer(TransformerArchConfig)`)
+- `labram/train/` — Per-phase training/eval loops (`train_vqnsp.py`, `train_pretrain.py`, `train_finetune.py`); shared LR/metric helpers in `base.py`
+- `labram/runs/` — Entry-point scripts (`run_vqnsp.py`, `run_pretrain.py`, `run_finetune.py`) invoked via `python -m`; `common.py` holds shared DDP setup, LR schedules, and dataloader construction; `finetune_setup.py`/`finetune_args.py` for fine-tuning setup
+- `labram/utils/` — `checkpoint.py`, `distributed.py`, `training.py` (cosine LR, layer decay), `logging.py`, `metrics.py`, `cli.py`; `__init__.py` also re-exports the `labram.data` public API for backward compatibility
 - `dataset_maker/` — Preprocessing scripts that convert raw EEG files (`.cnt`/`.edf`/`.bdf`) to HDF5 (`make_h5dataset_for_pretrain.py`) and TUH datasets to pickle (`make_TUAB.py`, `make_TUEV.py`)
 
 ### Data flow
@@ -70,9 +72,9 @@ pip install -r requirements.txt
 
 ### Key cross-cutting concerns
 
-**Channel handling**: 62-channel standard 10-20 layout is defined in `data/eeg_constants.py::standard_1020`. `get_channel_indices()` maps each dataset's channel names to this standard order. Fine-tuning setup (`runners/finetune_setup.py`) reorders loaded checkpoint weights to match the target dataset channel order — this is critical for transfer learning.
+**Channel handling**: 62-channel standard 10-20 layout is defined in `data/eeg_constants.py::standard_1020`. `get_channel_indices()` maps each dataset's channel names to this standard order. Fine-tuning setup (`runs/finetune_setup.py`) reorders loaded checkpoint weights to match the target dataset channel order — this is critical for transfer learning.
 
-**Distributed training**: DDP initialized in `runners/common.py::setup_environment()`. All metric logging is gated on `utils.is_main_process()`. `--auto_resume` resumes from the latest checkpoint automatically.
+**Distributed training**: DDP initialized in `runs/common.py::setup_environment()`. All metric logging is gated on `utils.is_main_process()`. `--auto_resume` resumes from the latest checkpoint automatically.
 
 **LR scheduling**: Cosine annealing with warmup (`utils/training.py`). Fine-tuning uses layer-wise LR decay via `optim_factory.py::LayerDecayValueAssigner` (timm-style per-parameter group scaling, controlled by `--layer_decay`).
 

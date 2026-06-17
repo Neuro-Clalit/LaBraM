@@ -14,6 +14,7 @@ import datetime
 import json
 import os
 import time
+from argparse import Namespace
 from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -22,18 +23,44 @@ import torch.backends.cudnn as cudnn
 import torch.utils.data
 
 import labram.utils as utils
+from labram.configs.optim_config import OptimizerConfig
+from labram.configs.train_config import DistributedConfig, OutputConfig, TrainerConfig
 
 
-def setup_environment(args, init_cudnn_benchmark: bool = True) -> Tuple[torch.device, int, int]:
+def setup_environment(config, init_cudnn_benchmark: bool = True) -> Tuple[torch.device, int, int]:
     """Initialize distributed, resolve device, seed, and cudnn flags.
 
-    Returns (device, num_tasks, global_rank). The args object is mutated by
-    utils.init_distributed_mode to add .distributed / .gpu / .rank / etc.
-    """
-    utils.init_distributed_mode(args)
-    device = torch.device(args.device)
+    Accepts either a full RunConfig or any object with a ``.distributed``
+    attribute of type DistributedConfig.  The runtime-computed ``distributed``
+    and ``gpu`` fields are written back onto ``config.distributed`` so callers
+    can access them without a separate return value.
 
-    seed = args.seed + utils.get_rank()
+    Returns (device, num_tasks, global_rank).
+    """
+    dist_cfg = config.distributed
+    # Bridge to the legacy init_distributed_mode which mutates a Namespace.
+    _ns = Namespace(
+        dist_on_itp=dist_cfg.dist_on_itp,
+        dist_url=dist_cfg.dist_url,
+        world_size=dist_cfg.world_size,
+        local_rank=dist_cfg.local_rank,
+    )
+    utils.init_distributed_mode(_ns)
+    dist_cfg.distributed = getattr(_ns, 'distributed', False)
+    dist_cfg.gpu = getattr(_ns, 'gpu', 0)
+
+    device_str = getattr(_ns, 'device', dist_cfg.device)
+    if device_str == 'auto':
+        if torch.cuda.is_available():
+            device_str = 'cuda'
+        elif torch.backends.mps.is_available():
+            device_str = 'mps'
+        else:
+            device_str = 'cpu'
+    device = torch.device(device_str)
+    dist_cfg.device = str(device)
+
+    seed = dist_cfg.seed + utils.get_rank()
     torch.manual_seed(seed)
     np.random.seed(seed)
 
@@ -43,11 +70,11 @@ def setup_environment(args, init_cudnn_benchmark: bool = True) -> Tuple[torch.de
     return device, utils.get_world_size(), utils.get_rank()
 
 
-def create_log_writer(args, global_rank: int) -> Optional[Any]:
-    """Construct a TensorboardLogger if and only if rank 0 has args.log_dir."""
-    if global_rank == 0 and args.log_dir is not None:
-        os.makedirs(args.log_dir, exist_ok=True)
-        return utils.TensorboardLogger(log_dir=args.log_dir)
+def create_log_writer(output_cfg: OutputConfig, global_rank: int) -> Optional[Any]:
+    """Construct a TensorboardLogger if and only if rank 0 has output_cfg.log_dir."""
+    if global_rank == 0 and output_cfg.log_dir:
+        os.makedirs(output_cfg.log_dir, exist_ok=True)
+        return utils.TensorboardLogger(log_dir=output_cfg.log_dir)
     return None
 
 
@@ -104,37 +131,36 @@ def build_dataloader_list(
     ]
 
 
-def wrap_distributed(args, model: torch.nn.Module) -> Tuple[torch.nn.Module, torch.nn.Module]:
-    """DDP-wrap model when args.distributed is true. Returns (model, model_without_ddp)."""
-    if args.distributed:
+def wrap_distributed(dist_cfg: DistributedConfig, model: torch.nn.Module) -> Tuple[torch.nn.Module, torch.nn.Module]:
+    """DDP-wrap model when dist_cfg.distributed is true. Returns (model, model_without_ddp)."""
+    if dist_cfg.distributed:
         wrapped = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.gpu], find_unused_parameters=True,
+            model, device_ids=[dist_cfg.gpu], find_unused_parameters=True,
         )
         return wrapped, wrapped.module
     return model, model
 
 
-def make_lr_schedule(args, num_training_steps_per_epoch: int) -> np.ndarray:
-    """Cosine LR schedule with optional warmup. Common to all runners."""
+def make_lr_schedule(optim_cfg: OptimizerConfig, trainer_cfg: TrainerConfig, num_training_steps_per_epoch: int) -> np.ndarray:
+    """Cosine LR schedule with optional warmup. Common to all runs."""
     return utils.cosine_scheduler(
-        args.lr, args.min_lr, args.epochs, num_training_steps_per_epoch,
-        warmup_epochs=args.warmup_epochs, warmup_steps=args.warmup_steps,
+        optim_cfg.lr, optim_cfg.min_lr, trainer_cfg.epochs, num_training_steps_per_epoch,
+        warmup_epochs=optim_cfg.warmup_epochs, warmup_steps=optim_cfg.warmup_steps,
     )
 
 
-def make_wd_schedule(args, num_training_steps_per_epoch: int) -> np.ndarray:
-    """Cosine WD schedule. If args.weight_decay_end is None, decay stays flat at args.weight_decay."""
-    if args.weight_decay_end is None:
-        args.weight_decay_end = args.weight_decay
+def make_wd_schedule(optim_cfg: OptimizerConfig, trainer_cfg: TrainerConfig, num_training_steps_per_epoch: int) -> np.ndarray:
+    """Cosine WD schedule. If weight_decay_end is None, decay stays flat at weight_decay."""
+    wd_end = optim_cfg.weight_decay_end if optim_cfg.weight_decay_end is not None else optim_cfg.weight_decay
     return utils.cosine_scheduler(
-        args.weight_decay, args.weight_decay_end, args.epochs, num_training_steps_per_epoch,
+        optim_cfg.weight_decay, wd_end, trainer_cfg.epochs, num_training_steps_per_epoch,
     )
 
 
-def append_log_line(args, log_stats: dict) -> None:
-    """Append a single JSON line to args.output_dir/log.txt (main process only)."""
-    if args.output_dir and utils.is_main_process():
-        with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
+def append_log_line(output_cfg: OutputConfig, log_stats: dict) -> None:
+    """Append a single JSON line to output_cfg.output_dir/log.txt (main process only)."""
+    if output_cfg.output_dir and utils.is_main_process():
+        with open(os.path.join(output_cfg.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
             f.write(json.dumps(log_stats) + "\n")
 
 

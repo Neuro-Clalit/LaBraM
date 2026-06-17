@@ -36,14 +36,14 @@ Use module entry points under `labram.runners` for maintained training commands:
 
 ```bash
 # Train VQNSP tokenizer.
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.vqnsp \
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.vqnsp \
   --output_dir ./checkpoints/vqnsp/ --log_dir ./log/vqnsp/ \
   --model vqnsp_encoder_base_decoder_3x200x12 \
   --codebook_n_emd 8192 --codebook_emd_dim 64 --quantize_kmeans_init \
   --batch_size 128 --opt adamw --epochs 100
 
 # Pre-train LaBraM.
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.pretrain \
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.pretrain \
   --output_dir ./checkpoints/labram_base --log_dir ./log/labram_base \
   --model labram_base_patch200_1600_8k_vocab \
   --tokenizer_model vqnsp_encoder_base_decoder_3x200x12 \
@@ -51,7 +51,7 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.pretr
   --batch_size 64 --lr 5e-4 --epochs 50
 
 # Fine-tune on TUAB.
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.finetune \
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.finetune \
   --output_dir ./checkpoints/finetune_tuab_base/ --log_dir ./log/finetune_tuab_base \
   --model labram_base_patch200_200 --finetune ./checkpoints/labram-base.pth \
   --dataset TUAB --batch_size 64 --lr 5e-4 --epochs 50 \
@@ -61,11 +61,13 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.finet
 ## Repository Layout
 
 - `labram/layers/`: neural-network primitives, one per module (`drop_path`, `mlp`, `attention`, `patch_embed`, `transformer_block`), re-exported from `labram.layers`.
-- `labram/models/`: model definitions for tokenizer, pre-training, fine-tuning, and vector quantization.
-- `labram/data/`: all data concerns — channel layouts/index helpers (`eeg_constants`), HDF5 pre-training datasets (`hdf5_datasets`), TUH loaders (`tuh_datasets`), per-task bundles (`bundles`), preprocessing (`preprocess`), and pre-training assembly (`pretraining`); public API on `labram.data`.
-- `labram/trainers/`: training and evaluation loops for each phase (`train_finetune.py`, `train_pretrain.py`, `train_vqnsp.py`); shared helpers in `base.py`.
-- `labram/runners/`: command-line entry points and setup code. `common.py` owns shared DDP setup, dataloaders, and scheduling helpers.
-- `labram/utils/`: checkpointing, distributed utilities, metrics, logging, and training schedules; `__init__` also re-exports the `labram.data` public API for backward compatibility.
+- `labram/models/`: config-driven model definitions for tokenizer, pre-training, fine-tuning, and vector quantization.
+- `labram/data/`: all data concerns — channel layouts/index helpers (`eeg_constants`), HDF5 datasets (`hdf5_datasets`), TUH loaders (`tuh_datasets`), per-task bundles (`bundles`), preprocessing, and pre-training assembly; public API on `labram.data`.
+- `labram/losses/`: configurable training losses — `LossConfig`, `SpectralReconstructionLoss`, `get_vqnsp_losses`, `build_classification_criterion`.
+- `labram/configs/`: dataclass config tree on `ConfigBase` (JSON/YAML round-trip); model/data/optim/train/runner configs + `defaults/*.json`.
+- `labram/train/`: training and evaluation loops for each phase (`train_finetune.py`, `train_pretrain.py`, `train_vqnsp.py`); shared helpers in `base.py`.
+- `labram/runs/`: command-line entry points (`run_vqnsp.py`, `run_pretrain.py`, `run_finetune.py`) and setup code. `common.py` owns shared DDP setup, dataloaders, and scheduling helpers.
+- `labram/utils/`: checkpointing, distributed utilities, metrics, logging, and training schedules; `__init__` re-exports the `labram.data` public API for backward compatibility.
 - `dataset_maker/`: scripts that convert raw EEG datasets into HDF5 or pickle artifacts.
 - `tests/`: pytest coverage using synthetic data.
 
@@ -75,7 +77,7 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.finet
 - Prefer `python -m labram.runners.<phase>` entry points over legacy top-level script names when documenting or testing training flows.
 - Keep test additions synthetic and lightweight unless the task explicitly requires external EEG data.
 - Be careful with channel order. The standard 10-20 layout is defined in `labram/data/eeg_constants.py`, and fine-tuning setup reorders checkpoint weights to match target dataset channel order.
-- Distributed training uses DDP setup in `labram/runners/common.py`. Metric logging should stay gated on main-process checks.
+- Distributed training uses DDP setup in `labram/runs/common.py`. Metric logging should stay gated on main-process checks.
 - Models are registered through `timm.models.register_model` and instantiated with `timm.models.create_model`.
 - Fine-tuning checkpoint loading discards or adapts classification heads; avoid breaking transfer-learning behavior.
 

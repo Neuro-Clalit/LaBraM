@@ -12,3 +12,8 @@ scipy
 pyhealth==1.1.4
 h5py
 mne==1.4.2
+# Config infrastructure (labram/configs)
+PyYAML
+jsonpickle
+boto3
+s3fs

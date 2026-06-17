@@ -4,7 +4,8 @@ from types import SimpleNamespace
 import torch
 import torch.utils.data
 
-from labram.runners.finetune_setup import (
+from labram.configs.model_config import FinetuneCheckpointConfig
+from labram.runs.finetune_setup import (
     DataLoaders,
     apply_debug_overrides,
     build_dataloaders,
@@ -170,6 +171,6 @@ class TestBuildDataloaders:
 
 class TestLoadFinetuneCheckpoint:
     def test_no_op_when_finetune_empty(self):
-        # Must not touch model when args.finetune is empty
-        args = SimpleNamespace(finetune="", model_key="model", model_filter_name="", model_prefix="")
-        load_finetune_checkpoint(model=None, args=args)  # must not raise
+        ckpt_cfg = FinetuneCheckpointConfig(finetune="", model_key="model",
+                                            model_filter_name="", model_prefix="")
+        load_finetune_checkpoint(model=None, ckpt_cfg=ckpt_cfg)  # must not raise
