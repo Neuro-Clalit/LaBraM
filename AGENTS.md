@@ -62,6 +62,7 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runners.finet
 
 - `labram/layers/`: neural-network primitives, one per module (`drop_path`, `mlp`, `attention`, `patch_embed`, `transformer_block`), re-exported from `labram.layers`.
 - `labram/models/`: model definitions for tokenizer, pre-training, fine-tuning, and vector quantization.
+- `labram/losses/`: configurable training losses — `LossConfig` (weights/options), `SpectralReconstructionLoss` (VQNSP FFT recon), `get_vqnsp_losses` (weighted aggregator), `build_classification_criterion`. Defaults reproduce the original inline behavior; loss weighting is driven by `LossConfig`.
 - `labram/data/`: all data concerns — channel layouts/index helpers (`eeg_constants`), HDF5 pre-training datasets (`hdf5_datasets`), TUH loaders (`tuh_datasets`), per-task bundles (`bundles`), preprocessing (`preprocess`), and pre-training assembly (`pretraining`); public API on `labram.data`.
 - `labram/trainers/`: training and evaluation loops for each phase (`train_finetune.py`, `train_pretrain.py`, `train_vqnsp.py`); shared helpers in `base.py`.
 - `labram/runners/`: command-line entry points and setup code. `common.py` owns shared DDP setup, dataloaders, and scheduling helpers.
