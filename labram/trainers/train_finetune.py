@@ -16,6 +16,7 @@ from timm.utils import ModelEma
 from einops import rearrange
 
 import labram.utils as utils
+from labram.losses import build_classification_criterion
 from labram.trainers.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 
@@ -168,10 +169,7 @@ def evaluate(
     channel_indices = None
     if ch_names is not None:
         channel_indices = utils.get_channel_indices(ch_names)
-    if is_binary:
-        criterion = torch.nn.BCEWithLogitsLoss()
-    else:
-        criterion = torch.nn.CrossEntropyLoss()
+    criterion = build_classification_criterion(1 if is_binary else 2)
 
     metric_logger = utils.MetricLogger(delimiter="  ")
     #header = 'Test:'

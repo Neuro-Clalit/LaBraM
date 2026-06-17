@@ -4,12 +4,14 @@
 # Based on BEiT-v2, timm, DeiT, and DINO code bases
 # ---------------------------------------------------------
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from einops import rearrange
 from timm.layers import trunc_normal_
 
+from labram.losses import LossConfig, SpectralReconstructionLoss, get_vqnsp_losses
 from labram.models.neural_transformer import NeuralTransformer
 from labram.models.quantizer import NormEMAVectorQuantizer
 from labram.utils.checkpoint import load_pretrained_weights
@@ -25,8 +27,10 @@ class VQNSP(nn.Module):
                  quantize_kmeans_init=True,
                  decoder_out_dim=200,
                  smooth_l1_loss=False,
+                 loss_config: Optional[LossConfig] = None,
                  ):
         super().__init__()
+        self.loss_config = loss_config if loss_config is not None else LossConfig(use_smooth_l1=smooth_l1_loss)
         if decoder_config['in_chans'] != quantizer_dim:
             print(f"Rewrite the in_chans in decoder from {decoder_config['in_chans']} to {quantizer_dim}")
             decoder_config['in_chans'] = quantizer_dim
@@ -39,7 +43,8 @@ class VQNSP(nn.Module):
         self.decoder = NeuralTransformer(**decoder_config)
 
         self.quantize = NormEMAVectorQuantizer(
-            num_codebook_tokens=num_codebook_tokens, quantizer_dim=quantizer_dim, beta=1.0,
+            num_codebook_tokens=num_codebook_tokens, quantizer_dim=quantizer_dim,
+            beta=self.loss_config.vq_commitment_beta,
             kmeans_init=quantize_kmeans_init, decay=decay,
         )
 
@@ -69,7 +74,7 @@ class VQNSP(nn.Module):
         self.decode_task_layer.apply(self._init_weights)
         self.decode_task_layer_angle.apply(self._init_weights)
 
-        self.loss_fn = F.smooth_l1_loss if smooth_l1_loss else F.mse_loss
+        self.recon_loss = SpectralReconstructionLoss(self.loss_config)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -128,40 +133,28 @@ class VQNSP(nn.Module):
         # for LaBraM pre-training
         return self.get_tokens(x, channel_indices, **kwargs)['token']
 
-    def calculate_reconstruction_loss(self, reconstructed, target):
-        target = rearrange(target, 'b n a c -> b (n a) c')
-        return self.loss_fn(reconstructed, target)
-
-    def std_norm(self, x):
-        mean = torch.mean(x, dim=(1, 2, 3), keepdim=True)
-        std = torch.std(x, dim=(1, 2, 3), keepdim=True)
-        x = (x - mean) / std
-        return x
-
     def forward(self, x, channel_indices=None, **kwargs):
         """
         x: shape [B, N, T]
         """
 
         x = rearrange(x, 'B N (A T) -> B N A T', T=200)
-        x_fft = torch.fft.fft(x, dim=-1)
-        amplitude = torch.abs(x_fft)
-        amplitude = self.std_norm(amplitude)
-        angle = torch.angle(x_fft)
-        angle = self.std_norm(angle)
+        amplitude_target, angle_target = self.recon_loss.spectrum_targets(x)
 
         quantize, codebook_indices, embedding_loss = self.encode(x, channel_indices)
 
         reconstructed_amplitude, reconstructed_angle = self.decode(quantize, channel_indices)
-        amplitude_loss = self.calculate_reconstruction_loss(reconstructed_amplitude, amplitude)
-        angle_loss = self.calculate_reconstruction_loss(reconstructed_angle, angle)
-        loss = embedding_loss + amplitude_loss + angle_loss
+        amplitude_loss, angle_loss = self.recon_loss(
+            reconstructed_amplitude, reconstructed_angle, amplitude_target, angle_target)
+
+        losses = get_vqnsp_losses(embedding_loss, amplitude_loss, angle_loss, self.loss_config)
+        loss = losses['total']
 
         log = {}
         split = "train" if self.training else "val"
-        log[f'{split}/quant_loss'] = embedding_loss.detach().mean()
-        log[f'{split}/rec_loss'] = amplitude_loss.detach().mean()
-        log[f'{split}/rec_angle_loss'] = angle_loss.detach().mean()
+        log[f'{split}/quant_loss'] = losses['embedding'].detach().mean()
+        log[f'{split}/rec_loss'] = losses['amplitude'].detach().mean()
+        log[f'{split}/rec_angle_loss'] = losses['phase'].detach().mean()
         log[f'{split}/total_loss'] = loss.detach().mean()
 
         return loss, log

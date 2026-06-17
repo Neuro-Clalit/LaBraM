@@ -15,13 +15,13 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 from timm.models import create_model
-from timm.loss import LabelSmoothingCrossEntropy
 from timm.utils import ModelEma
 
 import labram.models.registry  # noqa: F401  -- registers timm models
 import labram.runners.common as runner_common
 import labram.utils as utils
 from labram.data import get_dataset_bundle
+from labram.losses import LossConfig, build_classification_criterion
 from labram.trainers.train_finetune import evaluate, train_one_epoch
 from labram.runners.finetune_args import get_args
 from labram.runners.finetune_setup import (
@@ -188,12 +188,8 @@ def main(args, ds_init):
     wd_schedule_values = runner_common.make_wd_schedule(args, num_training_steps_per_epoch)
     print("Max WD = %.7f, Min WD = %.7f" % (max(wd_schedule_values), min(wd_schedule_values)))
 
-    if args.nb_classes == 1:
-        criterion = torch.nn.BCEWithLogitsLoss()
-    elif args.smoothing > 0.:
-        criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
-    else:
-        criterion = torch.nn.CrossEntropyLoss()
+    criterion = build_classification_criterion(
+        args.nb_classes, LossConfig(classification_label_smoothing=args.smoothing))
     print("criterion = %s" % str(criterion))
 
     utils.auto_load_model(
