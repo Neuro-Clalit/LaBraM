@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import List, Optional
 
 from labram.configs.base_configs import ConfigBase
 from labram.configs import defaults as conf_consts
@@ -119,3 +119,60 @@ class VQNSPArchConfig(ConfigBase):
     quantizer: QuantizerConfig = field(default_factory=QuantizerConfig)
     decoder_out_dim: int = conf_consts.DEFAULT_ARCH_DECODER_OUT_DIM
     smooth_l1_loss: bool = conf_consts.DEFAULT_ARCH_SMOOTH_L1_LOSS
+
+
+# ============================================================
+# Codebook-regularized fine-tuning configs
+# ============================================================
+
+
+@dataclass
+class ComponentTrainConfig(ConfigBase):
+    """Per-component trainability + learning-rate scaling for the
+    codebook-regularized classifier.
+
+    ``lr_scale`` multiplies the base (head) learning rate; for the encoder,
+    decoder, and codebook it must be < 1.0 so they update more slowly than the
+    classification head. ``n_last_trainable_layers`` (encoder only) freezes all
+    but the last N transformer blocks when set; ``None`` trains every layer.
+    """
+    trainable: bool = True
+    lr_scale: float = 1.0
+    n_last_trainable_layers: Optional[int] = None
+
+
+@dataclass
+class CodebookRegConfig(ConfigBase):
+    """Opt-in codebook regularization for fine-tuning.
+
+    When ``enabled``, the classifier additionally runs the EEG through the
+    VQNSP quantizer + decoder and adds spectral (amplitude/phase) and
+    quantization losses to the classification loss. Encoder + decoder are
+    trainable from pre-trained weights; the codebook is frozen by default.
+    """
+    enabled: bool = False
+    tokenizer_model: str = conf_consts.DEFAULT_TOKENIZER_MODEL
+    tokenizer_weight: str = conf_consts.DEFAULT_TOKENIZER_WEIGHT
+
+    # Classification feature sources (concatenated). Supported keys:
+    #   'encoder_mean'  encoder patch tokens, mean over chunks (default)
+    #   'quantize_mean' quantized codes, mean over chunks
+    #   'bag_of_codes'  normalized bag-of-codes statistics
+    feature_sources: List[str] = field(default_factory=lambda: ['encoder_mean'])
+    features_emb_dim: int = 128
+    linear_embedding: bool = True
+    norm_embedding: bool = True
+    classifier_type: str = 'linear'  # 'linear' | 'mlp'
+
+    encoder: ComponentTrainConfig = field(default_factory=ComponentTrainConfig)
+    decoder: ComponentTrainConfig = field(
+        default_factory=lambda: ComponentTrainConfig(trainable=False, lr_scale=0.1))
+    codebook: ComponentTrainConfig = field(
+        default_factory=lambda: ComponentTrainConfig(trainable=False, lr_scale=0.1))
+
+    # Loss weights (mapped into a LossConfig at assembly time). Auxiliary terms
+    # default small so the classification objective dominates.
+    classifier_weight: float = 1.0
+    amplitude_weight: float = 1.0
+    phase_weight: float = 0.1
+    embedding_weight: float = 1.0

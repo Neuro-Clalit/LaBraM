@@ -28,3 +28,9 @@ class LossConfig:
 
     # Downstream classification criterion.
     classification_label_smoothing: float = 0.0
+
+    # Codebook-regularized fine-tuning: weight on the classification term when
+    # the spectral (amplitude/phase) and quantization losses regularize the
+    # downstream task. Reuses amplitude_weight / phase_weight / embedding_weight
+    # for the auxiliary terms.
+    classifier_weight: float = 1.0

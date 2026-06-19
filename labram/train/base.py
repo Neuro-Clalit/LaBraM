@@ -1,6 +1,35 @@
-from typing import Any, Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence
 
 import torch
+
+
+def optimizer_update(
+    loss: torch.Tensor,
+    *,
+    optimizer: torch.optim.Optimizer,
+    loss_scaler: Any,
+    parameters: Iterable[torch.nn.Parameter],
+    clip_grad: Optional[float],
+    update_grad: bool,
+    create_graph: bool = False,
+    model_ema: Optional[Any] = None,
+    model: Optional[torch.nn.Module] = None,
+) -> Optional[float]:
+    """Run the AMP-scaled backward + (clipped) optimizer step for one micro-step.
+
+    Mirrors the inline stepping previously embedded in the fine-tune loop:
+    scale -> backward -> (clip) -> step via ``loss_scaler``; on an update
+    boundary (``update_grad``) zero the gradients and advance the EMA model.
+    Returns the grad-norm reported by the scaler (``None`` between boundaries).
+    """
+    grad_norm = loss_scaler(
+        loss, optimizer, clip_grad=clip_grad, parameters=parameters,
+        create_graph=create_graph, update_grad=update_grad)
+    if update_grad:
+        optimizer.zero_grad()
+        if model_ema is not None:
+            model_ema.update(model)
+    return grad_norm
 
 
 def apply_lr_wd_schedule(
