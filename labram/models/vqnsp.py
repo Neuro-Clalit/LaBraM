@@ -6,70 +6,64 @@
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from einops import rearrange
 from timm.layers import trunc_normal_
 
+from labram.configs.model_config import VQNSPArchConfig
+from labram.losses import LossConfig, SpectralReconstructionLoss, get_vqnsp_losses
 from labram.models.neural_transformer import NeuralTransformer
 from labram.models.quantizer import NormEMAVectorQuantizer
 from labram.utils.checkpoint import load_pretrained_weights
 
 
 class VQNSP(nn.Module):
-    def __init__(self,
-                 encoder_config,
-                 decoder_config,
-                 num_codebook_tokens=8192,
-                 quantizer_dim=32,
-                 decay=0.99,
-                 quantize_kmeans_init=True,
-                 decoder_out_dim=200,
-                 smooth_l1_loss=False,
-                 ):
+    def __init__(self, config: VQNSPArchConfig):
         super().__init__()
-        if decoder_config['in_chans'] != quantizer_dim:
-            print(f"Rewrite the in_chans in decoder from {decoder_config['in_chans']} to {quantizer_dim}")
-            decoder_config['in_chans'] = quantizer_dim
+        enc_cfg = config.encoder
+        q_cfg = config.quantizer
 
-        # encoder & decode params
-        print('Final encoder config', encoder_config)
-        self.encoder = NeuralTransformer(**encoder_config)
+        dec_cfg = config.decoder
+        if dec_cfg.in_chans != q_cfg.quantizer_dim:
+            from dataclasses import replace as _replace
+            dec_cfg = _replace(dec_cfg, in_chans=q_cfg.quantizer_dim)
+            print(f"Rewrite decoder in_chans to {q_cfg.quantizer_dim}")
 
-        print('Final decoder config', decoder_config)
-        self.decoder = NeuralTransformer(**decoder_config)
+        print('Encoder config', enc_cfg.__dict__)
+        self.encoder = NeuralTransformer(enc_cfg)
 
-        self.quantize = NormEMAVectorQuantizer(
-            num_codebook_tokens=num_codebook_tokens, quantizer_dim=quantizer_dim, beta=1.0,
-            kmeans_init=quantize_kmeans_init, decay=decay,
-        )
+        print('Decoder config', dec_cfg.__dict__)
+        self.decoder = NeuralTransformer(dec_cfg)
 
-        self.patch_size = encoder_config['patch_size']
-        self.token_shape = (62, encoder_config['eeg_window_size'] // self.patch_size)
+        self.quantize = NormEMAVectorQuantizer(q_cfg)
 
-        self.decoder_out_dim = decoder_out_dim
+        self.patch_size = enc_cfg.patch_size
+        self.token_shape = (62, enc_cfg.eeg_window_size // self.patch_size)
+        self.decoder_out_dim = config.decoder_out_dim
 
-        # task layer
+        enc_dim = enc_cfg.embed_dim
+        dec_dim = dec_cfg.embed_dim
         self.encode_task_layer = nn.Sequential(
-            nn.Linear(encoder_config['embed_dim'], encoder_config['embed_dim']),
+            nn.Linear(enc_dim, enc_dim),
             nn.Tanh(),
-            nn.Linear(encoder_config['embed_dim'], quantizer_dim) # for quantize
+            nn.Linear(enc_dim, q_cfg.quantizer_dim),
         )
         self.decode_task_layer = nn.Sequential(
-            nn.Linear(decoder_config['embed_dim'], decoder_config['embed_dim']),
+            nn.Linear(dec_dim, dec_dim),
             nn.Tanh(),
-            nn.Linear(decoder_config['embed_dim'], self.decoder_out_dim),
+            nn.Linear(dec_dim, config.decoder_out_dim),
         )
         self.decode_task_layer_angle = nn.Sequential(
-            nn.Linear(decoder_config['embed_dim'], decoder_config['embed_dim']),
+            nn.Linear(dec_dim, dec_dim),
             nn.Tanh(),
-            nn.Linear(decoder_config['embed_dim'], self.decoder_out_dim),
+            nn.Linear(dec_dim, config.decoder_out_dim),
         )
 
         self.encode_task_layer.apply(self._init_weights)
         self.decode_task_layer.apply(self._init_weights)
         self.decode_task_layer_angle.apply(self._init_weights)
 
-        self.loss_fn = F.smooth_l1_loss if smooth_l1_loss else F.mse_loss
+        self.loss_config = LossConfig(use_smooth_l1=config.smooth_l1_loss, vq_commitment_beta=q_cfg.beta)
+        self.recon_loss = SpectralReconstructionLoss(self.loss_config)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -128,40 +122,28 @@ class VQNSP(nn.Module):
         # for LaBraM pre-training
         return self.get_tokens(x, channel_indices, **kwargs)['token']
 
-    def calculate_reconstruction_loss(self, reconstructed, target):
-        target = rearrange(target, 'b n a c -> b (n a) c')
-        return self.loss_fn(reconstructed, target)
-
-    def std_norm(self, x):
-        mean = torch.mean(x, dim=(1, 2, 3), keepdim=True)
-        std = torch.std(x, dim=(1, 2, 3), keepdim=True)
-        x = (x - mean) / std
-        return x
-
     def forward(self, x, channel_indices=None, **kwargs):
         """
         x: shape [B, N, T]
         """
 
         x = rearrange(x, 'B N (A T) -> B N A T', T=200)
-        x_fft = torch.fft.fft(x, dim=-1)
-        amplitude = torch.abs(x_fft)
-        amplitude = self.std_norm(amplitude)
-        angle = torch.angle(x_fft)
-        angle = self.std_norm(angle)
+        amplitude_target, angle_target = self.recon_loss.spectrum_targets(x)
 
         quantize, codebook_indices, embedding_loss = self.encode(x, channel_indices)
 
         reconstructed_amplitude, reconstructed_angle = self.decode(quantize, channel_indices)
-        amplitude_loss = self.calculate_reconstruction_loss(reconstructed_amplitude, amplitude)
-        angle_loss = self.calculate_reconstruction_loss(reconstructed_angle, angle)
-        loss = embedding_loss + amplitude_loss + angle_loss
+        amplitude_loss, angle_loss = self.recon_loss(
+            reconstructed_amplitude, reconstructed_angle, amplitude_target, angle_target)
+
+        losses = get_vqnsp_losses(embedding_loss, amplitude_loss, angle_loss, self.loss_config)
+        loss = losses['total']
 
         log = {}
         split = "train" if self.training else "val"
-        log[f'{split}/quant_loss'] = embedding_loss.detach().mean()
-        log[f'{split}/rec_loss'] = amplitude_loss.detach().mean()
-        log[f'{split}/rec_angle_loss'] = angle_loss.detach().mean()
+        log[f'{split}/quant_loss'] = losses['embedding'].detach().mean()
+        log[f'{split}/rec_loss'] = losses['amplitude'].detach().mean()
+        log[f'{split}/rec_angle_loss'] = losses['phase'].detach().mean()
         log[f'{split}/total_loss'] = loss.detach().mean()
 
         return loss, log

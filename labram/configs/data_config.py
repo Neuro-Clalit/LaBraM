@@ -1,0 +1,31 @@
+from dataclasses import dataclass, field
+from typing import List
+
+from labram.configs.base_configs import ConfigBase
+from labram.configs.defaults import (
+    DEFAULT_DATASET_END_PERCENTAGE,
+    DEFAULT_DATASET_START_PERCENTAGE,
+    DEFAULT_NUM_WORKERS,
+    DEFAULT_PIN_MEM,
+    DEFAULT_PRETRAIN_STRIDE,
+    DEFAULT_TIME_WINDOWS,
+)
+
+
+@dataclass
+class DataConfig(ConfigBase):
+    """Pre-training and VQNSP dataset spec.
+
+    ``datasets_train`` mirrors the nested-list layout
+    ``build_pretraining_dataset`` expects: outer list groups files that
+    share a channel montage.
+    """
+    num_workers: int = DEFAULT_NUM_WORKERS
+    pin_mem: bool = DEFAULT_PIN_MEM
+    datasets_train: List[List[str]] = field(default_factory=list)
+    datasets_val: List[List[str]] = field(default_factory=list)
+    time_window: List[int] = field(default_factory=lambda: list(DEFAULT_TIME_WINDOWS))
+    val_time_window: List[int] = field(default_factory=list)
+    stride: int = DEFAULT_PRETRAIN_STRIDE
+    start_percentage: float = DEFAULT_DATASET_START_PERCENTAGE
+    end_percentage: float = DEFAULT_DATASET_END_PERCENTAGE

@@ -10,7 +10,7 @@ The four requested workstreams map to phases:
 |---|---------|-------|--------|
 | 1 | Move all data-relevant methods into a `data/` folder | **Phase B** | ✅ done |
 | 2 | Split/move NN-module methods into a `layers/` folder | **Phase A** | ✅ done |
-| 3 | Add a losses config | **Phase C** | pending |
+| 3 | Add a losses config | **Phase C** | ✅ done |
 | 4 | Another refactor recommendation based on `LaBraM-OLD` | **Phase D** | pending |
 
 Sequencing rationale: Phase A (layers) first — it is the most self-contained (3 importers + 1

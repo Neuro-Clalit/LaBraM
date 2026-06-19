@@ -1,0 +1,81 @@
+{
+    "py/object": "labram.configs.runner_configs.PretrainRunConfig",
+    "output": {
+        "py/object": "labram.configs.train_config.OutputConfig",
+        "output_dir": "./checkpoints/labram_base",
+        "log_dir": "./log/labram_base",
+        "resume": "",
+        "auto_resume": true,
+        "save_ckpt": true,
+        "save_ckpt_freq": 5
+    },
+    "distributed": {
+        "py/object": "labram.configs.train_config.DistributedConfig",
+        "world_size": 1,
+        "local_rank": -1,
+        "dist_on_itp": false,
+        "dist_url": "env://",
+        "device": "cuda",
+        "seed": 0,
+        "dist_eval": false,
+        "distributed": false,
+        "gpu": 0
+    },
+    "optimizer": {
+        "py/object": "labram.configs.optim_config.OptimizerConfig",
+        "opt": "adamw",
+        "opt_eps": 1e-08,
+        "opt_betas": [
+            0.9,
+            0.98
+        ],
+        "momentum": 0.9,
+        "weight_decay": 0.05,
+        "weight_decay_end": null,
+        "lr": 0.0005,
+        "warmup_lr": 1e-06,
+        "min_lr": 1e-05,
+        "warmup_epochs": 5,
+        "warmup_steps": -1,
+        "clip_grad": 3.0
+    },
+    "trainer": {
+        "py/object": "labram.configs.train_config.TrainerConfig",
+        "batch_size": 64,
+        "epochs": 50,
+        "start_epoch": 0,
+        "gradient_accumulation_steps": 1,
+        "update_freq": 1
+    },
+    "data": {
+        "py/object": "labram.configs.data_config.DataConfig",
+        "num_workers": 10,
+        "pin_mem": true,
+        "datasets_train": [],
+        "datasets_val": [],
+        "time_window": [
+            4,
+            8
+        ],
+        "val_time_window": [],
+        "stride": 800,
+        "start_percentage": 0.0,
+        "end_percentage": 1.0
+    },
+    "model": {
+        "py/object": "labram.configs.model_config.PretrainModelConfig",
+        "model": "labram_base_patch200_1600_8k_vocab",
+        "input_size": 1600,
+        "rel_pos_bias": false,
+        "abs_pos_emb": true,
+        "layer_scale_init_value": 0.1,
+        "drop_path": 0.0
+    },
+    "tokenizer": {
+        "py/object": "labram.configs.model_config.TokenizerConfig",
+        "tokenizer_model": "vqnsp_encoder_base_decoder_3x200x12",
+        "tokenizer_weight": "./checkpoints/vqnsp.pth",
+        "codebook_size": 8192,
+        "quantizer_dim": 64
+    }
+}

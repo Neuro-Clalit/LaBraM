@@ -1,0 +1,98 @@
+{
+    "py/object": "labram.configs.runner_configs.FinetuneRunConfig",
+    "output": {
+        "py/object": "labram.configs.train_config.OutputConfig",
+        "output_dir": "./checkpoints/finetune_tuev_base/",
+        "log_dir": "./log/finetune_tuev_base",
+        "resume": "",
+        "auto_resume": true,
+        "save_ckpt": true,
+        "save_ckpt_freq": 5
+    },
+    "distributed": {
+        "py/object": "labram.configs.train_config.DistributedConfig",
+        "world_size": 1,
+        "local_rank": -1,
+        "dist_on_itp": false,
+        "dist_url": "env://",
+        "device": "auto",
+        "seed": 0,
+        "dist_eval": false,
+        "distributed": false,
+        "gpu": 0
+    },
+    "optimizer": {
+        "py/object": "labram.configs.optim_config.OptimizerConfig",
+        "opt": "adamw",
+        "opt_eps": 1e-08,
+        "opt_betas": null,
+        "momentum": 0.9,
+        "weight_decay": 0.05,
+        "weight_decay_end": null,
+        "lr": 0.0005,
+        "warmup_lr": 1e-06,
+        "min_lr": 1e-06,
+        "warmup_epochs": 5,
+        "warmup_steps": -1,
+        "clip_grad": null
+    },
+    "trainer": {
+        "py/object": "labram.configs.train_config.TrainerConfig",
+        "batch_size": 64,
+        "epochs": 50,
+        "start_epoch": 0,
+        "gradient_accumulation_steps": 1,
+        "update_freq": 1
+    },
+    "data": {
+        "py/object": "labram.configs.data_config.DataConfig",
+        "num_workers": 10,
+        "pin_mem": true,
+        "datasets_train": [],
+        "datasets_val": [],
+        "time_window": [
+            4,
+            8
+        ],
+        "val_time_window": [],
+        "stride": 800,
+        "start_percentage": 0.0,
+        "end_percentage": 1.0
+    },
+    "model": {
+        "py/object": "labram.configs.model_config.FinetuneModelConfig",
+        "model": "labram_base_patch200_200",
+        "input_size": 200,
+        "qkv_bias": false,
+        "rel_pos_bias": false,
+        "abs_pos_emb": true,
+        "layer_scale_init_value": 0.1,
+        "drop": 0.0,
+        "attn_drop_rate": 0.0,
+        "drop_path": 0.1,
+        "use_mean_pooling": true,
+        "init_scale": 0.001,
+        "nb_classes": 0
+    },
+    "finetune_checkpoint": {
+        "py/object": "labram.configs.model_config.FinetuneCheckpointConfig",
+        "finetune": "./checkpoints/labram-base.pth",
+        "model_key": "model|module",
+        "model_prefix": "",
+        "model_filter_name": "gzp"
+    },
+    "layer_decay": 0.65,
+    "smoothing": 0.1,
+    "model_ema": false,
+    "model_ema_decay": 0.9999,
+    "model_ema_force_cpu": false,
+    "disable_eval_during_finetuning": false,
+    "disable_weight_decay_on_rel_pos_bias": false,
+    "eval": false,
+    "enable_deepspeed": false,
+    "dataset": "TUEV",
+    "data_path": "./datasets/TUEV",
+    "debug": false,
+    "debug_samples": 16,
+    "robust_test": ""
+}

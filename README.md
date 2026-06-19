@@ -38,6 +38,25 @@ You can adapt LaBraM to your own datasets by following the fine-tuning scripts p
 
 ## Running Experiments
 
+Training is **config-driven**. Each of the three phases has an entry point invoked
+with `python -m`, and a default config under [`labram/configs/defaults/`](labram/configs/defaults):
+
+| Phase | Entry point | Default config |
+| --- | --- | --- |
+| VQ-NSP tokenizer | `labram.runs.run_vqnsp` | `vqnsp.json` |
+| Pre-training | `labram.runs.run_pretrain` | `pretrain.json` |
+| Fine-tune (TUAB) | `labram.runs.run_finetune` | `finetune_tuab.json` |
+| Fine-tune (TUEV) | `labram.runs.run_finetune` | `finetune_tuev.json` |
+
+Every runner accepts:
+
+* `--config PATH` — a JSON or YAML run-config file (omit to use built-in dataclass defaults).
+* `--set KEY=VALUE [KEY=VALUE ...]` — dotted-path overrides applied on top of the config,
+  e.g. `--set optimizer.lr=1e-4 trainer.epochs=20 output.output_dir=./out`.
+
+On start, the resolved config is written to `<output_dir>/run_config.yaml` for reproducibility.
+Copy a default config and edit it, or keep the default and override fields with `--set`.
+
 ### 1. Prepare Pre-training Data
 
 Convert raw EEG files (e.g., `.cnt`, `.edf`, `.bdf`) into HDF5 format using:
@@ -61,20 +80,18 @@ You may also implement your own preprocessing pipeline, but please ensure it mat
 The tokenizer is trained via **vector-quantized neural spectrum prediction (VQ-NSP)**. We recommend training on **8 × NVIDIA RTX 3090 (or better)** GPUs.
 
 ```bash
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 run_vqnsp_training.py \
-    --output_dir ./checkpoints/vqnsp/ \
-    --log_dir ./log/vqnsp/ \
-    --model vqnsp_encoder_base_decoder_3x200x12 \
-    --codebook_n_emd 8192 \
-    --codebook_emd_dim 64 \
-    --quantize_kmeans_init \
-    --batch_size 128 \
-    --opt adamw \
-    --opt_betas 0.9 0.99 \
-    --weight_decay 1e-4 \
-    --warmup_epochs 10 \
-    --epochs 100 \
-    --save_ckpt_freq 20
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_vqnsp \
+    --config labram/configs/defaults/vqnsp.json
+```
+
+The default config sets `vqnsp_encoder_base_decoder_3x200x12`, an 8192-entry codebook of
+dim 64, k-means codebook init, `batch_size=128`, `adamw` with `opt_betas=[0.9, 0.99]`,
+`weight_decay=1e-4`, `warmup_epochs=10`, and `epochs=100`. Override anything inline:
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_vqnsp \
+    --config labram/configs/defaults/vqnsp.json \
+    --set trainer.epochs=50 output.output_dir=./checkpoints/vqnsp_short/
 ```
 
 ---
@@ -84,25 +101,15 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 run_vqnsp_training.py \
 Pre-train LaBraM by reconstructing masked neural codes from EEG channel patches:
 
 ```bash
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 run_labram_pretraining.py \
-    --output_dir ./checkpoints/labram_base \
-    --log_dir ./log/labram_base \
-    --model labram_base_patch200_1600_8k_vocab \
-    --tokenizer_model vqnsp_encoder_base_decoder_3x200x12 \
-    --tokenizer_weight ./checkpoints/vqnsp.pth \
-    --batch_size 64 \
-    --lr 5e-4 \
-    --warmup_epochs 5 \
-    --clip_grad 3.0 \
-    --drop_path 0. \
-    --layer_scale_init_value 0.1 \
-    --opt_betas 0.9 0.98 \
-    --opt_eps 1e-8 \
-    --epochs 50 \
-    --save_ckpt_freq 5 \
-    --codebook_dim 64 \
-    --gradient_accumulation_steps 1
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_pretrain \
+    --config labram/configs/defaults/pretrain.json \
+    --set tokenizer.tokenizer_weight=./checkpoints/vqnsp.pth
 ```
+
+The default config uses `labram_base_patch200_1600_8k_vocab` with the
+`vqnsp_encoder_base_decoder_3x200x12` tokenizer, `lr=5e-4`, `warmup_epochs=5`,
+`clip_grad=3.0`, `layer_scale_init_value=0.1`, `opt_betas=[0.9, 0.98]`, and `epochs=50`.
+Point `tokenizer.tokenizer_weight` at the checkpoint produced in step 2.
 
 ---
 
@@ -115,29 +122,32 @@ dataset_maker/make_TUAB.py
 dataset_maker/make_TUEV.py
 ```
 
-This includes preprocessing and splitting into train/val/test sets. Hyperparameters such as **learning rate** and **warmup epochs** strongly affect results—tune them for best performance. Below is the TUAB example:
+This includes preprocessing and splitting into train/val/test sets. Hyperparameters such as **learning rate** and **warmup epochs** strongly affect results—tune them for best performance.
+
+**TUAB** (binary abnormal detection):
 
 ```bash
-OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 run_class_finetuning.py \
-    --output_dir ./checkpoints/finetune_tuab_base/ \
-    --log_dir ./log/finetune_tuab_base \
-    --model labram_base_patch200_200 \
-    --finetune ./checkpoints/labram-base.pth \
-    --weight_decay 0.05 \
-    --batch_size 64 \
-    --lr 5e-4 \
-    --update_freq 1 \
-    --warmup_epochs 5 \
-    --epochs 50 \
-    --layer_decay 0.65 \
-    --drop_path 0.1 \
-    --save_ckpt_freq 5 \
-    --disable_rel_pos_bias \
-    --abs_pos_emb \
-    --dataset TUAB \
-    --disable_qkv_bias \
-    --seed 0
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_finetune \
+    --config labram/configs/defaults/finetune_tuab.json \
+    --set finetune_checkpoint.finetune=./checkpoints/labram-base.pth \
+          data_path=./datasets/TUAB
 ```
+
+**TUEV** (6-class event classification):
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_finetune \
+    --config labram/configs/defaults/finetune_tuev.json \
+    --set finetune_checkpoint.finetune=./checkpoints/labram-base.pth \
+          data_path=./datasets/TUEV
+```
+
+Both default configs use `labram_base_patch200_200` with `layer_decay=0.65`, `lr=5e-4`,
+`warmup_epochs=5`, `epochs=50`, absolute position embeddings, and relative-position-bias /
+qkv-bias disabled — matching the paper's fine-tuning recipe. To fine-tune on your **own
+dataset**, copy one of these configs and point `data_path` at your data (`nb_classes` is
+inferred from the dataset bundle). Tune `optimizer.lr`, `optimizer.warmup_epochs`, and
+`layer_decay` via `--set` for best results.
 
 ---
 

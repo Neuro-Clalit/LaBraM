@@ -1,0 +1,77 @@
+{
+    "py/object": "labram.configs.runner_configs.VQNSPRunConfig",
+    "output": {
+        "py/object": "labram.configs.train_config.OutputConfig",
+        "output_dir": "./checkpoints/vqnsp/",
+        "log_dir": "./log/vqnsp/",
+        "resume": "",
+        "auto_resume": true,
+        "save_ckpt": true,
+        "save_ckpt_freq": 20
+    },
+    "distributed": {
+        "py/object": "labram.configs.train_config.DistributedConfig",
+        "world_size": 1,
+        "local_rank": -1,
+        "dist_on_itp": false,
+        "dist_url": "env://",
+        "device": "cuda",
+        "seed": 0,
+        "dist_eval": true,
+        "distributed": false,
+        "gpu": 0
+    },
+    "optimizer": {
+        "py/object": "labram.configs.optim_config.OptimizerConfig",
+        "opt": "adamw",
+        "opt_eps": 1e-08,
+        "opt_betas": [
+            0.9,
+            0.99
+        ],
+        "momentum": 0.9,
+        "weight_decay": 0.0001,
+        "weight_decay_end": null,
+        "lr": 5e-05,
+        "warmup_lr": 1e-06,
+        "min_lr": 1e-05,
+        "warmup_epochs": 10,
+        "warmup_steps": -1,
+        "clip_grad": null
+    },
+    "trainer": {
+        "py/object": "labram.configs.train_config.TrainerConfig",
+        "batch_size": 128,
+        "epochs": 100,
+        "start_epoch": 0,
+        "gradient_accumulation_steps": 1,
+        "update_freq": 1
+    },
+    "data": {
+        "py/object": "labram.configs.data_config.DataConfig",
+        "num_workers": 10,
+        "pin_mem": true,
+        "datasets_train": [],
+        "datasets_val": [],
+        "time_window": [
+            4,
+            8
+        ],
+        "val_time_window": [],
+        "stride": 200,
+        "start_percentage": 0.0,
+        "end_percentage": 1.0
+    },
+    "model": {
+        "py/object": "labram.configs.model_config.VQNSPModelConfig",
+        "model": "vqnsp_encoder_base_decoder_3x200x12",
+        "input_size": 1600,
+        "ema_decay": 0.99,
+        "quantize_kmeans_init": true,
+        "codebook_size": 8192,
+        "quantizer_dim": 64
+    },
+    "disable_eval": false,
+    "eval": false,
+    "calculate_codebook_usage": false
+}

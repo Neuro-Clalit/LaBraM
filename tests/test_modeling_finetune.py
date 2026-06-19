@@ -8,6 +8,7 @@ known limitation when channel_indices is None and use_abs_pos_emb is on).
 import pytest
 import torch
 
+from labram.configs.model_config import TransformerArchConfig
 from labram.layers import Block, PatchEmbed, TemporalConv
 from labram.models.neural_transformer import NeuralTransformer
 
@@ -56,7 +57,7 @@ class TestPatchEmbed:
 
 def _make_tiny_model(**overrides):
     """Tiny 2-block NeuralTransformer suitable for fast CPU tests."""
-    cfg = dict(
+    defaults = dict(
         eeg_window_size=200,
         patch_size=200,
         in_chans=1,
@@ -70,8 +71,9 @@ def _make_tiny_model(**overrides):
         use_abs_pos_emb=False,
         use_rel_pos_bias=True,
     )
-    cfg.update(overrides)
-    return NeuralTransformer(**cfg)
+    defaults.update(overrides)
+    cfg = TransformerArchConfig(**{k: v for k, v in defaults.items() if TransformerArchConfig.exist(k)})
+    return NeuralTransformer(cfg)
 
 
 class TestNeuralTransformerForward:
@@ -107,20 +109,18 @@ class TestNeuralTransformerForward:
 
     def test_eeg_window_size_kwarg_propagates(self):
         # With patch_size=200 and eeg_window_size=400, time_window=2
-        model = NeuralTransformer(
+        cfg = TransformerArchConfig(
             eeg_window_size=400, patch_size=200, in_chans=1, out_chans=8,
             num_classes=1, embed_dim=200, depth=2, num_heads=10,
             init_values=0.1, qkv_bias=True, use_abs_pos_emb=False,
             use_rel_pos_bias=True,
         )
+        model = NeuralTransformer(cfg)
         assert model.time_window == 2
 
     def test_old_kwarg_raises_typeerror(self):
-        # After the C3 rename cleanup, NeuralTransformer.__init__ no longer
-        # swallows unknown kwargs. Passing the old EEG_size= name (or any
-        # other typo) now raises TypeError at construction time, which is
-        # what would have caught the test_finetune.py bug fixed in PR #4
-        # before it ever shipped.
+        # Passing kwargs directly to NeuralTransformer (which now requires a
+        # TransformerArchConfig as first arg) raises TypeError.
         with pytest.raises(TypeError):
             NeuralTransformer(
                 EEG_size=999,

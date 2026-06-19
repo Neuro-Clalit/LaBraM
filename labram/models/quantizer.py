@@ -14,6 +14,8 @@ import torch.nn.functional as F
 import torch.distributed as distributed
 from einops import rearrange, repeat
 
+from labram.configs.model_config import QuantizerConfig
+
 
 def l2norm(t):
     return F.normalize(t, p = 2, dim = -1)
@@ -121,20 +123,21 @@ def norm_ema_inplace(moving_avg, new, decay):
     moving_avg.data.copy_(l2norm(moving_avg.data))
 
 class NormEMAVectorQuantizer(nn.Module):
-    def __init__(self, num_codebook_tokens, quantizer_dim, beta, decay=0.99, eps=1e-5,
-                statistic_code_usage=True, kmeans_init=False, codebook_init_path=''):
+    def __init__(self, config: QuantizerConfig, eps: float = 1e-5,
+                 statistic_code_usage: bool = True, codebook_init_path: str = ''):
         super().__init__()
-        self.quantizer_dim = quantizer_dim
-        self.num_tokens = num_codebook_tokens
-        self.beta = beta
-        self.decay = decay
+        self.quantizer_dim = config.quantizer_dim
+        self.num_tokens = config.num_codebook_tokens
+        self.beta = config.beta
+        self.decay = config.decay
 
-        # learnable = True if orthogonal_reg_weight > 0 else False
-        self.embedding = EmbeddingEMA(self.num_tokens, self.quantizer_dim, decay, eps, kmeans_init, codebook_init_path)
+        self.embedding = EmbeddingEMA(
+            self.num_tokens, self.quantizer_dim, config.decay, eps, config.kmeans_init, codebook_init_path,
+        )
 
         self.statistic_code_usage = statistic_code_usage
         if statistic_code_usage:
-            self.register_buffer('cluster_size', torch.zeros(num_codebook_tokens))
+            self.register_buffer('cluster_size', torch.zeros(config.num_codebook_tokens))
         if distributed.is_available() and distributed.is_initialized():
             print("ddp is enable, so use ddp_reduce to sync the statistic_code_usage for each gpu!")
             self.all_reduce_fn = distributed.all_reduce

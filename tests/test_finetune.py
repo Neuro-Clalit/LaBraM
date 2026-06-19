@@ -3,7 +3,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from labram.trainers.train_finetune import train_class_batch, train_one_epoch, evaluate
+from labram.train.train_finetune import train_class_batch, train_one_epoch, evaluate
+from labram.configs.optim_config import OptimizerConfig
+from labram.configs.train_config import TrainerConfig
+from labram.configs.model_config import TransformerArchConfig
 from labram.models.neural_transformer import NeuralTransformer
 from labram.utils import NativeScalerWithGradNormCount
 
@@ -24,7 +27,7 @@ EMBED_DIM = 200
 
 def _make_model(num_classes: int = 1, use_abs_pos_emb: bool = False) -> NeuralTransformer:
     """Tiny 2-block model suitable for fast CPU unit tests."""
-    return NeuralTransformer(
+    cfg = TransformerArchConfig(
         eeg_window_size=T_PATCH,
         patch_size=T_PATCH,
         in_chans=1,
@@ -38,6 +41,7 @@ def _make_model(num_classes: int = 1, use_abs_pos_emb: bool = False) -> NeuralTr
         use_abs_pos_emb=use_abs_pos_emb,
         use_rel_pos_bias=True,
     )
+    return NeuralTransformer(cfg)
 
 
 def _make_loader(n_samples: int = 8, num_classes: int = 1) -> DataLoader:
@@ -60,11 +64,12 @@ def _make_epoch_args(model, loader, criterion, is_binary: bool):
         device=torch.device("cpu"),
         epoch=0,
         loss_scaler=loss_scaler,
+        trainer_cfg=TrainerConfig(update_freq=1),
+        optim_cfg=OptimizerConfig(clip_grad=None),
         start_steps=0,
         lr_schedule_values=[1e-4] * n_steps,
         wd_schedule_values=[0.05] * n_steps,
         num_training_steps_per_epoch=n_steps,
-        update_freq=1,
         is_binary=is_binary,
     )
 
@@ -170,11 +175,12 @@ class TestTrainOneEpoch:
             device=torch.device("cpu"),
             epoch=0,
             loss_scaler=loss_scaler,
+            trainer_cfg=TrainerConfig(update_freq=2),
+            optim_cfg=OptimizerConfig(clip_grad=None),
             start_steps=0,
             lr_schedule_values=[1e-4] * n_steps,
             wd_schedule_values=[0.05] * n_steps,
             num_training_steps_per_epoch=n_steps,
-            update_freq=2,
             is_binary=True,
         )
         assert "loss" in stats
