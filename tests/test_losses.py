@@ -96,6 +96,29 @@ class TestSpectralReconstructionLoss:
         ref = F.smooth_l1_loss(recon, rearrange(target, 'b n a c -> b (n a) c'))
         assert torch.allclose(loss.reconstruction_loss(recon, target), ref)
 
+    def test_freq_fraction_truncates_spectrum(self):
+        loss = SpectralReconstructionLoss(LossConfig(freq_fraction=0.5))
+        x = torch.randn(2, 4, 2, 200)
+        amp, phase = loss.spectrum_targets(x)
+        assert amp.shape[-1] == 100  # 200 * 0.5
+        assert phase.shape[-1] == 100
+
+    def test_freq_fraction_one_is_full_spectrum(self):
+        loss_full = SpectralReconstructionLoss(LossConfig(freq_fraction=1.0))
+        loss_default = SpectralReconstructionLoss()
+        x = torch.randn(2, 4, 2, 200)
+        amp_full, phase_full = loss_full.spectrum_targets(x)
+        amp_def, phase_def = loss_default.spectrum_targets(x)
+        assert amp_full.shape == amp_def.shape
+        assert torch.allclose(amp_full, amp_def)
+
+    def test_freq_fraction_reconstruction_loss_aligned(self):
+        loss = SpectralReconstructionLoss(LossConfig(freq_fraction=0.5))
+        recon = torch.randn(2, 8, 200)   # full T from decoder
+        target = torch.randn(2, 4, 2, 100)  # already-truncated target
+        ref = F.mse_loss(recon[..., :100], rearrange(target, 'b n a c -> b (n a) c'))
+        assert torch.allclose(loss.reconstruction_loss(recon, target), ref)
+
     def test_is_parameter_free(self):
         assert list(SpectralReconstructionLoss().state_dict().keys()) == []
 
