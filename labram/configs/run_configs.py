@@ -25,6 +25,7 @@ from labram.configs.base_configs import ConfigBase
 from labram.configs.data_config import DataConfig
 from labram.configs import defaults as conf_consts
 from labram.configs.model_config import (
+    CodebookRegConfig,
     FinetuneCheckpointConfig,
     FinetuneModelConfig,
     PretrainModelConfig,
@@ -111,6 +112,7 @@ class VQNSPRunConfig(RunConfig):
 class FinetuneRunConfig(RunConfig):
     model: FinetuneModelConfig = field(default_factory=FinetuneModelConfig)
     finetune_checkpoint: FinetuneCheckpointConfig = field(default_factory=FinetuneCheckpointConfig)
+    codebook_reg: CodebookRegConfig = field(default_factory=CodebookRegConfig)
     optimizer: OptimizerConfig = field(
         default_factory=lambda: OptimizerConfig(
             lr=conf_consts.DEFAULT_FINETUNE_LR,

@@ -2,8 +2,8 @@
     "py/object": "labram.configs.runner_configs.FinetuneRunConfig",
     "output": {
         "py/object": "labram.configs.train_config.OutputConfig",
-        "output_dir": "./checkpoints/finetune_tuev_base/",
-        "log_dir": "./log/finetune_tuev_base",
+        "output_dir": "./checkpoints/finetune_tuab_codebook/",
+        "log_dir": "./log/finetune_tuab_codebook",
         "resume": "",
         "auto_resume": true,
         "save_ckpt": true,
@@ -90,16 +90,16 @@
     "disable_weight_decay_on_rel_pos_bias": false,
     "eval": false,
     "enable_deepspeed": false,
-    "dataset": "TUEV",
-    "data_path": "./datasets/TUEV",
+    "dataset": "TUAB",
+    "data_path": "./datasets/TUAB",
     "debug": false,
     "debug_samples": 16,
     "robust_test": "",
     "codebook_reg": {
         "py/object": "labram.configs.model_config.CodebookRegConfig",
-        "enabled": false,
+        "enabled": true,
         "tokenizer_model": "vqnsp_encoder_base_decoder_3x200x12",
-        "tokenizer_weight": "",
+        "tokenizer_weight": "./checkpoints/vqnsp.pth",
         "feature_sources": [
             "encoder_mean"
         ],

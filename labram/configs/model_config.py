@@ -164,7 +164,8 @@ class CodebookRegConfig(ConfigBase):
     norm_embedding: bool = True
     classifier_type: str = 'linear'  # 'linear' | 'mlp'
 
-    encoder: ComponentTrainConfig = field(default_factory=ComponentTrainConfig)
+    encoder: ComponentTrainConfig = field(
+        default_factory=lambda: ComponentTrainConfig(trainable=True, lr_scale=0.1))
     decoder: ComponentTrainConfig = field(
         default_factory=lambda: ComponentTrainConfig(trainable=False, lr_scale=0.1))
     codebook: ComponentTrainConfig = field(

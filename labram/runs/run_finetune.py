@@ -16,10 +16,13 @@ import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
 from labram.data import get_dataset_bundle
-from labram.losses import LossConfig, build_classification_criterion
+from labram.losses import CodebookRegularizedCriterion, LossConfig, build_classification_criterion
 from labram.configs.run_configs import FinetuneRunConfig
 from labram.configs.utils_conf import parse_overrides
 from labram.train.train_finetune import evaluate, train_loop
+from labram.runs.codebook_setup import (
+    CodebookRegLayerAssigner, build_codebook_classifier, loss_config_from_codebook_reg,
+)
 from labram.runs.finetune_setup import (
     build_dataloaders, build_samplers, load_finetune_checkpoint,
     subset_for_debug,
@@ -38,6 +41,8 @@ def parse_cli() -> argparse.Namespace:
 
 
 def get_model(config: FinetuneRunConfig):
+    if config.codebook_reg.enabled:
+        return build_codebook_classifier(config)
     m = config.model
     return create_model(
         m.model, pretrained=False,
@@ -105,7 +110,12 @@ def main(config: FinetuneRunConfig):
     patch_size = model.patch_size
     window_size = (1, config.model.input_size // patch_size)
 
-    load_finetune_checkpoint(model, config.finetune_checkpoint)
+    # Codebook-regularized: the pre-trained backbone loads into model.encoder
+    # (decoder + quantizer come from the VQNSP checkpoint at build time).
+    if config.codebook_reg.enabled:
+        load_finetune_checkpoint(model.encoder, config.finetune_checkpoint)
+    else:
+        load_finetune_checkpoint(model, config.finetune_checkpoint)
     model.to(device)
 
     model_ema = None
@@ -123,7 +133,11 @@ def main(config: FinetuneRunConfig):
 
     num_layers = model_without_ddp.get_num_layers()
     assigner = None
-    if config.layer_decay < 1.0:
+    if config.codebook_reg.enabled:
+        # Per-component LR scales (encoder/decoder slower than the head),
+        # with optional layer-wise decay folded into the encoder group.
+        assigner = CodebookRegLayerAssigner(config.codebook_reg, num_layers, config.layer_decay)
+    elif config.layer_decay < 1.0:
         assigner = LayerDecayValueAssigner(
             [config.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)])
 
@@ -156,8 +170,13 @@ def main(config: FinetuneRunConfig):
         loss_scaler = NativeScaler()
 
     nb_classes = config.model.nb_classes
-    criterion = build_classification_criterion(
-        nb_classes, LossConfig(classification_label_smoothing=config.smoothing))
+    if config.codebook_reg.enabled:
+        loss_cfg = loss_config_from_codebook_reg(config.codebook_reg, config.smoothing)
+        criterion = CodebookRegularizedCriterion(
+            build_classification_criterion(nb_classes, loss_cfg), loss_cfg)
+    else:
+        criterion = build_classification_criterion(
+            nb_classes, LossConfig(classification_label_smoothing=config.smoothing))
 
     utils.auto_load_model(
         output_cfg=config.output, trainer_cfg=config.trainer,

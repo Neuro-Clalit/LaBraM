@@ -94,5 +94,40 @@
     "data_path": "./datasets/TUAB",
     "debug": false,
     "debug_samples": 16,
-    "robust_test": ""
+    "robust_test": "",
+    "codebook_reg": {
+        "py/object": "labram.configs.model_config.CodebookRegConfig",
+        "enabled": false,
+        "tokenizer_model": "vqnsp_encoder_base_decoder_3x200x12",
+        "tokenizer_weight": "",
+        "feature_sources": [
+            "encoder_mean"
+        ],
+        "features_emb_dim": 128,
+        "linear_embedding": true,
+        "norm_embedding": true,
+        "classifier_type": "linear",
+        "encoder": {
+            "py/object": "labram.configs.model_config.ComponentTrainConfig",
+            "trainable": true,
+            "lr_scale": 0.1,
+            "n_last_trainable_layers": null
+        },
+        "decoder": {
+            "py/object": "labram.configs.model_config.ComponentTrainConfig",
+            "trainable": false,
+            "lr_scale": 0.1,
+            "n_last_trainable_layers": null
+        },
+        "codebook": {
+            "py/object": "labram.configs.model_config.ComponentTrainConfig",
+            "trainable": false,
+            "lr_scale": 0.1,
+            "n_last_trainable_layers": null
+        },
+        "classifier_weight": 1.0,
+        "amplitude_weight": 1.0,
+        "phase_weight": 0.1,
+        "embedding_weight": 1.0
+    }
 }

@@ -36,6 +36,13 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.finetune
   --model labram_base_patch200_200 --finetune ./checkpoints/labram-base.pth \
   --dataset TUAB --batch_size 64 --lr 5e-4 --epochs 50 \
   --layer_decay 0.65 --disable_rel_pos_bias --abs_pos_emb --disable_qkv_bias
+
+# Codebook-regularized fine-tune (config-driven): adds spectral + quantization
+# losses from a frozen-codebook VQNSP decoder as regularization.
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.finetune \
+  --config labram/configs/defaults/finetune_tuab_codebook.json \
+  --set codebook_reg.tokenizer_weight=./checkpoints/vqnsp.pth \
+        finetune_checkpoint.finetune=./checkpoints/labram-base.pth
 ```
 
 ### Installation
@@ -53,9 +60,9 @@ pip install -r requirements.txt
 ### Package layout
 
 - `labram/layers/` — Neural-network primitives, one responsibility per module: `drop_path.py`, `mlp.py`, `attention.py`, `patch_embed.py` (PatchEmbed, TemporalConv), `transformer_block.py` (Block); all re-exported from `labram.layers`
-- `labram/models/` — Config-driven model definitions: `neural_transformer.py` (shared backbone), `masked_eeg.py` (pre-training heads), `vqnsp.py` (tokenizer), `quantizer.py` (VQ with EMA), `registry.py` (all timm `@register_model` factories)
+- `labram/models/` — Config-driven model definitions: `neural_transformer.py` (shared backbone), `masked_eeg.py` (pre-training heads), `vqnsp.py` (tokenizer), `quantizer.py` (VQ with EMA), `components.py` (shared quantize/decode helpers reused by VQNSP and the regularized classifier), `codebook_classifier.py` (`CodebookRegularizedClassifier` for regularized fine-tuning), `outputs.py` (`PredictorOutput`), `registry.py` (all timm `@register_model` factories)
 - `labram/data/` — All data concerns: `eeg_constants.py` (standard 10-20 layout, channel-index helpers), `hdf5_datasets.py` (`SingleShockDataset`/`ShockDataset`), `tuh_datasets.py` (TUAB/TUEV loaders), `bundles.py` (per-task `DatasetBundle`/`get_dataset_bundle`), `preprocess.py`, `pretraining.py` (`build_pretraining_dataset`); public API on `labram.data`
-- `labram/losses/` — Configurable training losses: `config.py` (`LossConfig`), `spectral.py` (`SpectralReconstructionLoss`), `vqnsp.py` (`get_vqnsp_losses`), `classification.py` (`build_classification_criterion`)
+- `labram/losses/` — Configurable training losses: `config.py` (`LossConfig`), `spectral.py` (`SpectralReconstructionLoss`), `vqnsp.py` (`get_vqnsp_losses`), `classification.py` (`build_classification_criterion`), `codebook_regularized.py` (`CodebookRegularizedCriterion` combining classification + spectral + quantization losses), `outputs.py` (`LossBreakdown`)
 - `labram/configs/` — Dataclass config tree on `ConfigBase` (JSON/YAML round-trip): model/data/optim/train/runner configs + `defaults/*.json`; constructors are config-driven (`VQNSP(VQNSPArchConfig)`, `NeuralTransformer(TransformerArchConfig)`)
 - `labram/train/` — Per-phase training/eval loops (`train_vqnsp.py`, `train_pretrain.py`, `train_finetune.py`); shared LR/metric helpers in `base.py`
 - `labram/runs/` — Entry-point scripts (`run_vqnsp.py`, `run_pretrain.py`, `run_finetune.py`) invoked via `python -m`; `common.py` holds shared DDP setup, LR schedules, and dataloader construction; `finetune_setup.py`/`finetune_args.py` for fine-tuning setup
@@ -69,6 +76,8 @@ pip install -r requirements.txt
 **Pre-training**: Raw EEG → frozen VQNSP → discrete codes → 50% random masking → trainable `NeuralTransformerForMaskedEEGModeling` → cross-entropy loss predicting masked tokens.
 
 **Fine-tuning**: Raw EEG → pre-trained `NeuralTransformer` (from `--finetune` checkpoint, head discarded) → mean-pool over time → classification head → cross-entropy.
+
+**Codebook-regularized fine-tuning** (opt-in, `codebook_reg.enabled`): Raw EEG → trainable encoder (from pre-trained checkpoint) → classification head over configurable feature sources (`encoder_mean` / `quantize_mean` / `bag_of_codes`); the same patch tokens also go through the grafted VQNSP quantizer (codebook frozen) + trainable decoder to reconstruct the spectrum. Loss = classification + spectral (amplitude/phase) + quantization, combined by `CodebookRegularizedCriterion`. Encoder/decoder/codebook use LR scales below the head LR. See `docs/codebook_regularized_finetune_plan.md`.
 
 ### Key cross-cutting concerns
 

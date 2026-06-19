@@ -86,7 +86,7 @@ class TestTrainClassBatch:
         X = torch.randn(BATCH, N_CHANNELS, 1, T_PATCH)
         y = torch.zeros(BATCH, 1)
 
-        loss, output = train_class_batch(model, X, y, criterion, None)
+        loss, output, _ = train_class_batch(model, X, y, criterion, None)
 
         assert output.shape == (BATCH, 1)
         assert loss.item() > 0
@@ -98,7 +98,7 @@ class TestTrainClassBatch:
         X = torch.randn(BATCH, N_CHANNELS, 1, T_PATCH)
         y = torch.zeros(BATCH, dtype=torch.long)
 
-        loss, output = train_class_batch(model, X, y, criterion, None)
+        loss, output, _ = train_class_batch(model, X, y, criterion, None)
 
         assert output.shape == (BATCH, n_cls)
         assert loss.item() > 0
@@ -109,7 +109,7 @@ class TestTrainClassBatch:
         X = torch.randn(BATCH, N_CHANNELS, 1, T_PATCH)
         y = torch.zeros(BATCH, 1)
 
-        loss, _ = train_class_batch(model, X, y, criterion, None)
+        loss, _, _ = train_class_batch(model, X, y, criterion, None)
         loss.backward()
 
         # At least one parameter must have a gradient
@@ -269,7 +269,7 @@ class TestDeviceSupport:
         criterion = nn.BCEWithLogitsLoss()
         X = torch.randn(BATCH, N_CHANNELS, 1, T_PATCH, device=device)
         y = torch.zeros(BATCH, 1, device=device)
-        loss, output = train_class_batch(model, X, y, criterion, None)
+        loss, output, _ = train_class_batch(model, X, y, criterion, None)
         assert output.shape == (BATCH, 1)
 
     @pytest.mark.skipif(
@@ -282,5 +282,5 @@ class TestDeviceSupport:
         criterion = nn.BCEWithLogitsLoss()
         X = torch.randn(BATCH, N_CHANNELS, 1, T_PATCH, device=device)
         y = torch.zeros(BATCH, 1, device=device)
-        loss, output = train_class_batch(model, X, y, criterion, None)
+        loss, output, _ = train_class_batch(model, X, y, criterion, None)
         assert output.shape == (BATCH, 1)
