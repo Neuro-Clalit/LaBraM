@@ -13,7 +13,7 @@ from typing import List, Optional
 import pytest
 
 from labram.configs.base_configs import ConfigBase
-from labram.configs.types import correct_type
+from labram.configs.common.types import correct_type
 
 
 # ----------------------------- fixture configs -----------------------------

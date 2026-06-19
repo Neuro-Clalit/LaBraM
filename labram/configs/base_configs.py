@@ -5,9 +5,9 @@ import inspect
 from dataclasses import dataclass, Field, fields, MISSING
 from typing import ClassVar, List, Optional, Tuple, Union, AnyStr, Any, get_type_hints
 
-import labram.configs.hypertext_utils as hyper_utils
+import labram.configs.common.hypertext_utils as hyper_utils
 from labram.configs.file_system import FileSystem
-from labram.configs.types import OPT_STR, DATA_DICT, correct_type
+from labram.configs.common.types import OPT_STR, DATA_DICT, correct_type
 
 DATA_OBJ = Union[DATA_DICT, 'ConfigBase']
 

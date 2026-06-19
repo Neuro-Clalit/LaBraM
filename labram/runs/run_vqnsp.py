@@ -12,7 +12,8 @@ from timm.models import create_model
 import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
-from labram.configs.runner_configs import VQNSPRunConfig, parse_overrides
+from labram.configs.run_configs import VQNSPRunConfig
+from labram.configs.utils_conf import parse_overrides
 from labram.configs.defaults import DEFAULT_EVAL_BATCH_SCALE
 from labram.train.train_vqnsp import calculate_codebook_usage, evaluate, train_loop
 from labram.optim_factory import create_optimizer

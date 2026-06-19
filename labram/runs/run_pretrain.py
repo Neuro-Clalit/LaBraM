@@ -12,7 +12,8 @@ from timm.models import create_model
 import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
-from labram.configs.runner_configs import PretrainRunConfig, parse_overrides
+from labram.configs.run_configs import PretrainRunConfig
+from labram.configs.utils_conf import parse_overrides
 from labram.train.train_pretrain import train_loop
 from labram.optim_factory import create_optimizer
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler

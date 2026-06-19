@@ -1,4 +1,4 @@
-"""Tests for labram.configs.runner_configs.
+"""Tests for labram.configs.run_configs.
 
 Covers:
 * Default values for each top-level run config match the legacy argparse defaults.
@@ -14,7 +14,7 @@ from argparse import Namespace
 import pytest
 
 from labram.configs import defaults
-from labram.configs.runner_configs import (
+from labram.configs.run_configs import (
     DataConfig,
     DistributedConfig,
     FinetuneRunConfig,
@@ -25,8 +25,8 @@ from labram.configs.runner_configs import (
     TokenizerConfig,
     TrainerConfig,
     VQNSPRunConfig,
-    parse_overrides,
 )
+from labram.configs.utils_conf import parse_overrides
 
 
 # ============================================================

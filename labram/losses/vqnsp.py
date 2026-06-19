@@ -7,7 +7,7 @@ from typing import Dict, Optional
 
 import torch
 
-from labram.losses.config import LossConfig
+from labram.configs.loss_config import LossConfig
 
 
 def get_vqnsp_losses(

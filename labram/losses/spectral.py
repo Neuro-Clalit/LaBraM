@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 
-from labram.losses.config import LossConfig
+from labram.configs.loss_config import LossConfig
 
 
 class SpectralReconstructionLoss(nn.Module):

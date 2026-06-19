@@ -4,7 +4,7 @@
 # ---------------------------------------------------------
 
 from labram.losses.classification import build_classification_criterion
-from labram.losses.config import LossConfig
+from labram.configs.loss_config import LossConfig
 from labram.losses.spectral import SpectralReconstructionLoss
 from labram.losses.vqnsp import get_vqnsp_losses
 

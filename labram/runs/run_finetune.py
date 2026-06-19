@@ -17,7 +17,8 @@ import labram.runs.common as runner_common
 import labram.utils as utils
 from labram.data import get_dataset_bundle
 from labram.losses import LossConfig, build_classification_criterion
-from labram.configs.runner_configs import FinetuneRunConfig, parse_overrides
+from labram.configs.run_configs import FinetuneRunConfig
+from labram.configs.utils_conf import parse_overrides
 from labram.train.train_finetune import evaluate, train_loop
 from labram.runs.finetune_setup import (
     build_dataloaders, build_samplers, load_finetune_checkpoint,

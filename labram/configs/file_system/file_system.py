@@ -2,10 +2,10 @@ import os
 import tempfile
 from typing import Optional, Callable, Any, Dict
 
-from labram.configs.cloud_filesystem import CloudPath
-from labram.configs.os_filesystem import OsPath
-from labram.configs.types import RT, PathStr, PathList, ensure_args_path, args_type_check
-from labram.configs.s3 import S3FS, S3Path
+from labram.configs.file_system.cloud_filesystem import CloudPath
+from labram.configs.file_system.os_filesystem import OsPath
+from labram.configs.common.types import RT, PathStr, PathList, ensure_args_path, args_type_check
+from labram.configs.file_system.s3 import S3FS, S3Path
 
 
 class FileSystem(CloudPath):

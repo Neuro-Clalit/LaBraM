@@ -8,7 +8,7 @@ from typing import Optional
 import torch.nn as nn
 from timm.loss import LabelSmoothingCrossEntropy
 
-from labram.losses.config import LossConfig
+from labram.configs.loss_config import LossConfig
 
 
 def build_classification_criterion(nb_classes: int, cfg: Optional[LossConfig] = None) -> nn.Module:

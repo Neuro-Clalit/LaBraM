@@ -23,32 +23,7 @@ from typing import List
 
 from labram.configs.base_configs import ConfigBase
 from labram.configs.data_config import DataConfig
-from labram.configs.defaults import (
-    DEFAULT_FINETUNE_DATA_PATH,
-    DEFAULT_FINETUNE_DATASET,
-    DEFAULT_FINETUNE_DEBUG,
-    DEFAULT_FINETUNE_DEBUG_SAMPLES,
-    DEFAULT_FINETUNE_DEVICE,
-    DEFAULT_FINETUNE_DISABLE_EVAL,
-    DEFAULT_FINETUNE_DISABLE_WD_ON_REL_POS_BIAS,
-    DEFAULT_FINETUNE_ENABLE_DEEPSPEED,
-    DEFAULT_FINETUNE_EPOCHS,
-    DEFAULT_FINETUNE_LABEL_SMOOTHING,
-    DEFAULT_FINETUNE_LAYER_DECAY,
-    DEFAULT_FINETUNE_LR,
-    DEFAULT_FINETUNE_MIN_LR,
-    DEFAULT_FINETUNE_MODEL_EMA,
-    DEFAULT_FINETUNE_MODEL_EMA_DECAY,
-    DEFAULT_FINETUNE_MODEL_EMA_FORCE_CPU,
-    DEFAULT_FINETUNE_ROBUST_TEST,
-    DEFAULT_FINETUNE_SAVE_CKPT_FREQ,
-    DEFAULT_VQNSP_DIST_EVAL,
-    DEFAULT_VQNSP_EPOCHS,
-    DEFAULT_VQNSP_LR,
-    DEFAULT_VQNSP_SAVE_CKPT_FREQ,
-    DEFAULT_VQNSP_STRIDE,
-    DEFAULT_VQNSP_WEIGHT_DECAY,
-)
+from labram.configs import defaults as conf_consts
 from labram.configs.model_config import (
     FinetuneCheckpointConfig,
     FinetuneModelConfig,
@@ -111,21 +86,21 @@ class VQNSPRunConfig(RunConfig):
     model: VQNSPModelConfig = field(default_factory=VQNSPModelConfig)
     optimizer: OptimizerConfig = field(
         default_factory=lambda: OptimizerConfig(
-            lr=DEFAULT_VQNSP_LR,
-            weight_decay=DEFAULT_VQNSP_WEIGHT_DECAY,
+            lr=conf_consts.DEFAULT_VQNSP_LR,
+            weight_decay=conf_consts.DEFAULT_VQNSP_WEIGHT_DECAY,
         ),
     )
     trainer: TrainerConfig = field(
-        default_factory=lambda: TrainerConfig(epochs=DEFAULT_VQNSP_EPOCHS),
+        default_factory=lambda: TrainerConfig(epochs=conf_consts.DEFAULT_VQNSP_EPOCHS),
     )
     distributed: DistributedConfig = field(
-        default_factory=lambda: DistributedConfig(dist_eval=DEFAULT_VQNSP_DIST_EVAL),
+        default_factory=lambda: DistributedConfig(dist_eval=conf_consts.DEFAULT_VQNSP_DIST_EVAL),
     )
     data: DataConfig = field(
-        default_factory=lambda: DataConfig(stride=DEFAULT_VQNSP_STRIDE),
+        default_factory=lambda: DataConfig(stride=conf_consts.DEFAULT_VQNSP_STRIDE),
     )
     output: OutputConfig = field(
-        default_factory=lambda: OutputConfig(save_ckpt_freq=DEFAULT_VQNSP_SAVE_CKPT_FREQ),
+        default_factory=lambda: OutputConfig(save_ckpt_freq=conf_consts.DEFAULT_VQNSP_SAVE_CKPT_FREQ),
     )
     disable_eval: bool = False
     eval: bool = False
@@ -138,69 +113,30 @@ class FinetuneRunConfig(RunConfig):
     finetune_checkpoint: FinetuneCheckpointConfig = field(default_factory=FinetuneCheckpointConfig)
     optimizer: OptimizerConfig = field(
         default_factory=lambda: OptimizerConfig(
-            lr=DEFAULT_FINETUNE_LR,
-            min_lr=DEFAULT_FINETUNE_MIN_LR,
+            lr=conf_consts.DEFAULT_FINETUNE_LR,
+            min_lr=conf_consts.DEFAULT_FINETUNE_MIN_LR,
         ),
     )
     trainer: TrainerConfig = field(
-        default_factory=lambda: TrainerConfig(epochs=DEFAULT_FINETUNE_EPOCHS),
+        default_factory=lambda: TrainerConfig(epochs=conf_consts.DEFAULT_FINETUNE_EPOCHS),
     )
     distributed: DistributedConfig = field(
-        default_factory=lambda: DistributedConfig(device=DEFAULT_FINETUNE_DEVICE),
+        default_factory=lambda: DistributedConfig(device=conf_consts.DEFAULT_FINETUNE_DEVICE),
     )
     output: OutputConfig = field(
-        default_factory=lambda: OutputConfig(save_ckpt_freq=DEFAULT_FINETUNE_SAVE_CKPT_FREQ),
+        default_factory=lambda: OutputConfig(save_ckpt_freq=conf_consts.DEFAULT_FINETUNE_SAVE_CKPT_FREQ),
     )
-    layer_decay: float = DEFAULT_FINETUNE_LAYER_DECAY
-    smoothing: float = DEFAULT_FINETUNE_LABEL_SMOOTHING
-    model_ema: bool = DEFAULT_FINETUNE_MODEL_EMA
-    model_ema_decay: float = DEFAULT_FINETUNE_MODEL_EMA_DECAY
-    model_ema_force_cpu: bool = DEFAULT_FINETUNE_MODEL_EMA_FORCE_CPU
-    disable_eval_during_finetuning: bool = DEFAULT_FINETUNE_DISABLE_EVAL
-    disable_weight_decay_on_rel_pos_bias: bool = DEFAULT_FINETUNE_DISABLE_WD_ON_REL_POS_BIAS
+    layer_decay: float = conf_consts.DEFAULT_FINETUNE_LAYER_DECAY
+    smoothing: float = conf_consts.DEFAULT_FINETUNE_LABEL_SMOOTHING
+    model_ema: bool = conf_consts.DEFAULT_FINETUNE_MODEL_EMA
+    model_ema_decay: float = conf_consts.DEFAULT_FINETUNE_MODEL_EMA_DECAY
+    model_ema_force_cpu: bool = conf_consts.DEFAULT_FINETUNE_MODEL_EMA_FORCE_CPU
+    disable_eval_during_finetuning: bool = conf_consts.DEFAULT_FINETUNE_DISABLE_EVAL
+    disable_weight_decay_on_rel_pos_bias: bool = conf_consts.DEFAULT_FINETUNE_DISABLE_WD_ON_REL_POS_BIAS
     eval: bool = False
-    enable_deepspeed: bool = DEFAULT_FINETUNE_ENABLE_DEEPSPEED
-    dataset: str = DEFAULT_FINETUNE_DATASET
-    data_path: str = DEFAULT_FINETUNE_DATA_PATH
-    debug: bool = DEFAULT_FINETUNE_DEBUG
-    debug_samples: int = DEFAULT_FINETUNE_DEBUG_SAMPLES
-    robust_test: str = DEFAULT_FINETUNE_ROBUST_TEST
-
-
-# ============================================================
-# CLI override parsing (shared by all run scripts)
-# ============================================================
-
-
-def _coerce_override(s: str):
-    """Map a CLI override string to a Python literal.
-
-    Order: None → bool → int → float → str.
-    """
-    if s.lower() == 'none':
-        return None
-    if s.lower() == 'true':
-        return True
-    if s.lower() == 'false':
-        return False
-    try:
-        return int(s)
-    except ValueError:
-        pass
-    try:
-        return float(s)
-    except ValueError:
-        pass
-    return s
-
-
-def parse_overrides(items: List[str]) -> dict:
-    """Parse ``--set key.sub=value`` strings into a dict for
-    :meth:`ConfigBase.update`."""
-    out: dict = {}
-    for raw in items:
-        if '=' not in raw:
-            raise ValueError(f'Override must be key=value: {raw!r}')
-        key, value = raw.split('=', 1)
-        out[key.strip()] = _coerce_override(value.strip())
-    return out
+    enable_deepspeed: bool = conf_consts.DEFAULT_FINETUNE_ENABLE_DEEPSPEED
+    dataset: str = conf_consts.DEFAULT_FINETUNE_DATASET
+    data_path: str = conf_consts.DEFAULT_FINETUNE_DATA_PATH
+    debug: bool = conf_consts.DEFAULT_FINETUNE_DEBUG
+    debug_samples: int = conf_consts.DEFAULT_FINETUNE_DEBUG_SAMPLES
+    robust_test: str = conf_consts.DEFAULT_FINETUNE_ROBUST_TEST

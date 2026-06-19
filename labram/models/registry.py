@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 from timm.models import register_model
 
+from labram.configs import defaults as conf_consts
 from labram.configs.model_config import (
     NeuralTransformerForMEMConfig,
     QuantizerConfig,
@@ -97,7 +98,7 @@ def _build_pretrain_model(arch_fields: dict, pretrained: bool, kwargs: dict) -> 
     kw = dict(kwargs)
     kw.pop("num_classes", None)
     _strip_timm_kwargs(kw)
-    vocab_size = kw.pop("vocab_size", 8192)
+    vocab_size = kw.pop("vocab_size", conf_consts.DEFAULT_ARCH_VOCAB_SIZE)
     init_ckpt = kw.pop("init_ckpt", None)
 
     mem_cfg = NeuralTransformerForMEMConfig(
@@ -117,22 +118,32 @@ def _build_pretrain_model(arch_fields: dict, pretrained: bool, kwargs: dict) -> 
     return model
 
 
+def _labram_pretrain_arch(**overrides) -> dict:
+    """Predefined NeuralTransformerForMEM arch fields (base variant); pass
+    per-size overrides (embed_dim/depth/num_heads/out_chans) for large/huge."""
+    fields = dict(
+        patch_size=conf_consts.DEFAULT_ARCH_PATCH_SIZE,
+        embed_dim=conf_consts.DEFAULT_ARCH_EMBED_DIM,
+        depth=conf_consts.DEFAULT_ARCH_DEPTH,
+        num_heads=conf_consts.DEFAULT_ARCH_NUM_HEADS,
+        mlp_ratio=conf_consts.DEFAULT_ARCH_MLP_RATIO,
+        qkv_bias=False,
+        qk_norm=partial(nn.LayerNorm, eps=1e-6),
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+    )
+    fields.update(overrides)
+    return fields
+
+
 @register_model
 def labram_base_patch200_1600_8k_vocab(pretrained=False, **kwargs):  # 5 M params
-    return _build_pretrain_model(
-        dict(patch_size=200, embed_dim=200, depth=12, num_heads=10, mlp_ratio=4,
-             qkv_bias=False, qk_norm=partial(nn.LayerNorm, eps=1e-6),
-             norm_layer=partial(nn.LayerNorm, eps=1e-6)),
-        pretrained, kwargs,
-    )
+    return _build_pretrain_model(_labram_pretrain_arch(), pretrained, kwargs)
 
 
 @register_model
 def labram_large_patch200_1600_8k_vocab(pretrained=False, **kwargs):  # 50 M params
     return _build_pretrain_model(
-        dict(patch_size=200, embed_dim=400, depth=24, num_heads=16, mlp_ratio=4,
-             qkv_bias=False, qk_norm=partial(nn.LayerNorm, eps=1e-6), out_chans=16,
-             norm_layer=partial(nn.LayerNorm, eps=1e-6)),
+        _labram_pretrain_arch(embed_dim=400, depth=24, num_heads=16, out_chans=16),
         pretrained, kwargs,
     )
 
@@ -140,9 +151,7 @@ def labram_large_patch200_1600_8k_vocab(pretrained=False, **kwargs):  # 50 M par
 @register_model
 def labram_huge_patch200_1600_8k_vocab(pretrained=False, **kwargs):  # 380 M params
     return _build_pretrain_model(
-        dict(patch_size=200, embed_dim=800, depth=48, num_heads=16, mlp_ratio=4,
-             qkv_bias=False, qk_norm=partial(nn.LayerNorm, eps=1e-6), out_chans=32,
-             norm_layer=partial(nn.LayerNorm, eps=1e-6)),
+        _labram_pretrain_arch(embed_dim=800, depth=48, num_heads=16, out_chans=32),
         pretrained, kwargs,
     )
 
@@ -151,28 +160,33 @@ def labram_huge_patch200_1600_8k_vocab(pretrained=False, **kwargs):  # 380 M par
 # VQNSP tokenizer factories
 # ---------------------------------------------------------------------------
 
-def _vqnsp_base_arch(eeg_window_size: int = 1600, **overrides) -> TransformerArchConfig:
+def _vqnsp_base_arch(eeg_window_size: int = conf_consts.DEFAULT_ARCH_EEG_WINDOW_SIZE,
+                     **overrides) -> TransformerArchConfig:
     """Shared VQNSP encoder/decoder base architecture (base variant)."""
     return TransformerArchConfig(
-        eeg_window_size=eeg_window_size, patch_size=200, in_chans=1,
-        num_classes=0, embed_dim=200, depth=12, num_heads=10,
-        mlp_ratio=4., qkv_bias=True, drop_rate=0., attn_drop_rate=0.,
+        eeg_window_size=eeg_window_size, patch_size=conf_consts.DEFAULT_ARCH_PATCH_SIZE, in_chans=1,
+        num_classes=0, embed_dim=conf_consts.DEFAULT_ARCH_EMBED_DIM,
+        depth=conf_consts.DEFAULT_ARCH_DEPTH, num_heads=conf_consts.DEFAULT_ARCH_NUM_HEADS,
+        mlp_ratio=conf_consts.DEFAULT_ARCH_MLP_RATIO, qkv_bias=True, drop_rate=0., attn_drop_rate=0.,
         drop_path_rate=0., init_values=0., use_abs_pos_emb=True,
         use_rel_pos_bias=False, use_shared_rel_pos_bias=False,
-        use_mean_pooling=True, init_scale=0.001,
+        use_mean_pooling=True, init_scale=conf_consts.DEFAULT_ARCH_INIT_SCALE,
         **overrides,
     )
 
 
 @register_model
 def vqnsp_encoder_base_decoder_3x200x12(pretrained=False, pretrained_weight=None,
-                                         as_tokenzer=False, eeg_window_size=1600,
-                                         num_codebook_tokens=8192, quantizer_dim=32,
-                                         decay=0.99, quantize_kmeans_init=True, **kwargs):
+                                         as_tokenzer=False,
+                                         eeg_window_size=conf_consts.DEFAULT_ARCH_EEG_WINDOW_SIZE,
+                                         num_codebook_tokens=conf_consts.DEFAULT_CODEBOOK_SIZE,
+                                         quantizer_dim=conf_consts.DEFAULT_QUANTIZER_DIM,
+                                         decay=conf_consts.DEFAULT_VQNSP_EMA_DECAY,
+                                         quantize_kmeans_init=True, **kwargs):
     _strip_timm_kwargs(kwargs)
     enc_cfg = _vqnsp_base_arch(eeg_window_size=eeg_window_size)
     dec_cfg = _vqnsp_base_arch(
-        eeg_window_size=eeg_window_size // 200,
+        eeg_window_size=eeg_window_size // conf_consts.DEFAULT_ARCH_PATCH_SIZE,
         patch_size=1, in_chans=quantizer_dim, depth=3,
     )
     arch_cfg = VQNSPArchConfig(
@@ -183,7 +197,7 @@ def vqnsp_encoder_base_decoder_3x200x12(pretrained=False, pretrained_weight=None
             decay=decay,
             kmeans_init=quantize_kmeans_init,
         ),
-        decoder_out_dim=200,
+        decoder_out_dim=conf_consts.DEFAULT_ARCH_DECODER_OUT_DIM,
     )
     model = VQNSP(arch_cfg)
     if as_tokenzer:
@@ -194,13 +208,16 @@ def vqnsp_encoder_base_decoder_3x200x12(pretrained=False, pretrained_weight=None
 
 @register_model
 def vqnsp_encoder_large_decoder_3x200x24(pretrained=False, pretrained_weight=None,
-                                          as_tokenzer=False, eeg_window_size=1600,
-                                          num_codebook_tokens=8192, quantizer_dim=32,
-                                          decay=0.99, quantize_kmeans_init=True, **kwargs):
+                                          as_tokenzer=False,
+                                          eeg_window_size=conf_consts.DEFAULT_ARCH_EEG_WINDOW_SIZE,
+                                          num_codebook_tokens=conf_consts.DEFAULT_CODEBOOK_SIZE,
+                                          quantizer_dim=conf_consts.DEFAULT_QUANTIZER_DIM,
+                                          decay=conf_consts.DEFAULT_VQNSP_EMA_DECAY,
+                                          quantize_kmeans_init=True, **kwargs):
     _strip_timm_kwargs(kwargs)
     enc_cfg = _vqnsp_base_arch(eeg_window_size=eeg_window_size, depth=24)
     dec_cfg = _vqnsp_base_arch(
-        eeg_window_size=eeg_window_size // 200,
+        eeg_window_size=eeg_window_size // conf_consts.DEFAULT_ARCH_PATCH_SIZE,
         patch_size=1, in_chans=quantizer_dim, depth=3,
     )
     arch_cfg = VQNSPArchConfig(
@@ -211,7 +228,7 @@ def vqnsp_encoder_large_decoder_3x200x24(pretrained=False, pretrained_weight=Non
             decay=decay,
             kmeans_init=quantize_kmeans_init,
         ),
-        decoder_out_dim=200,
+        decoder_out_dim=conf_consts.DEFAULT_ARCH_DECODER_OUT_DIM,
     )
     model = VQNSP(arch_cfg)
     if as_tokenzer:
