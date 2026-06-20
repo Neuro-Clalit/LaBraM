@@ -10,6 +10,7 @@ import warnings
 from timm.models import create_model
 
 from labram.configs.loss_config import LossConfig
+from labram.configs.run_configs import FinetuneRunConfig
 from labram.models.codebook_classifier import CodebookRegularizedClassifier
 from labram.models.vqnsp import load_vqnsp_weights
 from labram.optim_factory import get_num_layer_for_vit
@@ -70,10 +71,10 @@ def apply_component_trainability(model: CodebookRegularizedClassifier, cr) -> No
         for p in mod.parameters():
             p.requires_grad_(cr.decoder.trainable)
 
-    model.quantize.embedding.update = cr.codebook.trainable
+    model.quantizer.embedding.update = cr.codebook.trainable
 
 
-def build_codebook_classifier(config) -> CodebookRegularizedClassifier:
+def build_codebook_classifier(config: FinetuneRunConfig) -> CodebookRegularizedClassifier:
     """Build the encoder + graft a pre-trained VQNSP quantizer/decoder, then
     apply trainability. The encoder's pre-trained weights are loaded separately
     (into ``model.encoder``) by the caller."""
@@ -105,7 +106,7 @@ def build_codebook_classifier(config) -> CodebookRegularizedClassifier:
 
     model = CodebookRegularizedClassifier(
         encoder=encoder,
-        quantizer=tokenizer.quantize,
+        quantizer=tokenizer.quantizer,
         decoder=tokenizer.decoder,
         encode_task_layer=tokenizer.encode_task_layer,
         decode_task_layer_magnitude=tokenizer.decode_task_layer_magnitude,

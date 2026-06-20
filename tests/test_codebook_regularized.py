@@ -26,10 +26,9 @@ from labram.configs.model_config import (
 from labram.data import get_channel_indices
 from labram.layers import CodeBookBagEmbedder, FeatureEmbedder
 from labram.losses import CodebookRegularizedCriterion, LossBreakdown
-from labram.models.components import decode_spectrum, quantize_patch_tokens
 from labram.models.outputs import PredictorOutput
-from labram.models.vqnsp import VQNSP, remap_legacy_task_layer_keys
-from labram.train.base import optimizer_update
+from labram.models.vqnsp import VQNSP, remap_legacy_keys
+from labram.optim_factory import optimizer_update
 from labram.utils import NativeScalerWithGradNormCount
 
 
@@ -184,28 +183,31 @@ class TestOptimizerUpdate:
 # VQNSP decoder task-layer rename + legacy remap
 # ---------------------------------------------------------------------------
 
-class TestTaskLayerRename:
+class TestLegacyKeyRename:
     def test_state_dict_uses_new_names(self):
         keys = list(_make_tiny_vqnsp().state_dict())
         assert any(k.startswith('decode_task_layer_magnitude.') for k in keys)
         assert any(k.startswith('decode_task_layer_phase.') for k in keys)
+        assert any(k.startswith('quantizer.') for k in keys)
         assert not any(k.startswith('decode_task_layer.') for k in keys)
         assert not any(k.startswith('decode_task_layer_angle') for k in keys)
+        assert not any(k.startswith('quantize.') for k in keys)
 
-    def test_remap_renames_only_task_layers(self):
+    def test_remap_renames_legacy_keys(self):
         legacy = {
             'decode_task_layer.0.weight': torch.zeros(1),
             'decode_task_layer.0.bias': torch.zeros(1),
             'decode_task_layer_angle.2.weight': torch.zeros(1),
-            'encoder.cls_token': torch.zeros(1),
             'quantize.embedding.weight': torch.zeros(1),
+            'encoder.cls_token': torch.zeros(1),
         }
-        out = remap_legacy_task_layer_keys(legacy)
+        out = remap_legacy_keys(legacy)
         assert 'decode_task_layer_magnitude.0.weight' in out
         assert 'decode_task_layer_magnitude.0.bias' in out
         assert 'decode_task_layer_phase.2.weight' in out
-        assert 'encoder.cls_token' in out and 'quantize.embedding.weight' in out
-        assert not any(k.startswith('decode_task_layer.') or k.startswith('decode_task_layer_angle')
+        assert 'quantizer.embedding.weight' in out
+        assert 'encoder.cls_token' in out
+        assert not any(k.startswith(('decode_task_layer.', 'decode_task_layer_angle', 'quantize.'))
                        for k in out)
 
     def test_legacy_checkpoint_loads_after_remap(self):
@@ -216,9 +218,11 @@ class TestTaskLayerRename:
                 k = k.replace('decode_task_layer_magnitude.', 'decode_task_layer.', 1)
             elif k.startswith('decode_task_layer_phase.'):
                 k = k.replace('decode_task_layer_phase.', 'decode_task_layer_angle.', 1)
+            elif k.startswith('quantizer.'):
+                k = k.replace('quantizer.', 'quantize.', 1)
             legacy[k] = v
         fresh = _make_tiny_vqnsp()
-        fresh.load_state_dict(remap_legacy_task_layer_keys(legacy))  # must not raise
+        fresh.load_state_dict(remap_legacy_keys(legacy))  # must not raise
 
     def test_forward_still_runs(self):
         model = _make_tiny_vqnsp()
@@ -228,7 +232,7 @@ class TestTaskLayerRename:
 
 
 # ---------------------------------------------------------------------------
-# Shared encode/decode helpers
+# Shared encode/decode mixin (QuantizeDecodeMixin) on VQNSP
 # ---------------------------------------------------------------------------
 
 class TestSharedComponents:
@@ -237,13 +241,10 @@ class TestSharedComponents:
         model = _make_tiny_vqnsp()
         x = (torch.randn(2, 4, 400) * 0.1).reshape(2, 4, 2, 200)
         enc_feats = model.encoder(x, _ch(), return_patch_tokens=True)
-        quantized, qloss, idx = quantize_patch_tokens(
-            model.encode_task_layer, model.quantize, enc_feats, num_channels=4)
+        quantized, qloss, idx = model.quantize_patch_tokens(enc_feats, num_channels=4)
         assert quantized.shape == (2, 8, 4, 2)         # B, quantizer_dim, N, A
         assert idx.shape == (2 * 4 * 2,)               # one index per token
-        mag, phase = decode_spectrum(
-            model.decoder, model.decode_task_layer_magnitude, model.decode_task_layer_phase,
-            quantized, _ch())
+        mag, phase = model.decode_spectrum(quantized, _ch())
         assert mag.shape == phase.shape == (2, 8, 200)  # B, N*A, decoder_out_dim
 
 

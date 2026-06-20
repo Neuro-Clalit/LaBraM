@@ -16,7 +16,7 @@ from einops import rearrange
 import labram.utils as utils
 from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import TrainerConfig
-from labram.train.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
+from labram.optim_factory import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 
 def random_masking(x: torch.Tensor, mask_ratio: float) -> torch.Tensor:

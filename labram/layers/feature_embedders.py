@@ -5,10 +5,12 @@
 # build a concatenation of configurable feature sources.
 # ---------------------------------------------------------
 
-from typing import Callable, Optional
+from typing import Optional
 
 import torch.nn as nn
 from torch import Tensor
+
+from labram.configs import defaults as conf_consts
 
 
 class FeatureEmbedder(nn.Module):
@@ -23,7 +25,6 @@ class FeatureEmbedder(nn.Module):
     def __init__(self,
                  in_dim: int,
                  out_dim: int,
-                 act_layer: Callable = nn.Tanh,
                  reduce_dim: Optional[int] = None,
                  is_linear: bool = False):
         super().__init__()
@@ -32,7 +33,7 @@ class FeatureEmbedder(nn.Module):
         else:
             self.embedder = nn.Sequential(
                 nn.Linear(in_dim, in_dim),
-                act_layer(),
+                nn.Tanh(),
                 nn.Linear(in_dim, out_dim),
             )
         self.reduce_dim = reduce_dim
@@ -54,14 +55,13 @@ class CodeBookBagEmbedder(nn.Module):
     """
 
     def __init__(self,
-                 n_codes: int = 8192,
-                 out_dim: int = 128,
-                 act_layer: Callable = nn.Tanh):
+                 n_codes: int = conf_consts.DEFAULT_CODEBOOK_SIZE,
+                 out_dim: int = conf_consts.DEFAULT_FEATURES_EMB_DIM):
         super().__init__()
         # sparse=True does not support the dense backward used here.
         self.embedder = nn.Sequential(
             nn.EmbeddingBag(n_codes, out_dim, sparse=False),
-            act_layer(),
+            nn.Tanh(),
             nn.Linear(out_dim, out_dim),
         )
 

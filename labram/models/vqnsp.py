@@ -13,13 +13,13 @@ from timm.layers import trunc_normal_
 
 from labram.configs.model_config import VQNSPArchConfig
 from labram.losses import LossConfig, SpectralReconstructionLoss, get_vqnsp_losses
-from labram.models.components import decode_spectrum, quantize_patch_tokens
+from labram.models.components import QuantizeDecodeMixin
 from labram.models.neural_transformer import NeuralTransformer
 from labram.models.quantizer import NormEMAVectorQuantizer
 from labram.utils.checkpoint import load_pretrained_weights
 
 
-class VQNSP(nn.Module):
+class VQNSP(QuantizeDecodeMixin, nn.Module):
     def __init__(self, config: VQNSPArchConfig):
         super().__init__()
         enc_cfg = config.encoder
@@ -37,7 +37,7 @@ class VQNSP(nn.Module):
         print('Decoder config', dec_cfg.__dict__)
         self.decoder = NeuralTransformer(dec_cfg)
 
-        self.quantize = NormEMAVectorQuantizer(q_cfg)
+        self.quantizer = NormEMAVectorQuantizer(q_cfg)
 
         self.patch_size = enc_cfg.patch_size
         self.token_shape = (62, enc_cfg.eeg_window_size // self.patch_size)
@@ -79,7 +79,7 @@ class VQNSP(nn.Module):
 
     @torch.jit.ignore
     def no_weight_decay(self):
-        return {'quantize.embedding.weight', 'decoder.cls_token', 'decoder.pos_embed', 'decoder.time_embed',
+        return {'quantizer.embedding.weight', 'decoder.cls_token', 'decoder.pos_embed', 'decoder.time_embed',
                 'encoder.cls_token', 'encoder.pos_embed', 'encoder.time_embed'}
 
     @property
@@ -87,7 +87,7 @@ class VQNSP(nn.Module):
         return self.decoder.cls_token.device
 
     def get_number_of_tokens(self):
-        return self.quantize.n_e
+        return self.quantizer.n_e
 
     def get_tokens(self, data, channel_indices=None, **kwargs):
         quantize, codebook_indices, loss = self.encode(data, channel_indices=channel_indices)
@@ -101,14 +101,11 @@ class VQNSP(nn.Module):
     def encode(self, x, channel_indices=None):
         batch_size, num_channels, a, t = x.shape
         encoder_features = self.encoder(x, channel_indices, return_patch_tokens=True)
-        quantize, loss, codebook_indices = quantize_patch_tokens(
-            self.encode_task_layer, self.quantize, encoder_features, num_channels)
+        quantize, loss, codebook_indices = self.quantize_patch_tokens(encoder_features, num_channels)
         return quantize, codebook_indices, loss
 
     def decode(self, quantize, channel_indices=None, **kwargs):
-        return decode_spectrum(
-            self.decoder, self.decode_task_layer_magnitude, self.decode_task_layer_phase,
-            quantize, channel_indices)
+        return self.decode_spectrum(quantize, channel_indices)
 
     def get_codebook_indices(self, x, channel_indices=None, **kwargs):
         # for LaBraM pre-training
@@ -141,14 +138,15 @@ class VQNSP(nn.Module):
         return loss, log
 
 
-def remap_legacy_task_layer_keys(weights: dict) -> "OrderedDict":
-    """Rename legacy decoder task-layer keys to their current names.
+def remap_legacy_keys(weights: dict) -> "OrderedDict":
+    """Rename legacy VQNSP state-dict keys to their current names.
 
-    ``decode_task_layer``       -> ``decode_task_layer_magnitude``
-    ``decode_task_layer_angle`` -> ``decode_task_layer_phase``
+    ``quantize.``              -> ``quantizer.``
+    ``decode_task_layer.``     -> ``decode_task_layer_magnitude.``
+    ``decode_task_layer_angle``-> ``decode_task_layer_phase``
 
-    Keeps older VQNSP checkpoints loadable after the rename. Any other key is
-    passed through unchanged.
+    Keeps older VQNSP checkpoints loadable after the attribute renames. Any
+    other key is passed through unchanged.
     """
     renamed = OrderedDict()
     for key, value in weights.items():
@@ -156,6 +154,8 @@ def remap_legacy_task_layer_keys(weights: dict) -> "OrderedDict":
             key = key.replace('decode_task_layer_angle', 'decode_task_layer_phase', 1)
         elif key.startswith('decode_task_layer.'):
             key = key.replace('decode_task_layer.', 'decode_task_layer_magnitude.', 1)
+        elif key.startswith('quantize.'):
+            key = key.replace('quantize.', 'quantizer.', 1)
         renamed[key] = value
     return renamed
 
@@ -167,5 +167,5 @@ def load_vqnsp_weights(model: nn.Module, pretrained_weight: str) -> None:
     for k in keys:
         if k.startswith(("loss", "teacher", "scaling")):
             del weights[k]
-    weights = remap_legacy_task_layer_keys(weights)
+    weights = remap_legacy_keys(weights)
     model.load_state_dict(weights)

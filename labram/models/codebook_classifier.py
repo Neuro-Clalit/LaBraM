@@ -11,9 +11,12 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
+from labram.configs import defaults as conf_consts
 from labram.layers import CodeBookBagEmbedder, FeatureEmbedder
-from labram.models.components import decode_spectrum, quantize_patch_tokens
+from labram.models.components import QuantizeDecodeMixin
+from labram.models.neural_transformer import NeuralTransformer
 from labram.models.outputs import PredictorOutput
+from labram.models.quantizer import NormEMAVectorQuantizer
 
 # Supported classification feature sources.
 ENCODER_MEAN = 'encoder_mean'
@@ -22,7 +25,7 @@ BAG_OF_CODES = 'bag_of_codes'
 FEATURE_SOURCES = (ENCODER_MEAN, QUANTIZE_MEAN, BAG_OF_CODES)
 
 
-class CodebookRegularizedClassifier(nn.Module):
+class CodebookRegularizedClassifier(QuantizeDecodeMixin, nn.Module):
     """Encoder + (frozen-codebook) quantizer + decoder, with a classification
     head over configurable feature sources.
 
@@ -39,15 +42,15 @@ class CodebookRegularizedClassifier(nn.Module):
     def __init__(
         self,
         *,
-        encoder: nn.Module,
-        quantizer: nn.Module,
-        decoder: nn.Module,
-        encode_task_layer: nn.Module,
-        decode_task_layer_magnitude: nn.Module,
-        decode_task_layer_phase: nn.Module,
+        encoder: NeuralTransformer,
+        quantizer: NormEMAVectorQuantizer,
+        decoder: NeuralTransformer,
+        encode_task_layer: nn.Sequential,
+        decode_task_layer_magnitude: nn.Sequential,
+        decode_task_layer_phase: nn.Sequential,
         num_classes: int,
         feature_sources: Sequence[str] = (ENCODER_MEAN,),
-        features_emb_dim: int = 128,
+        features_emb_dim: int = conf_consts.DEFAULT_FEATURES_EMB_DIM,
         linear_embedding: bool = True,
         norm_embedding: bool = True,
         classifier_type: str = 'linear',
@@ -60,7 +63,7 @@ class CodebookRegularizedClassifier(nn.Module):
             raise ValueError(f"unknown feature_sources {unknown}; supported: {FEATURE_SOURCES}")
 
         self.encoder = encoder
-        self.quantize = quantizer
+        self.quantizer = quantizer
         self.decoder = decoder
         self.encode_task_layer = encode_task_layer
         self.decode_task_layer_magnitude = decode_task_layer_magnitude
@@ -100,7 +103,7 @@ class CodebookRegularizedClassifier(nn.Module):
     def no_weight_decay(self):
         names = {f'encoder.{n}' for n in self.encoder.no_weight_decay()}
         names |= {f'decoder.{n}' for n in self.decoder.no_weight_decay()}
-        names.add('quantize.embedding.weight')
+        names.add('quantizer.embedding.weight')
         return names
 
     def _classification_features(self, patch_tokens, quantized, codebook_indices, batch_size):
@@ -120,8 +123,8 @@ class CodebookRegularizedClassifier(nn.Module):
         patch_tokens = self.encoder.forward_features(
             x, channel_indices=channel_indices, return_patch_tokens=True)
 
-        quantized, quantize_loss, codebook_indices = quantize_patch_tokens(
-            self.encode_task_layer, self.quantize, patch_tokens, num_channels)
+        quantized, quantize_loss, codebook_indices = self.quantize_patch_tokens(
+            patch_tokens, num_channels)
 
         features = self._classification_features(
             patch_tokens, quantized, codebook_indices, batch_size)
@@ -130,9 +133,7 @@ class CodebookRegularizedClassifier(nn.Module):
         if classify_only:
             return PredictorOutput(logits=logits)
 
-        recon_magnitude, recon_phase = decode_spectrum(
-            self.decoder, self.decode_task_layer_magnitude, self.decode_task_layer_phase,
-            quantized, channel_indices)
+        recon_magnitude, recon_phase = self.decode_spectrum(quantized, channel_indices)
         return PredictorOutput(
             logits=logits, recon_magnitude=recon_magnitude, recon_phase=recon_phase,
             quantize_loss=quantize_loss, x_patched=x)

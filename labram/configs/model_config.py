@@ -159,7 +159,7 @@ class CodebookRegConfig(ConfigBase):
     #   'quantize_mean' quantized codes, mean over chunks
     #   'bag_of_codes'  normalized bag-of-codes statistics
     feature_sources: List[str] = field(default_factory=lambda: ['encoder_mean'])
-    features_emb_dim: int = 128
+    features_emb_dim: int = conf_consts.DEFAULT_FEATURES_EMB_DIM
     linear_embedding: bool = True
     norm_embedding: bool = True
     classifier_type: str = 'linear'  # 'linear' | 'mlp'

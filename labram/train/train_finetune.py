@@ -21,7 +21,7 @@ from labram.configs.train_config import TrainerConfig
 from labram.losses import CodebookRegularizedCriterion, build_classification_criterion
 from labram.losses.outputs import LossBreakdown
 from labram.models.outputs import PredictorOutput
-from labram.train.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics, optimizer_update
+from labram.optim_factory import apply_lr_wd_schedule, log_lr_wd_grad_metrics, optimizer_update
 
 
 def train_class_batch(

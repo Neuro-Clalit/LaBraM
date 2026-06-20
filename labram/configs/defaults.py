@@ -49,6 +49,9 @@ DEFAULT_TOKENIZER_WEIGHT: str = ''
 DEFAULT_CODEBOOK_SIZE: int = 8192
 DEFAULT_QUANTIZER_DIM: int = 32
 
+# ---------- Codebook-regularized fine-tuning ----------
+DEFAULT_FEATURES_EMB_DIM: int = 128
+
 # ---------- Finetune model ----------
 DEFAULT_FINETUNE_MODEL: str = 'labram_base_patch200_200'
 DEFAULT_FINETUNE_INPUT_SIZE: int = 200

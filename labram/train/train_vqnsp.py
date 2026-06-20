@@ -13,16 +13,16 @@ import torch
 import labram.utils as utils
 from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import OutputConfig
-from labram.train.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
+from labram.optim_factory import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 
 def _get_codebook_zero_count(inner_model: torch.nn.Module) -> Optional[int]:
-    if not hasattr(inner_model, 'quantize'):
+    if not hasattr(inner_model, 'quantizer'):
         return None
     try:
-        cluster_size = inner_model.quantize._codebook.cluster_size
+        cluster_size = inner_model.quantizer._codebook.cluster_size
     except AttributeError:
-        cluster_size = inner_model.quantize.cluster_size
+        cluster_size = inner_model.quantizer.cluster_size
     return int((cluster_size == 0).sum().item())
 
 
@@ -52,9 +52,9 @@ def train_one_epoch(
     output_dir = output_cfg.output_dir
 
     inner_model = utils.get_model(model)
-    if hasattr(inner_model, 'quantize'):
+    if hasattr(inner_model, 'quantizer'):
         try:
-            inner_model.quantize.reset_cluster_size(device)
+            inner_model.quantizer.reset_cluster_size(device)
             print("Reset the codebook statistic info in quantizer before each epoch")
         except AttributeError:
             pass
@@ -127,9 +127,9 @@ def evaluate(
     model.eval()
     inner_model = utils.get_model(model)
 
-    if hasattr(inner_model, 'quantize'):
+    if hasattr(inner_model, 'quantizer'):
         try:
-            inner_model.quantize.reset_cluster_size(device)
+            inner_model.quantizer.reset_cluster_size(device)
             print("Reset the codebook statistic info in quantizer before testing")
         except AttributeError:
             pass

@@ -28,10 +28,11 @@ class CodebookRegularizedCriterion(nn.Module):
     output (so a classification-only forward yields just the classifier term).
     """
 
-    def __init__(self, classification_criterion: nn.Module, cfg: Optional[LossConfig] = None):
+    def __init__(self, classification_criterion: Optional[nn.Module] = None,
+                 cfg: Optional[LossConfig] = None):
         super().__init__()
         self.cfg = cfg or LossConfig()
-        self.classification_criterion = classification_criterion
+        self.classification_criterion = classification_criterion or nn.CrossEntropyLoss()
         self.spectral = SpectralReconstructionLoss(self.cfg)
 
     def forward(self, output, target) -> LossBreakdown:

@@ -36,7 +36,7 @@ from labram.runs.codebook_setup import (
     loss_config_from_codebook_reg,
     validate_lr_scales,
 )
-from labram.train.base import optimizer_update
+from labram.optim_factory import optimizer_update
 from labram.train.train_finetune import train_one_epoch
 from labram.utils import NativeScalerWithGradNormCount
 
@@ -71,7 +71,7 @@ def _tiny_classifier(num_classes=2, feature_sources=('encoder_mean',), **kwargs)
     encoder = NeuralTransformer(_arch_cfg(num_classes=0))
     vq = _make_tiny_vqnsp()
     return CodebookRegularizedClassifier(
-        encoder=encoder, quantizer=vq.quantize, decoder=vq.decoder,
+        encoder=encoder, quantizer=vq.quantizer, decoder=vq.decoder,
         encode_task_layer=vq.encode_task_layer,
         decode_task_layer_magnitude=vq.decode_task_layer_magnitude,
         decode_task_layer_phase=vq.decode_task_layer_phase,
@@ -125,7 +125,7 @@ class TestForward:
         model = _tiny_classifier()
         assert model.get_num_layers() == 2
         nwd = model.no_weight_decay()
-        assert 'encoder.pos_embed' in nwd and 'quantize.embedding.weight' in nwd
+        assert 'encoder.pos_embed' in nwd and 'quantizer.embedding.weight' in nwd
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ class TestTrainability:
         assert all(not p.requires_grad for p in model.decoder.parameters())
         assert all(not p.requires_grad for p in model.encode_task_layer.parameters())
         assert all(p.requires_grad for p in model.encoder.parameters())
-        assert model.quantize.embedding.update is False
+        assert model.quantizer.embedding.update is False
 
     def test_decoder_trainable_when_enabled(self):
         model = _tiny_classifier()
@@ -177,13 +177,13 @@ class TestTrainability:
         opt = torch.optim.AdamW(params, lr=1e-2)
         scaler = NativeScalerWithGradNormCount()
         enc_before = model.encoder.cls_token.detach().clone()
-        codebook_before = model.quantize.embedding.weight.detach().clone()
+        codebook_before = model.quantizer.embedding.weight.detach().clone()
         out = model(_x(), channel_indices=_ch())
         breakdown = crit(out, torch.tensor([0, 1]))
         optimizer_update(breakdown.total, optimizer=opt, loss_scaler=scaler,
                          parameters=params, clip_grad=None, update_grad=True)
         assert not torch.equal(enc_before, model.encoder.cls_token.detach())
-        assert torch.equal(codebook_before, model.quantize.embedding.weight.detach())
+        assert torch.equal(codebook_before, model.quantizer.embedding.weight.detach())
 
 
 # ---------------------------------------------------------------------------
