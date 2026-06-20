@@ -162,8 +162,12 @@ def labram_huge_patch200_1600_8k_vocab(pretrained=False, **kwargs):  # 380 M par
 
 def _vqnsp_base_arch(eeg_window_size: int = conf_consts.DEFAULT_ARCH_EEG_WINDOW_SIZE,
                      **overrides) -> TransformerArchConfig:
-    """Shared VQNSP encoder/decoder base architecture (base variant)."""
-    return TransformerArchConfig(
+    """Shared VQNSP encoder/decoder base architecture (base variant).
+
+    ``overrides`` may replace any field (e.g. the decoder passes
+    ``patch_size=1``), so merge them over the defaults rather than passing both.
+    """
+    fields = dict(
         eeg_window_size=eeg_window_size, patch_size=conf_consts.DEFAULT_ARCH_PATCH_SIZE, in_chans=1,
         num_classes=0, embed_dim=conf_consts.DEFAULT_ARCH_EMBED_DIM,
         depth=conf_consts.DEFAULT_ARCH_DEPTH, num_heads=conf_consts.DEFAULT_ARCH_NUM_HEADS,
@@ -171,8 +175,9 @@ def _vqnsp_base_arch(eeg_window_size: int = conf_consts.DEFAULT_ARCH_EEG_WINDOW_
         drop_path_rate=0., init_values=0., use_abs_pos_emb=True,
         use_rel_pos_bias=False, use_shared_rel_pos_bias=False,
         use_mean_pooling=True, init_scale=conf_consts.DEFAULT_ARCH_INIT_SCALE,
-        **overrides,
     )
+    fields.update(overrides)
+    return TransformerArchConfig(**fields)
 
 
 @register_model

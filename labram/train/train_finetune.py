@@ -18,8 +18,10 @@ from einops import rearrange
 import labram.utils as utils
 from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import TrainerConfig
-from labram.losses import build_classification_criterion
-from labram.train.base import apply_lr_wd_schedule, log_lr_wd_grad_metrics
+from labram.losses import CodebookRegularizedCriterion, build_classification_criterion
+from labram.losses.outputs import LossBreakdown
+from labram.models.outputs import PredictorOutput
+from labram.optim_factory import apply_lr_wd_schedule, log_lr_wd_grad_metrics, optimizer_update
 
 
 def train_class_batch(
@@ -28,10 +30,19 @@ def train_class_batch(
     target: torch.Tensor,
     criterion: torch.nn.Module,
     channel_indices: Optional[Sequence[int]],
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, Optional[LossBreakdown]]:
+    """Run the model + criterion. Returns ``(loss, logits, breakdown)``.
+
+    For the codebook-regularized criterion the model emits a ``PredictorOutput``
+    and the criterion a ``LossBreakdown`` (component losses for logging); for the
+    plain path ``outputs`` is already the logits tensor and ``breakdown`` is None.
+    """
     outputs = model(samples, channel_indices)
+    if isinstance(criterion, CodebookRegularizedCriterion):
+        breakdown = criterion(outputs, target)
+        return breakdown.total, outputs.logits, breakdown
     loss = criterion(outputs, target)
-    return loss, outputs
+    return loss, outputs, None
 
 
 def get_loss_scale_for_deepspeed(model: torch.nn.Module) -> float:
@@ -59,7 +70,10 @@ def train_one_epoch(
     is_binary: bool = True,
 ) -> Dict[str, float]:
     update_freq = trainer_cfg.update_freq
-    max_norm    = optim_cfg.clip_grad or 0
+    # None => no gradient clipping. (Previously `clip_grad or 0`, which passed 0
+    # to the scaler and clipped grad-norm to zero — i.e. zeroed all gradients —
+    # whenever clip_grad was unset.)
+    max_norm = optim_cfg.clip_grad
 
     channel_indices = None
     if ch_names is not None:
@@ -95,11 +109,11 @@ def train_one_epoch(
 
         if loss_scaler is None:
             samples = samples.half()
-            loss, output = train_class_batch(
+            loss, output, breakdown = train_class_batch(
                 model, samples, targets, criterion, channel_indices)
         else:
             with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
-                loss, output = train_class_batch(
+                loss, output, breakdown = train_class_batch(
                     model, samples, targets, criterion, channel_indices)
 
         loss_value = loss.item()
@@ -124,13 +138,11 @@ def train_one_epoch(
             # this attribute is added by timm on one optimizer (adahessian)
             is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
             loss /= update_freq
-            grad_norm = loss_scaler(loss, optimizer, clip_grad=max_norm,
-                                    parameters=model.parameters(), create_graph=is_second_order,
-                                    update_grad=(data_iter_step + 1) % update_freq == 0)
-            if (data_iter_step + 1) % update_freq == 0:
-                optimizer.zero_grad()
-                if model_ema is not None:
-                    model_ema.update(model)
+            grad_norm = optimizer_update(
+                loss, optimizer=optimizer, loss_scaler=loss_scaler,
+                parameters=model.parameters(), clip_grad=max_norm,
+                update_grad=(data_iter_step + 1) % update_freq == 0,
+                create_graph=is_second_order, model_ema=model_ema, model=model)
             loss_scale_value = loss_scaler.state_dict().get("scale", 1.0)
 
         if torch.cuda.is_available():
@@ -145,12 +157,23 @@ def train_one_epoch(
         metric_logger.update(class_acc=class_acc)
         metric_logger.update(loss_scale=loss_scale_value)
 
+        # Per-component losses (classifier / magnitude / phase / quantize) when
+        # the codebook-regularized criterion is in use.
+        component_values = None
+        if breakdown is not None:
+            component_values = {f'{name}_loss': float(v.detach().mean())
+                                for name, v in breakdown.components.items()}
+            metric_logger.update(**component_values)
+
         log_lr_wd_grad_metrics(metric_logger, optimizer, grad_norm, log_writer)
 
         if log_writer is not None:
             log_writer.update(loss=loss_value, head="loss")
             log_writer.update(class_acc=class_acc, head="loss")
             log_writer.update(loss_scale=loss_scale_value, head="opt")
+            if component_values is not None:
+                for name, value in component_values.items():
+                    log_writer.update(**{name: value}, head="loss")
             log_writer.set_step()
 
     # gather the stats from all processes
@@ -192,9 +215,12 @@ def evaluate(
         if is_binary:
             target = target.float().unsqueeze(-1)
 
-        # compute output
+        # compute output (classify_only skips the decoder branch on the
+        # regularized model; the plain model ignores the kwarg)
         with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
-            output = model(eeg_batch, channel_indices=channel_indices)
+            output = model(eeg_batch, channel_indices=channel_indices, classify_only=True)
+            if isinstance(output, PredictorOutput):
+                output = output.logits
             loss = criterion(output, target)
         
         if is_binary:

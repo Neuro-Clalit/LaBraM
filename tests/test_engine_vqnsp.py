@@ -103,7 +103,7 @@ class TestTrainOneEpoch:
         model = _make_tiny_vqnsp()
         loader = _make_loader(n_samples=4)
         before = model.encoder.cls_token.detach().clone()
-        cluster_size_before = model.quantize.cluster_size.detach().clone()
+        cluster_size_before = model.quantizer.cluster_size.detach().clone()
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
         loss_scaler = NativeScalerWithGradNormCount()
         stats = train_one_epoch(
@@ -134,7 +134,7 @@ class TestTrainOneEpoch:
         # forward() during training. After at least one step, at least one
         # of the per-token counts should be nonzero (since EMA seed starts
         # at zeros).
-        cluster_size_after = model.quantize.cluster_size.detach()
+        cluster_size_after = model.quantizer.cluster_size.detach()
         assert (cluster_size_after.sum() - cluster_size_before.sum()).abs() > 0
 
     def test_loss_finite_and_positive(self, trained):

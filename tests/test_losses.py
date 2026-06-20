@@ -172,14 +172,14 @@ def _make_tiny_vqnsp(smooth_l1_loss=False, beta=1.0):
 class TestVQNSPLossWiring:
     def test_default_uses_mse_and_configured_beta(self):
         model = _make_tiny_vqnsp(smooth_l1_loss=False, beta=1.0)
-        assert model.quantize.beta == 1.0
+        assert model.quantizer.beta == 1.0
         assert model.loss_config.vq_commitment_beta == 1.0
         assert model.loss_config.use_smooth_l1 is False
         assert model.recon_loss._loss_fn is F.mse_loss
 
     def test_custom_config_propagates(self):
         model = _make_tiny_vqnsp(smooth_l1_loss=True, beta=0.25)
-        assert model.quantize.beta == 0.25
+        assert model.quantizer.beta == 0.25
         assert model.loss_config.vq_commitment_beta == 0.25
         assert model.loss_config.use_smooth_l1 is True
         assert model.recon_loss._loss_fn is F.smooth_l1_loss
