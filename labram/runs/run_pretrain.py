@@ -30,7 +30,8 @@ def parse_cli() -> argparse.Namespace:
 
 
 def get_model(config: PretrainRunConfig):
-    m, t = config.model, config.tokenizer
+    m = config.model
+    t = m.tokenizer
     print(f"Creating model: {m.model}")
     return create_model(
         m.model,
@@ -44,7 +45,7 @@ def get_model(config: PretrainRunConfig):
 
 
 def get_visual_tokenizer(config: PretrainRunConfig):
-    t = config.tokenizer
+    t = config.model.tokenizer
     print(f"Creating visual tokenizer: {t.tokenizer_model}")
     return create_model(
         t.tokenizer_model,

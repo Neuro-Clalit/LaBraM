@@ -30,6 +30,12 @@ class TrainerConfig(ConfigBase):
     start_epoch: int = DEFAULT_START_EPOCH
     gradient_accumulation_steps: int = DEFAULT_GRADIENT_ACCUMULATION_STEPS
     update_freq: int = DEFAULT_UPDATE_FREQ
+    disable_eval_during_finetuning: bool = False
+    debug: bool = False
+    disable_weight_decay_on_rel_pos_bias: bool = False
+    eval: bool = False
+    enable_deepspeed: bool = False
+    debug_samples: int = 16
 
 
 @dataclass

@@ -5,9 +5,11 @@
 
 from dataclasses import dataclass
 
+from labram.configs.base_configs import ConfigBase
+
 
 @dataclass
-class LossConfig:
+class LossConfig(ConfigBase):
     """Weights and options for LaBraM training losses.
 
     The defaults reproduce the original hard-coded behaviour exactly:

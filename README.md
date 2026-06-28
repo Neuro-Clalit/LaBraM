@@ -124,7 +124,23 @@ dataset_maker/make_TUEV.py
 
 This includes preprocessing and splitting into train/val/test sets. Hyperparameters such as **learning rate** and **warmup epochs** strongly affect results—tune them for best performance.
 
-**TUAB** (binary abnormal detection):
+**Quick Debug Run (TUAB)**:
+Use the `--debug` flag to run a few training steps on a small subset of data (useful for verifying your setup):
+
+```bash
+python -m labram.runs.run_finetune \
+    --set data.dataset=TUAB \
+          data.data_path=./datasets/TUAB_processed \
+          trainer.debug=True \
+          trainer.debug_samples=16 \
+          distributed.device=mps \
+          output.output_dir=./checkpoints/debug_tuab \
+          output.log_dir=./checkpoints/debug_tuab \
+          model.model=labram_base_patch200_200 \
+          finetune_checkpoint.finetune=./checkpoints/labram-base.pth
+```
+
+**Full Fine-tuning (TUAB)**:
 
 ```bash
 OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_finetune \
@@ -151,7 +167,33 @@ inferred from the dataset bundle). Tune `optimizer.lr`, `optimizer.warmup_epochs
 
 ---
 
-## Citation
+## Verification
+
+### End-to-End Debug Test
+To verify the entire pipeline (VQNSP, Pre-training, and Fine-tuning) on synthetic data, you can run the end-to-end debug test. This test runs a few training steps for each phase using the `--debug` mode:
+
+```bash
+pytest tests/test_e2e_debug.py -v
+```
+
+You can also run this test as a script to verify the pipeline with **real EEG data** (e.g., TUAB) by providing the path to your processed TUAB dataset:
+
+```bash
+python tests/test_e2e_debug.py --data_path ./datasets/TUAB_processed --device mps --output_dir ./debug_e2e_out
+```
+
+This ensures that the model configurations, data loading, and training loops are correctly integrated across all stages.
+
+### Focused Tests
+Run focused unit tests for specific modules:
+
+```bash
+# Run all tests.
+pytest tests/ -v
+
+# Run a focused test file.
+pytest tests/test_runner_common.py -v
+```
 
 If you find our paper/code useful, please consider citing our work:
 

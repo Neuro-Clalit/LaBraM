@@ -37,7 +37,12 @@
         "min_lr": 1e-05,
         "warmup_epochs": 10,
         "warmup_steps": -1,
-        "clip_grad": null
+        "clip_grad": null,
+        "layer_decay": 0.9,
+        "smoothing": 0.1,
+        "model_ema": false,
+        "model_ema_decay": 0.9999,
+        "model_ema_force_cpu": false
     },
     "trainer": {
         "py/object": "labram.configs.train_config.TrainerConfig",
@@ -45,7 +50,13 @@
         "epochs": 100,
         "start_epoch": 0,
         "gradient_accumulation_steps": 1,
-        "update_freq": 1
+        "update_freq": 1,
+        "disable_eval_during_finetuning": false,
+        "debug": false,
+        "disable_weight_decay_on_rel_pos_bias": false,
+        "eval": false,
+        "enable_deepspeed": false,
+        "debug_samples": 16
     },
     "data": {
         "py/object": "labram.configs.data_config.DataConfig",
@@ -60,7 +71,9 @@
         "val_time_window": [],
         "stride": 200,
         "start_percentage": 0.0,
-        "end_percentage": 1.0
+        "end_percentage": 1.0,
+        "dataset": "",
+        "data_path": ""
     },
     "model": {
         "py/object": "labram.configs.model_config.VQNSPModelConfig",
@@ -70,6 +83,17 @@
         "quantize_kmeans_init": true,
         "codebook_size": 8192,
         "quantizer_dim": 64
+    },
+    "loss": {
+        "py/object": "labram.configs.loss_config.LossConfig",
+        "amplitude_weight": 1.0,
+        "phase_weight": 1.0,
+        "embedding_weight": 1.0,
+        "use_smooth_l1": false,
+        "vq_commitment_beta": 1.0,
+        "freq_fraction": 1.0,
+        "classification_label_smoothing": 0.0,
+        "classifier_weight": 1.0
     },
     "disable_eval": false,
     "eval": false,
