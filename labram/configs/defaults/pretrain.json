@@ -62,6 +62,17 @@
         "start_percentage": 0.0,
         "end_percentage": 1.0
     },
+    "clearml": {
+        "py/object": "labram.configs.train_config.ClearMLConfig",
+        "enabled": false,
+        "project_name": "LaBraM",
+        "task_name": "",
+        "tags": [],
+        "output_uri": "",
+        "offline": false,
+        "continue_last_task": false,
+        "auto_connect_frameworks": true
+    },
     "model": {
         "py/object": "labram.configs.model_config.PretrainModelConfig",
         "model": "labram_base_patch200_1600_8k_vocab",

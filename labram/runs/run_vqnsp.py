@@ -19,6 +19,8 @@ from labram.train.train_vqnsp import calculate_codebook_usage, evaluate, train_l
 from labram.optim_factory import create_optimizer
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
 
+logger = utils.get_logger(__name__)
+
 
 def parse_cli() -> argparse.Namespace:
     parser = argparse.ArgumentParser('LaBraM VQNSP training (config-driven)', add_help=True)
@@ -46,16 +48,16 @@ def _log_model_param_counts(model):
         model_part = getattr(model, part)
         n_learnable = sum(p.numel() for p in model_part.parameters() if p.requires_grad)
         n_fixed = sum(p.numel() for p in model_part.parameters() if not p.requires_grad)
-        print(f'learnable params in model.{part}: {n_learnable / 1e6:.2f} M')
-        print(f'fixed params in model.{part}: {n_fixed / 1e6:.2f} M')
+        logger.info(f'learnable params in model.{part}: {n_learnable / 1e6:.2f} M')
+        logger.info(f'fixed params in model.{part}: {n_fixed / 1e6:.2f} M')
     n_learnable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f'total learnable params: {n_learnable / 1e6:.2f} M')
+    logger.info(f'total learnable params: {n_learnable / 1e6:.2f} M')
     return n_learnable
 
 
 def main(config: VQNSPRunConfig):
     device, num_tasks, global_rank = runner_common.setup_environment(config)
-    print(config)
+    logger.info("%s", config)
 
     model = get_model(config)
 
@@ -86,7 +88,8 @@ def main(config: VQNSPRunConfig):
             dataset_val_list, num_tasks, global_rank, config.distributed.dist_eval,
         )
 
-    log_writer = runner_common.create_log_writer(config.output, global_rank)
+    log_writer = runner_common.create_log_writer(
+        config.output, global_rank, config.clearml, config)
 
     data_loader_train_list = runner_common.build_dataloader_list(
         dataset_train_list, sampler_train_list,
@@ -109,7 +112,7 @@ def main(config: VQNSPRunConfig):
     total_batch_size = config.trainer.batch_size * num_tasks
     scaled_lr = total_batch_size / 128 * config.optimizer.lr
     config.optimizer.lr = scaled_lr
-    print(f"LR = {scaled_lr:.8f}  batch = {total_batch_size}  steps/epoch = {num_training_steps_per_epoch}")
+    logger.info(f"LR = {scaled_lr:.8f}  batch = {total_batch_size}  steps/epoch = {num_training_steps_per_epoch}")
 
     optimizer = create_optimizer(config.optimizer, model_without_ddp)
     loss_scaler = NativeScaler()

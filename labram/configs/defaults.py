@@ -124,6 +124,15 @@ DEFAULT_RESUME: str = ''
 DEFAULT_AUTO_RESUME: bool = True
 DEFAULT_SAVE_CKPT: bool = True
 
+# ---------- ClearML experiment tracking (labram/utils/logging.ClearMLLogger) ----------
+DEFAULT_CLEARML_ENABLED: bool = False
+DEFAULT_CLEARML_PROJECT_NAME: str = 'LaBraM'
+DEFAULT_CLEARML_TASK_NAME: str = ''      # '' -> derived from output_dir / run at task-init time
+DEFAULT_CLEARML_OUTPUT_URI: str = ''     # '' -> ClearML default (no artifact upload target)
+DEFAULT_CLEARML_OFFLINE: bool = False    # run without a ClearML server; store locally
+DEFAULT_CLEARML_CONTINUE_LAST_TASK: bool = False
+DEFAULT_CLEARML_AUTO_CONNECT_FRAMEWORKS: bool = True
+
 # ---------- Distributed ----------
 DEFAULT_WORLD_SIZE: int = 1
 DEFAULT_LOCAL_RANK: int = -1

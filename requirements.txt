@@ -17,3 +17,7 @@ PyYAML
 jsonpickle
 boto3
 s3fs
+
+# Experiment tracking (optional; only needed when clearml.enabled is set).
+# Training degrades gracefully to TensorBoard-only logging if this is absent.
+clearml

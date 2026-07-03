@@ -1,9 +1,17 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
 
 from labram.configs.base_configs import ConfigBase
 from labram.configs.defaults import (
     DEFAULT_AUTO_RESUME,
     DEFAULT_BATCH_SIZE,
+    DEFAULT_CLEARML_AUTO_CONNECT_FRAMEWORKS,
+    DEFAULT_CLEARML_CONTINUE_LAST_TASK,
+    DEFAULT_CLEARML_ENABLED,
+    DEFAULT_CLEARML_OFFLINE,
+    DEFAULT_CLEARML_OUTPUT_URI,
+    DEFAULT_CLEARML_PROJECT_NAME,
+    DEFAULT_CLEARML_TASK_NAME,
     DEFAULT_DEVICE,
     DEFAULT_DIST_EVAL,
     DEFAULT_DIST_ON_ITP,
@@ -40,6 +48,24 @@ class OutputConfig(ConfigBase):
     auto_resume: bool = DEFAULT_AUTO_RESUME
     save_ckpt: bool = DEFAULT_SAVE_CKPT
     save_ckpt_freq: int = DEFAULT_PRETRAIN_SAVE_CKPT_FREQ
+
+
+@dataclass
+class ClearMLConfig(ConfigBase):
+    """ClearML experiment-tracking settings (opt-in via ``enabled``).
+
+    When enabled, rank 0 initializes a ClearML ``Task`` and metrics are mirrored
+    there alongside TensorBoard. ClearML is an optional dependency; if it is not
+    installed the run continues with a warning and TensorBoard-only logging.
+    """
+    enabled: bool = DEFAULT_CLEARML_ENABLED
+    project_name: str = DEFAULT_CLEARML_PROJECT_NAME
+    task_name: str = DEFAULT_CLEARML_TASK_NAME
+    tags: List[str] = field(default_factory=list)
+    output_uri: str = DEFAULT_CLEARML_OUTPUT_URI
+    offline: bool = DEFAULT_CLEARML_OFFLINE
+    continue_last_task: bool = DEFAULT_CLEARML_CONTINUE_LAST_TASK
+    auto_connect_frameworks: bool = DEFAULT_CLEARML_AUTO_CONNECT_FRAMEWORKS
 
 
 @dataclass

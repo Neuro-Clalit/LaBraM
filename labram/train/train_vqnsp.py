@@ -15,6 +15,8 @@ from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import OutputConfig
 from labram.optim_factory import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
+logger = utils.get_logger(__name__)
+
 
 def _get_codebook_zero_count(inner_model: torch.nn.Module) -> Optional[int]:
     if not hasattr(inner_model, 'quantizer'):
@@ -55,7 +57,7 @@ def train_one_epoch(
     if hasattr(inner_model, 'quantizer'):
         try:
             inner_model.quantizer.reset_cluster_size(device)
-            print("Reset the codebook statistic info in quantizer before each epoch")
+            logger.info("Reset the codebook statistic info in quantizer before each epoch")
         except AttributeError:
             pass
 
@@ -73,7 +75,7 @@ def train_one_epoch(
 
             loss_value = loss.item()
             if not math.isfinite(loss_value):
-                print("Loss is {}, stopping training".format(loss_value), force=True)
+                logger.error("Loss is %s, stopping training", loss_value)
                 utils.save_nan_model(output_dir, model)
                 sys.exit(1)
 
@@ -102,13 +104,13 @@ def train_one_epoch(
         step_loader += step
 
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    logger.info("Averaged stats: %s", metric_logger)
 
     zero_cnt = _get_codebook_zero_count(inner_model)
     if zero_cnt is not None:
         train_stat = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
         train_stat['unused_code'] = zero_cnt
-        print(f"Unused code in codebook: {zero_cnt}")
+        logger.info("Unused code in codebook: %s", zero_cnt)
         return train_stat
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
@@ -130,7 +132,7 @@ def evaluate(
     if hasattr(inner_model, 'quantizer'):
         try:
             inner_model.quantizer.reset_cluster_size(device)
-            print("Reset the codebook statistic info in quantizer before testing")
+            logger.info("Reset the codebook statistic info in quantizer before testing")
         except AttributeError:
             pass
 
@@ -144,13 +146,13 @@ def evaluate(
             metric_logger.update(**filtered_loss_dict)
 
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    logger.info("Averaged stats: %s", metric_logger)
 
     zero_cnt = _get_codebook_zero_count(inner_model)
     if zero_cnt is not None:
         test_stat = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
         test_stat['unused_code'] = zero_cnt
-        print(f"Unused code in codebook: {zero_cnt}")
+        logger.info("Unused code in codebook: %s", zero_cnt)
         return test_stat
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
@@ -178,7 +180,7 @@ def calculate_codebook_usage(
         codebook_cnt += torch.bincount(all_tokens, minlength=codebook_size)
 
     zero_cnt = (codebook_cnt == 0).sum()
-    print(f"STAT:  {zero_cnt} tokens ({(zero_cnt / codebook_size) * 100}%) never used.")
+    logger.info("STAT:  %s tokens (%s%%) never used.", zero_cnt, (zero_cnt / codebook_size) * 100)
 
 
 def train_loop(
@@ -203,7 +205,7 @@ def train_loop(
     lr_schedule_values = runner_common.make_lr_schedule(
         config.optimizer, config.trainer, num_training_steps_per_epoch)
 
-    print(f"Start training for {config.trainer.epochs} epochs")
+    logger.info(f"Start training for {config.trainer.epochs} epochs")
     start_time = time.time()
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
@@ -235,7 +237,7 @@ def train_loop(
                 data_loader_val_list, model, device, log_writer, epoch,
                 ch_names_list=val_ch_names_list,
             )
-            print(f"Validation loss: {test_stats['loss']:.4f}")
+            logger.info(f"Validation loss: {test_stats['loss']:.4f}")
             if log_writer is not None:
                 log_writer.update(**test_stats, head="val/loss")
 

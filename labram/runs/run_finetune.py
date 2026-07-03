@@ -30,6 +30,8 @@ from labram.runs.finetune_setup import (
 from labram.optim_factory import LayerDecayValueAssigner, create_optimizer, get_parameter_groups
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
 
+logger = utils.get_logger(__name__)
+
 
 def parse_cli() -> argparse.Namespace:
     parser = argparse.ArgumentParser('LaBraM fine-tuning (config-driven)', add_help=True)
@@ -64,7 +66,7 @@ def main(config: FinetuneRunConfig):
         utils.create_ds_config(config.output, config.trainer, config.optimizer)
 
     if config.debug:
-        print("[DEBUG MODE] Overriding training schedule for fast iteration")
+        logger.info("[DEBUG MODE] Overriding training schedule for fast iteration")
         config.trainer.epochs = max(1, min(config.trainer.epochs, 2))
         config.trainer.batch_size = min(config.trainer.batch_size, 4)
         config.data.num_workers = 0
@@ -74,7 +76,7 @@ def main(config: FinetuneRunConfig):
         if config.output.output_dir:
             config.output.log_dir = config.output.log_dir or config.output.output_dir
 
-    print(config)
+    logger.info("%s", config)
 
     bundle = get_dataset_bundle(config.dataset, config.data_path)
     config.model.nb_classes = bundle.nb_classes
@@ -96,7 +98,8 @@ def main(config: FinetuneRunConfig):
         num_tasks, global_rank, config.distributed.dist_eval,
     )
 
-    log_writer = runner_common.create_log_writer(config.output, global_rank)
+    log_writer = runner_common.create_log_writer(
+        config.output, global_rank, config.clearml, config)
     pin_memory = config.data.pin_mem and device.type == 'cuda'
     loaders = build_dataloaders(
         dataset_train, dataset_val, dataset_test,
@@ -125,11 +128,11 @@ def main(config: FinetuneRunConfig):
 
     model_without_ddp = model
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Model params: {n_parameters}")
+    logger.info(f"Model params: {n_parameters}")
 
     total_batch_size = config.trainer.batch_size * config.trainer.update_freq * utils.get_world_size()
     num_training_steps_per_epoch = len(dataset_train) // total_batch_size
-    print(f"LR={config.optimizer.lr:.8f}  batch={total_batch_size}  update_freq={config.trainer.update_freq}")
+    logger.info(f"LR={config.optimizer.lr:.8f}  batch={total_batch_size}  update_freq={config.trainer.update_freq}")
 
     num_layers = model_without_ddp.get_num_layers()
     assigner = None
@@ -193,8 +196,8 @@ def main(config: FinetuneRunConfig):
                                   ch_names=ch_names, metrics=metrics, is_binary=(nb_classes == 1))
             accuracy.append(test_stats['accuracy'])
             balanced_accuracy.append(test_stats['balanced_accuracy'])
-        print(f"Accuracy: {np.mean(accuracy):.3f} ± {np.std(accuracy):.3f}, "
-              f"balanced: {np.mean(balanced_accuracy):.3f} ± {np.std(balanced_accuracy):.3f}")
+        logger.info(f"Accuracy: {np.mean(accuracy):.3f} ± {np.std(accuracy):.3f}, "
+                    f"balanced: {np.mean(balanced_accuracy):.3f} ± {np.std(balanced_accuracy):.3f}")
         return
 
     train_loop(

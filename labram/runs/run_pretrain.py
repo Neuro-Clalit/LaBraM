@@ -18,6 +18,8 @@ from labram.train.train_pretrain import train_loop
 from labram.optim_factory import create_optimizer
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
 
+logger = utils.get_logger(__name__)
+
 
 def parse_cli() -> argparse.Namespace:
     parser = argparse.ArgumentParser('LaBraM pre-training (config-driven)', add_help=True)
@@ -31,7 +33,7 @@ def parse_cli() -> argparse.Namespace:
 
 def get_model(config: PretrainRunConfig):
     m, t = config.model, config.tokenizer
-    print(f"Creating model: {m.model}")
+    logger.info(f"Creating model: {m.model}")
     return create_model(
         m.model,
         pretrained=False,
@@ -45,7 +47,7 @@ def get_model(config: PretrainRunConfig):
 
 def get_visual_tokenizer(config: PretrainRunConfig):
     t = config.tokenizer
-    print(f"Creating visual tokenizer: {t.tokenizer_model}")
+    logger.info(f"Creating visual tokenizer: {t.tokenizer_model}")
     return create_model(
         t.tokenizer_model,
         pretrained=True,
@@ -58,11 +60,11 @@ def get_visual_tokenizer(config: PretrainRunConfig):
 
 def main(config: PretrainRunConfig):
     device, num_tasks, global_rank = runner_common.setup_environment(config)
-    print(config)
+    logger.info("%s", config)
 
     model = get_model(config)
     patch_size = model.patch_size
-    print("Patch size = %s" % str(patch_size))
+    logger.info("Patch size = %s", str(patch_size))
 
     dataset_train_list, train_ch_names_list = utils.build_pretraining_dataset(
         config.data.datasets_train,
@@ -80,7 +82,8 @@ def main(config: PretrainRunConfig):
     sampler_train_list = runner_common.build_distributed_train_sampler_list(
         dataset_train_list, num_tasks, global_rank,
     )
-    log_writer = runner_common.create_log_writer(config.output, global_rank)
+    log_writer = runner_common.create_log_writer(
+        config.output, global_rank, config.clearml, config)
 
     data_loader_list = runner_common.build_dataloader_list(
         dataset_train_list, sampler_train_list,
@@ -91,14 +94,14 @@ def main(config: PretrainRunConfig):
     model.to(device)
     model_without_ddp = model
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print("Model = %s" % str(model_without_ddp))
-    print('number of params:', n_parameters)
-    print("Tokenizer = %s" % str(vqnsp))
+    logger.info("Model = %s", str(model_without_ddp))
+    logger.info('number of params: %s', n_parameters)
+    logger.info("Tokenizer = %s", str(vqnsp))
 
     total_batch_size = config.trainer.batch_size * num_tasks * config.trainer.gradient_accumulation_steps
-    print("LR = %.8f" % config.optimizer.lr)
-    print("Batch size = %d" % total_batch_size)
-    print("Training steps/epoch = %d" % num_training_steps_per_epoch)
+    logger.info("LR = %.8f", config.optimizer.lr)
+    logger.info("Batch size = %d", total_batch_size)
+    logger.info("Training steps/epoch = %d", num_training_steps_per_epoch)
 
     model, model_without_ddp = runner_common.wrap_distributed(config.distributed, model)
     optimizer = create_optimizer(config.optimizer, model_without_ddp)
