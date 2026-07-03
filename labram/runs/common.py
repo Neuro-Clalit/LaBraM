@@ -24,7 +24,9 @@ import torch.utils.data
 
 import labram.utils as utils
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import DistributedConfig, OutputConfig, TrainerConfig
+from labram.configs.train_config import ClearMLConfig, DistributedConfig, OutputConfig, TrainerConfig
+
+logger = utils.get_logger(__name__)
 
 
 def setup_environment(config, init_cudnn_benchmark: bool = True) -> Tuple[torch.device, int, int]:
@@ -67,15 +69,111 @@ def setup_environment(config, init_cudnn_benchmark: bool = True) -> Tuple[torch.
     if init_cudnn_benchmark and torch.cuda.is_available():
         cudnn.benchmark = True
 
+    _configure_run_logging(config)
+
     return device, utils.get_world_size(), utils.get_rank()
 
 
-def create_log_writer(output_cfg: OutputConfig, global_rank: int) -> Optional[Any]:
-    """Construct a TensorboardLogger if and only if rank 0 has output_cfg.log_dir."""
-    if global_rank == 0 and output_cfg.log_dir:
+def _configure_run_logging(config) -> None:
+    """Attach the rank-aware ``labram`` logger. On rank 0 also tee to a file
+    (``run.log``) under the run's log_dir/output_dir when either is set."""
+    rank = utils.get_rank()
+    log_file = None
+    output_cfg = getattr(config, 'output', None)
+    if rank == 0 and output_cfg is not None:
+        base_dir = output_cfg.log_dir or output_cfg.output_dir
+        if base_dir:
+            log_file = os.path.join(base_dir, 'run.log')
+    utils.configure_logging(rank=rank, log_file=log_file)
+
+
+def _derive_clearml_task_name(run_config: Any) -> str:
+    """Pick a stable, human-readable ClearML task name from the run config."""
+    output_cfg = getattr(run_config, 'output', None)
+    if output_cfg is not None and output_cfg.output_dir:
+        name = os.path.basename(os.path.normpath(output_cfg.output_dir))
+        if name:
+            return name
+    model_cfg = getattr(run_config, 'model', None)
+    if model_cfg is not None and getattr(model_cfg, 'model', None):
+        return str(model_cfg.model)
+    return 'labram-run'
+
+
+def init_clearml_task(
+    clearml_cfg: ClearMLConfig,
+    run_config: Any,
+    global_rank: int,
+) -> Optional[Any]:
+    """Initialize a ClearML ``Task`` on rank 0 when tracking is enabled.
+
+    Returns the ``Task`` (or ``None`` when disabled, off-rank, or ClearML is not
+    installed). ClearML is an optional dependency: a missing package downgrades
+    to a warning and TensorBoard-only logging rather than failing the run.
+    """
+    if not clearml_cfg.enabled or global_rank != 0:
+        return None
+    try:
+        from clearml import Task
+    except ImportError:
+        logger.warning(
+            "clearml.enabled is set but the `clearml` package is not installed; "
+            "continuing with TensorBoard-only logging. Run `pip install clearml` "
+            "to enable ClearML experiment tracking.")
+        return None
+
+    if clearml_cfg.offline:
+        Task.set_offline(offline_mode=True)
+
+    task_name = clearml_cfg.task_name or _derive_clearml_task_name(run_config)
+    task = Task.init(
+        project_name=clearml_cfg.project_name or 'LaBraM',
+        task_name=task_name,
+        output_uri=clearml_cfg.output_uri or None,
+        continue_last_task=clearml_cfg.continue_last_task,
+        auto_connect_frameworks=clearml_cfg.auto_connect_frameworks,
+    )
+    if clearml_cfg.tags:
+        task.add_tags(list(clearml_cfg.tags))
+    if run_config is not None and hasattr(run_config, 'as_dict'):
+        try:
+            task.connect_configuration(run_config.as_dict(), name='run_config')
+        except Exception as exc:  # pragma: no cover - defensive: never fail a run on tracking
+            logger.warning("ClearML connect_configuration failed: %s", exc)
+    logger.info("ClearML tracking enabled: project=%r task=%r", clearml_cfg.project_name, task_name)
+    return task
+
+
+def create_log_writer(
+    output_cfg: OutputConfig,
+    global_rank: int,
+    clearml_cfg: Optional[ClearMLConfig] = None,
+    run_config: Any = None,
+) -> Optional[Any]:
+    """Build the rank-0 metric writer: TensorBoard, ClearML, or both.
+
+    Returns ``None`` on non-rank-0 processes or when no sink is configured. A
+    single sink is returned bare; multiple sinks are combined in a
+    :class:`~labram.utils.MultiWriter` so callers keep one ``log_writer``.
+    """
+    if global_rank != 0:
+        return None
+
+    writers: List[Any] = []
+    if output_cfg.log_dir:
         os.makedirs(output_cfg.log_dir, exist_ok=True)
-        return utils.TensorboardLogger(log_dir=output_cfg.log_dir)
-    return None
+        writers.append(utils.TensorboardLogger(log_dir=output_cfg.log_dir))
+
+    if clearml_cfg is not None and clearml_cfg.enabled:
+        task = init_clearml_task(clearml_cfg, run_config, global_rank)
+        if task is not None:
+            writers.append(utils.ClearMLLogger(task=task))
+
+    if not writers:
+        return None
+    if len(writers) == 1:
+        return writers[0]
+    return utils.MultiWriter(writers)
 
 
 def build_distributed_train_sampler_list(
@@ -165,7 +263,7 @@ def append_log_line(output_cfg: OutputConfig, log_stats: dict) -> None:
 
 
 def print_training_time(start_time: float) -> None:
-    """Print elapsed wall time as HH:MM:SS."""
+    """Log elapsed wall time as HH:MM:SS."""
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    print(f'Training time {total_time_str}')
+    logger.info(f'Training time {total_time_str}')

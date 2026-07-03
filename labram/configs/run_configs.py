@@ -33,7 +33,7 @@ from labram.configs.model_config import (
     VQNSPModelConfig,
 )
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import DistributedConfig, OutputConfig, TrainerConfig
+from labram.configs.train_config import ClearMLConfig, DistributedConfig, OutputConfig, TrainerConfig
 
 
 # ============================================================
@@ -51,6 +51,7 @@ class RunConfig(ConfigBase):
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     trainer: TrainerConfig = field(default_factory=TrainerConfig)
     data: DataConfig = field(default_factory=DataConfig)
+    clearml: ClearMLConfig = field(default_factory=ClearMLConfig)
 
     def to_namespace(self) -> Namespace:
         """Flatten every leaf field into a single ``argparse.Namespace``.

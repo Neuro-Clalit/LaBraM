@@ -13,12 +13,14 @@ import torch.utils.data
 
 import labram.utils as utils
 
+logger = utils.get_logger(__name__)
+
 
 def apply_debug_overrides(args) -> None:
     """In-place: shrink training schedule for fast smoke runs."""
     if not args.debug:
         return
-    print("[DEBUG MODE] Overriding training args for fast iteration")
+    logger.info("[DEBUG MODE] Overriding training args for fast iteration")
     args.epochs = max(1, min(args.epochs, 2))
     args.batch_size = min(args.batch_size, 4)
     args.num_workers = 0
@@ -62,13 +64,14 @@ def build_samplers(dataset_train, dataset_val, dataset_test, num_tasks: int, glo
     sampler_train = torch.utils.data.DistributedSampler(
         dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True,
     )
-    print("Sampler_train = %s" % str(sampler_train))
+    logger.info("Sampler_train = %s", str(sampler_train))
 
     if dist_eval:
         if dataset_val is not None and len(dataset_val) % num_tasks != 0:
-            print('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
-                  'This will slightly alter validation results as extra duplicate entries are added to achieve '
-                  'equal num of samples per-process.')
+            logger.warning(
+                'Enabling distributed evaluation with an eval dataset not divisible by process number. '
+                'This will slightly alter validation results as extra duplicate entries are added to achieve '
+                'equal num of samples per-process.')
         sampler_val = torch.utils.data.DistributedSampler(
             dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False)
         if isinstance(dataset_test, list):
@@ -143,13 +146,13 @@ def load_finetune_checkpoint(model: torch.nn.Module, ckpt_cfg) -> None:
     else:
         checkpoint = torch.load(ckpt_cfg.finetune, map_location='cpu', weights_only=False)
 
-    print("Load ckpt from %s" % ckpt_cfg.finetune)
+    logger.info("Load ckpt from %s", ckpt_cfg.finetune)
 
     checkpoint_model = None
     for model_key in ckpt_cfg.model_key.split('|'):
         if model_key in checkpoint:
             checkpoint_model = checkpoint[model_key]
-            print("Load state_dict by model_key = %s" % model_key)
+            logger.info("Load state_dict by model_key = %s", model_key)
             break
     if checkpoint_model is None:
         checkpoint_model = checkpoint
@@ -164,7 +167,7 @@ def load_finetune_checkpoint(model: torch.nn.Module, ckpt_cfg) -> None:
     state_dict = model.state_dict()
     for k in ['head.weight', 'head.bias']:
         if k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape:
-            print(f"Removing key {k} from pretrained checkpoint")
+            logger.info("Removing key %s from pretrained checkpoint", k)
             del checkpoint_model[k]
 
     for key in list(checkpoint_model.keys()):

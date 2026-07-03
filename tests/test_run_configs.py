@@ -151,6 +151,31 @@ class TestFinetuneDefaults:
 # ============================================================
 
 
+class TestClearMLDefaults:
+    def test_present_and_disabled_by_default_on_every_phase(self):
+        for cfg in (PretrainRunConfig(), VQNSPRunConfig(), FinetuneRunConfig()):
+            assert cfg.clearml.enabled is False
+            assert cfg.clearml.project_name == 'LaBraM'
+            assert cfg.clearml.task_name == ''
+            assert cfg.clearml.tags == []
+            assert cfg.clearml.offline is False
+            assert cfg.clearml.auto_connect_frameworks is True
+
+    def test_independent_tags_list_per_config(self):
+        a = PretrainRunConfig()
+        b = PretrainRunConfig()
+        a.clearml.tags.append('exp-1')
+        assert b.clearml.tags == []
+
+    def test_override_via_load_config(self):
+        cfg = PretrainRunConfig.load_config(
+            None,
+            **{'clearml.enabled': True, 'clearml.project_name': 'My EEG'},
+        )
+        assert cfg.clearml.enabled is True
+        assert cfg.clearml.project_name == 'My EEG'
+
+
 class TestSubConfigIndependence:
     def test_two_pretrain_configs_have_independent_optimizers(self):
         a = PretrainRunConfig()

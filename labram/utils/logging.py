@@ -1,17 +1,112 @@
 # --------------------------------------------------------
 # Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
-# SmoothedValue, MetricLogger, TensorboardLogger.
+# SmoothedValue, MetricLogger, TensorboardLogger, ClearMLLogger, MultiWriter,
+# and the shared Python-logging setup.
 # ---------------------------------------------------------
 
 import datetime
+import logging
+import os
+import sys
 import time
 from collections import defaultdict, deque
+from typing import Any, List, Optional
 
 import torch
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 
 from labram.utils.distributed import is_dist_avail_and_initialized
+
+
+# ============================================================
+# Python logging setup
+# ============================================================
+
+LOGGER_NAME = "labram"
+
+# Handler attached by ``configure_logging`` is tagged so re-configuration is
+# idempotent (we replace our own handlers without touching foreign ones).
+_HANDLER_TAG = "_labram_handler"
+
+
+def get_logger(name: Optional[str] = None) -> logging.Logger:
+    """Return the shared ``labram`` logger (or a dotted child of it).
+
+    Modules should call ``get_logger(__name__)`` at import time and log through
+    the result. Output only appears once ``configure_logging`` has attached a
+    handler (done by the runners in :func:`setup_environment`); until then the
+    records are silently dropped, which keeps library/test imports quiet.
+    """
+    root = logging.getLogger(LOGGER_NAME)
+    if name is None or name == LOGGER_NAME or not name:
+        return root
+    # Collapse the package prefix so ``labram.train.foo`` -> ``labram.train.foo``
+    # stays a child of ``labram`` rather than creating a detached tree.
+    if name.startswith(LOGGER_NAME + "."):
+        return logging.getLogger(name)
+    return root.getChild(name)
+
+
+def configure_logging(
+    level: int = logging.INFO,
+    log_file: Optional[str] = None,
+    rank: int = 0,
+    force: bool = True,
+) -> logging.Logger:
+    """Configure the shared ``labram`` logger with a rank-aware console handler.
+
+    Only rank 0 logs at ``level``; other ranks are raised to WARNING so
+    per-process chatter does not multiply across a distributed job. A file
+    handler is added on rank 0 when ``log_file`` is given. Safe to call more
+    than once — our own handlers are cleared and rebuilt, foreign handlers are
+    left untouched.
+    """
+    logger = logging.getLogger(LOGGER_NAME)
+
+    if force:
+        for handler in [h for h in logger.handlers if getattr(h, _HANDLER_TAG, False)]:
+            logger.removeHandler(handler)
+    elif logger.handlers:
+        return logger
+
+    effective_level = level if rank == 0 else max(level, logging.WARNING)
+    logger.setLevel(effective_level)
+    # Own the output; don't double-log through the root logger's handlers.
+    logger.propagate = False
+
+    fmt = logging.Formatter(
+        fmt="[%(asctime)s][rank%(rank)s][%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    class _RankFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            record.rank = rank
+            return True
+
+    rank_filter = _RankFilter()
+
+    stream_handler = logging.StreamHandler(stream=sys.stdout)
+    stream_handler.setFormatter(fmt)
+    stream_handler.addFilter(rank_filter)
+    setattr(stream_handler, _HANDLER_TAG, True)
+    logger.addHandler(stream_handler)
+
+    if log_file and rank == 0:
+        log_dir = os.path.dirname(log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(fmt)
+        file_handler.addFilter(rank_filter)
+        setattr(file_handler, _HANDLER_TAG, True)
+        logger.addHandler(file_handler)
+
+    return logger
+
+
+_logger = get_logger()
 
 
 class SmoothedValue(object):
@@ -138,13 +233,13 @@ class MetricLogger(object):
                 eta_seconds = iter_time.global_avg * (len(iterable) - i)
                 eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
                 if torch.cuda.is_available():
-                    print(log_msg.format(
+                    _logger.info(log_msg.format(
                         i, len(iterable), eta=eta_string,
                         meters=str(self),
                         time=str(iter_time), data=str(data_time),
                         memory=torch.cuda.max_memory_allocated() / MB))
                 else:
-                    print(log_msg.format(
+                    _logger.info(log_msg.format(
                         i, len(iterable), eta=eta_string,
                         meters=str(self),
                         time=str(iter_time), data=str(data_time)))
@@ -152,7 +247,7 @@ class MetricLogger(object):
             end = time.time()
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-        print('{} Total time: {} ({:.4f} s / it)'.format(
+        _logger.info('{} Total time: {} ({:.4f} s / it)'.format(
             header, total_time_str, total_time / len(iterable)))
 
 
@@ -184,3 +279,96 @@ class TensorboardLogger(object):
 
     def flush(self):
         self.writer.flush()
+
+
+class ClearMLLogger(object):
+    """Scalar/image logger that mirrors :class:`TensorboardLogger` but forwards
+    to a ClearML ``Task`` logger.
+
+    The writer surface (``set_step`` / ``update`` / ``update_image`` / ``flush``)
+    matches ``TensorboardLogger`` so it can be dropped into the same
+    ``log_writer`` slot or combined with it via :class:`MultiWriter`. When the
+    task's logger is unavailable (e.g. ClearML not installed) every method is a
+    no-op, so training is never blocked by the optional dependency.
+
+    ClearML groups scalars as (title, series); we map ``head`` -> title and each
+    keyword name -> series, matching Tensorboard's ``head/name`` convention.
+    """
+
+    def __init__(self, task: Any = None, clearml_logger: Any = None):
+        self.task = task
+        if clearml_logger is not None:
+            self._logger = clearml_logger
+        elif task is not None and hasattr(task, "get_logger"):
+            self._logger = task.get_logger()
+        else:
+            self._logger = None
+        self.step = 0
+
+    def set_step(self, step=None):
+        if step is not None:
+            self.step = step
+        else:
+            self.step += 1
+
+    def update(self, head='scalar', step=None, **kwargs):
+        if self._logger is None:
+            return
+        iteration = self.step if step is None else step
+        for k, v in kwargs.items():
+            if v is None:
+                continue
+            if isinstance(v, torch.Tensor):
+                v = v.item()
+            self._logger.report_scalar(
+                title=head, series=k, value=float(v), iteration=iteration)
+
+    def update_image(self, head='images', step=None, **kwargs):
+        if self._logger is None:
+            return
+        iteration = self.step if step is None else step
+        for k, v in kwargs.items():
+            if v is None:
+                continue
+            self._logger.report_image(
+                title=head, series=k, iteration=iteration, image=v)
+
+    def flush(self):
+        if self._logger is not None:
+            self._logger.flush()
+
+
+class MultiWriter(object):
+    """Fan-out writer that forwards every call to a list of underlying writers.
+
+    Lets the training loops keep a single ``log_writer`` object while metrics go
+    to both TensorBoard and ClearML. ``None`` writers are dropped, and optional
+    methods (``update_image`` / ``flush``) are only called on writers that
+    provide them.
+    """
+
+    def __init__(self, writers: List[Any]):
+        self.writers = [w for w in writers if w is not None]
+        self.step = 0
+
+    def set_step(self, step=None):
+        if step is not None:
+            self.step = step
+        else:
+            self.step += 1
+        for w in self.writers:
+            w.set_step(step)
+
+    def update(self, head='scalar', step=None, **kwargs):
+        for w in self.writers:
+            w.update(head=head, step=step, **kwargs)
+
+    def update_image(self, head='images', step=None, **kwargs):
+        for w in self.writers:
+            if hasattr(w, 'update_image'):
+                w.update_image(head=head, step=step, **kwargs)
+
+    def flush(self):
+        for w in self.writers:
+            if hasattr(w, 'flush'):
+                w.flush()

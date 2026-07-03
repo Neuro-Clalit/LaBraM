@@ -5,7 +5,7 @@ import torch.utils.data
 
 import labram.runs.common as runner_common
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import DistributedConfig, OutputConfig, TrainerConfig
+from labram.configs.train_config import ClearMLConfig, DistributedConfig, OutputConfig, TrainerConfig
 
 
 class _SyntheticDataset(torch.utils.data.Dataset):
@@ -115,6 +115,41 @@ class TestCreateLogWriter:
         assert writer is not None
         assert (tmp_path / "tb").is_dir()
 
+    def test_clearml_disabled_returns_tensorboard_only(self, tmp_path):
+        output_cfg = OutputConfig(log_dir=str(tmp_path / "tb"))
+        clearml_cfg = ClearMLConfig(enabled=False)
+        writer = runner_common.create_log_writer(
+            output_cfg, global_rank=0, clearml_cfg=clearml_cfg)
+        # A single sink is returned bare (not wrapped in MultiWriter).
+        from labram.utils import TensorboardLogger
+        assert isinstance(writer, TensorboardLogger)
+
+    def test_clearml_enabled_without_package_degrades_gracefully(self, tmp_path, monkeypatch):
+        # Simulate clearml not being importable: init_clearml_task hits the
+        # ImportError branch, returns None, and we fall back to TensorBoard.
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "clearml" or name.startswith("clearml."):
+                raise ImportError("no clearml")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        output_cfg = OutputConfig(log_dir=str(tmp_path / "tb"))
+        clearml_cfg = ClearMLConfig(enabled=True)
+        writer = runner_common.create_log_writer(
+            output_cfg, global_rank=0, clearml_cfg=clearml_cfg)
+        from labram.utils import TensorboardLogger
+        assert isinstance(writer, TensorboardLogger)
+
+    def test_none_when_not_rank_zero_even_with_clearml(self, tmp_path):
+        output_cfg = OutputConfig(log_dir=str(tmp_path / "tb"))
+        clearml_cfg = ClearMLConfig(enabled=True)
+        writer = runner_common.create_log_writer(
+            output_cfg, global_rank=1, clearml_cfg=clearml_cfg)
+        assert writer is None
+
 
 class TestAppendLogLine:
     def test_no_op_when_output_dir_empty(self, tmp_path):
@@ -136,12 +171,13 @@ class TestAppendLogLine:
 
 
 class TestPrintTrainingTime:
-    def test_no_exception_and_prints_hhmmss(self, capsys):
+    def test_no_exception_and_logs_hhmmss(self, caplog):
+        import logging
         import time
-        runner_common.print_training_time(time.time() - 65)
-        captured = capsys.readouterr()
-        assert "Training time " in captured.out
-        assert ":01:" in captured.out
+        with caplog.at_level(logging.INFO, logger="labram"):
+            runner_common.print_training_time(time.time() - 65)
+        assert "Training time " in caplog.text
+        assert ":01:" in caplog.text
 
 
 class TestWrapDistributed:

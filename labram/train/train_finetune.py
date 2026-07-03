@@ -23,6 +23,8 @@ from labram.losses.outputs import LossBreakdown
 from labram.models.outputs import PredictorOutput
 from labram.optim_factory import apply_lr_wd_schedule, log_lr_wd_grad_metrics, optimizer_update
 
+logger = utils.get_logger(__name__)
+
 
 def train_class_batch(
     model: torch.nn.Module,
@@ -119,7 +121,7 @@ def train_one_epoch(
         loss_value = loss.item()
 
         if not math.isfinite(loss_value):
-            print("Loss is {}, stopping training".format(loss_value))
+            logger.error("Loss is %s, stopping training", loss_value)
             sys.exit(1)
 
         if loss_scaler is None:
@@ -178,7 +180,7 @@ def train_one_epoch(
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    logger.info("Averaged stats: %s", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -240,8 +242,7 @@ def evaluate(
         #metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print('* loss {losses.global_avg:.3f}'
-          .format(losses=metric_logger.loss))
+    logger.info('* loss {losses.global_avg:.3f}'.format(losses=metric_logger.loss))
     
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
@@ -293,7 +294,7 @@ def train_loop(
     nb_classes = config.model.nb_classes
     is_binary = nb_classes == 1
 
-    print(f"Start training for {config.trainer.epochs} epochs")
+    logger.info(f"Start training for {config.trainer.epochs} epochs")
     start_time = time.time()
     max_accuracy = max_accuracy_test = 0.0
 
@@ -329,10 +330,10 @@ def train_loop(
         if loaders.val is not None:
             val_stats = evaluate(loaders.val, model, device, header='Val:',
                                  ch_names=ch_names, metrics=metrics, is_binary=is_binary)
-            print(f"Val EEG accuracy: {val_stats['accuracy']:.2f}%")
+            logger.info(f"Val EEG accuracy: {val_stats['accuracy']:.2f}%")
             test_stats = evaluate(loaders.test, model, device, header='Test:',
                                   ch_names=ch_names, metrics=metrics, is_binary=is_binary)
-            print(f"Test EEG accuracy: {test_stats['accuracy']:.2f}%")
+            logger.info(f"Test EEG accuracy: {test_stats['accuracy']:.2f}%")
 
             if max_accuracy < val_stats["accuracy"]:
                 max_accuracy = val_stats["accuracy"]
@@ -344,7 +345,7 @@ def train_loop(
                         epoch="best", model_ema=model_ema,
                         enable_deepspeed=enable_deepspeed)
                 max_accuracy_test = test_stats["accuracy"]
-            print(f'Max accuracy val: {max_accuracy:.2f}%, test: {max_accuracy_test:.2f}%')
+            logger.info(f'Max accuracy val: {max_accuracy:.2f}%, test: {max_accuracy_test:.2f}%')
 
             _log_eval_stats(log_writer, val_stats, head="val", epoch=epoch)
             _log_eval_stats(log_writer, test_stats, head="test", epoch=epoch)

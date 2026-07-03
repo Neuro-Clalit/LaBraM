@@ -66,7 +66,7 @@ pip install -r requirements.txt
 - `labram/configs/` — Dataclass config tree on `ConfigBase` (JSON/YAML round-trip): model/data/optim/train/runner configs + `defaults/*.json`; constructors are config-driven (`VQNSP(VQNSPArchConfig)`, `NeuralTransformer(TransformerArchConfig)`)
 - `labram/train/` — Per-phase training/eval loops (`train_vqnsp.py`, `train_pretrain.py`, `train_finetune.py`); shared optimizer/LR/metric helpers (`optimizer_update`, `apply_lr_wd_schedule`, `log_lr_wd_grad_metrics`) live in `labram/optim_factory.py`
 - `labram/runs/` — Entry-point scripts (`run_vqnsp.py`, `run_pretrain.py`, `run_finetune.py`) invoked via `python -m`; `common.py` holds shared DDP setup, LR schedules, and dataloader construction; `finetune_setup.py`/`finetune_args.py` for fine-tuning setup
-- `labram/utils/` — `checkpoint.py`, `distributed.py`, `training.py` (cosine LR, layer decay), `logging.py`, `metrics.py`, `cli.py`; `__init__.py` also re-exports the `labram.data` public API for backward compatibility
+- `labram/utils/` — `checkpoint.py`, `distributed.py`, `training.py` (cosine LR, layer decay), `logging.py` (`MetricLogger`, `TensorboardLogger`, `ClearMLLogger`, `MultiWriter` fan-out writer, plus `configure_logging`/`get_logger` for the rank-aware Python `logging` setup), `metrics.py`, `cli.py`; `__init__.py` also re-exports the `labram.data` public API for backward compatibility
 - `dataset_maker/` — Preprocessing scripts that convert raw EEG files (`.cnt`/`.edf`/`.bdf`) to HDF5 (`make_h5dataset_for_pretrain.py`) and TUH datasets to pickle (`make_TUAB.py`, `make_TUEV.py`)
 
 ### Data flow
@@ -88,3 +88,5 @@ pip install -r requirements.txt
 **LR scheduling**: Cosine annealing with warmup (`utils/training.py`). Fine-tuning uses layer-wise LR decay via `optim_factory.py::LayerDecayValueAssigner` (timm-style per-parameter group scaling, controlled by `--layer_decay`).
 
 **Model registry**: Models are registered with timm (`timm.models.register_model`) and instantiated via `timm.models.create_model(name, ...)`. Model names like `labram_base_patch200_200` encode architecture hyperparameters.
+
+**Logging & experiment tracking**: Status messages go through the rank-aware `labram` Python logger (`utils.get_logger`), configured once in `runs/common.py::setup_environment` (rank 0 at INFO, other ranks WARNING; optional `run.log` file). Metrics flow through a single `log_writer` built by `runs/common.py::create_log_writer` — TensorBoard, ClearML, or both (combined via `MultiWriter`). ClearML tracking is opt-in per-run (`clearml.enabled`, `ClearMLConfig` on every `*RunConfig`) and is an optional dependency: a missing `clearml` package downgrades to TensorBoard-only with a warning. See `docs/logging_clearml.md`.

@@ -18,6 +18,8 @@ from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import TrainerConfig
 from labram.optim_factory import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
+logger = utils.get_logger(__name__)
+
 
 def random_masking(x: torch.Tensor, mask_ratio: float) -> torch.Tensor:
     """Per-sample random masking via per-sample shuffling."""
@@ -95,7 +97,7 @@ def train_one_epoch(
 
             loss_value = loss.item()
             if not math.isfinite(loss_value):
-                print(f"Loss is {loss_value}, stopping training at rank {utils.get_rank()}", force=True)
+                logger.error("Loss is %s, stopping training at rank %s", loss_value, utils.get_rank())
                 sys.exit(1)
 
             is_second_order = hasattr(optimizer, 'is_second_order') and optimizer.is_second_order
@@ -132,7 +134,7 @@ def train_one_epoch(
         step_loader += step
 
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    logger.info("Averaged stats: %s", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -160,7 +162,7 @@ def train_loop(
     wd_schedule_values = runner_common.make_wd_schedule(
         config.optimizer, config.trainer, num_training_steps_per_epoch)
 
-    print(f"Start training for {config.trainer.epochs} epochs")
+    logger.info(f"Start training for {config.trainer.epochs} epochs")
     start_time = time.time()
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):

@@ -35,7 +35,15 @@ from labram.utils.distributed import (
     save_on_master,
     setup_for_distributed,
 )
-from labram.utils.logging import MetricLogger, SmoothedValue, TensorboardLogger
+from labram.utils.logging import (
+    ClearMLLogger,
+    MetricLogger,
+    MultiWriter,
+    SmoothedValue,
+    TensorboardLogger,
+    configure_logging,
+    get_logger,
+)
 from labram.utils.metrics import get_metrics
 from labram.utils.training import (
     NativeScalerWithGradNormCount,
@@ -47,8 +55,10 @@ from labram.utils.training import (
 
 __all__ = [
     'NativeScalerWithGradNormCount',
+    'ClearMLLogger',
     'GatherLayer',
     'MetricLogger',
+    'MultiWriter',
     'SmoothedValue',
     'TUABLoader',
     'TUEVLoader',
@@ -60,9 +70,11 @@ __all__ = [
     'auto_load_model',
     'bool_flag',
     'build_pretraining_dataset',
+    'configure_logging',
     'cosine_scheduler',
     'create_ds_config',
     'get_channel_indices',
+    'get_logger',
     'get_grad_norm',
     'get_grad_norm_',
     'get_metrics',
