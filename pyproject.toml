@@ -16,10 +16,23 @@ license = { text = "CC BY-NC 4.0" }
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "pyflakes"]
+# radon + ruff power the design_reviewer skill's metrics
+# (.claude/skills/design_reviewer/); they are dev-only tools.
+dev = ["pytest>=7", "pyflakes", "radon", "ruff"]
 
 [tool.setuptools.packages.find]
 include = ["labram*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+# Lenient by design: this drives the design-review audit signal, it does not
+# gate CI. Start with pyflakes (F) + a subset of pycodestyle (E) errors, and
+# ignore line-length so wrapping style is not counted as noise.
+select = ["E", "F"]
+ignore = ["E501"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
