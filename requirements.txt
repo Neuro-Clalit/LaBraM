@@ -1,3 +1,8 @@
+# NOTE: PyTorch is intentionally not pinned here — the correct CUDA build must be
+# chosen per-machine via the PyTorch index (see the Installation section in
+# CLAUDE.md). The code requires torch>=2.3 (it uses the torch.amp.GradScaler /
+# torch.amp.autocast string-device API). Validated with torch 2.4.1+cu118.
+
 timm==0.9.12
 Pillow
 blobfile
@@ -7,11 +12,15 @@ pandas<2.2.0
 pytest
 requests
 einops
-deepspeed==0.4.0
 scipy
 pyhealth==1.1.4
 h5py
 mne==1.4.2
+
+# Logging: labram.utils.logging imports torch.utils.tensorboard, which requires
+# the `tensorboard` package to be installed.
+tensorboard
+
 # Config infrastructure (labram/configs)
 PyYAML
 jsonpickle
@@ -21,3 +30,10 @@ s3fs
 # Experiment tracking (optional; only needed when clearml.enabled is set).
 # Training degrades gracefully to TensorBoard-only logging if this is absent.
 clearml
+
+# Optional: DeepSpeed fine-tuning, only used behind the --enable_deepspeed flag
+# (lazily imported in labram/runs/finetune_args.py). NOTE: the historical
+# deepspeed==0.4.0 pin is INCOMPATIBLE with torch>=2.3 (it imports the removed
+# torch._six) and requires `pip install --no-build-isolation`. Install a
+# compatible deepspeed manually only if you need this feature.
+# deepspeed
