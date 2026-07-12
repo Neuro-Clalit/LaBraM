@@ -100,6 +100,31 @@ def _derive_clearml_task_name(run_config: Any) -> str:
     return 'labram-run'
 
 
+def _clearml_default_output_uri() -> Optional[str]:
+    """The ``sdk.development.default_output_uri`` from the ClearML config, if set."""
+    try:
+        from clearml.backend_config.config import Config
+        cfg = Config()
+        cfg.reload()
+        return cfg.get('sdk.development.default_output_uri', None) or None
+    except Exception:  # pragma: no cover - clearml absent/misconfigured -> no base
+        return None
+
+
+def _debug_output_uri(clearml_cfg: ClearMLConfig, project_name: str) -> Optional[str]:
+    """Storage URI for debug runs: ``<base>/<project>/debug``.
+
+    ``<base>`` is the run's ``clearml.output_uri`` when set, otherwise ClearML's
+    configured ``default_output_uri`` (e.g. the S3 bucket in ``clearml.conf``).
+    Returns ``None`` when no base is known, in which case ClearML falls back to
+    its own default and only the ``debug`` tag distinguishes the run.
+    """
+    base = clearml_cfg.output_uri or _clearml_default_output_uri()
+    if not base:
+        return None
+    return base.rstrip('/') + f'/{project_name}/debug'
+
+
 def init_clearml_task(
     clearml_cfg: ClearMLConfig,
     run_config: Any,
@@ -125,22 +150,37 @@ def init_clearml_task(
     if clearml_cfg.offline:
         Task.set_offline(offline_mode=True)
 
+    project_name = clearml_cfg.project_name or 'LaBraM'
     task_name = clearml_cfg.task_name or _derive_clearml_task_name(run_config)
+
+    output_uri = clearml_cfg.output_uri or None
+    tags = list(clearml_cfg.tags)
+    is_debug = bool(getattr(run_config, 'debug', False))
+    if is_debug:
+        # Debug runs are tagged 'debug' and their artifacts are isolated in a
+        # '<project>/debug' subfolder of the configured output storage, so they
+        # never mix with real experiment outputs.
+        if 'debug' not in tags:
+            tags.append('debug')
+        output_uri = _debug_output_uri(clearml_cfg, project_name)
+
     task = Task.init(
-        project_name=clearml_cfg.project_name or 'LaBraM',
+        project_name=project_name,
         task_name=task_name,
-        output_uri=clearml_cfg.output_uri or None,
+        output_uri=output_uri,
         continue_last_task=clearml_cfg.continue_last_task,
         auto_connect_frameworks=clearml_cfg.auto_connect_frameworks,
     )
-    if clearml_cfg.tags:
-        task.add_tags(list(clearml_cfg.tags))
+    if tags:
+        task.add_tags(tags)
     if run_config is not None and hasattr(run_config, 'as_dict'):
         try:
             task.connect_configuration(run_config.as_dict(), name='run_config')
         except Exception as exc:  # pragma: no cover - defensive: never fail a run on tracking
             logger.warning("ClearML connect_configuration failed: %s", exc)
-    logger.info("ClearML tracking enabled: project=%r task=%r", clearml_cfg.project_name, task_name)
+    logger.info(
+        "ClearML tracking enabled: project=%r task=%r debug=%s output_uri=%r",
+        project_name, task_name, is_debug, output_uri)
     return task
 
 
