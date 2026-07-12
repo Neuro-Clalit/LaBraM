@@ -19,3 +19,8 @@ class OptimizerConfig(ConfigBase):
     warmup_epochs: int = conf_consts.DEFAULT_WARMUP_EPOCHS
     warmup_steps: int = conf_consts.DEFAULT_WARMUP_STEPS
     clip_grad: Optional[float] = None
+    layer_decay: float = conf_consts.DEFAULT_FINETUNE_LAYER_DECAY
+    smoothing: float = conf_consts.DEFAULT_FINETUNE_LABEL_SMOOTHING
+    model_ema: bool = conf_consts.DEFAULT_FINETUNE_MODEL_EMA
+    model_ema_decay: float = conf_consts.DEFAULT_FINETUNE_MODEL_EMA_DECAY
+    model_ema_force_cpu: bool = conf_consts.DEFAULT_FINETUNE_MODEL_EMA_FORCE_CPU

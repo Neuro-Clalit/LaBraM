@@ -5,7 +5,7 @@ import json
 import yaml
 from typing import Any
 
-from labram.configs.file_system import FileSystem
+from labram.file_system import FileSystem
 
 
 class NumpyEncoder(json.JSONEncoder):

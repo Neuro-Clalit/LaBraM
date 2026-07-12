@@ -34,7 +34,12 @@
         "min_lr": 1e-06,
         "warmup_epochs": 5,
         "warmup_steps": -1,
-        "clip_grad": null
+        "clip_grad": null,
+        "layer_decay": 0.65,
+        "smoothing": 0.1,
+        "model_ema": false,
+        "model_ema_decay": 0.9999,
+        "model_ema_force_cpu": false
     },
     "trainer": {
         "py/object": "labram.configs.train_config.TrainerConfig",
@@ -42,7 +47,13 @@
         "epochs": 50,
         "start_epoch": 0,
         "gradient_accumulation_steps": 1,
-        "update_freq": 1
+        "update_freq": 1,
+        "disable_eval_during_finetuning": false,
+        "disable_weight_decay_on_rel_pos_bias": false,
+        "eval": false,
+        "enable_deepspeed": false,
+        "debug": false,
+        "debug_samples": 16
     },
     "data": {
         "py/object": "labram.configs.data_config.DataConfig",
@@ -57,7 +68,10 @@
         "val_time_window": [],
         "stride": 800,
         "start_percentage": 0.0,
-        "end_percentage": 1.0
+        "end_percentage": 1.0,
+        "robust_test": "",
+        "dataset": "TUAB",
+        "data_path": "./datasets/TUAB"
     },
     "clearml": {
         "py/object": "labram.configs.train_config.ClearMLConfig",
@@ -83,7 +97,42 @@
         "drop_path": 0.1,
         "use_mean_pooling": true,
         "init_scale": 0.001,
-        "nb_classes": 0
+        "nb_classes": 0,
+        "codebook_reg": {
+            "py/object": "labram.configs.model_config.CodebookRegConfig",
+            "enabled": false,
+            "tokenizer_model": "vqnsp_encoder_base_decoder_3x200x12",
+            "tokenizer_weight": "",
+            "feature_sources": [
+                "encoder_mean"
+            ],
+            "features_emb_dim": 128,
+            "linear_embedding": true,
+            "norm_embedding": true,
+            "classifier_type": "linear",
+            "encoder": {
+                "py/object": "labram.configs.model_config.ComponentTrainConfig",
+                "trainable": true,
+                "lr_scale": 0.1,
+                "n_last_trainable_layers": 2
+            },
+            "decoder": {
+                "py/object": "labram.configs.model_config.ComponentTrainConfig",
+                "trainable": false,
+                "lr_scale": 0.1,
+                "n_last_trainable_layers": null
+            },
+            "codebook": {
+                "py/object": "labram.configs.model_config.ComponentTrainConfig",
+                "trainable": false,
+                "lr_scale": 0.1,
+                "n_last_trainable_layers": null
+            },
+            "classifier_weight": 1.0,
+            "amplitude_weight": 1.0,
+            "phase_weight": 0.1,
+            "embedding_weight": 1.0
+        }
     },
     "finetune_checkpoint": {
         "py/object": "labram.configs.model_config.FinetuneCheckpointConfig",
@@ -92,53 +141,15 @@
         "model_prefix": "",
         "model_filter_name": "gzp"
     },
-    "layer_decay": 0.65,
-    "smoothing": 0.1,
-    "model_ema": false,
-    "model_ema_decay": 0.9999,
-    "model_ema_force_cpu": false,
-    "disable_eval_during_finetuning": false,
-    "disable_weight_decay_on_rel_pos_bias": false,
-    "eval": false,
-    "enable_deepspeed": false,
-    "dataset": "TUAB",
-    "data_path": "./datasets/TUAB",
-    "debug": false,
-    "debug_samples": 16,
-    "robust_test": "",
-    "codebook_reg": {
-        "py/object": "labram.configs.model_config.CodebookRegConfig",
-        "enabled": false,
-        "tokenizer_model": "vqnsp_encoder_base_decoder_3x200x12",
-        "tokenizer_weight": "",
-        "feature_sources": [
-            "encoder_mean"
-        ],
-        "features_emb_dim": 128,
-        "linear_embedding": true,
-        "norm_embedding": true,
-        "classifier_type": "linear",
-        "encoder": {
-            "py/object": "labram.configs.model_config.ComponentTrainConfig",
-            "trainable": true,
-            "lr_scale": 0.1,
-            "n_last_trainable_layers": null
-        },
-        "decoder": {
-            "py/object": "labram.configs.model_config.ComponentTrainConfig",
-            "trainable": false,
-            "lr_scale": 0.1,
-            "n_last_trainable_layers": null
-        },
-        "codebook": {
-            "py/object": "labram.configs.model_config.ComponentTrainConfig",
-            "trainable": false,
-            "lr_scale": 0.1,
-            "n_last_trainable_layers": null
-        },
-        "classifier_weight": 1.0,
+    "loss": {
+        "py/object": "labram.configs.loss_config.LossConfig",
         "amplitude_weight": 1.0,
         "phase_weight": 0.1,
-        "embedding_weight": 1.0
+        "embedding_weight": 1.0,
+        "use_smooth_l1": false,
+        "vq_commitment_beta": 1.0,
+        "freq_fraction": 1.0,
+        "classification_label_smoothing": 0.1,
+        "classifier_weight": 1.0
     }
 }

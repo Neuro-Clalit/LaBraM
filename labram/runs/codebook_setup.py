@@ -64,6 +64,9 @@ def apply_component_trainability(model: CodebookRegularizedClassifier, cr) -> No
             p.requires_grad_(False)
     elif cr.encoder.n_last_trainable_layers is not None:
         _freeze_encoder_except_last_n(model.encoder, cr.encoder.n_last_trainable_layers)
+    else:
+        for p in model.encoder.parameters():
+            p.requires_grad_(True)
 
     recon_modules = (model.decoder, model.encode_task_layer,
                      model.decode_task_layer_magnitude, model.decode_task_layer_phase)
@@ -79,7 +82,7 @@ def build_codebook_classifier(config: FinetuneRunConfig) -> CodebookRegularizedC
     apply trainability. The encoder's pre-trained weights are loaded separately
     (into ``model.encoder``) by the caller."""
     m = config.model
-    cr = config.codebook_reg
+    cr = m.codebook_reg
     validate_lr_scales(cr)
 
     encoder = create_model(

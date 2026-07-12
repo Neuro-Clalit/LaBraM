@@ -2,8 +2,8 @@ import os
 import shutil
 from pathlib import Path
 
-from labram.configs.file_system.cloud_filesystem import CloudPath
-from labram.configs.common.types import ensure_args_path, PathStr, PathList
+from labram.file_system.cloud_filesystem import CloudPath
+from labram.utils.types import ensure_args_path, PathStr, PathList
 
 
 class OsPath(CloudPath):

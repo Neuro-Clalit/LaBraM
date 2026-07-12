@@ -43,7 +43,7 @@ def parse_cli() -> argparse.Namespace:
 
 
 def get_model(config: FinetuneRunConfig):
-    if config.codebook_reg.enabled:
+    if config.model.codebook_reg.enabled:
         return build_codebook_classifier(config)
     m = config.model
     return create_model(
@@ -62,10 +62,11 @@ def main(config: FinetuneRunConfig):
     # setup_environment resolves to cuda/mps/cpu.
     device, num_tasks, global_rank = runner_common.setup_environment(config)
 
-    if config.enable_deepspeed:
+    if config.trainer.enable_deepspeed:
         utils.create_ds_config(config.output, config.trainer, config.optimizer)
 
-    if config.debug:
+<<<<<<< HEAD
+    if config.trainer.debug:
         logger.info("[DEBUG MODE] Overriding training schedule for fast iteration")
         config.trainer.epochs = max(1, min(config.trainer.epochs, 2))
         config.trainer.batch_size = min(config.trainer.batch_size, 4)
@@ -78,18 +79,18 @@ def main(config: FinetuneRunConfig):
 
     logger.info("%s", config)
 
-    bundle = get_dataset_bundle(config.dataset, config.data_path)
+    bundle = get_dataset_bundle(config.data.dataset, config.data.data_path)
     config.model.nb_classes = bundle.nb_classes
     dataset_train, dataset_val, dataset_test = bundle.train, bundle.val, bundle.test
     ch_names, metrics = bundle.ch_names, bundle.metrics
 
-    if config.debug:
-        n = config.debug_samples
+    if config.trainer.debug:
+        n = config.trainer.debug_samples
         dataset_train = subset_for_debug(dataset_train, n)
         dataset_val   = subset_for_debug(dataset_val, n)
         dataset_test  = subset_for_debug(dataset_test, n)
 
-    if config.disable_eval_during_finetuning:
+    if config.trainer.disable_eval_during_finetuning:
         dataset_val = dataset_test = None
 
     num_tasks, global_rank = utils.get_world_size(), utils.get_rank()
@@ -115,16 +116,16 @@ def main(config: FinetuneRunConfig):
 
     # Codebook-regularized: the pre-trained backbone loads into model.encoder
     # (decoder + quantizer come from the VQNSP checkpoint at build time).
-    if config.codebook_reg.enabled:
+    if config.model.codebook_reg.enabled:
         load_finetune_checkpoint(model.encoder, config.finetune_checkpoint)
     else:
         load_finetune_checkpoint(model, config.finetune_checkpoint)
     model.to(device)
 
     model_ema = None
-    if config.model_ema:
-        model_ema = ModelEma(model, decay=config.model_ema_decay,
-                             device='cpu' if config.model_ema_force_cpu else '', resume='')
+    if config.optimizer.model_ema:
+        model_ema = ModelEma(model, decay=config.optimizer.model_ema_decay,
+                             device='cpu' if config.optimizer.model_ema_force_cpu else '', resume='')
 
     model_without_ddp = model
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -136,20 +137,20 @@ def main(config: FinetuneRunConfig):
 
     num_layers = model_without_ddp.get_num_layers()
     assigner = None
-    if config.codebook_reg.enabled:
+    if config.model.codebook_reg.enabled:
         # Per-component LR scales (encoder/decoder slower than the head),
         # with optional layer-wise decay folded into the encoder group.
-        assigner = CodebookRegLayerAssigner(config.codebook_reg, num_layers, config.layer_decay)
-    elif config.layer_decay < 1.0:
+        assigner = CodebookRegLayerAssigner(config.model.codebook_reg, num_layers, config.optimizer.layer_decay)
+    elif config.optimizer.layer_decay < 1.0:
         assigner = LayerDecayValueAssigner(
-            [config.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)])
+            [config.optimizer.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)])
 
     skip_weight_decay_list = model.no_weight_decay()
-    if config.disable_weight_decay_on_rel_pos_bias:
+    if config.trainer.disable_weight_decay_on_rel_pos_bias:
         for i in range(num_layers):
             skip_weight_decay_list.add(f"blocks.{i}.attn.relative_position_bias_table")
 
-    if config.enable_deepspeed:
+    if config.trainer.enable_deepspeed:
         ds_init = utils.get_ds_init()
         loss_scaler = None
         optimizer_params = get_parameter_groups(
@@ -173,23 +174,23 @@ def main(config: FinetuneRunConfig):
         loss_scaler = NativeScaler()
 
     nb_classes = config.model.nb_classes
-    if config.codebook_reg.enabled:
-        loss_cfg = loss_config_from_codebook_reg(config.codebook_reg, config.smoothing)
+    if config.model.codebook_reg.enabled:
+        loss_cfg = loss_config_from_codebook_reg(config.model.codebook_reg, config.optimizer.smoothing)
         criterion = CodebookRegularizedCriterion(
             build_classification_criterion(nb_classes, loss_cfg), loss_cfg)
     else:
         criterion = build_classification_criterion(
-            nb_classes, LossConfig(classification_label_smoothing=config.smoothing))
+            nb_classes, LossConfig(classification_label_smoothing=config.optimizer.smoothing))
 
     utils.auto_load_model(
         output_cfg=config.output, trainer_cfg=config.trainer,
         model=model, model_without_ddp=model_without_ddp,
         optimizer=optimizer, loss_scaler=loss_scaler, model_ema=model_ema,
-        enable_deepspeed=config.enable_deepspeed,
-        model_ema_enabled=config.model_ema,
+        enable_deepspeed=config.trainer.enable_deepspeed,
+        model_ema_enabled=config.optimizer.model_ema,
     )
 
-    if config.eval:
+    if config.trainer.eval:
         accuracy, balanced_accuracy = [], []
         for data_loader in loaders.test:
             test_stats = evaluate(data_loader, model, device, header='Test:',
@@ -210,7 +211,7 @@ def main(config: FinetuneRunConfig):
         n_parameters=n_parameters,
         num_training_steps_per_epoch=num_training_steps_per_epoch,
         model_ema=model_ema,
-        enable_deepspeed=config.enable_deepspeed,
+        enable_deepspeed=config.trainer.enable_deepspeed,
     )
 
 

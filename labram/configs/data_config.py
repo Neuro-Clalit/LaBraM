@@ -20,6 +20,9 @@ class DataConfig(ConfigBase):
     ``build_pretraining_dataset`` expects: outer list groups files that
     share a channel montage.
     """
+    dataset: str = ""
+    data_path: str = ""
+    robust_test: str = ""
     num_workers: int = DEFAULT_NUM_WORKERS
     pin_mem: bool = DEFAULT_PIN_MEM
     datasets_train: List[List[str]] = field(default_factory=list)

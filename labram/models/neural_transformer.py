@@ -63,6 +63,7 @@ class NeuralTransformerBase(nn.Module):
         super().__init__()
         self.num_features = self.embed_dim = embed_dim
         self.patch_size = patch_size
+        self.in_chans = in_chans
         self.init_std = init_std
 
         # patch embedding: TemporalConv on raw EEG (in_chans=1), else PatchEmbed
@@ -164,13 +165,18 @@ class NeuralTransformerBase(nn.Module):
         128-row pos_embed table, which silently produced a shape mismatch
         unless the caller supplied 128 electrodes.
         """
-        input_time_window = a if t == self.patch_size else t
+        if self.in_chans == 1:
+            n_channels = n
+            input_time_window = a if t == self.patch_size else t
+        else:
+            n_channels = a
+            input_time_window = t
 
         if self.pos_embed is not None:
             if channel_indices is not None:
                 pos_embed_used = self.pos_embed[:, channel_indices]
             else:
-                pos_embed_used = self.pos_embed[:, : n + 1]
+                pos_embed_used = self.pos_embed[:, : n_channels + 1]
             pos_embed = (
                 pos_embed_used[:, 1:, :]
                 .unsqueeze(2)
@@ -184,7 +190,10 @@ class NeuralTransformerBase(nn.Module):
             x = x + pos_embed
 
         if self.time_embed is not None:
-            nc = n if t == self.patch_size else a
+            if self.in_chans == 1:
+                nc = n if t == self.patch_size else a
+            else:
+                nc = a
             time_embed = (
                 self.time_embed[:, 0:input_time_window, :]
                 .unsqueeze(1)

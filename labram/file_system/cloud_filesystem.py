@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from labram.configs.common.types import PathStr, PathList, ensure_args_str
+from labram.utils.types import PathStr, PathList, ensure_args_str
 
 
 class CloudPath(ABC):

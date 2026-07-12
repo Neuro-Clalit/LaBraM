@@ -6,9 +6,9 @@ from typing import Callable, Optional, Any
 import boto3
 import s3fs
 
-from labram.configs.file_system.os_filesystem import OsPath
-from labram.configs.file_system.cloud_filesystem import CloudPath
-from labram.configs.common.types import PathStr, PathList, ensure_args_path
+from labram.file_system.os_filesystem import OsPath
+from labram.file_system.cloud_filesystem import CloudPath
+from labram.utils.types import PathStr, PathList, ensure_args_path
 
 
 class S3Path(CloudPath):
