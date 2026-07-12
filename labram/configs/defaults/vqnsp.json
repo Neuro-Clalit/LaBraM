@@ -72,6 +72,7 @@
         "stride": 200,
         "start_percentage": 0.0,
         "end_percentage": 1.0,
+        "robust_test": "",
         "dataset": "",
         "data_path": ""
     },
@@ -82,7 +83,7 @@
         "ema_decay": 0.99,
         "quantize_kmeans_init": true,
         "codebook_size": 8192,
-        "quantizer_dim": 64
+        "quantizer_dim": 32
     },
     "loss": {
         "py/object": "labram.configs.loss_config.LossConfig",

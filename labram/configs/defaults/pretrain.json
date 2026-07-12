@@ -72,6 +72,7 @@
         "stride": 800,
         "start_percentage": 0.0,
         "end_percentage": 1.0,
+        "robust_test": "",
         "dataset": "",
         "data_path": ""
     },
@@ -88,7 +89,7 @@
             "tokenizer_model": "vqnsp_encoder_base_decoder_3x200x12",
             "tokenizer_weight": "./checkpoints/vqnsp.pth",
             "codebook_size": 8192,
-            "quantizer_dim": 64
+            "quantizer_dim": 32
         }
     },
     "loss": {

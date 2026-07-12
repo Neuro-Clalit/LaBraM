@@ -35,31 +35,37 @@ def create_synthetic_tuab(root, n_samples=32):
 def run_pipeline(base_dir, device="cpu", real_tuab_path=None, verbose=False):
     base_dir = Path(base_dir)
 
-    def print_command(phase, module, config):
+    def print_command(phase, module, config, default_json):
         if not verbose:
             return
         
-        cmd = [f"python -m {module}"]
+        cmd = [f"python -m {module} --config {default_json}"]
         
-        def _flatten(obj, prefix=""):
+        # Get defaults to compare
+        default_config = config.__class__.load_config(default_json)
+        
+        def _get_overrides(obj, default_obj, prefix=""):
+            overrides = []
             for k, v in obj.__dict__.items():
                 full_key = f"{prefix}.{k}" if prefix else k
+                default_v = getattr(default_obj, k)
+                
                 if isinstance(v, ConfigBase):
-                    _flatten(v, full_key)
+                    overrides.extend(_get_overrides(v, default_v, full_key))
                 else:
-                    if v is not None:
-                        # Simple representation of the value
+                    if v != default_v:
                         if isinstance(v, list):
                             if len(v) > 0 and isinstance(v[0], list):
-                                # Handle list of lists (datasets_train)
                                 val_str = ",".join([",".join(map(str, inner)) for inner in v])
                             else:
                                 val_str = ",".join(map(str, v))
                         else:
                             val_str = str(v)
-                        cmd.append(f"    --set {full_key}={val_str}")
+                        overrides.append(f"    --set {full_key}={val_str}")
+            return overrides
         
-        _flatten(config)
+        overrides = _get_overrides(config, default_config)
+        cmd.extend(overrides)
         
         print(f"\n[VERBOSE] {phase} command equivalent:")
         print(" \\\n".join(cmd))
@@ -85,7 +91,8 @@ def run_pipeline(base_dir, device="cpu", real_tuab_path=None, verbose=False):
     
     # 2. Run VQNSP
     print("\n>>> Running VQNSP stage")
-    vqnsp_config = run_vqnsp.VQNSPRunConfig()
+    vqnsp_default = "labram/configs/defaults/vqnsp.json"
+    vqnsp_config = run_vqnsp.VQNSPRunConfig.load_config(vqnsp_default)
     vqnsp_config.update(**{
         "data.datasets_train": [[str(pretrain_h5)]],
         "data.datasets_val": [[str(pretrain_h5)]],
@@ -100,14 +107,15 @@ def run_pipeline(base_dir, device="cpu", real_tuab_path=None, verbose=False):
         "output.output_dir": str(vqnsp_out),
         "model.model": "vqnsp_encoder_base_decoder_3x200x12",
     })
-    print_command("VQNSP", "labram.runs.run_vqnsp", vqnsp_config)
+    print_command("VQNSP", "labram.runs.run_vqnsp", vqnsp_config, vqnsp_default)
     run_vqnsp.main(vqnsp_config)
     
     vqnsp_checkpoint = vqnsp_out / "checkpoint-1.pth"
     
     # 3. Run Pre-training
     print("\n>>> Running Pre-training stage")
-    pretrain_config = run_pretrain.PretrainRunConfig()
+    pretrain_default = "labram/configs/defaults/pretrain.json"
+    pretrain_config = run_pretrain.PretrainRunConfig.load_config(pretrain_default)
     pretrain_config.update(**{
         "data.datasets_train": [[str(pretrain_h5)]],
         "data.time_window": [1],
@@ -121,14 +129,15 @@ def run_pipeline(base_dir, device="cpu", real_tuab_path=None, verbose=False):
         "model.model": "labram_base_patch200_1600_8k_vocab",
         "model.tokenizer.tokenizer_weight": str(vqnsp_checkpoint),
     })
-    print_command("Pre-training", "labram.runs.run_pretrain", pretrain_config)
+    print_command("Pre-training", "labram.runs.run_pretrain", pretrain_config, pretrain_default)
     run_pretrain.main(pretrain_config)
     
     pretrain_checkpoint = pretrain_out / "checkpoint-1.pth"
     
     # 4. Run Fine-tuning
     print("\n>>> Running Fine-tuning stage")
-    finetune_config = run_finetune.FinetuneRunConfig()
+    finetune_default = "labram/configs/defaults/finetune_tuab.json"
+    finetune_config = run_finetune.FinetuneRunConfig.load_config(finetune_default)
     finetune_config.update(**{
         "data.dataset": "TUAB",
         "data.data_path": str(tuab_root),
@@ -141,7 +150,7 @@ def run_pipeline(base_dir, device="cpu", real_tuab_path=None, verbose=False):
         "model.model": "labram_base_patch200_200",
         "finetune_checkpoint.finetune": str(pretrain_checkpoint),
     })
-    print_command("Fine-tuning", "labram.runs.run_finetune", finetune_config)
+    print_command("Fine-tuning", "labram.runs.run_finetune", finetune_config, finetune_default)
     run_finetune.main(finetune_config)
     
     print(f"\n>>> E2E Pipeline finished. Results in {base_dir}")

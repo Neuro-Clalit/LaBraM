@@ -5,7 +5,6 @@ type validation, update() with dotted keys, defaults, as_dict(), and __str__.
 """
 
 import os
-import tempfile
 import warnings
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -13,7 +12,7 @@ from typing import List, Optional
 import pytest
 
 from labram.configs.base_configs import ConfigBase
-from labram.configs.common.types import correct_type
+from labram.utils.types import correct_type
 
 
 # ----------------------------- fixture configs -----------------------------
