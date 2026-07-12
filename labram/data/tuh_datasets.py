@@ -3,6 +3,7 @@
 # TUH-EEG (TUAB / TUEV) torch.utils.data.Dataset wrappers and split assembly.
 # ---------------------------------------------------------
 
+import logging
 import os
 import pickle
 from typing import Callable
@@ -11,6 +12,8 @@ import numpy as np
 import torch
 import torch.utils.data
 from scipy.signal import resample
+
+logger = logging.getLogger(__name__)
 
 
 class TUHLoader(torch.utils.data.Dataset):
@@ -48,13 +51,33 @@ class TUHLoader(torch.utils.data.Dataset):
     def __len__(self) -> int:
         return len(self.files)
 
-    def __getitem__(self, index):
-        sample = pickle.load(open(os.path.join(self.root, self.files[index]), "rb"))
+    def _load(self, index):
+        path = os.path.join(self.root, self.files[index])
+        with open(path, "rb") as fh:
+            sample = pickle.load(fh)
         X = sample[self._signal_key]
         if self.sampling_rate != self.default_rate:
             X = resample(X, self._duration_sec * self.sampling_rate, axis=-1)
         Y = self._label_fn(sample)
         return torch.FloatTensor(X), Y
+
+    def __getitem__(self, index):
+        # A corrupt/truncated pickle (e.g. written during an interrupted or
+        # out-of-space preprocessing run) must not abort training: skip to the
+        # next readable sample, wrapping around, and only fail if none load.
+        n = len(self.files)
+        for offset in range(n):
+            i = (index + offset) % n
+            try:
+                return self._load(i)
+            except (pickle.UnpicklingError, EOFError, OSError, ValueError, KeyError) as exc:
+                if offset == 0:
+                    logger.warning(
+                        "Skipping unreadable sample %s: %s: %s",
+                        self.files[i], type(exc).__name__, exc)
+                continue
+        raise RuntimeError(
+            f"No readable samples in {self.root}: all {n} files failed to load")
 
 
 class TUABLoader(TUHLoader):
