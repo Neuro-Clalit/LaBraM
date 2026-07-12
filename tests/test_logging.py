@@ -2,7 +2,9 @@
 MultiWriter fan-out. All are exercised without the optional ``clearml`` package
 installed, so they double as a check that the integration degrades gracefully.
 """
+import importlib.util
 import logging
+import types
 
 import pytest
 import torch
@@ -14,6 +16,11 @@ from labram.utils.logging import (
     configure_logging,
     get_logger,
 )
+
+# ClearML is an optional dependency; the debug-routing tests below are skipped
+# when it (its config) is not available, mirroring how the runtime degrades to
+# TensorBoard-only logging.
+clearml_available = importlib.util.find_spec("clearml") is not None
 
 
 class TestGetLogger:
@@ -213,4 +220,83 @@ class TestMultiWriter:
         mw.flush()
         # ClearML received the scalar; TensorBoard wrote its event file.
         assert fake.scalars[0] == ("loss", "loss", 0.25, 0)
+
+
+class _FakeTask:
+    """Stand-in for ``clearml.Task`` that records init kwargs and tags instead
+    of contacting a ClearML server, so the debug-routing logic can be tested
+    without credentials."""
+
+    last = None
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.tags = []
+
+    @classmethod
+    def init(cls, **kwargs):
+        inst = cls(**kwargs)
+        _FakeTask.last = inst
+        return inst
+
+    @staticmethod
+    def set_offline(offline_mode=False):
+        pass
+
+    def add_tags(self, tags):
+        self.tags.extend(tags)
+
+    def connect_configuration(self, *args, **kwargs):  # pragma: no cover - unused here
+        pass
+
+
+@pytest.mark.skipif(
+    not clearml_available,
+    reason="clearml is not installed/configured; ClearML tests skipped",
+)
+class TestInitClearMLTaskDebug:
+    """``init_clearml_task`` routes debug runs to a '<project>/debug' subfolder
+    and tags them 'debug'. The ClearML server is mocked via ``_FakeTask``."""
+
+    def _cfg(self, **overrides):
+        from labram.configs.train_config import ClearMLConfig
+        params = dict(enabled=True, project_name="eeg", output_uri="s3://clearml-eeg")
+        params.update(overrides)
+        return ClearMLConfig(**params)
+
+    def test_debug_run_is_tagged_and_routed_to_debug_subfolder(self, monkeypatch):
+        import clearml
+        from labram.runs import common
+        monkeypatch.setattr(clearml, "Task", _FakeTask, raising=False)
+
+        task = common.init_clearml_task(
+            self._cfg(), types.SimpleNamespace(debug=True), global_rank=0)
+
+        assert task is _FakeTask.last
+        assert task.kwargs["project_name"] == "eeg"
+        assert task.kwargs["output_uri"] == "s3://clearml-eeg/eeg/debug"
+        assert "debug" in task.tags
+
+    def test_non_debug_run_keeps_base_uri_and_no_debug_tag(self, monkeypatch):
+        import clearml
+        from labram.runs import common
+        monkeypatch.setattr(clearml, "Task", _FakeTask, raising=False)
+
+        task = common.init_clearml_task(
+            self._cfg(), types.SimpleNamespace(debug=False), global_rank=0)
+
+        assert task.kwargs["output_uri"] == "s3://clearml-eeg"
+        assert "debug" not in task.tags
+
+    def test_disabled_returns_none(self):
+        from labram.runs import common
+        task = common.init_clearml_task(
+            self._cfg(enabled=False), types.SimpleNamespace(debug=True), global_rank=0)
+        assert task is None
+
+    def test_off_rank_returns_none(self):
+        from labram.runs import common
+        task = common.init_clearml_task(
+            self._cfg(), types.SimpleNamespace(debug=True), global_rank=1)
+        assert task is None
         assert any((tmp_path / "tb").iterdir())
