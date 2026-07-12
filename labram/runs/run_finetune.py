@@ -65,7 +65,6 @@ def main(config: FinetuneRunConfig):
     if config.trainer.enable_deepspeed:
         utils.create_ds_config(config.output, config.trainer, config.optimizer)
 
-<<<<<<< HEAD
     if config.trainer.debug:
         logger.info("[DEBUG MODE] Overriding training schedule for fast iteration")
         config.trainer.epochs = max(1, min(config.trainer.epochs, 2))
