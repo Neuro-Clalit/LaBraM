@@ -47,13 +47,22 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.finetune
 
 ### Installation
 
+The code requires **torch>=2.3** (it uses the `torch.amp.GradScaler` /
+`torch.amp.autocast` string-device API). Install the CUDA build of PyTorch that
+matches your machine from the PyTorch index, then the remaining requirements:
+
 ```bash
 conda create -n labram python=3.11
 conda activate labram
-conda install pytorch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 pytorch-cuda=11.8 -c pytorch -c nvidia
-conda install tensorboardX
+# GPU (CUDA 11.8) — validated combination:
+pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 \
+  --index-url https://download.pytorch.org/whl/cu118
 pip install -r requirements.txt
 ```
+
+DeepSpeed (`--enable_deepspeed`) is optional and not installed by
+`requirements.txt`; the old `deepspeed==0.4.0` pin is incompatible with
+torch>=2.3. Install a compatible DeepSpeed manually only if you need it.
 
 ## Architecture
 
