@@ -4,6 +4,7 @@ import torch
 import torch.utils.data
 
 import labram.runs.common as runner_common
+import labram.utils
 from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import ClearMLConfig, DistributedConfig, OutputConfig, TrainerConfig
 
@@ -171,13 +172,14 @@ class TestAppendLogLine:
 
 
 class TestPrintTrainingTime:
-    def test_no_exception_and_logs_hhmmss(self, caplog):
+    def test_no_exception_and_logs_hhmmss(self, capsys):
         import logging
         import time
-        with caplog.at_level(logging.INFO, logger="labram"):
-            runner_common.print_training_time(time.time() - 65)
-        assert "Training time " in caplog.text
-        assert ":01:" in caplog.text
+        labram.utils.configure_logging(level=logging.INFO)
+        runner_common.print_training_time(time.time() - 65)
+        captured = capsys.readouterr()
+        assert "Training time " in captured.out
+        assert ":01:" in captured.out
 
 
 class TestWrapDistributed:
