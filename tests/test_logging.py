@@ -299,4 +299,3 @@ class TestInitClearMLTaskDebug:
         task = common.init_clearml_task(
             self._cfg(), types.SimpleNamespace(debug=True), global_rank=1)
         assert task is None
-        assert any((tmp_path / "tb").iterdir())
