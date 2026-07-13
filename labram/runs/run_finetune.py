@@ -27,7 +27,10 @@ from labram.runs.finetune_setup import (
     build_dataloaders, build_samplers, enable_window_ids, load_finetune_checkpoint,
     subset_for_debug,
 )
-from labram.optim_factory import LayerDecayValueAssigner, create_optimizer, get_parameter_groups
+from labram.optim_factory import (
+    LayerDecayValueAssigner, create_optimizer, get_parameter_groups,
+    log_trainable_parameters,
+)
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
 
 logger = utils.get_logger(__name__)
@@ -134,6 +137,12 @@ def main(config: FinetuneRunConfig):
     model_without_ddp = model
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Model params: {n_parameters}")
+
+    # Log the model architecture and which layers are frozen (and thus excluded
+    # from the optimizer) — e.g. when codebook_reg.encoder.n_last_trainable_layers
+    # keeps only the last N encoder blocks trainable.
+    logger.info("Model structure:\n%s", str(model_without_ddp))
+    log_trainable_parameters(model_without_ddp, logger)
 
     total_batch_size = config.trainer.batch_size * config.trainer.update_freq * utils.get_world_size()
     num_training_steps_per_epoch = len(dataset_train) // total_batch_size

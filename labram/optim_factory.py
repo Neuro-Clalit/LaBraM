@@ -56,6 +56,63 @@ class LayerDecayValueAssigner(object):
         return get_num_layer_for_vit(var_name, len(self.values))
 
 
+def summarize_trainable_parameters(model):
+    """Split ``model``'s parameters into trainable vs frozen.
+
+    Returns a dict with ``trainable_layers`` / ``frozen_layers`` (unique
+    layer names — the parameter path minus the ``.weight``/``.bias`` leaf, so a
+    layer isn't listed twice) and ``n_trainable`` / ``n_frozen`` parameter
+    counts. Frozen layers are exactly those excluded from the optimizer by
+    :func:`get_parameter_groups`.
+    """
+    trainable_layers, frozen_layers = [], []
+    seen_train, seen_frozen = set(), set()
+    n_trainable = n_frozen = 0
+    for name, param in model.named_parameters():
+        layer = name.rsplit('.', 1)[0] if '.' in name else name
+        if param.requires_grad:
+            n_trainable += param.numel()
+            if layer not in seen_train:
+                seen_train.add(layer)
+                trainable_layers.append(layer)
+        else:
+            n_frozen += param.numel()
+            if layer not in seen_frozen:
+                seen_frozen.add(layer)
+                frozen_layers.append(layer)
+    return {
+        'trainable_layers': trainable_layers,
+        'frozen_layers': frozen_layers,
+        'n_trainable': n_trainable,
+        'n_frozen': n_frozen,
+    }
+
+
+def log_trainable_parameters(model, logger=None):
+    """Log the trainable/frozen split and the names of the frozen (non-trainable)
+    layers — i.e. exactly the layers that are dropped from the optimizer.
+
+    ``n_last_trainable_layers`` (and ``trainable=False``) freeze parameters by
+    setting ``requires_grad=False``; :func:`get_parameter_groups` then omits
+    them from the optimizer. This makes that outcome visible in the run log.
+    """
+    import labram.utils as _utils
+    logger = logger or _utils.get_logger(__name__)
+    s = summarize_trainable_parameters(model)
+    total = s['n_trainable'] + s['n_frozen']
+    pct = 100.0 * s['n_trainable'] / total if total else 0.0
+    logger.info(
+        "Trainable parameters: %d / %d (%.1f%%); frozen: %d params across %d layers",
+        s['n_trainable'], total, pct, s['n_frozen'], len(s['frozen_layers']))
+    if s['frozen_layers']:
+        logger.info("Non-trainable (frozen, excluded from optimizer) layers:")
+        for layer in s['frozen_layers']:
+            logger.info("  [frozen] %s", layer)
+    else:
+        logger.info("All layers are trainable (no parameters frozen).")
+    return s
+
+
 def get_parameter_groups(model, weight_decay=1e-5, skip_list=(), get_num_layer=None, get_layer_scale=None, **kwargs):
     parameter_group_names = {}
     parameter_group_vars = {}

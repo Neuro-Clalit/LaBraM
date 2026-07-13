@@ -129,3 +129,37 @@ framework auto-capture.
 
 The best checkpoint (`checkpoint-best.pth`) is preferred, then `checkpoint.pth`,
 then the highest-epoch checkpoint in `output_dir`.
+
+## Layer freezing & trainability logging
+
+Codebook-regularized fine-tuning can freeze part of the encoder via
+`codebook_reg.encoder`:
+
+- `codebook_reg.encoder.trainable=false` freezes the whole encoder.
+- `codebook_reg.encoder.n_last_trainable_layers=N` keeps only the last `N`
+  transformer blocks (plus the final `norm`/`fc_norm`) trainable and freezes the
+  earlier blocks and the patch embedding / positional embeddings.
+
+Freezing sets `requires_grad=False`, and `get_parameter_groups` skips any
+parameter with `requires_grad=False` — so **frozen layers are excluded from the
+optimizer's parameter groups** (they are neither stepped nor given an LR/WD).
+This is applied at model-build time, before the optimizer is created, and is
+verified by tests in `tests/test_codebook_classifier.py`
+(`TestOptimizerExcludesFrozen`).
+
+At startup each runner now logs, on rank 0:
+
+- the full **model structure** (`str(model)`), and
+- a **trainable/frozen summary** plus the list of non-trainable (frozen) layers,
+  via `optim_factory.log_trainable_parameters`, e.g.:
+
+  ```
+  Trainable parameters: 486482 / 1716410 (28.3%); frozen: 1229928 params across 33 layers
+  Non-trainable (frozen, excluded from optimizer) layers:
+    [frozen] encoder.blocks.0.attn.qkv
+    [frozen] encoder.blocks.0.mlp.fc1
+    ...
+  ```
+
+This makes it easy to confirm that `n_last_trainable_layers` froze exactly the
+layers you expect and that they were dropped from the optimizer.

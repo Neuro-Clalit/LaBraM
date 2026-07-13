@@ -36,7 +36,13 @@ from labram.runs.codebook_setup import (
     loss_config_from_codebook_reg,
     validate_lr_scales,
 )
-from labram.optim_factory import optimizer_update
+from labram.optim_factory import (
+    create_optimizer,
+    get_parameter_groups,
+    log_trainable_parameters,
+    optimizer_update,
+    summarize_trainable_parameters,
+)
 from labram.train.train_finetune import train_one_epoch
 from labram.utils import NativeScalerWithGradNormCount
 
@@ -289,3 +295,99 @@ class TestTrainOneEpoch:
         assert math.isfinite(stats['loss'])
         for key in ('classifier_loss', 'magnitude_loss', 'phase_loss', 'quantize_loss'):
             assert key in stats, f"missing {key} in {sorted(stats)}"
+
+
+# ---------------------------------------------------------------------------
+# Frozen layers are excluded from the optimizer (n_last_trainable_layers)
+# ---------------------------------------------------------------------------
+
+class TestOptimizerExcludesFrozen:
+    def _opt_param_ids(self, model, cr):
+        assigner = CodebookRegLayerAssigner(cr, model.get_num_layers(), layer_decay=1.0)
+        groups = get_parameter_groups(
+            model, weight_decay=0.05, skip_list=model.no_weight_decay(),
+            get_num_layer=assigner.get_layer_id, get_layer_scale=assigner.get_scale)
+        return {id(p) for g in groups for p in g['params']}, groups
+
+    def test_last_n_frozen_params_not_in_optimizer(self):
+        model = _tiny_classifier(num_classes=2)
+        cr = CodebookRegConfig(enabled=True,
+                               encoder=ComponentTrainConfig(trainable=True, lr_scale=0.1,
+                                                            n_last_trainable_layers=1))
+        apply_component_trainability(model, cr)
+        opt_ids, groups = self._opt_param_ids(model, cr)
+
+        frozen_ids = {id(p) for _, p in model.named_parameters() if not p.requires_grad}
+        trainable_ids = {id(p) for _, p in model.named_parameters() if p.requires_grad}
+        assert opt_ids.isdisjoint(frozen_ids)          # no frozen param optimized
+        assert opt_ids == trainable_ids                # exactly the trainable ones
+        # block 0 frozen -> absent; block 1 trainable -> present
+        b0 = [id(p) for n, p in model.named_parameters() if n.startswith('encoder.blocks.0.')]
+        b1 = [id(p) for n, p in model.named_parameters() if n.startswith('encoder.blocks.1.')]
+        assert all(i not in opt_ids for i in b0)
+        assert all(i in opt_ids for i in b1)
+
+    def test_create_optimizer_only_steps_trainable(self):
+        model = _tiny_classifier(num_classes=2)
+        cr = CodebookRegConfig(enabled=True,
+                               encoder=ComponentTrainConfig(trainable=True, lr_scale=0.1,
+                                                            n_last_trainable_layers=1))
+        apply_component_trainability(model, cr)
+        assigner = CodebookRegLayerAssigner(cr, model.get_num_layers(), layer_decay=1.0)
+        opt = create_optimizer(
+            OptimizerConfig(lr=1e-3, weight_decay=0.05), model,
+            skip_list=model.no_weight_decay(),
+            get_num_layer=assigner.get_layer_id, get_layer_scale=assigner.get_scale)
+        n_in_opt = sum(len(g['params']) for g in opt.param_groups)
+        n_trainable = sum(1 for p in model.parameters() if p.requires_grad)
+        assert n_in_opt == n_trainable
+        # A frozen block-0 weight must not be present in any optimizer group.
+        frozen = next(p for n, p in model.named_parameters()
+                      if n.startswith('encoder.blocks.0.') and not p.requires_grad)
+        assert all(frozen is not p for g in opt.param_groups for p in g['params'])
+
+    def test_fully_frozen_encoder_excluded(self):
+        model = _tiny_classifier(num_classes=2)
+        cr = CodebookRegConfig(enabled=True,
+                               encoder=ComponentTrainConfig(trainable=False, lr_scale=0.1))
+        apply_component_trainability(model, cr)
+        opt_ids, _ = self._opt_param_ids(model, cr)
+        enc_ids = {id(p) for n, p in model.named_parameters() if n.startswith('encoder.')}
+        assert opt_ids.isdisjoint(enc_ids)  # no encoder param is optimized
+
+
+# ---------------------------------------------------------------------------
+# Trainable/frozen logging
+# ---------------------------------------------------------------------------
+
+class TestTrainableLogging:
+    def test_summarize_reports_frozen_layers(self):
+        model = _tiny_classifier(num_classes=2)
+        cr = CodebookRegConfig(enabled=True,
+                               encoder=ComponentTrainConfig(trainable=True, lr_scale=0.1,
+                                                            n_last_trainable_layers=1))
+        apply_component_trainability(model, cr)
+        s = summarize_trainable_parameters(model)
+        # block 0 layers frozen, block 1 layers trainable
+        assert any(l.startswith('encoder.blocks.0') for l in s['frozen_layers'])
+        assert all(not l.startswith('encoder.blocks.1') for l in s['frozen_layers'])
+        assert any(l.startswith('encoder.blocks.1') for l in s['trainable_layers'])
+        assert s['n_trainable'] > 0 and s['n_frozen'] > 0
+        # counts are consistent with the model total
+        total = sum(p.numel() for p in model.parameters())
+        assert s['n_trainable'] + s['n_frozen'] == total
+
+    def test_log_lists_frozen_layers(self, caplog):
+        import logging
+        from labram.utils.logging import LOGGER_NAME
+        model = _tiny_classifier(num_classes=2)
+        cr = CodebookRegConfig(enabled=True,
+                               encoder=ComponentTrainConfig(trainable=True, lr_scale=0.1,
+                                                            n_last_trainable_layers=1))
+        apply_component_trainability(model, cr)
+        with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+            log_trainable_parameters(model)
+        text = caplog.text
+        assert "Trainable parameters:" in text
+        assert "[frozen]" in text
+        assert "encoder.blocks.0" in text
