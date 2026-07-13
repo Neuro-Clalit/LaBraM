@@ -39,6 +39,9 @@ class TUHLoader(torch.utils.data.Dataset):
         signal_key: str,
         duration_sec: int,
         label_fn: Callable,
+        recording_sep: str = "_",
+        return_id: bool = False,
+        group_by: str = "recording",
     ):
         self.root = root
         self.files = files
@@ -47,9 +50,27 @@ class TUHLoader(torch.utils.data.Dataset):
         self._signal_key = signal_key
         self._duration_sec = duration_sec
         self._label_fn = label_fn
+        # Windows from one recording share a filename prefix; the trailing
+        # ``<recording_sep><window_index>`` distinguishes windows. ``return_id``
+        # makes __getitem__ yield a per-window case id (recording or subject) so
+        # inference can aggregate window predictions per case.
+        self._recording_sep = recording_sep
+        self.return_id = return_id
+        self.group_by = group_by
 
     def __len__(self) -> int:
         return len(self.files)
+
+    def group_id(self, filename: str) -> str:
+        """Case id for a window file: the recording (default) or subject.
+
+        A recording strips the trailing window index (``..._<i>`` for TUAB,
+        ``...-<i>`` for TUEV); a subject is the leading underscore-token.
+        """
+        base = filename[:-4] if filename.endswith(".pkl") else filename
+        if self.group_by == "subject":
+            return base.split("_")[0]
+        return base.rsplit(self._recording_sep, 1)[0]
 
     def _load(self, index):
         path = os.path.join(self.root, self.files[index])
@@ -59,6 +80,8 @@ class TUHLoader(torch.utils.data.Dataset):
         if self.sampling_rate != self.default_rate:
             X = resample(X, self._duration_sec * self.sampling_rate, axis=-1)
         Y = self._label_fn(sample)
+        if self.return_id:
+            return torch.FloatTensor(X), Y, self.group_id(self.files[index])
         return torch.FloatTensor(X), Y
 
     def __getitem__(self, index):
@@ -101,6 +124,7 @@ class TUEVLoader(TUHLoader):
             signal_key="signal",
             duration_sec=5,
             label_fn=lambda s: int(s["label"][0] - 1),
+            recording_sep="-",
         )
 
 

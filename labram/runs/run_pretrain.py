@@ -15,7 +15,7 @@ import labram.utils as utils
 from labram.configs.run_configs import PretrainRunConfig
 from labram.configs.utils_conf import parse_overrides
 from labram.train.train_pretrain import train_loop
-from labram.optim_factory import create_optimizer
+from labram.optim_factory import create_optimizer, log_trainable_parameters
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
 
 logger = utils.get_logger(__name__)
@@ -97,6 +97,7 @@ def main(config: PretrainRunConfig):
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info("Model = %s", str(model_without_ddp))
     logger.info('number of params: %s', n_parameters)
+    log_trainable_parameters(model_without_ddp, logger)
     logger.info("Tokenizer = %s", str(vqnsp))
 
     total_batch_size = config.trainer.batch_size * num_tasks * config.trainer.gradient_accumulation_steps
@@ -124,6 +125,8 @@ def main(config: PretrainRunConfig):
         n_parameters=n_parameters,
         num_training_steps_per_epoch=num_training_steps_per_epoch,
     )
+
+    runner_common.finalize_run(config, log_writer)
 
 
 def build_config(cli: argparse.Namespace) -> PretrainRunConfig:

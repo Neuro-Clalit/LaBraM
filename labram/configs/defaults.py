@@ -146,6 +146,33 @@ DEFAULT_VQNSP_DIST_EVAL: bool = True
 
 # ---------- LR/WD scheduler (utils/training.cosine_scheduler) ----------
 DEFAULT_COSINE_START_WARMUP_VALUE: float = 0.0
+# Learning-rate schedule selector (labram/utils/training.build_lr_schedule).
+# 'cosine' reproduces the historical behaviour; 'step'/'multistep'/'linear'/
+# 'constant' are the alternatives, all sharing the same linear warmup prefix.
+DEFAULT_LR_SCHED: str = 'cosine'
+DEFAULT_LR_DECAY_EPOCHS: int = 30      # 'step': decay LR by decay_rate every N epochs
+DEFAULT_LR_DECAY_RATE: float = 0.1     # multiplicative decay for 'step'/'multistep'
+
+# ---------- Evaluation / detailed metrics / window aggregation ----------
+# Detailed classification metrics (confusion matrix, ROC/PR curves, F1,
+# sensitivity/specificity) reported for train/val/test; window aggregation for
+# inference. See labram/utils/eval_metrics.py and labram/train/train_finetune.py.
+DEFAULT_EVAL_DETAILED_METRICS: bool = True
+DEFAULT_EVAL_LOG_CONFUSION_MATRIX: bool = True
+DEFAULT_EVAL_LOG_CURVES: bool = True
+DEFAULT_EVAL_LOG_GRAD_COMPONENTS: bool = False  # per-loss-component grad norms (extra backward)
+DEFAULT_EVAL_LOG_GRAD_FREQ: int = 50            # steps between grad-component logging
+DEFAULT_EVAL_AGG_WINDOWS: str = 'none'          # none|mean|vote|max
+DEFAULT_EVAL_AGG_CASE_BY: str = 'recording'     # recording|subject
+
+# ---------- Post-training shutdown (labram/utils/shutdown.py) ----------
+DEFAULT_STOP_INSTANCE_ON_FINISH: bool = False
+DEFAULT_STOP_DELAY_MINUTES: int = 5
+DEFAULT_STOP_METHOD: str = 'ec2'                # ec2|os
+
+# ---------- ClearML model artifact upload ----------
+DEFAULT_CLEARML_UPLOAD_MODEL_ARTIFACT: bool = True
+DEFAULT_CLEARML_ARTIFACT_NAME: str = ''         # '' -> derived from the run/task name
 
 # ---------- Transformer architecture (NeuralTransformerBase) ----------
 # Defaults match the "base" variant used in almost all production factories.

@@ -16,7 +16,7 @@ from labram.configs.run_configs import VQNSPRunConfig
 from labram.configs.utils_conf import parse_overrides
 from labram.configs.defaults import DEFAULT_EVAL_BATCH_SCALE
 from labram.train.train_vqnsp import calculate_codebook_usage, evaluate, train_loop
-from labram.optim_factory import create_optimizer
+from labram.optim_factory import create_optimizer, log_trainable_parameters
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
 
 logger = utils.get_logger(__name__)
@@ -108,6 +108,8 @@ def main(config: VQNSPRunConfig):
     model.to(device)
     model_without_ddp = model
     n_learnable_parameters = _log_model_param_counts(model)
+    logger.info("Model structure:\n%s", str(model_without_ddp))
+    log_trainable_parameters(model_without_ddp, logger)
 
     total_batch_size = config.trainer.batch_size * num_tasks
     scaled_lr = total_batch_size / 128 * config.optimizer.lr
@@ -147,6 +149,8 @@ def main(config: VQNSPRunConfig):
         n_learnable_parameters=n_learnable_parameters,
         num_training_steps_per_epoch=num_training_steps_per_epoch,
     )
+
+    runner_common.finalize_run(config, log_writer)
 
 
 def build_config(cli: argparse.Namespace) -> VQNSPRunConfig:

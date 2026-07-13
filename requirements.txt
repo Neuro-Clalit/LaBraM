@@ -17,6 +17,15 @@ pyhealth==1.1.4
 h5py
 mne==1.4.2
 
+# Detailed evaluation metrics (labram/utils/eval_metrics.py: confusion matrix,
+# ROC/PR, F1, sensitivity/specificity). scikit-learn is also a pyhealth
+# dependency; pinned here because it is now imported directly.
+scikit-learn
+# ROC/PR curve figures for TensorBoard/ClearML (labram/utils/plots.py). Optional:
+# curve logging degrades gracefully (scalar metrics still logged) if it is
+# missing, but installing it enables the plotted curves.
+matplotlib
+
 # Logging: labram.utils.logging imports torch.utils.tensorboard, which requires
 # the `tensorboard` package to be installed.
 tensorboard

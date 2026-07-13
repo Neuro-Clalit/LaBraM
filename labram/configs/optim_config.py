@@ -18,6 +18,12 @@ class OptimizerConfig(ConfigBase):
     min_lr: float = conf_consts.DEFAULT_MIN_LR
     warmup_epochs: int = conf_consts.DEFAULT_WARMUP_EPOCHS
     warmup_steps: int = conf_consts.DEFAULT_WARMUP_STEPS
+    # Learning-rate schedule shape after warmup: 'cosine' (default, historical
+    # behaviour), 'step', 'multistep', 'linear', or 'constant'.
+    sched: str = conf_consts.DEFAULT_LR_SCHED
+    decay_epochs: int = conf_consts.DEFAULT_LR_DECAY_EPOCHS
+    decay_rate: float = conf_consts.DEFAULT_LR_DECAY_RATE
+    decay_milestones: Optional[List[int]] = None  # epochs for 'multistep'
     clip_grad: Optional[float] = None
     layer_decay: float = conf_consts.DEFAULT_FINETUNE_LAYER_DECAY
     smoothing: float = conf_consts.DEFAULT_FINETUNE_LABEL_SMOOTHING

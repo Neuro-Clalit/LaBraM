@@ -63,7 +63,10 @@ def train_one_epoch(
 
     loss_fn = nn.CrossEntropyLoss()
     grad_accum = trainer_cfg.gradient_accumulation_steps
-    clip_grad  = optim_cfg.clip_grad or 0
+    # None => no clipping (the scaler still measures the grad norm). NOTE the
+    # previous `clip_grad or 0` passed 0 to clip_grad_norm_ when unset, which
+    # clips the grad norm to zero — i.e. zeroes all gradients every step.
+    clip_grad = optim_cfg.clip_grad
 
     step_loader = 0
     for data_loader, ch_names in zip(data_loader_list, ch_names_list):

@@ -24,10 +24,13 @@ from labram.runs.codebook_setup import (
     CodebookRegLayerAssigner, build_codebook_classifier, loss_config_from_codebook_reg,
 )
 from labram.runs.finetune_setup import (
-    build_dataloaders, build_samplers, load_finetune_checkpoint,
+    build_dataloaders, build_samplers, enable_window_ids, load_finetune_checkpoint,
     subset_for_debug,
 )
-from labram.optim_factory import LayerDecayValueAssigner, create_optimizer, get_parameter_groups
+from labram.optim_factory import (
+    LayerDecayValueAssigner, create_optimizer, get_parameter_groups,
+    log_trainable_parameters,
+)
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
 
 logger = utils.get_logger(__name__)
@@ -92,6 +95,11 @@ def main(config: FinetuneRunConfig):
     if config.trainer.disable_eval_during_finetuning:
         dataset_val = dataset_test = None
 
+    # Inference-mode per-case window aggregation needs the test dataset to
+    # surface a per-window case id (recording/subject).
+    if config.trainer.eval and config.evaluation.agg_windows != 'none' and dataset_test is not None:
+        enable_window_ids(dataset_test, config.evaluation.agg_case_by)
+
     num_tasks, global_rank = utils.get_world_size(), utils.get_rank()
     sampler_train, sampler_val, sampler_test = build_samplers(
         dataset_train, dataset_val, dataset_test,
@@ -129,6 +137,12 @@ def main(config: FinetuneRunConfig):
     model_without_ddp = model
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Model params: {n_parameters}")
+
+    # Log the model architecture and which layers are frozen (and thus excluded
+    # from the optimizer) — e.g. when codebook_reg.encoder.n_last_trainable_layers
+    # keeps only the last N encoder blocks trainable.
+    logger.info("Model structure:\n%s", str(model_without_ddp))
+    log_trainable_parameters(model_without_ddp, logger)
 
     total_batch_size = config.trainer.batch_size * config.trainer.update_freq * utils.get_world_size()
     num_training_steps_per_epoch = len(dataset_train) // total_batch_size
@@ -190,10 +204,14 @@ def main(config: FinetuneRunConfig):
     )
 
     if config.trainer.eval:
+        # loaders.test may be a single loader or a list; normalize to a list.
+        test_loaders = loaders.test if isinstance(loaders.test, list) else [loaders.test]
         accuracy, balanced_accuracy = [], []
-        for data_loader in loaders.test:
+        for data_loader in test_loaders:
             test_stats = evaluate(data_loader, model, device, header='Test:',
-                                  ch_names=ch_names, metrics=metrics, is_binary=(nb_classes == 1))
+                                  ch_names=ch_names, metrics=metrics, is_binary=(nb_classes == 1),
+                                  nb_classes=nb_classes, eval_cfg=config.evaluation,
+                                  log_writer=log_writer, head='test', epoch=0)
             accuracy.append(test_stats['accuracy'])
             balanced_accuracy.append(test_stats['balanced_accuracy'])
         logger.info(f"Accuracy: {np.mean(accuracy):.3f} ± {np.std(accuracy):.3f}, "
@@ -212,6 +230,8 @@ def main(config: FinetuneRunConfig):
         model_ema=model_ema,
         enable_deepspeed=config.trainer.enable_deepspeed,
     )
+
+    runner_common.finalize_run(config, log_writer)
 
 
 def build_config(cli: argparse.Namespace) -> FinetuneRunConfig:

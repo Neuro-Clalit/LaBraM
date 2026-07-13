@@ -50,7 +50,10 @@ def train_one_epoch(
     header = 'Epoch: [{}]'.format(epoch)
     print_freq = 10
 
-    clip_grad  = optim_cfg.clip_grad or 0
+    # None => no clipping (the scaler still measures the grad norm). The
+    # previous `clip_grad or 0` zeroed all gradients every step when clip_grad
+    # was unset, because clip_grad_norm_(params, 0) clips the norm to zero.
+    clip_grad = optim_cfg.clip_grad
     output_dir = output_cfg.output_dir
 
     inner_model = utils.get_model(model)

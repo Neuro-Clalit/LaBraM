@@ -251,6 +251,23 @@ class MetricLogger(object):
             header, total_time_str, total_time / len(iterable)))
 
 
+def _confusion_matrix_markdown(matrix: Any, labels: Optional[List[Any]] = None) -> str:
+    """Render a confusion matrix as a GitHub-flavoured markdown table.
+
+    Used by :class:`TensorboardLogger` (which has no native confusion-matrix
+    widget) so the matrix is still viewable in the TensorBoard *Text* tab.
+    """
+    rows = [list(r) for r in matrix]
+    n = len(rows)
+    ticks = list(labels) if labels is not None else list(range(n))
+    header = "| true\\pred | " + " | ".join(str(t) for t in ticks) + " |"
+    sep = "| --- " * (n + 1) + "|"
+    body = []
+    for i, row in enumerate(rows):
+        body.append("| " + str(ticks[i]) + " | " + " | ".join(str(int(v)) for v in row) + " |")
+    return "\n".join([header, sep] + body)
+
+
 class TensorboardLogger(object):
     def __init__(self, log_dir):
         self.writer = SummaryWriter(log_dir=log_dir)
@@ -276,6 +293,20 @@ class TensorboardLogger(object):
             if v is None:
                 continue
             self.writer.add_image(head + "/" + k, v, self.step if step is None else step)
+
+    def report_confusion_matrix(self, title, matrix, step=None, labels=None, series='confusion_matrix'):
+        """TensorBoard has no native CM widget — log a markdown table as text."""
+        if matrix is None:
+            return
+        self.writer.add_text(
+            f"{title}/{series}", _confusion_matrix_markdown(matrix, labels),
+            self.step if step is None else step)
+
+    def report_figure(self, title, figure, step=None, series='figure'):
+        if figure is None:
+            return
+        self.writer.add_figure(
+            f"{title}/{series}", figure, self.step if step is None else step)
 
     def flush(self):
         self.writer.flush()
@@ -333,6 +364,29 @@ class ClearMLLogger(object):
             self._logger.report_image(
                 title=head, series=k, iteration=iteration, image=v)
 
+    def report_confusion_matrix(self, title, matrix, step=None, labels=None, series='confusion_matrix'):
+        """Log a native (interactive) ClearML confusion matrix."""
+        if self._logger is None or matrix is None:
+            return
+        import numpy as np
+        kwargs = {}
+        if labels is not None:
+            ticks = [str(t) for t in labels]
+            kwargs['xlabels'] = ticks
+            kwargs['ylabels'] = ticks
+        self._logger.report_confusion_matrix(
+            title=title, series=series, matrix=np.asarray(matrix),
+            iteration=self.step if step is None else step,
+            xaxis='Predicted', yaxis='True', **kwargs)
+
+    def report_figure(self, title, figure, step=None, series='figure'):
+        if self._logger is None or figure is None:
+            return
+        self._logger.report_matplotlib_figure(
+            title=title, series=series,
+            iteration=self.step if step is None else step,
+            figure=figure, report_image=False)
+
     def flush(self):
         if self._logger is not None:
             self._logger.flush()
@@ -367,6 +421,16 @@ class MultiWriter(object):
         for w in self.writers:
             if hasattr(w, 'update_image'):
                 w.update_image(head=head, step=step, **kwargs)
+
+    def report_confusion_matrix(self, title, matrix, step=None, labels=None, series='confusion_matrix'):
+        for w in self.writers:
+            if hasattr(w, 'report_confusion_matrix'):
+                w.report_confusion_matrix(title, matrix, step=step, labels=labels, series=series)
+
+    def report_figure(self, title, figure, step=None, series='figure'):
+        for w in self.writers:
+            if hasattr(w, 'report_figure'):
+                w.report_figure(title, figure, step=step, series=series)
 
     def flush(self):
         for w in self.writers:

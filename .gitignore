@@ -5,6 +5,7 @@ __pycache__/
 venv/
 .env
 checkpoints/
+log/
 *.pth
 *.pt
 *.ckpt

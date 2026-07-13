@@ -17,11 +17,17 @@ from einops import rearrange
 
 import labram.utils as utils
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import TrainerConfig
+from labram.configs.train_config import EvaluationConfig, TrainerConfig
 from labram.losses import CodebookRegularizedCriterion, build_classification_criterion
 from labram.losses.outputs import LossBreakdown
 from labram.models.outputs import PredictorOutput
-from labram.optim_factory import apply_lr_wd_schedule, log_lr_wd_grad_metrics, optimizer_update
+from labram.optim_factory import (
+    apply_lr_wd_schedule,
+    compute_component_grad_norms,
+    log_lr_wd_grad_metrics,
+    optimizer_update,
+)
+from labram.utils import plots
 
 logger = utils.get_logger(__name__)
 
@@ -70,8 +76,17 @@ def train_one_epoch(
     wd_schedule_values: Optional[Sequence[float]] = None,
     ch_names: Optional[List[str]] = None,
     is_binary: bool = True,
+    eval_cfg: Optional[EvaluationConfig] = None,
+    nb_classes: Optional[int] = None,
 ) -> Dict[str, float]:
     update_freq = trainer_cfg.update_freq
+    if nb_classes is None:
+        nb_classes = 1 if is_binary else 2
+    detailed = eval_cfg is not None and eval_cfg.detailed_metrics
+    log_grad_components = eval_cfg is not None and eval_cfg.log_grad_components
+    grad_freq = eval_cfg.log_grad_freq if eval_cfg is not None else 0
+    train_pred: List[torch.Tensor] = []
+    train_true: List[torch.Tensor] = []
     # None => no gradient clipping. (Previously `clip_grad or 0`, which passed 0
     # to the scaler and clipped grad-norm to zero — i.e. zeroed all gradients —
     # whenever clip_grad was unset.)
@@ -124,6 +139,15 @@ def train_one_epoch(
             logger.error("Loss is %s, stopping training", loss_value)
             sys.exit(1)
 
+        # Per-loss-component gradient norms (opt-in, periodic). Computed here —
+        # before the full backward frees the graph — via autograd.grad with
+        # retain_graph=True so the subsequent optimizer step is unaffected.
+        component_grad_values = None
+        if (log_grad_components and breakdown is not None and grad_freq > 0
+                and global_step % grad_freq == 0):
+            component_grad_values = compute_component_grad_norms(
+                breakdown.components, model.parameters())
+
         if loss_scaler is None:
             loss /= update_freq
             model.backward(loss)
@@ -151,10 +175,16 @@ def train_one_epoch(
             torch.cuda.synchronize()
 
         if is_binary:
-            class_acc = utils.get_metrics(torch.sigmoid(output).detach().cpu().numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
+            probs = torch.sigmoid(output).detach().cpu()
+            class_acc = utils.get_metrics(probs.numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
         else:
             class_acc = (output.max(-1)[-1] == targets.squeeze()).float().mean()
-            
+
+        # Accumulate predictions for the epoch-level detailed train report.
+        if detailed:
+            train_pred.append((probs if is_binary else output.detach().float().cpu()))
+            train_true.append(targets.detach().cpu())
+
         metric_logger.update(loss=loss_value)
         metric_logger.update(class_acc=class_acc)
         metric_logger.update(loss_scale=loss_scale_value)
@@ -167,6 +197,9 @@ def train_one_epoch(
                                 for name, v in breakdown.components.items()}
             metric_logger.update(**component_values)
 
+        if component_grad_values is not None:
+            metric_logger.update(**component_grad_values)
+
         log_lr_wd_grad_metrics(metric_logger, optimizer, grad_norm, log_writer)
 
         if log_writer is not None:
@@ -176,12 +209,27 @@ def train_one_epoch(
             if component_values is not None:
                 for name, value in component_values.items():
                     log_writer.update(**{name: value}, head="loss")
+            if component_grad_values is not None:
+                for name, value in component_grad_values.items():
+                    log_writer.update(**{name: value}, head="grad")
             log_writer.set_step()
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     logger.info("Averaged stats: %s", metric_logger)
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+    # Epoch-level detailed train metrics (F1 / sensitivity / specificity /
+    # confusion matrix / ROC-PR) over all accumulated train predictions.
+    if detailed and train_pred:
+        p = torch.cat(train_pred, dim=0).numpy()
+        t = torch.cat(train_true, dim=0).numpy()
+        report = utils.classification_report(p, t, is_binary, nb_classes, 0.5)
+        stats.update(report.scalars)
+        if log_writer is not None:
+            _log_eval_stats(log_writer, report.scalars, head="train", epoch=epoch)
+            _log_detailed_report(log_writer, report, "train", epoch, eval_cfg)
+    return stats
 
 
 @torch.no_grad()
@@ -193,24 +241,43 @@ def evaluate(
     ch_names: Optional[List[str]] = None,
     metrics: Optional[List[str]] = None,
     is_binary: bool = True,
+    nb_classes: Optional[int] = None,
+    eval_cfg: Optional[EvaluationConfig] = None,
+    log_writer: Optional[Any] = None,
+    head: Optional[str] = None,
+    epoch: Optional[int] = None,
 ) -> Dict[str, float]:
+    """Evaluate a split.
+
+    When ``eval_cfg.detailed_metrics`` is set (the default), the returned dict is
+    augmented with the detailed classification report (F1, sensitivity,
+    specificity, confusion-matrix cells, ...), and — when ``log_writer``/``head``
+    are given — the confusion matrix and ROC/PR curves are pushed to the
+    writer(s). When ``eval_cfg.agg_windows`` selects an aggregation mode and the
+    loader yields a per-window case id (a 3-tuple ``(X, y, case_id)``),
+    per-window predictions are pooled into one prediction per case first.
+    """
     if metrics is None:
         metrics = ['acc']
+    if nb_classes is None:
+        nb_classes = 1 if is_binary else 2
     channel_indices = None
     if ch_names is not None:
         channel_indices = utils.get_channel_indices(ch_names)
     criterion = build_classification_criterion(1 if is_binary else 2)
 
     metric_logger = utils.MetricLogger(delimiter="  ")
-    #header = 'Test:'
 
     # switch to evaluation mode
     model.eval()
     pred = []
     true = []
+    groups: List = []
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
         eeg_batch = batch[0]
-        target = batch[-1]
+        # A 3-element batch carries a per-window case id for aggregation.
+        target = batch[1] if len(batch) >= 3 else batch[-1]
+        group_batch = batch[2] if len(batch) >= 3 else None
         eeg_batch = eeg_batch.float().to(device, non_blocking=True) / 100
         eeg_batch = rearrange(eeg_batch, 'B N (A T) -> B N A T', T=200)
         target = target.to(device, non_blocking=True)
@@ -224,36 +291,54 @@ def evaluate(
             if isinstance(output, PredictorOutput):
                 output = output.logits
             loss = criterion(output, target)
-        
+
         if is_binary:
             output = torch.sigmoid(output).cpu()
         else:
             output = output.cpu()
         target = target.cpu()
 
-        results = utils.get_metrics(output.numpy(), target.numpy(), metrics, is_binary)
         pred.append(output)
         true.append(target)
+        if group_batch is not None:
+            groups.extend(list(group_batch))
 
-        batch_size = eeg_batch.shape[0]
         metric_logger.update(loss=loss.item())
-        for key, value in results.items():
-            metric_logger.meters[key].update(value, n=batch_size)
-        #metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     logger.info('* loss {losses.global_avg:.3f}'.format(losses=metric_logger.loss))
-    
+
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
+    # Inference-mode per-case window aggregation (no-op when mode is 'none' or
+    # the loader did not provide case ids).
+    agg_mode = eval_cfg.agg_windows if eval_cfg is not None else 'none'
+    if agg_mode != 'none' and groups:
+        pred, true = utils.aggregate_windows(pred, true, groups, agg_mode, is_binary)
+        logger.info("Aggregated %d windows into %d cases (mode=%s)",
+                    len(groups), len(true), agg_mode)
+
     ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
+
+    detailed = eval_cfg is None or eval_cfg.detailed_metrics
+    report = None
+    if detailed:
+        report = utils.classification_report(pred, true, is_binary, nb_classes, 0.5)
+        ret.update(report.scalars)
+
     ret['loss'] = metric_logger.loss.global_avg
+
+    if report is not None and log_writer is not None and head is not None:
+        _log_detailed_report(log_writer, report, head, epoch, eval_cfg)
+
     return ret
 
 
 _LOGGED_EVAL_KEYS = (
-    'accuracy', 'balanced_accuracy', 'f1_weighted', 'pr_auc', 'roc_auc', 'cohen_kappa', 'loss',
+    'accuracy', 'balanced_accuracy', 'f1', 'f1_weighted', 'precision', 'recall',
+    'sensitivity', 'specificity', 'pr_auc', 'roc_auc', 'cohen_kappa', 'loss',
+    'cm_tn', 'cm_fp', 'cm_fn', 'cm_tp',
 )
 
 
@@ -263,6 +348,27 @@ def _log_eval_stats(log_writer, stats, head, epoch):
     for key, value in stats.items():
         if key in _LOGGED_EVAL_KEYS:
             log_writer.update(**{key: value}, head=head, step=epoch)
+
+
+def _log_detailed_report(log_writer, report, head, step, eval_cfg):
+    """Push a :class:`ClassificationReport`'s confusion matrix and ROC/PR curves
+    to the writer(s). Scalars are logged separately via ``_log_eval_stats``."""
+    if log_writer is None or report is None or eval_cfg is None:
+        return
+    if eval_cfg.log_confusion_matrix and report.matrix is not None:
+        log_writer.report_confusion_matrix(
+            head, report.matrix, step=step, labels=report.labels)
+    if eval_cfg.log_curves:
+        if report.roc is not None:
+            fpr, tpr = report.roc
+            fig = plots.roc_curve_figure(fpr, tpr, report.scalars.get('roc_auc'),
+                                         title=f'{head} ROC')
+            log_writer.report_figure(head, fig, step=step, series='roc_curve')
+        if report.pr is not None:
+            rec, prec = report.pr
+            fig = plots.pr_curve_figure(rec, prec, report.scalars.get('pr_auc'),
+                                        title=f'{head} PR')
+            log_writer.report_figure(head, fig, step=step, series='pr_curve')
 
 
 def train_loop(
@@ -317,6 +423,8 @@ def train_loop(
             wd_schedule_values=wd_schedule_values,
             ch_names=ch_names,
             is_binary=is_binary,
+            eval_cfg=config.evaluation,
+            nb_classes=nb_classes,
         )
 
         if config.output.output_dir and config.output.save_ckpt:
@@ -329,10 +437,14 @@ def train_loop(
 
         if loaders.val is not None:
             val_stats = evaluate(loaders.val, model, device, header='Val:',
-                                 ch_names=ch_names, metrics=metrics, is_binary=is_binary)
+                                 ch_names=ch_names, metrics=metrics, is_binary=is_binary,
+                                 nb_classes=nb_classes, eval_cfg=config.evaluation,
+                                 log_writer=log_writer, head='val', epoch=epoch)
             logger.info(f"Val EEG accuracy: {val_stats['accuracy']:.2f}%")
             test_stats = evaluate(loaders.test, model, device, header='Test:',
-                                  ch_names=ch_names, metrics=metrics, is_binary=is_binary)
+                                  ch_names=ch_names, metrics=metrics, is_binary=is_binary,
+                                  nb_classes=nb_classes, eval_cfg=config.evaluation,
+                                  log_writer=log_writer, head='test', epoch=epoch)
             logger.info(f"Test EEG accuracy: {test_stats['accuracy']:.2f}%")
 
             if max_accuracy < val_stats["accuracy"]:

@@ -43,6 +43,21 @@ def resolve_device(requested: str) -> torch.device:
     return torch.device(requested)
 
 
+def enable_window_ids(dataset, group_by: str = 'recording') -> None:
+    """In-place: make a TUH dataset (or list/Subset thereof) yield a per-window
+    case id, so inference can aggregate window predictions per recording/subject.
+
+    Silently ignores datasets that don't support ids (e.g. non-TUH loaders)."""
+    if dataset is None:
+        return
+    targets = dataset if isinstance(dataset, list) else [dataset]
+    for d in targets:
+        base = d.dataset if isinstance(d, torch.utils.data.Subset) else d
+        if hasattr(base, 'return_id'):
+            base.return_id = True
+            base.group_by = group_by
+
+
 def subset_for_debug(dataset, n: int):
     """None passthrough; for a single Dataset return a torch.utils.data.Subset
     of the first min(n, len) items; for a list of Datasets apply recursively."""

@@ -34,7 +34,14 @@ from labram.configs.model_config import (
     VQNSPModelConfig,
 )
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import ClearMLConfig, DistributedConfig, OutputConfig, TrainerConfig
+from labram.configs.train_config import (
+    ClearMLConfig,
+    DistributedConfig,
+    EvaluationConfig,
+    OutputConfig,
+    ShutdownConfig,
+    TrainerConfig,
+)
 
 
 # ============================================================
@@ -54,6 +61,7 @@ class RunConfig(ConfigBase):
     trainer: TrainerConfig = field(default_factory=TrainerConfig)
     data: DataConfig = field(default_factory=DataConfig)
     clearml: ClearMLConfig = field(default_factory=ClearMLConfig)
+    shutdown: ShutdownConfig = field(default_factory=ShutdownConfig)
     loss: LossConfig = field(default_factory=LossConfig)
 
     def to_namespace(self) -> Namespace:
@@ -174,6 +182,7 @@ class VQNSPRunConfig(RunConfig):
 class FinetuneRunConfig(RunConfig):
     model: FinetuneModelConfig = field(default_factory=FinetuneModelConfig)
     finetune_checkpoint: FinetuneCheckpointConfig = field(default_factory=FinetuneCheckpointConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     loss: LossConfig = field(default_factory=LossConfig)
     optimizer: OptimizerConfig = field(
         default_factory=lambda: OptimizerConfig(
