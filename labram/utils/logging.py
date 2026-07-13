@@ -387,6 +387,16 @@ class ClearMLLogger(object):
             iteration=self.step if step is None else step,
             figure=figure, report_image=False)
 
+    def report_media(self, title, series, local_path, step=None):
+        """Upload a media file (e.g. an SVG model graph) to ClearML as-is,
+        preserving vector graphics."""
+        if self._logger is None or not local_path:
+            return
+        self._logger.report_media(
+            title=title, series=series,
+            iteration=self.step if step is None else step,
+            local_path=local_path)
+
     def flush(self):
         if self._logger is not None:
             self._logger.flush()
@@ -431,6 +441,11 @@ class MultiWriter(object):
         for w in self.writers:
             if hasattr(w, 'report_figure'):
                 w.report_figure(title, figure, step=step, series=series)
+
+    def report_media(self, title, series, local_path, step=None):
+        for w in self.writers:
+            if hasattr(w, 'report_media'):
+                w.report_media(title, series, local_path, step=step)
 
     def flush(self):
         for w in self.writers:

@@ -12,6 +12,7 @@ from labram.configs.run_configs import (
 from labram.configs.train_config import (
     ClearMLConfig,
     EvaluationConfig,
+    LoggingConfig,
     ShutdownConfig,
 )
 
@@ -49,12 +50,44 @@ def test_clearml_artifact_defaults():
     assert c.artifact_name == ""
 
 
+def test_logging_and_output_defaults():
+    lg = LoggingConfig()
+    assert lg.log_model_graph is True
+    assert lg.model_graph_format == "svg"
+    assert lg.log_data_split is True
+    from labram.configs.train_config import OutputConfig
+    assert OutputConfig().save_only_final_model is False
+
+
 def test_run_configs_compose_new_subconfigs():
-    # shutdown on every run config; evaluation only on finetune.
+    # shutdown + logging on every run config; evaluation only on finetune.
     for cls in (PretrainRunConfig, VQNSPRunConfig, FinetuneRunConfig):
         cfg = cls()
         assert isinstance(cfg.shutdown, ShutdownConfig)
+        assert isinstance(cfg.logging, LoggingConfig)
     assert isinstance(FinetuneRunConfig().evaluation, EvaluationConfig)
+
+
+def test_flatten_config_produces_scalar_dotted_keys():
+    from labram.runs.common import flatten_config
+    flat = flatten_config(FinetuneRunConfig().as_dict())
+    assert "optimizer/lr" in flat and "trainer/epochs" in flat
+    # every value is a scalar/str (lists rendered as strings) -> tabular-friendly
+    assert all(not isinstance(v, (dict, list, tuple)) for v in flat.values())
+
+
+def test_paper_tuab_config_matches_recipe():
+    cfg = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_paper.json")
+    assert cfg.model.model == "labram_base_patch200_200"
+    assert cfg.data.dataset == "TUAB"
+    assert cfg.optimizer.lr == 5e-4
+    assert cfg.optimizer.layer_decay == 0.65
+    assert cfg.optimizer.warmup_epochs == 5
+    assert cfg.trainer.epochs == 50
+    assert cfg.model.abs_pos_emb is True
+    assert cfg.model.rel_pos_bias is False
+    assert cfg.model.qkv_bias is False
+    assert cfg.finetune_checkpoint.finetune.endswith("labram-base.pth")
 
 
 def test_finetune_json_round_trip_preserves_new_fields(tmp_path):
@@ -79,6 +112,7 @@ def test_finetune_json_round_trip_preserves_new_fields(tmp_path):
     ("labram/configs/defaults/finetune_tuab.json", FinetuneRunConfig),
     ("labram/configs/defaults/finetune_tuev.json", FinetuneRunConfig),
     ("labram/configs/defaults/finetune_tuab_codebook.json", FinetuneRunConfig),
+    ("labram/configs/defaults/finetune_tuab_paper.json", FinetuneRunConfig),
     ("labram/configs/defaults/pretrain.json", PretrainRunConfig),
     ("labram/configs/defaults/vqnsp.json", VQNSPRunConfig),
 ])
@@ -86,4 +120,6 @@ def test_default_jsons_load_with_new_fields(path, cls):
     cfg = cls.load_config(path)
     assert cfg.optimizer.sched in ("cosine", "step", "multistep", "linear", "constant")
     assert isinstance(cfg.shutdown, ShutdownConfig)
+    assert isinstance(cfg.logging, LoggingConfig)
+    assert cfg.output.save_only_final_model in (True, False)
     assert cfg.clearml.upload_model_artifact in (True, False)

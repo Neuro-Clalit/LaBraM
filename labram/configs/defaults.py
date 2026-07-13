@@ -123,6 +123,14 @@ DEFAULT_LOG_DIR: str = ''     # '' rather than None so the YAML round-trips thro
 DEFAULT_RESUME: str = ''
 DEFAULT_AUTO_RESUME: bool = True
 DEFAULT_SAVE_CKPT: bool = True
+# When True, skip the periodic/rolling per-epoch checkpoints and save only the
+# final trained model (one file at the end of training).
+DEFAULT_SAVE_ONLY_FINAL_MODEL: bool = False
+
+# ---------- Logging / visualization (LoggingConfig) ----------
+DEFAULT_LOG_MODEL_GRAPH: bool = True
+DEFAULT_MODEL_GRAPH_FORMAT: str = 'svg'   # svg (vector) | png
+DEFAULT_LOG_DATA_SPLIT: bool = True
 
 # ---------- ClearML experiment tracking (labram/utils/logging.ClearMLLogger) ----------
 DEFAULT_CLEARML_ENABLED: bool = False

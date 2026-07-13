@@ -38,6 +38,7 @@ from labram.configs.train_config import (
     ClearMLConfig,
     DistributedConfig,
     EvaluationConfig,
+    LoggingConfig,
     OutputConfig,
     ShutdownConfig,
     TrainerConfig,
@@ -61,6 +62,7 @@ class RunConfig(ConfigBase):
     trainer: TrainerConfig = field(default_factory=TrainerConfig)
     data: DataConfig = field(default_factory=DataConfig)
     clearml: ClearMLConfig = field(default_factory=ClearMLConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
     shutdown: ShutdownConfig = field(default_factory=ShutdownConfig)
     loss: LossConfig = field(default_factory=LossConfig)
 

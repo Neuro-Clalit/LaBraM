@@ -116,7 +116,8 @@ def save_model(output_cfg, trainer_cfg, epoch, model, model_without_ddp, optimiz
 
     if not enable_deepspeed:
         checkpoint_paths = [output_dir / 'checkpoint.pth']
-        if epoch == 'best':
+        # String epoch tags ('best', 'final') name a dedicated single file.
+        if isinstance(epoch, str):
             checkpoint_paths = [output_dir / ('checkpoint-%s.pth' % epoch_name)]
         elif (epoch + 1) % save_ckpt_freq == 0:
             checkpoint_paths.append(output_dir / ('checkpoint-%s.pth' % epoch_name))

@@ -228,7 +228,7 @@ def train_loop(
             ch_names_list=train_ch_names_list,
         )
 
-        if config.output.output_dir:
+        if config.output.output_dir and not config.output.save_only_final_model:
             utils.save_model(
                 output_cfg=config.output, trainer_cfg=config.trainer,
                 model=model, model_without_ddp=model_without_ddp,
@@ -254,5 +254,12 @@ def train_loop(
         if log_writer is not None and config.output.output_dir and utils.is_main_process():
             log_writer.flush()
         runner_common.append_log_line(config.output, log_stats)
+
+    if config.output.output_dir:
+        utils.save_model(
+            output_cfg=config.output, trainer_cfg=config.trainer,
+            model=model, model_without_ddp=model_without_ddp,
+            optimizer=optimizer, loss_scaler=loss_scaler, epoch="final",
+        )
 
     runner_common.print_training_time(start_time)

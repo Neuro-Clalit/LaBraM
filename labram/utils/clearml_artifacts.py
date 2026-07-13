@@ -38,6 +38,9 @@ def resolve_final_checkpoint(output_dir: str) -> Optional[str]:
     best = os.path.join(output_dir, "checkpoint-best.pth")
     if os.path.exists(best):
         return best
+    final = os.path.join(output_dir, "checkpoint-final.pth")
+    if os.path.exists(final):
+        return final
     rolling = os.path.join(output_dir, "checkpoint.pth")
     if os.path.exists(rolling):
         return rolling
@@ -50,6 +53,20 @@ def resolve_final_checkpoint(output_dir: str) -> Optional[str]:
     if candidates:
         return max(candidates)[1]
     return None
+
+
+def upload_file_artifact(task: Any, name: str, path: str) -> bool:
+    """Attach a file (e.g. the data-split JSON or the model graph) to ``task``
+    as a ClearML artifact. Best-effort: returns True on success, else False."""
+    if task is None or not path or not os.path.exists(path):
+        return False
+    try:
+        task.upload_artifact(name=name, artifact_object=path)
+        logger.info("Uploaded ClearML artifact %r <- %s", name, path)
+        return True
+    except Exception as exc:  # pragma: no cover - depends on clearml availability
+        logger.error("Failed to upload ClearML artifact %r: %s", name, exc)
+        return False
 
 
 def upload_model_artifact(

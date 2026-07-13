@@ -163,3 +163,73 @@ At startup each runner now logs, on rank 0:
 
 This makes it easy to confirm that `n_last_trainable_layers` froze exactly the
 layers you expect and that they were dropped from the optimizer.
+
+## Model-architecture visualization (`logging.log_model_graph`)
+
+Each runner renders the model as a graph coloured by trainability:
+
+- **green** = fully trainable, **red** = fully frozen, **orange** = mixed,
+  **grey** = no parameters.
+
+Rendering uses Graphviz to a **vector SVG** (`logging.model_graph_format` =
+`svg` or `png`); the DOT source is also written. If the Graphviz `dot` binary is
+unavailable it falls back to a matplotlib figure, so a graph is always produced.
+The graph is logged to TensorBoard (as a figure) and to ClearML (the SVG as
+media, plus the SVG and DOT source as artifacts). Files are written under
+`output_dir` (or `log_dir`) as `model_graph.svg` / `model_graph.dot`.
+
+```
+--set logging.log_model_graph=true logging.model_graph_format=svg
+```
+
+Because the colouring is driven by `requires_grad`, the graph doubles as a
+visual confirmation of which layers `n_last_trainable_layers` froze.
+
+## Run config as ClearML hyperparameters
+
+The full run config is connected to ClearML two ways: as a JSON blob under
+**Configuration** (`run_config`) and — flattened to dotted keys
+(`optimizer/lr`, `trainer/epochs`, …) — as **tabular hyperparameters**
+(`config` section) that ClearML can display, search and compare across
+experiments. This is automatic whenever `clearml.enabled` is set.
+
+## Logging config & save-only-final model
+
+- `LoggingConfig` (`logging`) groups the diagnostic-artifact toggles
+  (`log_model_graph`, `model_graph_format`, `log_data_split`), independent of
+  the metric backend (`clearml` / `output.log_dir`).
+- `output.save_only_final_model=true` skips the periodic/rolling per-epoch
+  checkpoints (and the best checkpoint) and writes a single
+  `checkpoint-final.pth` at the end of training — useful to save disk on long
+  runs. The final model is always written at the end regardless; this flag only
+  suppresses the intermediate ones.
+
+```
+--set output.save_only_final_model=true
+```
+
+## Paper fine-tuning config (TUAB abnormal detection)
+
+`labram/configs/defaults/finetune_tuab_paper.json` reproduces the paper's TUAB
+normal/abnormal fine-tuning recipe: `labram_base_patch200_200`, `lr=5e-4`,
+`layer_decay=0.65`, `warmup_epochs=5`, `epochs=50`, `weight_decay=0.05`,
+absolute position embeddings on, relative-position-bias and qkv-bias off,
+batch size 64, fine-tuning from `./checkpoints/labram-base.pth`.
+
+```
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_finetune \
+  --config labram/configs/defaults/finetune_tuab_paper.json \
+  --set finetune_checkpoint.finetune=./checkpoints/labram-base.pth data.data_path=./datasets/TUAB
+```
+
+## Data-split record (`logging.log_data_split`)
+
+At fine-tuning start the train/val/test assignment is recorded to
+`output_dir/data_split.json` and uploaded as a ClearML artifact (`data_split`).
+It lists, per split, the window/recording/subject counts and their identifiers
+(parsed from the pickle filenames), plus a **subject-overlap check** that warns
+if the same subject appears in more than one split (a common data-leakage bug).
+
+```
+--set logging.log_data_split=true
+```
