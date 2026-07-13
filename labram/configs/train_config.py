@@ -5,6 +5,7 @@ from labram.configs.base_configs import ConfigBase
 from labram.configs.defaults import (
     DEFAULT_AUTO_RESUME,
     DEFAULT_BATCH_SIZE,
+    DEFAULT_CLEARML_ARTIFACT_NAME,
     DEFAULT_CLEARML_AUTO_CONNECT_FRAMEWORKS,
     DEFAULT_CLEARML_CONTINUE_LAST_TASK,
     DEFAULT_CLEARML_ENABLED,
@@ -12,10 +13,18 @@ from labram.configs.defaults import (
     DEFAULT_CLEARML_OUTPUT_URI,
     DEFAULT_CLEARML_PROJECT_NAME,
     DEFAULT_CLEARML_TASK_NAME,
+    DEFAULT_CLEARML_UPLOAD_MODEL_ARTIFACT,
     DEFAULT_DEVICE,
     DEFAULT_DIST_EVAL,
     DEFAULT_DIST_ON_ITP,
     DEFAULT_DIST_URL,
+    DEFAULT_EVAL_AGG_CASE_BY,
+    DEFAULT_EVAL_AGG_WINDOWS,
+    DEFAULT_EVAL_DETAILED_METRICS,
+    DEFAULT_EVAL_LOG_CONFUSION_MATRIX,
+    DEFAULT_EVAL_LOG_CURVES,
+    DEFAULT_EVAL_LOG_GRAD_COMPONENTS,
+    DEFAULT_EVAL_LOG_GRAD_FREQ,
     DEFAULT_GRADIENT_ACCUMULATION_STEPS,
     DEFAULT_LOCAL_RANK,
     DEFAULT_LOG_DIR,
@@ -26,6 +35,9 @@ from labram.configs.defaults import (
     DEFAULT_SAVE_CKPT,
     DEFAULT_SEED,
     DEFAULT_START_EPOCH,
+    DEFAULT_STOP_DELAY_MINUTES,
+    DEFAULT_STOP_INSTANCE_ON_FINISH,
+    DEFAULT_STOP_METHOD,
     DEFAULT_UPDATE_FREQ,
     DEFAULT_WORLD_SIZE,
 )
@@ -72,6 +84,48 @@ class ClearMLConfig(ConfigBase):
     offline: bool = DEFAULT_CLEARML_OFFLINE
     continue_last_task: bool = DEFAULT_CLEARML_CONTINUE_LAST_TASK
     auto_connect_frameworks: bool = DEFAULT_CLEARML_AUTO_CONNECT_FRAMEWORKS
+    # When set, the final/best checkpoint is explicitly registered as a ClearML
+    # OutputModel at the end of training so it is uploaded to ``output_uri``
+    # (e.g. an S3 bucket) rather than relying solely on framework auto-capture.
+    upload_model_artifact: bool = DEFAULT_CLEARML_UPLOAD_MODEL_ARTIFACT
+    artifact_name: str = DEFAULT_CLEARML_ARTIFACT_NAME
+
+
+@dataclass
+class ShutdownConfig(ConfigBase):
+    """Optionally stop the (EC2) machine after training finishes.
+
+    When ``stop_instance_on_finish`` is set, the rank-0 process waits
+    ``stop_delay_minutes`` (leaving a window to cancel / inspect) and then stops
+    the instance. ``stop_method`` selects how: ``ec2`` issues a boto3
+    ``stop_instances`` call for the instance's own id (read from EC2 IMDS);
+    ``os`` runs ``shutdown -h`` locally. See ``labram/utils/shutdown.py``.
+    """
+    stop_instance_on_finish: bool = DEFAULT_STOP_INSTANCE_ON_FINISH
+    stop_delay_minutes: int = DEFAULT_STOP_DELAY_MINUTES
+    stop_method: str = DEFAULT_STOP_METHOD
+
+
+@dataclass
+class EvaluationConfig(ConfigBase):
+    """Detailed evaluation metrics + inference-time window aggregation.
+
+    ``detailed_metrics`` turns on the richer classification report (confusion
+    matrix, F1, sensitivity/specificity, ROC/PR AUC) for train/val/test;
+    ``log_confusion_matrix`` / ``log_curves`` additionally push the matrix and
+    ROC/PR curves to TensorBoard / ClearML. ``log_grad_components`` logs the
+    per-loss-component gradient norms every ``log_grad_freq`` steps.
+    ``agg_windows`` selects how per-window predictions are pooled into a single
+    per-case prediction during eval-only (inference) runs, and ``agg_case_by``
+    whether a "case" is a recording/session or a subject.
+    """
+    detailed_metrics: bool = DEFAULT_EVAL_DETAILED_METRICS
+    log_confusion_matrix: bool = DEFAULT_EVAL_LOG_CONFUSION_MATRIX
+    log_curves: bool = DEFAULT_EVAL_LOG_CURVES
+    log_grad_components: bool = DEFAULT_EVAL_LOG_GRAD_COMPONENTS
+    log_grad_freq: int = DEFAULT_EVAL_LOG_GRAD_FREQ
+    agg_windows: str = DEFAULT_EVAL_AGG_WINDOWS
+    agg_case_by: str = DEFAULT_EVAL_AGG_CASE_BY
 
 
 @dataclass

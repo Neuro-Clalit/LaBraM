@@ -118,3 +118,72 @@ def cosine_scheduler(
 
     assert len(schedule) == epochs * niter_per_ep
     return schedule
+
+
+def build_lr_schedule(
+    sched: str,
+    base_value: float,
+    final_value: float,
+    epochs: int,
+    niter_per_ep: int,
+    warmup_epochs: int = 0,
+    start_warmup_value: float = 0,
+    warmup_steps: int = -1,
+    decay_epochs: int = 30,
+    decay_rate: float = 0.1,
+    decay_milestones: Optional[List[int]] = None,
+) -> np.ndarray:
+    """Per-iteration LR schedule for the selected policy, with linear warmup.
+
+    ``sched`` selects the post-warmup shape:
+
+    * ``cosine``    — cosine annealing from ``base_value`` to ``final_value``
+      (delegates to :func:`cosine_scheduler`, i.e. the historical behaviour).
+    * ``constant``  — hold ``base_value``.
+    * ``linear``    — linear decay from ``base_value`` to ``final_value``.
+    * ``step``      — multiply by ``decay_rate`` every ``decay_epochs`` epochs.
+    * ``multistep`` — multiply by ``decay_rate`` at each epoch in
+      ``decay_milestones``.
+
+    ``step``/``multistep`` are floored at ``final_value``. All policies share the
+    same linear warmup prefix so the returned array indexes identically by
+    ``global_step`` regardless of policy.
+    """
+    sched = (sched or 'cosine').lower()
+    if sched == 'cosine':
+        return cosine_scheduler(
+            base_value, final_value, epochs, niter_per_ep,
+            warmup_epochs, start_warmup_value, warmup_steps)
+
+    total_iters = epochs * niter_per_ep
+    warmup_iters = warmup_epochs * niter_per_ep
+    if warmup_steps > 0:
+        warmup_iters = warmup_steps
+    warmup_iters = min(max(warmup_iters, 0), total_iters)
+    warmup_schedule = (
+        np.linspace(start_warmup_value, base_value, warmup_iters)
+        if warmup_iters > 0 else np.array([]))
+
+    n_main = total_iters - warmup_iters
+    i = np.arange(n_main)
+    epoch = (warmup_iters + i) // max(1, niter_per_ep)
+    if sched == 'constant':
+        main = np.full(n_main, base_value, dtype=float)
+    elif sched == 'linear':
+        frac = i / max(1, n_main - 1)
+        main = base_value + (final_value - base_value) * frac
+    elif sched == 'step':
+        k = np.maximum(0, epoch - warmup_epochs) // max(1, decay_epochs)
+        main = np.maximum(base_value * (decay_rate ** k), final_value)
+    elif sched == 'multistep':
+        milestones = np.array(sorted(decay_milestones or []))
+        k = (epoch[:, None] >= milestones[None, :]).sum(axis=1) if milestones.size else np.zeros(n_main, dtype=int)
+        main = np.maximum(base_value * (decay_rate ** k), final_value)
+    else:
+        raise ValueError(
+            f"Unknown lr scheduler {sched!r}; expected one of "
+            "cosine|constant|linear|step|multistep")
+
+    schedule = np.concatenate((warmup_schedule, main))
+    assert len(schedule) == total_iters
+    return schedule

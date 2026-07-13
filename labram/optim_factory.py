@@ -225,6 +225,38 @@ def optimizer_update(
     return grad_norm
 
 
+def compute_component_grad_norms(
+    components: dict,
+    parameters: Iterable[torch.nn.Parameter],
+    norm_type: float = 2.0,
+) -> dict:
+    """Gradient norm each loss *component* contributes, for logging.
+
+    For a composite criterion (e.g. classification + spectral + quantization),
+    ``components`` maps a name to its (unweighted) scalar loss tensor. We take
+    ``autograd.grad`` of each component w.r.t. ``parameters`` with
+    ``retain_graph=True`` so the caller's subsequent full backward still works,
+    and return ``{'grad_norm_<name>': float}``. This costs one extra backward
+    per component, so callers should invoke it only periodically.
+    """
+    params = [p for p in parameters if p.requires_grad]
+    out = {}
+    for name, loss in components.items():
+        # A component with no path to the parameters (e.g. a constant/detached
+        # term) has no gradient to report — record 0.0 rather than raising.
+        if not (torch.is_tensor(loss) and loss.requires_grad):
+            out[f'grad_norm_{name}'] = 0.0
+            continue
+        grads = torch.autograd.grad(
+            loss, params, retain_graph=True, allow_unused=True)
+        total = 0.0
+        for g in grads:
+            if g is not None:
+                total += float(g.detach().norm(norm_type).item()) ** norm_type
+        out[f'grad_norm_{name}'] = total ** (1.0 / norm_type)
+    return out
+
+
 def apply_lr_wd_schedule(
     optimizer: torch.optim.Optimizer,
     global_step: int,

@@ -45,8 +45,14 @@ from labram.utils.logging import (
     get_logger,
 )
 from labram.utils.metrics import get_metrics
+from labram.utils.eval_metrics import (
+    ClassificationReport,
+    aggregate_windows,
+    classification_report,
+)
 from labram.utils.training import (
     NativeScalerWithGradNormCount,
+    build_lr_schedule,
     cosine_scheduler,
     get_grad_norm,
     get_grad_norm_,
@@ -71,6 +77,7 @@ __all__ = [
     'bool_flag',
     'build_pretraining_dataset',
     'configure_logging',
+    'build_lr_schedule',
     'cosine_scheduler',
     'create_ds_config',
     'get_channel_indices',
@@ -78,6 +85,9 @@ __all__ = [
     'get_grad_norm',
     'get_grad_norm_',
     'get_metrics',
+    'ClassificationReport',
+    'aggregate_windows',
+    'classification_report',
     'get_model',
     'get_rank',
     'get_world_size',

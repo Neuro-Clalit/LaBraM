@@ -280,10 +280,17 @@ def wrap_distributed(dist_cfg: DistributedConfig, model: torch.nn.Module) -> Tup
 
 
 def make_lr_schedule(optim_cfg: OptimizerConfig, trainer_cfg: TrainerConfig, num_training_steps_per_epoch: int) -> np.ndarray:
-    """Cosine LR schedule with optional warmup. Common to all runs."""
-    return utils.cosine_scheduler(
-        optim_cfg.lr, optim_cfg.min_lr, trainer_cfg.epochs, num_training_steps_per_epoch,
+    """LR schedule (cosine/step/multistep/linear/constant) with optional warmup.
+
+    The policy is selected by ``optim_cfg.sched`` (default 'cosine', which
+    reproduces the historical behaviour). Common to all runs.
+    """
+    return utils.build_lr_schedule(
+        optim_cfg.sched, optim_cfg.lr, optim_cfg.min_lr,
+        trainer_cfg.epochs, num_training_steps_per_epoch,
         warmup_epochs=optim_cfg.warmup_epochs, warmup_steps=optim_cfg.warmup_steps,
+        decay_epochs=optim_cfg.decay_epochs, decay_rate=optim_cfg.decay_rate,
+        decay_milestones=optim_cfg.decay_milestones,
     )
 
 
@@ -307,3 +314,44 @@ def print_training_time(start_time: float) -> None:
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info(f'Training time {total_time_str}')
+
+
+def finalize_run(config: Any, log_writer: Any = None) -> None:
+    """Post-training hook (rank 0): publish the model + optionally stop the box.
+
+    1. When ClearML tracking is on and ``clearml.upload_model_artifact`` is set,
+       explicitly register the final/best checkpoint as a ClearML ``OutputModel``
+       so it is uploaded to ``clearml.output_uri`` (e.g. S3) rather than relying
+       only on framework auto-capture.
+    2. When ``shutdown.stop_instance_on_finish`` is set, stop the machine after
+       ``shutdown.stop_delay_minutes``.
+
+    Both steps are best-effort and never raise, so finishing touches can't turn a
+    successful run into a failure.
+    """
+    if not utils.is_main_process():
+        return
+
+    from labram.utils.clearml_artifacts import (
+        get_clearml_task, resolve_final_checkpoint, upload_model_artifact,
+    )
+    from labram.utils.shutdown import maybe_stop_instance
+
+    clearml_cfg = getattr(config, 'clearml', None)
+    output_cfg = getattr(config, 'output', None)
+    if (clearml_cfg is not None and clearml_cfg.enabled
+            and getattr(clearml_cfg, 'upload_model_artifact', False)
+            and output_cfg is not None):
+        task = get_clearml_task(log_writer)
+        model_path = resolve_final_checkpoint(output_cfg.output_dir)
+        if task is not None and model_path is not None:
+            name = clearml_cfg.artifact_name or None
+            upload_model_artifact(task, model_path, name=name)
+        elif task is not None:
+            logger.warning("ClearML upload requested but no checkpoint found in %r",
+                           getattr(output_cfg, 'output_dir', None))
+
+    try:
+        maybe_stop_instance(getattr(config, 'shutdown', None))
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error("maybe_stop_instance failed: %s", exc)

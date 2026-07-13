@@ -37,6 +37,10 @@
         "min_lr": 1e-05,
         "warmup_epochs": 10,
         "warmup_steps": -1,
+        "sched": "cosine",
+        "decay_epochs": 30,
+        "decay_rate": 0.1,
+        "decay_milestones": null,
         "clip_grad": null,
         "layer_decay": 0.9,
         "smoothing": 0.1,
@@ -85,7 +89,9 @@
         "output_uri": "",
         "offline": false,
         "continue_last_task": false,
-        "auto_connect_frameworks": true
+        "auto_connect_frameworks": true,
+        "upload_model_artifact": true,
+        "artifact_name": ""
     },
     "model": {
         "py/object": "labram.configs.model_config.VQNSPModelConfig",
@@ -109,5 +115,11 @@
     },
     "disable_eval": false,
     "eval": false,
-    "calculate_codebook_usage": false
+    "calculate_codebook_usage": false,
+    "shutdown": {
+        "py/object": "labram.configs.train_config.ShutdownConfig",
+        "stop_instance_on_finish": false,
+        "stop_delay_minutes": 5,
+        "stop_method": "ec2"
+    }
 }

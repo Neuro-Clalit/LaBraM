@@ -34,6 +34,10 @@
         "min_lr": 1e-06,
         "warmup_epochs": 5,
         "warmup_steps": -1,
+        "sched": "cosine",
+        "decay_epochs": 30,
+        "decay_rate": 0.1,
+        "decay_milestones": null,
         "clip_grad": null,
         "layer_decay": 0.65,
         "smoothing": 0.1,
@@ -82,7 +86,9 @@
         "output_uri": "",
         "offline": false,
         "continue_last_task": false,
-        "auto_connect_frameworks": true
+        "auto_connect_frameworks": true,
+        "upload_model_artifact": true,
+        "artifact_name": ""
     },
     "model": {
         "py/object": "labram.configs.model_config.FinetuneModelConfig",
@@ -151,5 +157,21 @@
         "freq_fraction": 1.0,
         "classification_label_smoothing": 0.1,
         "classifier_weight": 1.0
+    },
+    "shutdown": {
+        "py/object": "labram.configs.train_config.ShutdownConfig",
+        "stop_instance_on_finish": false,
+        "stop_delay_minutes": 5,
+        "stop_method": "ec2"
+    },
+    "evaluation": {
+        "py/object": "labram.configs.train_config.EvaluationConfig",
+        "detailed_metrics": true,
+        "log_confusion_matrix": true,
+        "log_curves": true,
+        "log_grad_components": false,
+        "log_grad_freq": 50,
+        "agg_windows": "none",
+        "agg_case_by": "recording"
     }
 }

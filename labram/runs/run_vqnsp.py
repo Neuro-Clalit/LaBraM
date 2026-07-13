@@ -148,6 +148,8 @@ def main(config: VQNSPRunConfig):
         num_training_steps_per_epoch=num_training_steps_per_epoch,
     )
 
+    runner_common.finalize_run(config, log_writer)
+
 
 def build_config(cli: argparse.Namespace) -> VQNSPRunConfig:
     overrides = parse_overrides(cli.overrides)
