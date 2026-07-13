@@ -87,6 +87,23 @@ def _configure_run_logging(config) -> None:
     utils.configure_logging(rank=rank, log_file=log_file)
 
 
+def flatten_config(d: Any, prefix: str = '') -> dict:
+    """Flatten a nested config dict into dotted-key -> scalar pairs for ClearML
+    hyperparameter (tabular) display. Lists/tuples are rendered as strings."""
+    out = {}
+    if not isinstance(d, dict):
+        return {prefix.rstrip('/'): d}
+    for key, value in d.items():
+        full = f"{prefix}{key}"
+        if isinstance(value, dict):
+            out.update(flatten_config(value, full + '/'))
+        elif isinstance(value, (list, tuple)):
+            out[full] = str(list(value))
+        else:
+            out[full] = value
+    return out
+
+
 def _derive_clearml_task_name(run_config: Any) -> str:
     """Pick a stable, human-readable ClearML task name from the run config."""
     output_cfg = getattr(run_config, 'output', None)
@@ -178,6 +195,13 @@ def init_clearml_task(
             task.connect_configuration(run_config.as_dict(), name='run_config')
         except Exception as exc:  # pragma: no cover - defensive: never fail a run on tracking
             logger.warning("ClearML connect_configuration failed: %s", exc)
+        # Also connect the config as flat dotted-key hyperparameters so it shows
+        # as a searchable/sortable table in the ClearML experiment (not just a
+        # JSON blob under Configuration).
+        try:
+            task.connect(flatten_config(run_config.as_dict()), name='config')
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("ClearML connect (hyperparameters) failed: %s", exc)
     logger.info(
         "ClearML tracking enabled: project=%r task=%r debug=%s output_uri=%r",
         project_name, task_name, is_debug, output_uri)
@@ -314,6 +338,62 @@ def print_training_time(start_time: float) -> None:
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     logger.info(f'Training time {total_time_str}')
+
+
+def log_model_visualization(logging_cfg: Any, output_cfg: OutputConfig,
+                            model: torch.nn.Module, log_writer: Any = None) -> None:
+    """Render the model architecture coloured by frozen/trainable layers and log
+    it: a matplotlib figure to TensorBoard, the vector (SVG) file to ClearML as
+    media, and the graph files (SVG/PNG + DOT source) as ClearML artifacts."""
+    if logging_cfg is None or not getattr(logging_cfg, 'log_model_graph', False):
+        return
+    if not utils.is_main_process():
+        return
+    from labram.utils.model_graph import save_model_graph
+    from labram.utils.clearml_artifacts import get_clearml_task, upload_file_artifact
+
+    out_dir = output_cfg.output_dir or output_cfg.log_dir
+    try:
+        graph = save_model_graph(model, out_dir, fmt=getattr(logging_cfg, 'model_graph_format', 'svg'))
+    except Exception as exc:  # pragma: no cover - never fail a run on a diagram
+        logger.warning("Model graph rendering failed: %s", exc)
+        return
+
+    if log_writer is not None and graph.get('figure') is not None:
+        log_writer.report_figure('model', graph['figure'], series='architecture')
+    if log_writer is not None and graph.get('image_path') and hasattr(log_writer, 'report_media'):
+        log_writer.report_media('model', 'architecture', graph['image_path'])
+
+    task = get_clearml_task(log_writer)
+    if task is not None:
+        for key, name in (('image_path', 'model_graph'), ('dot_path', 'model_graph_dot')):
+            if graph.get(key):
+                upload_file_artifact(task, name, graph[key])
+
+
+def log_data_split_artifact(logging_cfg: Any, output_cfg: OutputConfig,
+                            dataset_train, dataset_val, dataset_test,
+                            log_writer: Any = None, dataset_name: Optional[str] = None) -> Optional[str]:
+    """Record the train/val/test case assignment to JSON and upload it as a
+    ClearML artifact. Returns the JSON path (rank 0), else None."""
+    if logging_cfg is None or not getattr(logging_cfg, 'log_data_split', False):
+        return None
+    if not utils.is_main_process():
+        return None
+    from labram.utils.data_split import build_data_split, save_data_split
+    from labram.utils.clearml_artifacts import get_clearml_task, upload_file_artifact
+
+    out_dir = output_cfg.output_dir or output_cfg.log_dir
+    try:
+        split = build_data_split(dataset_train, dataset_val, dataset_test, dataset_name)
+        path = save_data_split(split, out_dir)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Data-split recording failed: %s", exc)
+        return None
+    if path is not None:
+        task = get_clearml_task(log_writer)
+        upload_file_artifact(task, 'data_split', path)
+    return path
 
 
 def finalize_run(config: Any, log_writer: Any = None) -> None:

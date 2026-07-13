@@ -26,6 +26,12 @@ scikit-learn
 # missing, but installing it enables the plotted curves.
 matplotlib
 
+# Model-architecture graph coloured by frozen/trainable layers
+# (labram/utils/model_graph.py). Optional: rendering to a vector SVG needs both
+# this package and the system Graphviz `dot` binary; without them the code falls
+# back to a matplotlib figure.
+graphviz
+
 # Logging: labram.utils.logging imports torch.utils.tensorboard, which requires
 # the `tensorboard` package to be installed.
 tensorboard

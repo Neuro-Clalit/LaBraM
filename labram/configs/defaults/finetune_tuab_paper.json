@@ -1,96 +1,5 @@
 {
-    "py/object": "labram.configs.runner_configs.FinetuneRunConfig",
-    "output": {
-        "py/object": "labram.configs.train_config.OutputConfig",
-        "output_dir": "./checkpoints/finetune_tuab_base/",
-        "log_dir": "./log/finetune_tuab_base",
-        "resume": "",
-        "auto_resume": true,
-        "save_ckpt": true,
-        "save_ckpt_freq": 5,
-        "save_only_final_model": false
-    },
-    "distributed": {
-        "py/object": "labram.configs.train_config.DistributedConfig",
-        "world_size": 1,
-        "local_rank": -1,
-        "dist_on_itp": false,
-        "dist_url": "env://",
-        "device": "auto",
-        "seed": 0,
-        "dist_eval": false,
-        "distributed": false,
-        "gpu": 0
-    },
-    "optimizer": {
-        "py/object": "labram.configs.optim_config.OptimizerConfig",
-        "opt": "adamw",
-        "opt_eps": 1e-08,
-        "opt_betas": null,
-        "momentum": 0.9,
-        "weight_decay": 0.05,
-        "weight_decay_end": null,
-        "lr": 0.0005,
-        "warmup_lr": 1e-06,
-        "min_lr": 1e-06,
-        "warmup_epochs": 5,
-        "warmup_steps": -1,
-        "sched": "cosine",
-        "decay_epochs": 30,
-        "decay_rate": 0.1,
-        "decay_milestones": null,
-        "clip_grad": null,
-        "layer_decay": 0.65,
-        "smoothing": 0.1,
-        "model_ema": false,
-        "model_ema_decay": 0.9999,
-        "model_ema_force_cpu": false
-    },
-    "trainer": {
-        "py/object": "labram.configs.train_config.TrainerConfig",
-        "batch_size": 64,
-        "epochs": 50,
-        "start_epoch": 0,
-        "gradient_accumulation_steps": 1,
-        "update_freq": 1,
-        "disable_eval_during_finetuning": false,
-        "disable_weight_decay_on_rel_pos_bias": false,
-        "eval": false,
-        "enable_deepspeed": false,
-        "debug": false,
-        "debug_samples": 16
-    },
-    "data": {
-        "py/object": "labram.configs.data_config.DataConfig",
-        "num_workers": 10,
-        "pin_mem": true,
-        "datasets_train": [],
-        "datasets_val": [],
-        "time_window": [
-            4,
-            8
-        ],
-        "val_time_window": [],
-        "stride": 800,
-        "start_percentage": 0.0,
-        "end_percentage": 1.0,
-        "robust_test": "",
-        "dataset": "TUAB",
-        "data_path": "./datasets/TUAB"
-    },
-    "clearml": {
-        "py/object": "labram.configs.train_config.ClearMLConfig",
-        "enabled": false,
-        "project_name": "LaBraM",
-        "task_name": "",
-        "tags": [],
-        "output_uri": "",
-        "offline": false,
-        "continue_last_task": false,
-        "auto_connect_frameworks": true,
-        "upload_model_artifact": true,
-        "artifact_name": ""
-    },
+    "py/object": "labram.configs.run_configs.FinetuneRunConfig",
     "model": {
         "py/object": "labram.configs.model_config.FinetuneModelConfig",
         "model": "labram_base_patch200_200",
@@ -141,29 +50,126 @@
             "embedding_weight": 1.0
         }
     },
-    "finetune_checkpoint": {
-        "py/object": "labram.configs.model_config.FinetuneCheckpointConfig",
-        "finetune": "./checkpoints/labram-base.pth",
-        "model_key": "model|module",
-        "model_prefix": "",
-        "model_filter_name": "gzp"
+    "output": {
+        "py/object": "labram.configs.train_config.OutputConfig",
+        "output_dir": "./checkpoints/finetune_tuab_paper/",
+        "log_dir": "./log/finetune_tuab_paper",
+        "resume": "",
+        "auto_resume": true,
+        "save_ckpt": true,
+        "save_ckpt_freq": 5,
+        "save_only_final_model": false
     },
-    "loss": {
-        "py/object": "labram.configs.loss_config.LossConfig",
-        "amplitude_weight": 1.0,
-        "phase_weight": 0.1,
-        "embedding_weight": 1.0,
-        "use_smooth_l1": false,
-        "vq_commitment_beta": 1.0,
-        "freq_fraction": 1.0,
-        "classification_label_smoothing": 0.1,
-        "classifier_weight": 1.0
+    "distributed": {
+        "py/object": "labram.configs.train_config.DistributedConfig",
+        "world_size": 1,
+        "local_rank": -1,
+        "dist_on_itp": false,
+        "dist_url": "env://",
+        "device": "auto",
+        "seed": 0,
+        "dist_eval": false,
+        "distributed": false,
+        "gpu": 0
+    },
+    "optimizer": {
+        "py/object": "labram.configs.optim_config.OptimizerConfig",
+        "opt": "adamw",
+        "opt_eps": 1e-08,
+        "opt_betas": null,
+        "momentum": 0.9,
+        "weight_decay": 0.05,
+        "weight_decay_end": null,
+        "lr": 0.0005,
+        "warmup_lr": 1e-06,
+        "min_lr": 1e-06,
+        "warmup_epochs": 5,
+        "warmup_steps": -1,
+        "sched": "cosine",
+        "decay_epochs": 30,
+        "decay_rate": 0.1,
+        "decay_milestones": null,
+        "clip_grad": null,
+        "layer_decay": 0.65,
+        "smoothing": 0.1,
+        "model_ema": false,
+        "model_ema_decay": 0.9999,
+        "model_ema_force_cpu": false
+    },
+    "trainer": {
+        "py/object": "labram.configs.train_config.TrainerConfig",
+        "batch_size": 64,
+        "epochs": 50,
+        "start_epoch": 0,
+        "gradient_accumulation_steps": 1,
+        "update_freq": 1,
+        "disable_eval_during_finetuning": false,
+        "debug": false,
+        "disable_weight_decay_on_rel_pos_bias": false,
+        "eval": false,
+        "enable_deepspeed": false,
+        "debug_samples": 16
+    },
+    "data": {
+        "py/object": "labram.configs.data_config.DataConfig",
+        "dataset": "TUAB",
+        "data_path": "./datasets/TUAB",
+        "robust_test": "",
+        "num_workers": 10,
+        "pin_mem": true,
+        "datasets_train": [],
+        "datasets_val": [],
+        "time_window": [
+            4,
+            8
+        ],
+        "val_time_window": [],
+        "stride": 800,
+        "start_percentage": 0.0,
+        "end_percentage": 1.0
+    },
+    "clearml": {
+        "py/object": "labram.configs.train_config.ClearMLConfig",
+        "enabled": false,
+        "project_name": "LaBraM",
+        "task_name": "finetune_tuab_paper",
+        "tags": [],
+        "output_uri": "",
+        "offline": false,
+        "continue_last_task": false,
+        "auto_connect_frameworks": true,
+        "upload_model_artifact": true,
+        "artifact_name": ""
+    },
+    "logging": {
+        "py/object": "labram.configs.train_config.LoggingConfig",
+        "log_model_graph": true,
+        "model_graph_format": "svg",
+        "log_data_split": true
     },
     "shutdown": {
         "py/object": "labram.configs.train_config.ShutdownConfig",
         "stop_instance_on_finish": false,
         "stop_delay_minutes": 5,
         "stop_method": "ec2"
+    },
+    "loss": {
+        "py/object": "labram.configs.loss_config.LossConfig",
+        "amplitude_weight": 1.0,
+        "phase_weight": 1.0,
+        "embedding_weight": 1.0,
+        "use_smooth_l1": false,
+        "vq_commitment_beta": 1.0,
+        "freq_fraction": 1.0,
+        "classification_label_smoothing": 0.0,
+        "classifier_weight": 1.0
+    },
+    "finetune_checkpoint": {
+        "py/object": "labram.configs.model_config.FinetuneCheckpointConfig",
+        "finetune": "./checkpoints/labram-base.pth",
+        "model_key": "model|module",
+        "model_prefix": "",
+        "model_filter_name": "gzp"
     },
     "evaluation": {
         "py/object": "labram.configs.train_config.EvaluationConfig",
@@ -174,11 +180,5 @@
         "log_grad_freq": 50,
         "agg_windows": "none",
         "agg_case_by": "recording"
-    },
-    "logging": {
-        "py/object": "labram.configs.train_config.LoggingConfig",
-        "log_model_graph": true,
-        "model_graph_format": "svg",
-        "log_data_split": true
     }
 }

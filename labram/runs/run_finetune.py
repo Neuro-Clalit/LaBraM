@@ -108,6 +108,12 @@ def main(config: FinetuneRunConfig):
 
     log_writer = runner_common.create_log_writer(
         config.output, global_rank, config.clearml, config)
+
+    # Record which cases went to train/val/test (saved to disk + ClearML artifact).
+    runner_common.log_data_split_artifact(
+        config.logging, config.output, dataset_train, dataset_val, dataset_test,
+        log_writer=log_writer, dataset_name=config.data.dataset)
+
     pin_memory = config.data.pin_mem and device.type == 'cuda'
     loaders = build_dataloaders(
         dataset_train, dataset_val, dataset_test,
@@ -143,6 +149,11 @@ def main(config: FinetuneRunConfig):
     # keeps only the last N encoder blocks trainable.
     logger.info("Model structure:\n%s", str(model_without_ddp))
     log_trainable_parameters(model_without_ddp, logger)
+
+    # Visualize the architecture, colouring frozen vs trainable layers, and log
+    # it to TensorBoard (figure) and ClearML (vector SVG media + artifacts).
+    runner_common.log_model_visualization(
+        config.logging, config.output, model_without_ddp, log_writer)
 
     total_batch_size = config.trainer.batch_size * config.trainer.update_freq * utils.get_world_size()
     num_training_steps_per_epoch = len(dataset_train) // total_batch_size

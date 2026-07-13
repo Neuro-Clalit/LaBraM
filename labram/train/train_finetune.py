@@ -427,7 +427,9 @@ def train_loop(
             nb_classes=nb_classes,
         )
 
-        if config.output.output_dir and config.output.save_ckpt:
+        # Periodic/rolling per-epoch checkpoints are skipped when only the final
+        # model is wanted (see the post-loop save below).
+        if config.output.output_dir and config.output.save_ckpt and not config.output.save_only_final_model:
             utils.save_model(
                 output_cfg=config.output, trainer_cfg=config.trainer,
                 model=model, model_without_ddp=model_without_ddp,
@@ -449,7 +451,7 @@ def train_loop(
 
             if max_accuracy < val_stats["accuracy"]:
                 max_accuracy = val_stats["accuracy"]
-                if config.output.output_dir and config.output.save_ckpt:
+                if config.output.output_dir and config.output.save_ckpt and not config.output.save_only_final_model:
                     utils.save_model(
                         output_cfg=config.output, trainer_cfg=config.trainer,
                         model=model, model_without_ddp=model_without_ddp,
@@ -473,5 +475,15 @@ def train_loop(
         if log_writer is not None and config.output.output_dir and utils.is_main_process():
             log_writer.flush()
         runner_common.append_log_line(config.output, log_stats)
+
+    # Save the final trained model. Always done at the end; it is the only
+    # checkpoint written when save_only_final_model is set.
+    if config.output.output_dir and config.output.save_ckpt:
+        utils.save_model(
+            output_cfg=config.output, trainer_cfg=config.trainer,
+            model=model, model_without_ddp=model_without_ddp,
+            optimizer=optimizer, loss_scaler=loss_scaler,
+            epoch="final", model_ema=model_ema,
+            enable_deepspeed=enable_deepspeed)
 
     runner_common.print_training_time(start_time)

@@ -47,6 +47,9 @@ class _FakeClearMLLogger:
     def report_matplotlib_figure(self, **k):
         self.calls.append(("fig", k))
 
+    def report_media(self, **k):
+        self.calls.append(("media", k))
+
     def flush(self):
         pass
 
@@ -67,10 +70,21 @@ def test_clearml_report_confusion_matrix_and_figure():
     assert cm_call["xlabels"] == ["0", "1"]
 
 
+def test_clearml_report_media():
+    fake = _FakeClearMLLogger()
+    cl = ClearMLLogger(clearml_logger=fake)
+    cl.set_step(1)
+    cl.report_media("model", "architecture", "/tmp/model_graph.svg")
+    media = dict(c for c in fake.calls if c[0] == "media")["media"]
+    assert media["local_path"] == "/tmp/model_graph.svg"
+    assert media["title"] == "model"
+
+
 def test_clearml_no_logger_is_noop():
     cl = ClearMLLogger(task=None)  # no logger available
     cl.report_confusion_matrix("t", CM)   # must not raise
     cl.report_figure("t", object())
+    cl.report_media("t", "s", "/tmp/x.svg")
 
 
 class _RecordingWriter:
@@ -87,14 +101,20 @@ class _RecordingWriter:
     def report_figure(self, title, figure, step=None, series="figure"):
         self.fig.append((title, series))
 
+    def report_media(self, title, series, local_path, step=None):
+        self.media = getattr(self, "media", [])
+        self.media.append((title, series, local_path))
+
 
 def test_multiwriter_fans_out_reports():
     a, b = _RecordingWriter(), _RecordingWriter()
     mw = MultiWriter([a, b])
     mw.report_confusion_matrix("val", CM, labels=[0, 1])
     mw.report_figure("val", object(), series="roc_curve")
+    mw.report_media("model", "architecture", "/tmp/g.svg")
     assert a.cm == b.cm == [("val", "confusion_matrix")]
     assert a.fig == b.fig == [("val", "roc_curve")]
+    assert a.media == b.media == [("model", "architecture", "/tmp/g.svg")]
 
 
 def test_plot_builders_return_figures_or_none():

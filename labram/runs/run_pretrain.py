@@ -98,6 +98,7 @@ def main(config: PretrainRunConfig):
     logger.info("Model = %s", str(model_without_ddp))
     logger.info('number of params: %s', n_parameters)
     log_trainable_parameters(model_without_ddp, logger)
+    runner_common.log_model_visualization(config.logging, config.output, model_without_ddp, log_writer)
     logger.info("Tokenizer = %s", str(vqnsp))
 
     total_batch_size = config.trainer.batch_size * num_tasks * config.trainer.gradient_accumulation_steps

@@ -110,6 +110,7 @@ def main(config: VQNSPRunConfig):
     n_learnable_parameters = _log_model_param_counts(model)
     logger.info("Model structure:\n%s", str(model_without_ddp))
     log_trainable_parameters(model_without_ddp, logger)
+    runner_common.log_model_visualization(config.logging, config.output, model_without_ddp, log_writer)
 
     total_batch_size = config.trainer.batch_size * num_tasks
     scaled_lr = total_batch_size / 128 * config.optimizer.lr

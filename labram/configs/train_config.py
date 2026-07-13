@@ -27,12 +27,16 @@ from labram.configs.defaults import (
     DEFAULT_EVAL_LOG_GRAD_FREQ,
     DEFAULT_GRADIENT_ACCUMULATION_STEPS,
     DEFAULT_LOCAL_RANK,
+    DEFAULT_LOG_DATA_SPLIT,
     DEFAULT_LOG_DIR,
+    DEFAULT_LOG_MODEL_GRAPH,
+    DEFAULT_MODEL_GRAPH_FORMAT,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_PRETRAIN_EPOCHS,
     DEFAULT_PRETRAIN_SAVE_CKPT_FREQ,
     DEFAULT_RESUME,
     DEFAULT_SAVE_CKPT,
+    DEFAULT_SAVE_ONLY_FINAL_MODEL,
     DEFAULT_SEED,
     DEFAULT_START_EPOCH,
     DEFAULT_STOP_DELAY_MINUTES,
@@ -66,6 +70,8 @@ class OutputConfig(ConfigBase):
     auto_resume: bool = DEFAULT_AUTO_RESUME
     save_ckpt: bool = DEFAULT_SAVE_CKPT
     save_ckpt_freq: int = DEFAULT_PRETRAIN_SAVE_CKPT_FREQ
+    # Skip periodic/rolling per-epoch checkpoints; save only the final model.
+    save_only_final_model: bool = DEFAULT_SAVE_ONLY_FINAL_MODEL
 
 
 @dataclass
@@ -89,6 +95,21 @@ class ClearMLConfig(ConfigBase):
     # (e.g. an S3 bucket) rather than relying solely on framework auto-capture.
     upload_model_artifact: bool = DEFAULT_CLEARML_UPLOAD_MODEL_ARTIFACT
     artifact_name: str = DEFAULT_CLEARML_ARTIFACT_NAME
+
+
+@dataclass
+class LoggingConfig(ConfigBase):
+    """Logging / experiment-artifact options that are independent of the metric
+    backend.
+
+    Groups the "what to log" toggles for the run's diagnostic artifacts:
+    the model graph visualization (colored by frozen/trainable layers) and the
+    train/val/test data-split record. The metric backend itself (TensorBoard /
+    ClearML) is configured separately in :class:`ClearMLConfig` / ``output.log_dir``.
+    """
+    log_model_graph: bool = DEFAULT_LOG_MODEL_GRAPH
+    model_graph_format: str = DEFAULT_MODEL_GRAPH_FORMAT  # svg (vector) | png
+    log_data_split: bool = DEFAULT_LOG_DATA_SPLIT
 
 
 @dataclass

@@ -7,7 +7,8 @@
         "resume": "",
         "auto_resume": true,
         "save_ckpt": true,
-        "save_ckpt_freq": 5
+        "save_ckpt_freq": 5,
+        "save_only_final_model": false
     },
     "distributed": {
         "py/object": "labram.configs.train_config.DistributedConfig",
@@ -173,5 +174,11 @@
         "log_grad_freq": 50,
         "agg_windows": "none",
         "agg_case_by": "recording"
+    },
+    "logging": {
+        "py/object": "labram.configs.train_config.LoggingConfig",
+        "log_model_graph": true,
+        "model_graph_format": "svg",
+        "log_data_split": true
     }
 }
