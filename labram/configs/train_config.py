@@ -25,6 +25,7 @@ from labram.configs.defaults import (
     DEFAULT_EVAL_LOG_CURVES,
     DEFAULT_EVAL_LOG_GRAD_COMPONENTS,
     DEFAULT_EVAL_LOG_GRAD_FREQ,
+    DEFAULT_EVAL_PLOT_PER_EPOCH,
     DEFAULT_GRADIENT_ACCUMULATION_STEPS,
     DEFAULT_LOCAL_RANK,
     DEFAULT_LOG_DATA_SPLIT,
@@ -134,7 +135,9 @@ class EvaluationConfig(ConfigBase):
     ``detailed_metrics`` turns on the richer classification report (confusion
     matrix, F1, sensitivity/specificity, ROC/PR AUC) for train/val/test;
     ``log_confusion_matrix`` / ``log_curves`` additionally push the matrix and
-    ROC/PR curves to TensorBoard / ClearML. ``log_grad_components`` logs the
+    ROC/PR curves to TensorBoard / ClearML. ``plot_per_epoch`` gives each
+    epoch's figure its own plot series so all epochs are retained (otherwise
+    only the latest epoch is shown). ``log_grad_components`` logs the
     per-loss-component gradient norms every ``log_grad_freq`` steps.
     ``agg_windows`` selects how per-window predictions are pooled into a single
     per-case prediction during eval-only (inference) runs, and ``agg_case_by``
@@ -143,6 +146,7 @@ class EvaluationConfig(ConfigBase):
     detailed_metrics: bool = DEFAULT_EVAL_DETAILED_METRICS
     log_confusion_matrix: bool = DEFAULT_EVAL_LOG_CONFUSION_MATRIX
     log_curves: bool = DEFAULT_EVAL_LOG_CURVES
+    plot_per_epoch: bool = DEFAULT_EVAL_PLOT_PER_EPOCH
     log_grad_components: bool = DEFAULT_EVAL_LOG_GRAD_COMPONENTS
     log_grad_freq: int = DEFAULT_EVAL_LOG_GRAD_FREQ
     agg_windows: str = DEFAULT_EVAL_AGG_WINDOWS

@@ -49,16 +49,30 @@ All policies share the same linear warmup (`warmup_epochs` / `warmup_steps`,
 report for **train, val and test**:
 
 - Scalars: `accuracy`, `balanced_accuracy`, `precision`, `recall`/`sensitivity`,
-  `specificity`, `f1`, `f1_weighted`, `roc_auc`, `pr_auc`, `cohen_kappa`, and the
-  binary confusion-matrix cells (`cm_tn/cm_fp/cm_fn/cm_tp`).
+  `specificity`, `f1`, `f1_weighted`, `roc_auc`, `pr_auc`, `cohen_kappa`, the
+  binary confusion-matrix cells as **absolute counts** (`cm_tn/cm_fp/cm_fn/cm_tp`)
+  **and as relative rates** (`cm_tn_rate/cm_fp_rate/cm_fn_rate/cm_tp_rate`,
+  row-normalized per true class — `cm_tp_rate` is the TPR/sensitivity,
+  `cm_tn_rate` the TNR/specificity, `cm_fp_rate` the FPR, `cm_fn_rate` the FNR).
+  The rates are comparable across class-imbalanced splits where the raw counts
+  are not.
 - Confusion matrix: native in ClearML, markdown table in the TensorBoard *Text*
   tab (`evaluation.log_confusion_matrix`).
 - ROC and precision-recall curves (binary): matplotlib figures pushed to both
   backends (`evaluation.log_curves`; degrades to scalars only if matplotlib is
   absent).
+- Plot history: by default each epoch's confusion-matrix / ROC / PR figure is
+  logged under its own series (`confusion_matrix/epoch_003`, …) so **every epoch
+  is retained and viewable** instead of the last one overwriting the rest
+  (ClearML's *Plots* tab and a single-series figure keep only the latest
+  iteration). Set `evaluation.plot_per_epoch=false` to keep a single rolling
+  series (fewer entries; only the final epoch shown). The per-epoch scalars
+  (including the confusion-matrix cells above) are unaffected — they always plot
+  as one curve over epochs.
 
 ```
---set evaluation.detailed_metrics=true evaluation.log_confusion_matrix=true evaluation.log_curves=true
+--set evaluation.detailed_metrics=true evaluation.log_confusion_matrix=true \
+      evaluation.log_curves=true evaluation.plot_per_epoch=true
 ```
 
 Train metrics are accumulated across the epoch (no extra forward pass) and

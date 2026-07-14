@@ -176,6 +176,7 @@
         "detailed_metrics": true,
         "log_confusion_matrix": true,
         "log_curves": true,
+        "plot_per_epoch": true,
         "log_grad_components": false,
         "log_grad_freq": 50,
         "agg_windows": "none",

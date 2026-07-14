@@ -31,6 +31,34 @@ def test_binary_sensitivity_specificity_values():
     assert r.scalars["specificity"] == pytest.approx(1.0)
 
 
+def test_binary_confusion_matrix_relative_rates():
+    # tp=1, fn=1 (2 actual positives); tn=2, fp=0 (2 actual negatives).
+    y = np.array([1, 1, 0, 0])
+    p = np.array([0.9, 0.1, 0.2, 0.3])
+    r = classification_report(p, y, is_binary=True, nb_classes=1)
+    # Row-normalized per true class; each row's rates sum to 1.
+    assert r.scalars["cm_tp_rate"] == pytest.approx(0.5)   # TPR == sensitivity
+    assert r.scalars["cm_fn_rate"] == pytest.approx(0.5)   # FNR
+    assert r.scalars["cm_tn_rate"] == pytest.approx(1.0)   # TNR == specificity
+    assert r.scalars["cm_fp_rate"] == pytest.approx(0.0)   # FPR
+    assert r.scalars["cm_tp_rate"] == pytest.approx(r.scalars["sensitivity"])
+    assert r.scalars["cm_tn_rate"] == pytest.approx(r.scalars["specificity"])
+    # Absolute counts are still reported alongside the rates.
+    assert (r.scalars["cm_tp"], r.scalars["cm_fn"]) == (1, 1)
+    assert (r.scalars["cm_tn"], r.scalars["cm_fp"]) == (2, 0)
+
+
+def test_binary_confusion_matrix_rates_no_positive_samples():
+    # No actual positives: positive-row rates fall back to 0.0 (no divide-by-0).
+    y = np.array([0, 0, 0, 0])
+    p = np.array([0.2, 0.3, 0.1, 0.4])
+    r = classification_report(p, y, is_binary=True, nb_classes=1)
+    assert r.scalars["cm_tp_rate"] == 0.0
+    assert r.scalars["cm_fn_rate"] == 0.0
+    assert r.scalars["cm_tn_rate"] == pytest.approx(1.0)
+    assert r.scalars["cm_fp_rate"] == pytest.approx(0.0)
+
+
 def test_binary_single_class_guards_auc():
     y = np.array([1, 1, 1, 1])
     p = np.array([0.9, 0.8, 0.6, 0.7])

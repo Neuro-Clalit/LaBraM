@@ -58,8 +58,10 @@ def _binary_report(y_score: np.ndarray, y_true: np.ndarray, threshold: float) ->
 
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
     tn, fp, fn, tp = cm.ravel()
-    sensitivity = tp / (tp + fn) if (tp + fn) else 0.0  # recall / TPR
-    specificity = tn / (tn + fp) if (tn + fp) else 0.0
+    n_pos = tp + fn  # actual positives (true row 1)
+    n_neg = tn + fp  # actual negatives (true row 0)
+    sensitivity = tp / n_pos if n_pos else 0.0  # recall / TPR
+    specificity = tn / n_neg if n_neg else 0.0
     precision = tp / (tp + fp) if (tp + fp) else 0.0
 
     scalars = {
@@ -72,7 +74,17 @@ def _binary_report(y_score: np.ndarray, y_true: np.ndarray, threshold: float) ->
         'f1': float(f1_score(y_true, y_pred, zero_division=0)),
         'f1_weighted': float(f1_score(y_true, y_pred, average='weighted', zero_division=0)),
         'cohen_kappa': float(cohen_kappa_score(y_true, y_pred)),
+        # Absolute confusion-matrix counts ...
         'cm_tn': float(tn), 'cm_fp': float(fp), 'cm_fn': float(fn), 'cm_tp': float(tp),
+        # ... and their relative rates, row-normalized per true class (sklearn
+        # normalize='true'): TP/FN over actual positives, TN/FP over actual
+        # negatives. cm_tp_rate == sensitivity (TPR), cm_tn_rate == specificity
+        # (TNR), cm_fp_rate == FPR, cm_fn_rate == FNR. Comparable across
+        # class-imbalanced splits where the raw counts are not.
+        'cm_tp_rate': float(tp / n_pos) if n_pos else 0.0,
+        'cm_fn_rate': float(fn / n_pos) if n_pos else 0.0,
+        'cm_tn_rate': float(tn / n_neg) if n_neg else 0.0,
+        'cm_fp_rate': float(fp / n_neg) if n_neg else 0.0,
     }
 
     roc = pr = None

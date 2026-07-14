@@ -339,6 +339,7 @@ _LOGGED_EVAL_KEYS = (
     'accuracy', 'balanced_accuracy', 'f1', 'f1_weighted', 'precision', 'recall',
     'sensitivity', 'specificity', 'pr_auc', 'roc_auc', 'cohen_kappa', 'loss',
     'cm_tn', 'cm_fp', 'cm_fn', 'cm_tp',
+    'cm_tn_rate', 'cm_fp_rate', 'cm_fn_rate', 'cm_tp_rate',
 )
 
 
@@ -350,6 +351,19 @@ def _log_eval_stats(log_writer, stats, head, epoch):
             log_writer.update(**{key: value}, head=head, step=epoch)
 
 
+def _epoch_series(base, step, eval_cfg):
+    """Series name for an epoch's figure.
+
+    With ``plot_per_epoch`` each epoch gets a distinct series
+    (``'confusion_matrix/epoch_003'``) so every epoch is retained and viewable;
+    otherwise a single rolling series is reused and only the last epoch shows
+    (ClearML's Plots tab / a single-series figure keep only the latest
+    iteration)."""
+    if eval_cfg is not None and eval_cfg.plot_per_epoch and step is not None:
+        return f'{base}/epoch_{int(step):03d}'
+    return base
+
+
 def _log_detailed_report(log_writer, report, head, step, eval_cfg):
     """Push a :class:`ClassificationReport`'s confusion matrix and ROC/PR curves
     to the writer(s). Scalars are logged separately via ``_log_eval_stats``."""
@@ -357,18 +371,23 @@ def _log_detailed_report(log_writer, report, head, step, eval_cfg):
         return
     if eval_cfg.log_confusion_matrix and report.matrix is not None:
         log_writer.report_confusion_matrix(
-            head, report.matrix, step=step, labels=report.labels)
+            head, report.matrix, step=step, labels=report.labels,
+            series=_epoch_series('confusion_matrix', step, eval_cfg))
     if eval_cfg.log_curves:
         if report.roc is not None:
             fpr, tpr = report.roc
             fig = plots.roc_curve_figure(fpr, tpr, report.scalars.get('roc_auc'),
                                          title=f'{head} ROC')
-            log_writer.report_figure(head, fig, step=step, series='roc_curve')
+            log_writer.report_figure(
+                head, fig, step=step,
+                series=_epoch_series('roc_curve', step, eval_cfg))
         if report.pr is not None:
             rec, prec = report.pr
             fig = plots.pr_curve_figure(rec, prec, report.scalars.get('pr_auc'),
                                         title=f'{head} PR')
-            log_writer.report_figure(head, fig, step=step, series='pr_curve')
+            log_writer.report_figure(
+                head, fig, step=step,
+                series=_epoch_series('pr_curve', step, eval_cfg))
 
 
 def train_loop(

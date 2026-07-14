@@ -38,6 +38,7 @@ def test_evaluation_defaults():
     assert e.detailed_metrics is True
     assert e.log_confusion_matrix is True
     assert e.log_curves is True
+    assert e.plot_per_epoch is True
     assert e.log_grad_components is False
     assert e.log_grad_freq == 50
     assert e.agg_windows == "none"

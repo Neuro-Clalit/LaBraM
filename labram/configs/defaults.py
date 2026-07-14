@@ -168,6 +168,12 @@ DEFAULT_LR_DECAY_RATE: float = 0.1     # multiplicative decay for 'step'/'multis
 DEFAULT_EVAL_DETAILED_METRICS: bool = True
 DEFAULT_EVAL_LOG_CONFUSION_MATRIX: bool = True
 DEFAULT_EVAL_LOG_CURVES: bool = True
+# Give each epoch's confusion-matrix / ROC / PR figure its own plot series
+# ('confusion_matrix/epoch_000', ...) so every epoch is kept and viewable,
+# rather than each epoch overwriting the previous one (ClearML's Plots tab and
+# a single-series figure only show the latest iteration). Set False to keep a
+# single rolling series (fewer entries; only the last epoch is shown).
+DEFAULT_EVAL_PLOT_PER_EPOCH: bool = True
 DEFAULT_EVAL_LOG_GRAD_COMPONENTS: bool = False  # per-loss-component grad norms (extra backward)
 DEFAULT_EVAL_LOG_GRAD_FREQ: int = 50            # steps between grad-component logging
 DEFAULT_EVAL_AGG_WINDOWS: str = 'none'          # none|mean|vote|max
