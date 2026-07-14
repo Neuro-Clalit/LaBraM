@@ -157,7 +157,37 @@ def classification_report(
 # Per-case window aggregation (inference)
 # ---------------------------------------------------------------------------
 
-_AGG_MODES = ('none', 'mean', 'vote', 'max')
+_AGG_MODES = ('none', 'mean', 'median', 'vote', 'max', 'entropy')
+
+
+def prediction_entropy(
+    scores: np.ndarray,
+    is_binary: bool,
+    normalize: bool = True,
+) -> np.ndarray:
+    """Per-sample Shannon entropy of a probabilistic prediction (in bits).
+
+    ``scores`` are positive-class probabilities ``(N,)``/``(N, 1)`` for binary,
+    or per-class probabilities ``(N, C)`` for multiclass (rows are renormalized
+    defensively). With ``normalize`` the entropy is divided by ``log2(n_classes)``
+    so it lands in ``[0, 1]`` (0 = fully confident, 1 = uniform) and is directly
+    comparable across binary and multiclass. Returns a ``(N,)`` array.
+    """
+    scores = np.asarray(scores, dtype=float)
+    if is_binary:
+        p = np.clip(scores.ravel(), 1e-12, 1 - 1e-12)
+        probs = np.stack([1.0 - p, p], axis=1)
+    else:
+        if scores.ndim == 1:
+            scores = scores[:, None]
+        probs = np.clip(scores, 1e-12, None)
+        probs = probs / probs.sum(axis=1, keepdims=True)
+    h = -(probs * np.log2(probs)).sum(axis=1)
+    if normalize:
+        n_classes = probs.shape[1]
+        if n_classes > 1:
+            h = h / np.log2(n_classes)
+    return h
 
 
 def aggregate_windows(
@@ -179,9 +209,14 @@ def aggregate_windows(
 
     * ``mean`` — average probabilities (binary) / softmax-averaged logits
       (multiclass). The natural choice for probabilistic pooling.
+    * ``median`` — per-case median probability, robust to a few outlier windows.
     * ``vote`` — majority vote over per-window hard predictions.
     * ``max``  — max positive probability (binary: case positive if any window
       crosses ``threshold``) / max over per-class scores (multiclass).
+    * ``entropy`` — confidence-weighted mean: each window is weighted by
+      ``1 - normalized_entropy`` so confident (low-entropy) windows dominate and
+      uncertain windows are down-weighted. Falls back to a plain mean when every
+      window in the case is maximally uncertain.
     * ``none`` — return inputs unchanged (window-level).
     """
     mode = (mode or 'none').lower()
@@ -205,6 +240,7 @@ def aggregate_windows(
 
     if is_binary:
         scores = output.astype(float).ravel()
+        ent = prediction_entropy(scores, is_binary=True) if mode == 'entropy' else None
         out_rows = []
         tgt_rows = []
         for g in order:
@@ -212,8 +248,13 @@ def aggregate_windows(
             s = scores[idx]
             if mode == 'mean':
                 agg = float(s.mean())
+            elif mode == 'median':
+                agg = float(np.median(s))
             elif mode == 'max':
                 agg = float(s.max())
+            elif mode == 'entropy':
+                w = 1.0 - ent[idx]
+                agg = float(np.average(s, weights=w) if w.sum() > 0 else s.mean())
             else:  # vote
                 agg = float(((s >= threshold).mean() >= 0.5))
             out_rows.append(agg)
@@ -226,6 +267,7 @@ def aggregate_windows(
         logits = logits[:, None]
     probs = softmax(logits, axis=1)
     nb_classes = probs.shape[1]
+    ent = prediction_entropy(probs, is_binary=False) if mode == 'entropy' else None
     out_rows = []
     tgt_rows = []
     tgt_flat = np.asarray(target).ravel()
@@ -233,8 +275,14 @@ def aggregate_windows(
         idx = idx_by_group[g]
         if mode == 'mean':
             agg = probs[idx].mean(axis=0)
+        elif mode == 'median':
+            agg = np.median(probs[idx], axis=0)
         elif mode == 'max':
             agg = probs[idx].max(axis=0)
+        elif mode == 'entropy':
+            w = 1.0 - ent[idx]
+            agg = (np.average(probs[idx], axis=0, weights=w)
+                   if w.sum() > 0 else probs[idx].mean(axis=0))
         else:  # vote
             votes = probs[idx].argmax(axis=1)
             counts = np.bincount(votes, minlength=nb_classes)
@@ -245,3 +293,44 @@ def aggregate_windows(
     # downstream softmax in the report/metrics recovers the aggregated probs.
     agg_probs = np.clip(np.array(out_rows), 1e-12, None)
     return np.log(agg_probs), np.array(tgt_rows).reshape(-1, 1)
+
+
+def threshold_sweep(
+    y_score: np.ndarray,
+    y_true: np.ndarray,
+    thresholds: Optional[Sequence[float]] = None,
+) -> Dict[str, np.ndarray]:
+    """Binary metrics as a function of decision threshold.
+
+    Returns a dict of equal-length arrays keyed by ``thresholds`` plus
+    ``accuracy``, ``balanced_accuracy``, ``f1``, ``precision``, ``recall``
+    (= sensitivity) and ``specificity`` — one value per threshold. Handy for
+    picking an operating point and for plotting metric-vs-threshold curves.
+    """
+    y_true = np.asarray(y_true).astype(int).ravel()
+    y_score = np.asarray(y_score, dtype=float).ravel()
+    if thresholds is None:
+        thresholds = np.linspace(0.0, 1.0, 51)
+    thresholds = np.asarray(thresholds, dtype=float)
+
+    keys = ('accuracy', 'balanced_accuracy', 'f1', 'precision', 'recall', 'specificity')
+    out: Dict[str, List[float]] = {k: [] for k in keys}
+    for t in thresholds:
+        y_pred = (y_score >= t).astype(int)
+        tp = int(((y_pred == 1) & (y_true == 1)).sum())
+        tn = int(((y_pred == 0) & (y_true == 0)).sum())
+        fp = int(((y_pred == 1) & (y_true == 0)).sum())
+        fn = int(((y_pred == 0) & (y_true == 1)).sum())
+        sens = tp / (tp + fn) if (tp + fn) else 0.0
+        spec = tn / (tn + fp) if (tn + fp) else 0.0
+        prec = tp / (tp + fp) if (tp + fp) else 0.0
+        f1 = (2 * prec * sens / (prec + sens)) if (prec + sens) else 0.0
+        out['accuracy'].append((tp + tn) / max(1, len(y_true)))
+        out['balanced_accuracy'].append((sens + spec) / 2.0)
+        out['f1'].append(f1)
+        out['precision'].append(prec)
+        out['recall'].append(sens)
+        out['specificity'].append(spec)
+    result: Dict[str, np.ndarray] = {'thresholds': thresholds}
+    result.update({k: np.asarray(v, dtype=float) for k, v in out.items()})
+    return result

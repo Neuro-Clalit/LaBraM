@@ -49,6 +49,8 @@ from labram.utils.eval_metrics import (
     ClassificationReport,
     aggregate_windows,
     classification_report,
+    prediction_entropy,
+    threshold_sweep,
 )
 from labram.utils.training import (
     NativeScalerWithGradNormCount,
@@ -88,6 +90,8 @@ __all__ = [
     'ClassificationReport',
     'aggregate_windows',
     'classification_report',
+    'prediction_entropy',
+    'threshold_sweep',
     'get_model',
     'get_rank',
     'get_world_size',
