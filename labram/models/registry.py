@@ -33,6 +33,21 @@ def _strip_timm_kwargs(kwargs: dict) -> dict:
     return kwargs
 
 
+def _coerce_labram_plus(labram_plus):
+    """Normalise a factory ``labram_plus`` kwarg into a LaBraMPlusConfig.
+
+    Accepts ``None`` (-> disabled default), an existing config, or a plain dict
+    (as it would arrive from a serialized run config)."""
+    from labram.configs.labram_plus_config import LaBraMPlusConfig
+    if labram_plus is None:
+        return LaBraMPlusConfig()
+    if isinstance(labram_plus, LaBraMPlusConfig):
+        return labram_plus
+    if isinstance(labram_plus, dict):
+        return LaBraMPlusConfig.load_config(labram_plus)
+    raise TypeError(f"labram_plus must be None, LaBraMPlusConfig, or dict; got {type(labram_plus)}")
+
+
 def _cfg_arch_from_kwargs(arch_fields: dict, caller_kwargs: dict) -> TransformerArchConfig:
     """Build a TransformerArchConfig from declared arch fields + any matching
     caller kwargs (e.g. num_classes, drop_path_rate passed via create_model)."""
@@ -187,7 +202,7 @@ def vqnsp_encoder_base_decoder_3x200x12(pretrained=False, pretrained_weight=None
                                          num_codebook_tokens=conf_consts.DEFAULT_CODEBOOK_SIZE,
                                          quantizer_dim=conf_consts.DEFAULT_QUANTIZER_DIM,
                                          decay=conf_consts.DEFAULT_VQNSP_EMA_DECAY,
-                                         quantize_kmeans_init=True, **kwargs):
+                                         quantize_kmeans_init=True, labram_plus=None, **kwargs):
     _strip_timm_kwargs(kwargs)
     enc_cfg = _vqnsp_base_arch(eeg_window_size=eeg_window_size)
     dec_cfg = _vqnsp_base_arch(
@@ -203,6 +218,7 @@ def vqnsp_encoder_base_decoder_3x200x12(pretrained=False, pretrained_weight=None
             kmeans_init=quantize_kmeans_init,
         ),
         decoder_out_dim=conf_consts.DEFAULT_ARCH_DECODER_OUT_DIM,
+        labram_plus=_coerce_labram_plus(labram_plus),
     )
     model = VQNSP(arch_cfg)
     if as_tokenzer:
@@ -218,7 +234,7 @@ def vqnsp_encoder_large_decoder_3x200x24(pretrained=False, pretrained_weight=Non
                                           num_codebook_tokens=conf_consts.DEFAULT_CODEBOOK_SIZE,
                                           quantizer_dim=conf_consts.DEFAULT_QUANTIZER_DIM,
                                           decay=conf_consts.DEFAULT_VQNSP_EMA_DECAY,
-                                          quantize_kmeans_init=True, **kwargs):
+                                          quantize_kmeans_init=True, labram_plus=None, **kwargs):
     _strip_timm_kwargs(kwargs)
     enc_cfg = _vqnsp_base_arch(eeg_window_size=eeg_window_size, depth=24)
     dec_cfg = _vqnsp_base_arch(
@@ -234,6 +250,7 @@ def vqnsp_encoder_large_decoder_3x200x24(pretrained=False, pretrained_weight=Non
             kmeans_init=quantize_kmeans_init,
         ),
         decoder_out_dim=conf_consts.DEFAULT_ARCH_DECODER_OUT_DIM,
+        labram_plus=_coerce_labram_plus(labram_plus),
     )
     model = VQNSP(arch_cfg)
     if as_tokenzer:

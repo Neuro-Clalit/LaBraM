@@ -12,7 +12,14 @@ from labram.data.eeg_constants import (
     standard_1020,
 )
 from labram.data.hdf5_datasets import ShockDataset, SingleShockDataset
-from labram.data.preprocess import collate_mask_time, mask_channels, normalization
+from labram.data.preprocess import (
+    apply_labram_plus_preprocess,
+    collate_mask_time,
+    common_average_reference,
+    mask_channels,
+    normalization,
+    z_score_per_patch,
+)
 from labram.data.pretraining import build_pretraining_dataset
 from labram.data.tuh_datasets import (
     TUABLoader,
@@ -31,8 +38,10 @@ __all__ = [
     'TUEVLoader',
     'TUHLoader',
     'TUH_EEG_CH_NAMES',
+    'apply_labram_plus_preprocess',
     'build_pretraining_dataset',
     'collate_mask_time',
+    'common_average_reference',
     'get_channel_indices',
     'get_dataset_bundle',
     'mask_channels',
@@ -41,4 +50,5 @@ __all__ = [
     'prepare_TUAB_dataset',
     'prepare_TUEV_dataset',
     'standard_1020',
+    'z_score_per_patch',
 ]

@@ -16,15 +16,17 @@ from labram.models.vqnsp import load_vqnsp_weights
 from labram.optim_factory import get_num_layer_for_vit
 
 
-def loss_config_from_codebook_reg(cr, label_smoothing: float) -> LossConfig:
+def loss_config_from_codebook_reg(cr, label_smoothing: float, phase_loss: str = "angle") -> LossConfig:
     """Map a CodebookRegConfig (+ label smoothing) into a LossConfig the
-    criterion consumes."""
+    criterion consumes. ``phase_loss`` selects the spectral phase objective
+    ('sincos' under LaBraM++, otherwise 'angle')."""
     return LossConfig(
         classification_label_smoothing=label_smoothing,
         classifier_weight=cr.classifier_weight,
         amplitude_weight=cr.amplitude_weight,
         phase_weight=cr.phase_weight,
         embedding_weight=cr.embedding_weight,
+        phase_loss=phase_loss,
     )
 
 
@@ -120,6 +122,7 @@ def build_codebook_classifier(config: FinetuneRunConfig) -> CodebookRegularizedC
         linear_embedding=cr.linear_embedding,
         norm_embedding=cr.norm_embedding,
         classifier_type=cr.classifier_type,
+        labram_plus=config.labram_plus,
     )
     apply_component_trainability(model, cr)
     return model

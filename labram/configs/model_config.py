@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from labram.configs.base_configs import ConfigBase
 from labram.configs import defaults as conf_consts
+from labram.configs.labram_plus_config import LaBraMPlusConfig
 
 
 
@@ -148,6 +149,9 @@ class TransformerArchConfig(ConfigBase):
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM
+    # LaBraM++ input preprocessing (CAR + z-scoring); disabled by default so the
+    # backbone reproduces the original LaBraM behaviour.
+    labram_plus: LaBraMPlusConfig = field(default_factory=LaBraMPlusConfig)
 
 
 @dataclass
@@ -174,6 +178,9 @@ class VQNSPArchConfig(ConfigBase):
     quantizer: QuantizerConfig = field(default_factory=QuantizerConfig)
     decoder_out_dim: int = conf_consts.DEFAULT_ARCH_DECODER_OUT_DIM
     smooth_l1_loss: bool = conf_consts.DEFAULT_ARCH_SMOOTH_L1_LOSS
+    # LaBraM++ mode for the tokenizer: input preprocessing (CAR + z-scoring) and
+    # the sin/cos phase-loss selection flow from here. Disabled by default.
+    labram_plus: LaBraMPlusConfig = field(default_factory=LaBraMPlusConfig)
 
 
 

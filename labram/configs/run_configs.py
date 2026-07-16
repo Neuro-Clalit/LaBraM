@@ -24,6 +24,7 @@ from typing import List
 from labram.configs.base_configs import ConfigBase
 from labram.configs.data_config import DataConfig
 from labram.configs import defaults as conf_consts
+from labram.configs.labram_plus_config import LaBraMPlusConfig
 from labram.configs.loss_config import LossConfig
 from labram.configs.model_config import (
     CodebookRegConfig,
@@ -65,6 +66,8 @@ class RunConfig(ConfigBase):
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     shutdown: ShutdownConfig = field(default_factory=ShutdownConfig)
     loss: LossConfig = field(default_factory=LossConfig)
+    # LaBraM++ training mode (opt-in). Disabled by default -> original LaBraM.
+    labram_plus: LaBraMPlusConfig = field(default_factory=LaBraMPlusConfig)
 
     def to_namespace(self) -> Namespace:
         """Flatten every leaf field into a single ``argparse.Namespace``.

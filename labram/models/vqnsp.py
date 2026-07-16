@@ -65,7 +65,15 @@ class VQNSP(QuantizeDecodeMixin, nn.Module):
         self.decode_task_layer_magnitude.apply(self._init_weights)
         self.decode_task_layer_phase.apply(self._init_weights)
 
-        self.loss_config = LossConfig(use_smooth_l1=config.smooth_l1_loss, vq_commitment_beta=q_cfg.beta)
+        # LaBraM++ tokenizer mode: CAR + z-score input preprocessing and the
+        # sin/cos phase loss. Disabled by default -> original LaBraM tokenizer.
+        self.labram_plus = getattr(config, 'labram_plus', None)
+        phase_loss = self.labram_plus.resolved_phase_loss if self.labram_plus is not None else "angle"
+        self.loss_config = LossConfig(
+            use_smooth_l1=config.smooth_l1_loss,
+            vq_commitment_beta=q_cfg.beta,
+            phase_loss=phase_loss,
+        )
         self.recon_loss = SpectralReconstructionLoss(self.loss_config)
 
     def _init_weights(self, m):
@@ -98,11 +106,28 @@ class VQNSP(QuantizeDecodeMixin, nn.Module):
 
         return output
 
-    def encode(self, x, channel_indices=None):
+    def _preprocess(self, x):
+        """Apply LaBraM++ input preprocessing (CAR + z-scoring) when enabled.
+
+        Applied once at the tokenizer boundary (both ``forward`` and ``encode``
+        call this), so the reconstruction target and the encoder input share the
+        same preprocessed signal. The internal encoder/decoder are built with a
+        disabled ``labram_plus`` config, so they never preprocess again.
+        """
+        if self.labram_plus is None or not self.labram_plus.preprocesses_input:
+            return x
+        from labram.data.preprocess import apply_labram_plus_preprocess
+        return apply_labram_plus_preprocess(x, self.labram_plus)
+
+    def _encode_features(self, x, channel_indices=None):
         batch_size, num_channels, a, t = x.shape
         encoder_features = self.encoder(x, channel_indices, return_patch_tokens=True)
         quantize, loss, codebook_indices = self.quantize_patch_tokens(encoder_features, num_channels)
         return quantize, codebook_indices, loss
+
+    def encode(self, x, channel_indices=None):
+        x = self._preprocess(x)
+        return self._encode_features(x, channel_indices)
 
     def decode(self, quantize, channel_indices=None, **kwargs):
         return self.decode_spectrum(quantize, channel_indices)
@@ -117,9 +142,10 @@ class VQNSP(QuantizeDecodeMixin, nn.Module):
         """
 
         x = rearrange(x, 'B N (A T) -> B N A T', T=200)
+        x = self._preprocess(x)
         amplitude_target, angle_target = self.recon_loss.spectrum_targets(x)
 
-        quantize, codebook_indices, embedding_loss = self.encode(x, channel_indices)
+        quantize, codebook_indices, embedding_loss = self._encode_features(x, channel_indices)
 
         reconstructed_amplitude, reconstructed_angle = self.decode(quantize, channel_indices)
         amplitude_loss, angle_loss = self.recon_loss(
