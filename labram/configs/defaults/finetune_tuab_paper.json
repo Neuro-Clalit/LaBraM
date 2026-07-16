@@ -68,7 +68,7 @@
         "dist_url": "env://",
         "device": "auto",
         "seed": 0,
-        "dist_eval": false,
+        "dist_eval": true,
         "distributed": false,
         "gpu": 0
     },
