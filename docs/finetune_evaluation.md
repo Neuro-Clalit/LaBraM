@@ -104,3 +104,17 @@ files. `plots.eeg_case_figure` draws the raw multi-channel EEG and
 4. Set `DATASET` / `DATA_PATH` / `SPLIT` (`val` or `test`) and run all cells.
 
 The analyses are dataset-agnostic (binary TUAB and multiclass TUEV).
+
+## Diagnosing the training run (not just the model)
+
+The loaders above fetch a run's **checkpoint / config / data-split** to rebuild
+and evaluate the *model*. To instead diagnose the *training run* — its metric
+curves, hyperparameters, and console — pull the ClearML experiment into a local
+snapshot and get concrete heuristic insights (overfitting, divergence,
+LR-schedule issues, …):
+
+```bash
+python -m labram.eval.clearml_report --task-id <TASK_ID> --output-dir ./analysis/
+```
+
+See [`docs/clearml_local_analysis.md`](clearml_local_analysis.md).
