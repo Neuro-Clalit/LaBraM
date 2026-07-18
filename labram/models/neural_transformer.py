@@ -65,6 +65,8 @@ class NeuralTransformerBase(nn.Module):
         self.patch_size = patch_size
         self.in_chans = in_chans
         self.init_std = init_std
+        # LaBraM++ input preprocessing config (may be None on legacy arch configs).
+        self.labram_plus = getattr(config, 'labram_plus', None)
 
         # patch embedding: TemporalConv on raw EEG (in_chans=1), else PatchEmbed
         # (decoder path with patch_size=1 used inside VQNSP).
@@ -138,6 +140,20 @@ class NeuralTransformerBase(nn.Module):
     def no_weight_decay(self):
         return {'pos_embed', 'cls_token', 'time_embed'}
 
+    def maybe_preprocess_input(self, x):
+        """Apply LaBraM++ input preprocessing (CAR + z-scoring) when enabled.
+
+        Only the raw-EEG path (``in_chans == 1``, i.e. the TemporalConv patch
+        embedding) is preprocessed; the VQNSP decoder path operates on quantizer
+        features and must be left untouched. A ``None`` or disabled
+        ``labram_plus`` config returns ``x`` unchanged, so the default backbone
+        matches the original LaBraM exactly.
+        """
+        if self.in_chans != 1 or self.labram_plus is None or not self.labram_plus.preprocesses_input:
+            return x
+        from labram.data.preprocess import apply_labram_plus_preprocess
+        return apply_labram_plus_preprocess(x, self.labram_plus)
+
     def _embed_inputs(self, x, channel_indices=None):
         """patch_embed + cls concat + pos/time embeddings + pos_drop.
 
@@ -147,6 +163,7 @@ class NeuralTransformerBase(nn.Module):
                         derived from T instead of A.
         Output x shape: (B, N*A + 1, embed_dim) -- CLS token at index 0.
         """
+        x = self.maybe_preprocess_input(x)
         batch_size, n, a, t = x.shape
         x = self.patch_embed(x)
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)

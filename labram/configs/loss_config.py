@@ -32,6 +32,12 @@ class LossConfig(ConfigBase):
     # 1.0 = full spectrum; 0.5 = low half only.  Must be in (0, 1].
     freq_fraction: float = 1.0
 
+    # VQNSP phase reconstruction mode (SpectralReconstructionLoss):
+    #   "angle"  -- original LaBraM loss on the std-normalised raw angle,
+    #   "sincos" -- LaBraM++ circular loss on (sin phi, cos phi), which removes
+    #               the +/-pi wrap-around discontinuity of the raw-angle loss.
+    phase_loss: str = "angle"
+
     # Downstream classification criterion.
     classification_label_smoothing: float = 0.0
 

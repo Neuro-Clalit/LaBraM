@@ -31,6 +31,7 @@ class NeuralTransformerForMaskedEEGModeling(NeuralTransformerBase):
         self.fix_init_weight()
 
     def forward_features(self, x, channel_indices, bool_masked_pos):
+        x = self.maybe_preprocess_input(x)
         batch_size, n, a, t = x.shape
         x = self.patch_embed(x)
         seq_len = x.shape[1]

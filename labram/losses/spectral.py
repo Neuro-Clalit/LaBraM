@@ -36,7 +36,13 @@ class SpectralReconstructionLoss(nn.Module):
         return (x - mean) / std
 
     def spectrum_targets(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """``x``: [B, N, A, T] -> (amplitude, phase), each std-normalised.
+        """``x``: [B, N, A, T] -> (amplitude, phase) targets.
+
+        Amplitude is always std-normalised. The phase target depends on
+        ``cfg.phase_loss``: ``"angle"`` (original) std-normalises the raw angle,
+        while ``"sincos"`` (LaBraM++) returns the raw angle in radians -- the
+        circular ``sin``/``cos`` transform is applied inside the loss so the
+        target keeps its natural +/-pi range.
 
         When ``cfg.freq_fraction < 1``, only the first ``ceil(T * freq_fraction)``
         FFT bins are kept, focusing the loss on low frequencies.
@@ -46,14 +52,31 @@ class SpectralReconstructionLoss(nn.Module):
             n_freq = max(1, round(x_fft.shape[-1] * self.cfg.freq_fraction))
             x_fft = x_fft[..., :n_freq]
         amplitude = self.std_norm(torch.abs(x_fft))
-        phase = self.std_norm(torch.angle(x_fft))
+        angle = torch.angle(x_fft)
+        phase = angle if self.cfg.phase_loss == "sincos" else self.std_norm(angle)
         return amplitude, phase
 
     def reconstruction_loss(self, reconstructed: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         target = rearrange(target, 'b n a c -> b (n a) c')
         return self._loss_fn(reconstructed[..., :target.shape[-1]], target)
 
+    def phase_reconstruction_loss(self, reconstructed: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Phase reconstruction term.
+
+        In ``"angle"`` mode this is a plain MSE/smooth-L1 on the (std-normalised)
+        angle, identical to :meth:`reconstruction_loss`. In ``"sincos"`` mode the
+        loss is ``||sin(phi_hat) - sin(phi)||^2 + ||cos(phi_hat) - cos(phi)||^2``
+        (LaBraM++), a smooth circular objective with no +/-pi discontinuity.
+        ``reconstructed`` is the decoder's predicted phase ``phi_hat`` in radians.
+        """
+        if self.cfg.phase_loss != "sincos":
+            return self.reconstruction_loss(reconstructed, target)
+        target = rearrange(target, 'b n a c -> b (n a) c')
+        reconstructed = reconstructed[..., :target.shape[-1]]
+        return (self._loss_fn(torch.sin(reconstructed), torch.sin(target))
+                + self._loss_fn(torch.cos(reconstructed), torch.cos(target)))
+
     def forward(self, reconstructed_amplitude, reconstructed_angle, amplitude_target, angle_target):
         amplitude_loss = self.reconstruction_loss(reconstructed_amplitude, amplitude_target)
-        angle_loss = self.reconstruction_loss(reconstructed_angle, angle_target)
+        angle_loss = self.phase_reconstruction_loss(reconstructed_angle, angle_target)
         return amplitude_loss, angle_loss

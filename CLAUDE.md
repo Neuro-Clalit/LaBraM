@@ -43,6 +43,13 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.finetune
   --config labram/configs/defaults/finetune_tuab_codebook.json \
   --set codebook_reg.tokenizer_weight=./checkpoints/vqnsp.pth \
         finetune_checkpoint.finetune=./checkpoints/labram-base.pth
+
+# LaBraM++ mode (opt-in): sin/cos phase loss + per-patch CAR & z-scoring
+# (arXiv:2505.16724). Off by default; the *_labram_plus_plus.json configs turn
+# it on, or add --set labram_plus.enabled=true to any config. See
+# docs/labram_plus_plus.md.
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.vqnsp \
+  --config labram/configs/defaults/vqnsp_labram_plus_plus.json
 ```
 
 ### Installation
@@ -88,6 +95,8 @@ torch>=2.3. Install a compatible DeepSpeed manually only if you need it.
 **Fine-tuning**: Raw EEG → pre-trained `NeuralTransformer` (from `--finetune` checkpoint, head discarded) → mean-pool over time → classification head → cross-entropy.
 
 **Codebook-regularized fine-tuning** (opt-in, `codebook_reg.enabled`): Raw EEG → trainable encoder (from pre-trained checkpoint) → classification head over configurable feature sources (`encoder_mean` / `quantize_mean` / `bag_of_codes`); the same patch tokens also go through the grafted VQNSP quantizer (codebook frozen) + trainable decoder to reconstruct the spectrum. Loss = classification + spectral (amplitude/phase) + quantization, combined by `CodebookRegularizedCriterion`. Encoder/decoder/codebook use LR scales below the head LR. See `docs/codebook_regularized_finetune_plan.md`.
+
+**LaBraM++ mode** (opt-in, `labram_plus.enabled`, arXiv:2505.16724): a bundle of three signal-processing/loss improvements over the original LaBraM, off by default so existing checkpoints/configs are unaffected. (1) Per-patch **Common Average Reference** and (2) per-patch **z-scoring** are applied to model inputs; (3) the VQNSP tokenizer's phase reconstruction uses a **sin/cos circular loss** (`‖sin φ̂ − sin φ‖² + ‖cos φ̂ − cos φ‖²`) instead of the raw-angle MSE, removing the ±π wrap-around discontinuity. The single switch is `LaBraMPlusConfig` (`labram/configs/labram_plus_config.py`) on every `RunConfig` as `config.labram_plus`; preprocessing is model-owned (applied in `NeuralTransformer._embed_inputs`, `NeuralTransformerForMaskedEEGModeling.forward_features`, and `VQNSP._preprocess`) so it stays consistent across training and evaluation and never double-applies. Config files: `configs/defaults/{vqnsp,pretrain_,finetune_tuab_}labram_plus_plus.json`. See `docs/labram_plus_plus.md`.
 
 ### Key cross-cutting concerns
 

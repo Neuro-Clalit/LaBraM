@@ -43,6 +43,7 @@ def get_model(config: PretrainRunConfig):
         use_abs_pos_emb=m.abs_pos_emb,
         init_values=m.layer_scale_init_value,
         vocab_size=t.codebook_size,
+        labram_plus=config.labram_plus,
     )
 
 
@@ -56,6 +57,7 @@ def get_visual_tokenizer(config: PretrainRunConfig):
         as_tokenzer=True,
         num_codebook_tokens=t.codebook_size,
         quantizer_dim=t.quantizer_dim,
+        labram_plus=config.labram_plus,
     ).eval()
 
 

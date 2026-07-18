@@ -54,6 +54,7 @@ class CodebookRegularizedClassifier(QuantizeDecodeMixin, nn.Module):
         linear_embedding: bool = True,
         norm_embedding: bool = True,
         classifier_type: str = 'linear',
+        labram_plus=None,
     ):
         super().__init__()
         if not feature_sources:
@@ -70,6 +71,10 @@ class CodebookRegularizedClassifier(QuantizeDecodeMixin, nn.Module):
         self.decode_task_layer_phase = decode_task_layer_phase
         self.patch_size = encoder.patch_size
         self.feature_sources: List[str] = list(feature_sources)
+        # LaBraM++ input preprocessing owned here so the encoder input and the
+        # spectral-reconstruction target (x_patched) share one preprocessed
+        # signal; the encoder itself is built with preprocessing disabled.
+        self.labram_plus = labram_plus
 
         embed_dim = encoder.embed_dim
         quantizer_dim = quantizer.quantizer_dim
@@ -117,8 +122,15 @@ class CodebookRegularizedClassifier(QuantizeDecodeMixin, nn.Module):
                 feats.append(self.embedders[src](codebook_indices.view(batch_size, -1)))
         return torch.cat(feats, dim=-1)
 
+    def _preprocess(self, x):
+        if self.labram_plus is None or not self.labram_plus.preprocesses_input:
+            return x
+        from labram.data.preprocess import apply_labram_plus_preprocess
+        return apply_labram_plus_preprocess(x, self.labram_plus)
+
     def forward(self, x, channel_indices=None, classify_only=False, **kwargs) -> PredictorOutput:
         """``x``: ``[B, N, A, T]`` (already patched)."""
+        x = self._preprocess(x)
         batch_size, num_channels = x.shape[0], x.shape[1]
         patch_tokens = self.encoder.forward_features(
             x, channel_indices=channel_indices, return_patch_tokens=True)

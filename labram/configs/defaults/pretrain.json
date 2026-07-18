@@ -119,7 +119,8 @@
         "vq_commitment_beta": 1.0,
         "freq_fraction": 1.0,
         "classification_label_smoothing": 0.0,
-        "classifier_weight": 1.0
+        "classifier_weight": 1.0,
+        "phase_loss": "angle"
     },
     "shutdown": {
         "py/object": "labram.configs.train_config.ShutdownConfig",
@@ -132,5 +133,13 @@
         "log_model_graph": true,
         "model_graph_format": "svg",
         "log_data_split": true
+    },
+    "labram_plus": {
+        "py/object": "labram.configs.labram_plus_config.LaBraMPlusConfig",
+        "enabled": false,
+        "common_average_reference": true,
+        "z_score_patches": true,
+        "z_score_eps": 1e-05,
+        "phase_loss": "sincos"
     }
 }

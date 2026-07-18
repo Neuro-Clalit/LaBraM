@@ -62,9 +62,9 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.finetune
 
 - `labram/layers/`: neural-network primitives, one per module (`drop_path`, `mlp`, `attention`, `patch_embed`, `transformer_block`), re-exported from `labram.layers`.
 - `labram/models/`: config-driven model definitions for tokenizer, pre-training, fine-tuning, and vector quantization.
-- `labram/data/`: all data concerns — channel layouts/index helpers (`eeg_constants`), HDF5 datasets (`hdf5_datasets`), TUH loaders (`tuh_datasets`), per-task bundles (`bundles`), preprocessing, and pre-training assembly; public API on `labram.data`.
-- `labram/losses/`: configurable training losses — `LossConfig`, `SpectralReconstructionLoss`, `get_vqnsp_losses`, `build_classification_criterion`.
-- `labram/configs/`: dataclass config tree on `ConfigBase` (JSON/YAML round-trip); model/data/optim/train/runner configs + `defaults/*.json`.
+- `labram/data/`: all data concerns — channel layouts/index helpers (`eeg_constants`), HDF5 datasets (`hdf5_datasets`), TUH loaders (`tuh_datasets`), per-task bundles (`bundles`), preprocessing (incl. LaBraM++ CAR + per-patch z-scoring in `preprocess.py`), and pre-training assembly; public API on `labram.data`.
+- `labram/losses/`: configurable training losses — `LossConfig` (incl. `phase_loss` for the LaBraM++ sin/cos objective), `SpectralReconstructionLoss`, `get_vqnsp_losses`, `build_classification_criterion`.
+- `labram/configs/`: dataclass config tree on `ConfigBase` (JSON/YAML round-trip); model/data/optim/train/runner configs + `defaults/*.json`. `LaBraMPlusConfig` (`labram_plus_config.py`) is the opt-in LaBraM++ switch on every `RunConfig`.
 - `labram/train/`: training and evaluation loops for each phase (`train_finetune.py`, `train_pretrain.py`, `train_vqnsp.py`); shared helpers in `base.py`.
 - `labram/runs/`: command-line entry points (`run_vqnsp.py`, `run_pretrain.py`, `run_finetune.py`) and setup code. `common.py` owns shared DDP setup, dataloaders, and scheduling helpers.
 - `labram/utils/`: checkpointing, distributed utilities, metrics, logging, and training schedules; `__init__` re-exports the `labram.data` public API for backward compatibility.

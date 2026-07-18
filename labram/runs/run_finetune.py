@@ -56,6 +56,7 @@ def get_model(config: FinetuneRunConfig):
         use_mean_pooling=m.use_mean_pooling, init_scale=m.init_scale,
         use_rel_pos_bias=m.rel_pos_bias, use_abs_pos_emb=m.abs_pos_emb,
         init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
+        labram_plus=config.labram_plus,
     )
 
 
@@ -199,7 +200,9 @@ def main(config: FinetuneRunConfig):
 
     nb_classes = config.model.nb_classes
     if config.model.codebook_reg.enabled:
-        loss_cfg = loss_config_from_codebook_reg(config.model.codebook_reg, config.optimizer.smoothing)
+        loss_cfg = loss_config_from_codebook_reg(
+            config.model.codebook_reg, config.optimizer.smoothing,
+            phase_loss=config.labram_plus.resolved_phase_loss)
         criterion = CodebookRegularizedCriterion(
             build_classification_criterion(nb_classes, loss_cfg), loss_cfg)
     else:

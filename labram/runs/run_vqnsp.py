@@ -40,6 +40,7 @@ def get_model(config: VQNSPRunConfig):
         eeg_window_size=m.input_size,
         decay=m.ema_decay,
         quantize_kmeans_init=m.quantize_kmeans_init,
+        labram_plus=config.labram_plus,
     )
 
 
