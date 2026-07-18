@@ -60,7 +60,12 @@ def get_model(config: FinetuneRunConfig):
     )
 
 
-def main(config: FinetuneRunConfig):
+def main(config: FinetuneRunConfig, bundle=None):
+    """Run a single fine-tune. When ``bundle`` is provided it overrides the
+    dataset built from ``config.data`` — the cross-validation runner passes a
+    fold's train/val/test :class:`DatasetBundle` this way. Returns the
+    best-epoch metric summary from the training loop (or the eval metrics for an
+    eval-only run)."""
     # setup_environment handles distributed init, device resolution, and seeding.
     # For finetune, config.distributed.device defaults to 'auto', which
     # setup_environment resolves to cuda/mps/cpu.
@@ -82,7 +87,8 @@ def main(config: FinetuneRunConfig):
 
     logger.info("%s", config)
 
-    bundle = get_dataset_bundle(config.data.dataset, config.data.data_path)
+    if bundle is None:
+        bundle = get_dataset_bundle(config.data.dataset, config.data.data_path)
     config.model.nb_classes = bundle.nb_classes
     dataset_train, dataset_val, dataset_test = bundle.train, bundle.val, bundle.test
     ch_names, metrics = bundle.ch_names, bundle.metrics
@@ -114,6 +120,11 @@ def main(config: FinetuneRunConfig):
     runner_common.log_data_split_artifact(
         config.logging, config.output, dataset_train, dataset_val, dataset_test,
         log_writer=log_writer, dataset_name=config.data.dataset)
+
+    # For a cross-validation fold, also attach the fold partition (cv_split.json,
+    # written to the fold's output dir by the CV runner) to this experiment.
+    if getattr(config, 'cross_validation', None) is not None and config.cross_validation.enabled:
+        runner_common.log_cv_split_artifact(config.output, log_writer=log_writer)
 
     pin_memory = config.data.pin_mem and device.type == 'cuda'
     loaders = build_dataloaders(
@@ -230,9 +241,10 @@ def main(config: FinetuneRunConfig):
             balanced_accuracy.append(test_stats['balanced_accuracy'])
         logger.info(f"Accuracy: {np.mean(accuracy):.3f} ± {np.std(accuracy):.3f}, "
                     f"balanced: {np.mean(balanced_accuracy):.3f} ± {np.std(balanced_accuracy):.3f}")
-        return
+        return {"accuracy": float(np.mean(accuracy)),
+                "balanced_accuracy": float(np.mean(balanced_accuracy))}
 
-    train_loop(
+    summary = train_loop(
         config=config,
         model=model, model_without_ddp=model_without_ddp,
         criterion=criterion, loaders=loaders,
@@ -246,6 +258,7 @@ def main(config: FinetuneRunConfig):
     )
 
     runner_common.finalize_run(config, log_writer)
+    return summary
 
 
 def build_config(cli: argparse.Namespace) -> FinetuneRunConfig:

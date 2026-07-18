@@ -22,10 +22,12 @@ from dataclasses import dataclass, field
 from typing import List
 
 from labram.configs.base_configs import ConfigBase
+from labram.configs.cv_config import CrossValidationConfig
 from labram.configs.data_config import DataConfig
 from labram.configs import defaults as conf_consts
 from labram.configs.labram_plus_config import LaBraMPlusConfig
 from labram.configs.loss_config import LossConfig
+from labram.configs.sagemaker_config import SageMakerConfig
 from labram.configs.model_config import (
     CodebookRegConfig,
     FinetuneCheckpointConfig,
@@ -189,6 +191,10 @@ class FinetuneRunConfig(RunConfig):
     finetune_checkpoint: FinetuneCheckpointConfig = field(default_factory=FinetuneCheckpointConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     loss: LossConfig = field(default_factory=LossConfig)
+    # K-fold cross-validation (opt-in). Disabled -> single train/val/test run.
+    cross_validation: CrossValidationConfig = field(default_factory=CrossValidationConfig)
+    # AWS SageMaker submission settings (only used by labram.runs.submit_sagemaker).
+    sagemaker: SageMakerConfig = field(default_factory=SageMakerConfig)
     optimizer: OptimizerConfig = field(
         default_factory=lambda: OptimizerConfig(
             lr=conf_consts.DEFAULT_FINETUNE_LR,

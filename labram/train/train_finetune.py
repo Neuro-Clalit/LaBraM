@@ -387,8 +387,15 @@ def train_loop(
     num_training_steps_per_epoch: int,
     model_ema=None,
     enable_deepspeed: bool = False,
-) -> None:
-    """Epoch loop extracted from the runner."""
+) -> dict:
+    """Epoch loop extracted from the runner.
+
+    Returns a summary of the best-epoch metrics (selected by validation
+    accuracy): ``max_accuracy`` (val), ``max_accuracy_test``, ``best_epoch`` and
+    the full ``best_val_stats`` / ``best_test_stats`` dicts. Callers that don't
+    need it (the plain fine-tune runner) simply ignore the return value; the
+    cross-validation runner uses it to aggregate metrics across folds.
+    """
     import time
     import labram.runs.common as runner_common
 
@@ -403,6 +410,9 @@ def train_loop(
     logger.info(f"Start training for {config.trainer.epochs} epochs")
     start_time = time.time()
     max_accuracy = max_accuracy_test = 0.0
+    best_epoch = -1
+    best_val_stats: dict = {}
+    best_test_stats: dict = {}
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
         if config.distributed.distributed:
@@ -459,6 +469,9 @@ def train_loop(
                         epoch="best", model_ema=model_ema,
                         enable_deepspeed=enable_deepspeed)
                 max_accuracy_test = test_stats["accuracy"]
+                best_epoch = epoch
+                best_val_stats = dict(val_stats)
+                best_test_stats = dict(test_stats)
             logger.info(f'Max accuracy val: {max_accuracy:.2f}%, test: {max_accuracy_test:.2f}%')
 
             _log_eval_stats(log_writer, val_stats, head="val", epoch=epoch)
@@ -487,3 +500,11 @@ def train_loop(
             enable_deepspeed=enable_deepspeed)
 
     runner_common.print_training_time(start_time)
+
+    return {
+        "max_accuracy": max_accuracy,
+        "max_accuracy_test": max_accuracy_test,
+        "best_epoch": best_epoch,
+        "best_val_stats": best_val_stats,
+        "best_test_stats": best_test_stats,
+    }

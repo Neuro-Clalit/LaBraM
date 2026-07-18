@@ -396,6 +396,26 @@ def log_data_split_artifact(logging_cfg: Any, output_cfg: OutputConfig,
     return path
 
 
+def log_cv_split_artifact(output_cfg: OutputConfig, log_writer: Any = None,
+                          filename: str = 'cv_split.json') -> Optional[str]:
+    """Upload the cross-validation fold partition (``cv_split.json``, written to
+    the fold's output dir by the CV runner) as a ClearML artifact so every fold
+    experiment records the exact partition it belongs to. Rank-0 only; returns
+    the path if found, else None."""
+    if not utils.is_main_process():
+        return None
+    out_dir = output_cfg.output_dir or output_cfg.log_dir
+    if not out_dir:
+        return None
+    path = os.path.join(out_dir, filename)
+    if not os.path.exists(path):
+        return None
+    from labram.utils.clearml_artifacts import get_clearml_task, upload_file_artifact
+    task = get_clearml_task(log_writer)
+    upload_file_artifact(task, 'cv_split', path)
+    return path
+
+
 def finalize_run(config: Any, log_writer: Any = None) -> None:
     """Post-training hook (rank 0): publish the model + optionally stop the box.
 

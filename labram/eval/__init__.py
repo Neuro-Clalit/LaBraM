@@ -25,6 +25,15 @@ from labram.eval.aggregation import (
     report_for_mode,
     selective_accuracy,
 )
+from labram.eval.cv_aggregation import (
+    aggregate_cv_dir,
+    aggregate_fold_metrics,
+    collect_fold_metrics_from_clearml,
+    collect_fold_metrics_from_dir,
+    format_summary_table,
+    log_cv_summary,
+    save_cv_summary,
+)
 from labram.eval.clearml_analysis import (
     ExperimentSnapshot,
     Insight,
@@ -56,6 +65,13 @@ from labram.eval.loading import (
 __all__ = [
     'DEFAULT_AGG_MODES',
     'EntropyAccuracyCurve',
+    'aggregate_cv_dir',
+    'aggregate_fold_metrics',
+    'collect_fold_metrics_from_clearml',
+    'collect_fold_metrics_from_dir',
+    'format_summary_table',
+    'log_cv_summary',
+    'save_cv_summary',
     'ExperimentAssets',
     'ExperimentSnapshot',
     'Insight',

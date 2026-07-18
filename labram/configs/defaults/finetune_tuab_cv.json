@@ -2,8 +2,8 @@
     "py/object": "labram.configs.runner_configs.FinetuneRunConfig",
     "output": {
         "py/object": "labram.configs.train_config.OutputConfig",
-        "output_dir": "./checkpoints/finetune_tuab_base/",
-        "log_dir": "./log/finetune_tuab_base",
+        "output_dir": "./checkpoints/finetune_tuab_cv5/",
+        "log_dir": "./log/finetune_tuab_cv5",
         "resume": "",
         "auto_resume": true,
         "save_ckpt": true,
@@ -82,7 +82,7 @@
         "py/object": "labram.configs.train_config.ClearMLConfig",
         "enabled": false,
         "project_name": "LaBraM",
-        "task_name": "",
+        "task_name": "finetune_tuab",
         "tags": [],
         "output_uri": "",
         "offline": false,
@@ -192,7 +192,7 @@
     },
     "cross_validation": {
         "py/object": "labram.configs.cv_config.CrossValidationConfig",
-        "enabled": false,
+        "enabled": true,
         "n_folds": 5,
         "fold": -1,
         "split_by": "subject",

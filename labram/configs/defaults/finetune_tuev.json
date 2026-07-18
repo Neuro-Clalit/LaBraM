@@ -189,5 +189,42 @@
         "z_score_patches": true,
         "z_score_eps": 1e-05,
         "phase_loss": "sincos"
+    },
+    "cross_validation": {
+        "py/object": "labram.configs.cv_config.CrossValidationConfig",
+        "enabled": false,
+        "n_folds": 5,
+        "fold": -1,
+        "split_by": "subject",
+        "shuffle": true,
+        "seed": 42,
+        "pool": "train_val",
+        "split_json": "",
+        "base_dir": ""
+    },
+    "sagemaker": {
+        "py/object": "labram.configs.sagemaker_config.SageMakerConfig",
+        "enabled": false,
+        "role": "",
+        "instance_type": "ml.g4dn.xlarge",
+        "instance_count": 1,
+        "volume_size_gb": 100,
+        "max_run_sec": 345600,
+        "use_spot": false,
+        "max_wait_sec": 0,
+        "framework_version": "2.4.1",
+        "py_version": "py311",
+        "image_uri": "",
+        "entry_point": "run_finetune.py",
+        "source_dir": "",
+        "job_name_prefix": "labram-finetune",
+        "region": "",
+        "output_path": "",
+        "code_location": "",
+        "config_channel": "",
+        "environment": {},
+        "hyperparameters": {},
+        "tags": {},
+        "wait": false
     }
 }
