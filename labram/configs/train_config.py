@@ -5,6 +5,7 @@ from labram.configs.base_configs import ConfigBase
 from labram.configs.defaults import (
     DEFAULT_AUTO_RESUME,
     DEFAULT_BATCH_SIZE,
+    DEFAULT_CLEARML_APPEND_TIMESTAMP,
     DEFAULT_CLEARML_ARTIFACT_NAME,
     DEFAULT_CLEARML_AUTO_CONNECT_FRAMEWORKS,
     DEFAULT_CLEARML_CONTINUE_LAST_TASK,
@@ -85,6 +86,9 @@ class ClearMLConfig(ConfigBase):
     enabled: bool = DEFAULT_CLEARML_ENABLED
     project_name: str = DEFAULT_CLEARML_PROJECT_NAME
     task_name: str = DEFAULT_CLEARML_TASK_NAME
+    # Append a millisecond-precision timestamp to the task name at init time so
+    # each run is uniquely named (and sortable) in the ClearML UI.
+    append_timestamp: bool = DEFAULT_CLEARML_APPEND_TIMESTAMP
     tags: List[str] = field(default_factory=list)
     output_uri: str = DEFAULT_CLEARML_OUTPUT_URI
     offline: bool = DEFAULT_CLEARML_OFFLINE

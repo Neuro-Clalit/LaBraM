@@ -49,6 +49,37 @@ out to each underlying writer, so the training loops stay unchanged whether one
 or both backends are active. `ClearMLLogger` maps Tensorboard's `head/name`
 scalar convention onto ClearML's `(title, series)` pairs.
 
+### Scalar plot grouping (scale hygiene)
+
+Scalars are grouped by `head` (the ClearML plot *title* / TensorBoard tag group).
+Series that share a plot share a single (normalized) y-axis, so a series whose
+values are `>> 1` would flatten small-valued series plotted next to it. To keep
+each plot on a comparable scale, series are grouped by magnitude:
+
+| Plot (`head`)   | Series                                             | Scale        |
+|-----------------|----------------------------------------------------|--------------|
+| `loss`          | `loss`, `class_acc`, per-component losses          | O(1)         |
+| `opt`           | `lr`, `min_lr`, `weight_decay`                      | ≤ ~1         |
+| `grad`          | `grad_norm` (+ per-component grad norms)            | can be `>> 1`|
+| `scale`         | `loss_scale` (AMP dynamic scale, up to ~65536)     | `>> 1`       |
+| `val` / `test` / `train`      | `accuracy`, `f1`, `roc_auc`, … , `loss` | [0, 1] / O(1)|
+| `val_cm` / `test_cm` / `train_cm` | `cm_tn`, `cm_fp`, `cm_fn`, `cm_tp` (counts) | `>> 1`  |
+| `val_window` / `test_window`  | per-window (per-crop) copy of the above | as above     |
+
+Confusion-matrix cell **counts** and the AMP **loss scale** / **gradient norm**
+therefore live on their own plots rather than squashing the normalized metrics
+on the `val`/`test`/`opt` plots.
+
+### Per-window vs. per-case metrics
+
+Fine-tuning evaluates on ~10 s crop windows, but a clinical decision is per EEG
+*case* (recording or subject). When `evaluation.agg_windows` is set (the shipped
+`finetune_*` configs default to `mean`), the eval loop reports **both**: the
+per-case metrics (primary, on the `val`/`test` plots, pooling every window of a
+case via `agg_windows`) *and* the per-window metrics (mirrored under `window_*`
+keys, on the `val_window`/`test_window` plots). `evaluation.agg_case_by` selects
+whether a "case" is a `recording` or a `subject`.
+
 ## Enabling ClearML
 
 ClearML is an **optional dependency**. If the `clearml` package is not installed,
@@ -70,6 +101,7 @@ section (`labram.configs.train_config.ClearMLConfig`):
 | `enabled`                 | `false`   | Master switch for ClearML tracking.                            |
 | `project_name`            | `LaBraM`  | ClearML project the task is filed under.                       |
 | `task_name`               | `""`      | Task name; empty ⇒ derived from `output_dir` (or model name).  |
+| `append_timestamp`        | `true`    | Append a millisecond timestamp (`YYYYmmdd_HHMMSS_fff`) to the task name so each run is uniquely identifiable. |
 | `tags`                    | `[]`      | Tags added to the task.                                        |
 | `output_uri`              | `""`      | Artifact upload target; empty ⇒ ClearML default.               |
 | `offline`                 | `false`   | Run without a server, storing results locally.                 |

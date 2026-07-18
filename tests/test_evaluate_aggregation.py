@@ -54,6 +54,21 @@ def test_evaluate_aggregates_windows_into_cases(tuab_loader):
     assert "sensitivity" in stats and "specificity" in stats
 
 
+def test_evaluate_reports_both_window_and_case_metrics(tuab_loader):
+    # When aggregating, the per-crop (window) metrics must still be reported
+    # alongside the per-case ones, under ``window_*`` keys.
+    eval_cfg = EvaluationConfig(agg_windows="mean", detailed_metrics=True,
+                                log_confusion_matrix=False, log_curves=False)
+    stats = evaluate(tuab_loader, _DummyModel(), torch.device("cpu"),
+                     metrics=["accuracy", "balanced_accuracy"], is_binary=True,
+                     nb_classes=1, eval_cfg=eval_cfg)
+    # Case-level (primary): 2 cases. Window-level (mirrored): 6 windows.
+    assert stats["cm_tp"] + stats["cm_tn"] + stats["cm_fp"] + stats["cm_fn"] == 2
+    assert "window_accuracy" in stats
+    assert (stats["window_cm_tp"] + stats["window_cm_tn"]
+            + stats["window_cm_fp"] + stats["window_cm_fn"]) == 6
+
+
 def test_evaluate_without_aggregation_is_window_level(tuab_loader):
     eval_cfg = EvaluationConfig(agg_windows="none")
     stats = evaluate(tuab_loader, _DummyModel(), torch.device("cpu"),

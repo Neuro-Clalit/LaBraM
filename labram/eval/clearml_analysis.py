@@ -505,7 +505,9 @@ def _check_lr_schedule(snapshot: ExperimentSnapshot) -> List[Insight]:
 
 
 def _check_grad_instability(snapshot: ExperimentSnapshot) -> List[Insight]:
-    grad = snapshot.get('opt/grad_norm', 'grad_norm')
+    # grad_norm moved from the "opt" plot to its own "grad" plot; accept both so
+    # snapshots from before and after the split are analysed.
+    grad = snapshot.get('grad/grad_norm', 'opt/grad_norm', 'grad_norm')
     if grad is None:
         return []
     finite = [v for _, v in grad.finite()]
@@ -526,7 +528,8 @@ def _check_grad_instability(snapshot: ExperimentSnapshot) -> List[Insight]:
 
 
 def _check_loss_scale(snapshot: ExperimentSnapshot) -> List[Insight]:
-    ls = snapshot.get('opt/loss_scale', 'loss_scale')
+    # loss_scale moved from the "opt" plot to its own "scale" plot; accept both.
+    ls = snapshot.get('scale/loss_scale', 'opt/loss_scale', 'loss_scale')
     if ls is None:
         return []
     finite = [v for _, v in ls.finite()]

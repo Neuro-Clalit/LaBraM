@@ -351,7 +351,10 @@ def log_lr_wd_grad_metrics(
     metric_logger.update(weight_decay=weight_decay_value)
     metric_logger.update(grad_norm=grad_norm)
     if log_writer is not None:
+        # lr/min_lr/weight_decay live on a small (<= ~1) scale; keep them together
+        # on the "opt" plot. grad_norm can be >> 1 and would flatten the others on
+        # a shared normalized axis, so it gets its own "grad" plot.
         log_writer.update(lr=max_lr, head="opt")
         log_writer.update(min_lr=min_lr, head="opt")
         log_writer.update(weight_decay=weight_decay_value, head="opt")
-        log_writer.update(grad_norm=grad_norm, head="opt")
+        log_writer.update(grad_norm=grad_norm, head="grad")

@@ -77,8 +77,11 @@ JSON round-trippable via `ExperimentSnapshot.save_json` / `.load_json`.
 `analyze_experiment` returns a list of `Insight(severity, category, message,
 recommendation, evidence)`, most-severe first. The analysers key off the
 metric-series names the trainer logs (`train/loss`, `val/loss`,
-`val/accuracy`, `val/balanced_accuracy`, `opt/lr`, `opt/grad_norm`,
-`opt/loss_scale`, …) and degrade to no-ops when a needed series is absent.
+`val/accuracy`, `val/balanced_accuracy`, `opt/lr`, `grad/grad_norm`,
+`scale/loss_scale`, …) and degrade to no-ops when a needed series is absent.
+(The gradient-norm and AMP loss-scale checks also accept the legacy
+`opt/grad_norm` / `opt/loss_scale` names from snapshots taken before those
+series moved to their own plots.)
 
 | Category | Trigger | Severity |
 | -------- | ------- | -------- |
