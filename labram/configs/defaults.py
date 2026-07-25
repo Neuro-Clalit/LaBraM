@@ -211,13 +211,19 @@ DEFAULT_CV_BASE_DIR: str = ''
 # ---------- AWS SageMaker training-job submission (labram/aws/sagemaker.py) ----------
 DEFAULT_SAGEMAKER_ENABLED: bool = False
 DEFAULT_SAGEMAKER_ROLE: str = ''                # '' -> resolve via sagemaker.get_execution_role()
-DEFAULT_SAGEMAKER_INSTANCE_TYPE: str = 'ml.g4dn.xlarge'
+# GPU instance for training. ml.g5.2xlarge (1x A10G, 24 GB) matches the g5.2xl
+# EC2 box used for local runs; ml.g5.xlarge is the cheaper single-GPU option.
+DEFAULT_SAGEMAKER_INSTANCE_TYPE: str = 'ml.g5.2xlarge'
 DEFAULT_SAGEMAKER_INSTANCE_COUNT: int = 1
 DEFAULT_SAGEMAKER_VOLUME_SIZE_GB: int = 100
 DEFAULT_SAGEMAKER_MAX_RUN_SEC: int = 4 * 24 * 60 * 60   # 4 days
 DEFAULT_SAGEMAKER_USE_SPOT: bool = False
 DEFAULT_SAGEMAKER_MAX_WAIT_SEC: int = 0         # 0 -> falls back to max_run_sec when spot is on
-DEFAULT_SAGEMAKER_FRAMEWORK_VERSION: str = '2.4.1'
+# Managed PyTorch Deep Learning Container selector. 2.4.0 + py311 is a published
+# SageMaker training DLC (CUDA 12.4, compatible with g5/A10G); the SDK resolves
+# the GPU image for the chosen instance type. requirements.txt does NOT pin torch,
+# so the container keeps this DLC's torch build. (Note: 2.4.1 has no managed DLC.)
+DEFAULT_SAGEMAKER_FRAMEWORK_VERSION: str = '2.4.0'
 DEFAULT_SAGEMAKER_PY_VERSION: str = 'py311'
 DEFAULT_SAGEMAKER_IMAGE_URI: str = ''           # '' -> managed PyTorch DLC for framework_version
 DEFAULT_SAGEMAKER_ENTRY_POINT: str = 'labram/runs/sagemaker_entry.py'

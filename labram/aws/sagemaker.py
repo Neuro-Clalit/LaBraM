@@ -122,8 +122,34 @@ class SageMakerLauncher:
         role = role or self._default_role
         if role:
             return role
+        # get_execution_role() only works where an execution role is attached
+        # (a SageMaker notebook / training job). On a plain EC2 box or laptop it
+        # raises, so surface an actionable message: an explicit role is required.
         import sagemaker
-        return sagemaker.get_execution_role(sagemaker_session=self._get_session())
+        try:
+            return sagemaker.get_execution_role(sagemaker_session=self._get_session())
+        except Exception as exc:  # ValueError / ClientError depending on context
+            raise ValueError(
+                "No SageMaker execution role provided and get_execution_role() "
+                "failed (you are not inside a SageMaker-managed environment). "
+                "Set an IAM role ARN with SageMaker + S3 permissions (e.g. "
+                "--set sagemaker.role=arn:aws:iam::<acct>:role/<name>)."
+            ) from exc
+
+    def resolve_image_uri(self, spec: SageMakerJobSpec) -> str:
+        """The training image that will actually be used: an explicit
+        ``image_uri`` when set, otherwise the managed PyTorch DLC the SDK resolves
+        for ``(framework_version, py_version, instance_type)``. Useful to log/verify
+        the image before launching."""
+        if spec.image_uri:
+            return spec.image_uri
+        from sagemaker import image_uris
+        session = self._get_session()
+        region = self._region or getattr(session, "boto_region_name", None)
+        return image_uris.retrieve(
+            framework="pytorch", region=region, version=spec.framework_version,
+            py_version=spec.py_version, instance_type=spec.instance_type,
+            image_scope="training")
 
     # -- build / submit ----------------------------------------------------
 

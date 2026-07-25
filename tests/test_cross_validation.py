@@ -172,6 +172,38 @@ def test_aggregate_fold_metrics():
     assert table[0] == ["metric", "mean", "std", "min", "max", "n"]
 
 
+def test_collect_from_clearml_parses_timestamped_fold_names(monkeypatch):
+    """clearml.append_timestamp makes task names ``fold_<k>_<ts>``; the fold
+    number must still be recovered (from the fold token, not the last token)."""
+    import sys
+    import types
+
+    class _FakeTask:
+        def __init__(self, name, acc):
+            self.name = name
+            self._acc = acc
+
+        def get_reported_scalars(self):
+            return {'val': {'accuracy': {'y': [self._acc + 5]}},
+                    'test': {'accuracy': {'y': [self._acc]}}}
+
+    class _FakeTaskCls:
+        @staticmethod
+        def get_tasks(project_name=None, task_name=None):
+            return [_FakeTask('fold_0_1699999999999', 70.0),
+                    _FakeTask('fold_1_1700000000000', 80.0)]
+
+    fake = types.ModuleType('clearml')
+    fake.Task = _FakeTaskCls
+    monkeypatch.setitem(sys.modules, 'clearml', fake)
+
+    records = agg.collect_fold_metrics_from_clearml('LaBraM/finetune_tuab_cv5')
+    assert [r['fold'] for r in records] == [0, 1]
+    assert records[1]['test']['accuracy'] == 80.0
+    summary = agg.aggregate_fold_metrics(records)
+    assert summary['test']['accuracy']['mean'] == pytest.approx(75.0)
+
+
 def test_aggregate_cv_dir(tmp_path):
     for k, acc in enumerate([70.0, 74.0, 78.0]):
         d = tmp_path / f"fold_{k}"

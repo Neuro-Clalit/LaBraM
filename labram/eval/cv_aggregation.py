@@ -10,6 +10,7 @@
 import glob
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -59,11 +60,13 @@ def collect_fold_metrics_from_clearml(project_name: str,
 
     records: List[Dict[str, Any]] = []
     for task in tasks:
-        name = task.name
-        try:
-            fold = int(name.rsplit('_', 1)[-1])
-        except ValueError:
+        # Task names are ``fold_<k>`` optionally suffixed with a run timestamp
+        # (clearml.append_timestamp), e.g. ``fold_2_1699999999999`` — pull the
+        # fold number from the ``fold_<k>`` token, not the trailing token.
+        m = re.search(r'fold[_-](\d+)', task.name)
+        if not m:
             continue
+        fold = int(m.group(1))
         scalars = task.get_reported_scalars() or {}
         val = _last_series_values(scalars.get('val', {}))
         test = _last_series_values(scalars.get('test', {}))

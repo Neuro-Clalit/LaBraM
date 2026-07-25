@@ -29,6 +29,32 @@ logger = utils.get_logger(__name__)
 # Where SageMaker mounts the ``config`` input channel inside the container.
 CONFIG_CHANNEL_MOUNT = '/opt/ml/input/data/config'
 
+# ClearML credential env vars forwarded into the training container so that
+# clearml.enabled runs can talk to the ClearML server from inside SageMaker.
+CLEARML_ENV_VARS = (
+    'CLEARML_API_ACCESS_KEY', 'CLEARML_API_SECRET_KEY', 'CLEARML_API_HOST',
+    'CLEARML_WEB_HOST', 'CLEARML_FILES_HOST',
+)
+
+
+def forward_clearml_env(config: FinetuneRunConfig) -> Dict[str, str]:
+    """When ClearML tracking is on, copy the submitter's ``CLEARML_*`` credential
+    env vars into ``sagemaker.environment`` (without overwriting explicit ones) so
+    the in-container run can log to the same ClearML server. Returns the names
+    forwarded. No-op when clearml is disabled."""
+    if not config.clearml.enabled:
+        return {}
+    env = config.sagemaker.environment
+    forwarded = {}
+    for name in CLEARML_ENV_VARS:
+        if name not in env and os.environ.get(name):
+            env[name] = os.environ[name]
+            forwarded[name] = env[name]
+    if forwarded:
+        logger.info("Forwarding %d ClearML credential var(s) to the SageMaker job: %s",
+                    len(forwarded), sorted(forwarded))
+    return forwarded
+
 
 # ------------------------------------------------------------------ naming
 
@@ -156,9 +182,23 @@ def submit(config: FinetuneRunConfig, dry_run: bool = False) -> List[JobPlan]:
                         p.spec.hyperparameters)
         return plans
 
+    # Make ClearML credentials available in-container before the config/env is
+    # packaged, so clearml.enabled runs can log from inside SageMaker.
+    forward_clearml_env(config)
+
     launcher = SageMakerLauncher(region=sm.region or None, default_role=sm.role)
+    # Fail fast with an actionable message if no usable execution role.
+    role = launcher.resolve_role(sm.role)
+    logger.info("SageMaker execution role: %s", role)
+
     config_uri = upload_run_config(launcher, config, sm.config_channel)
     plans = plan_jobs(config, config_uri)
+    if plans:
+        # Log the training image that will actually be used (verify it resolves).
+        try:
+            logger.info("SageMaker training image: %s", launcher.resolve_image_uri(plans[0].spec))
+        except Exception as exc:  # pragma: no cover - depends on SDK/region
+            logger.warning("Could not resolve training image URI: %s", exc)
     for p in plans:
         logger.info("Submitting SageMaker job %s (fold=%s)", p.job_name, p.fold)
         # Only the final job blocks when wait is requested, so earlier folds are

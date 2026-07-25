@@ -47,11 +47,11 @@ python -m labram.runs.submit_sagemaker \
 |---|---|---|
 | `enabled` | `false` | Consulted by the submit CLI (bypass with `--dry_run`). |
 | `role` | `''` | Execution role ARN; `''` → `sagemaker.get_execution_role()`. |
-| `instance_type` / `instance_count` | `ml.g4dn.xlarge` / `1` | Compute per job. |
+| `instance_type` / `instance_count` | `ml.g5.2xlarge` / `1` | Compute per job (matches a g5.2xl EC2 box; use `ml.g5.xlarge` for the cheaper single-GPU option). |
 | `volume_size_gb` | `100` | EBS volume per instance. |
 | `max_run_sec` | `345600` | Hard wall-clock cap per job. |
 | `use_spot` / `max_wait_sec` | `false` / `0` | Managed spot training (`0` → reuse `max_run_sec`). |
-| `framework_version` / `py_version` | `2.4.1` / `py311` | Managed PyTorch DLC selectors. |
+| `framework_version` / `py_version` | `2.4.0` / `py311` | Managed PyTorch DLC selectors (2.4.0 is a published DLC; 2.4.1 is not). |
 | `image_uri` | `''` | Explicit training image (overrides the managed DLC). |
 | `entry_point` / `source_dir` | `labram/runs/sagemaker_entry.py` / repo root | Training script and packaged code. |
 | `job_name_prefix` | `labram-finetune` | Prefix; the fold number is appended for CV. |
@@ -61,14 +61,61 @@ python -m labram.runs.submit_sagemaker \
 | `environment` / `hyperparameters` / `tags` | `{}` | Extra container env vars / hyperparameters / job tags. |
 | `wait` | `false` | Block until the (last) job finishes. |
 
-## Requirements
+## IAM execution role (required)
 
-The submitting machine needs the `sagemaker` and `boto3` SDKs and AWS
-credentials with permission to create training jobs, plus an execution role. The
-training container uses the managed PyTorch Deep Learning Container for
-`framework_version`; `requirements.txt` is installed from the packaged
-`source_dir`. The generic wrapper imports the SDK lazily, so `--dry_run` and the
-unit tests need neither the SDK nor credentials.
+SageMaker training jobs **must** run under an IAM execution role, so
+`sagemaker.role` is required when you submit from a plain EC2 box or laptop.
+If `role` is empty the launcher calls `sagemaker.get_execution_role()`, which
+only works *inside* a SageMaker-managed environment (a notebook / training job)
+and otherwise raises a clear error asking for a role ARN. The role needs
+SageMaker permissions plus read access to the S3 data and write access to
+`output_path` (e.g. the `AmazonSageMakerFullAccess` managed policy + your bucket).
+
+```bash
+--set sagemaker.role=arn:aws:iam::<account-id>:role/<SageMakerExecutionRole>
+```
+
+## Training image
+
+By default no `image_uri` is set, so the SDK resolves the **managed PyTorch Deep
+Learning Container** for `framework_version=2.4.0`, `py_version=py311` and the
+chosen GPU instance (CUDA 12.4, compatible with the g5/A10G family). `2.4.0` is
+used because it is a *published* SageMaker DLC tag — `2.4.1` (the version used
+for bare-metal installs) has **no** managed DLC. The submit CLI logs the exact
+resolved image before launching (`SageMaker training image: …`), and
+`SageMakerLauncher.resolve_image_uri(spec)` returns it for verification. Set
+`sagemaker.image_uri` to override with your own ECR image (then
+`framework_version`/`py_version` are ignored).
+
+## Dependencies / `pip install` in the job
+
+The estimator packages `source_dir` (the repo root by default) and uploads it;
+the SageMaker training toolkit then runs **`pip install -r requirements.txt`**
+from that directory before invoking the entry point. LaBraM's `requirements.txt`
+deliberately does **not** pin `torch`, so the container keeps the DLC's CUDA
+torch build and only the remaining libraries (timm, mne, pyhealth, scikit-learn,
+`boto3`/`s3fs` for S3 data, `clearml` for tracking, …) are installed at start-up.
+To add job-only dependencies, either extend `requirements.txt` or point
+`sagemaker.source_dir` at a directory whose `requirements.txt` you control.
+
+## ClearML logging from SageMaker
+
+ClearML logging works inside the job: `clearml` is in `requirements.txt`, and the
+per-fold tasks group under `‹project›/‹experiment›` exactly as for a local run.
+It only needs credentials in the container. When `clearml.enabled` is set, the
+submit CLI **forwards the submitter's `CLEARML_*` environment variables**
+(`CLEARML_API_ACCESS_KEY`, `CLEARML_API_SECRET_KEY`, `CLEARML_API_HOST`,
+`CLEARML_WEB_HOST`, `CLEARML_FILES_HOST`) into the job's environment (without
+overwriting any you set explicitly via `sagemaker.environment`). Provide them on
+the submitting machine (or pass them through `sagemaker.environment`) and the
+fold jobs will report to your ClearML server; the fold-number parsing in
+`cv_report` tolerates the `append_timestamp` task-name suffix.
+
+## Requirements (submitting machine)
+
+The `sagemaker` and `boto3` SDKs, AWS credentials able to create training jobs,
+and an execution role (above). The generic wrapper imports the SDK lazily, so
+`--dry_run` and the unit tests need neither the SDK nor credentials.
 
 ## Design notes
 
