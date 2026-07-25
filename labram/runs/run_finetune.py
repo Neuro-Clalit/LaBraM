@@ -245,8 +245,10 @@ def main(config: FinetuneRunConfig, bundle=None):
             balanced_accuracy.append(test_stats['balanced_accuracy'])
         logger.info(f"Accuracy: {np.mean(accuracy):.3f} ± {np.std(accuracy):.3f}, "
                     f"balanced: {np.mean(balanced_accuracy):.3f} ± {np.std(balanced_accuracy):.3f}")
-        return {"accuracy": float(np.mean(accuracy)),
-                "balanced_accuracy": float(np.mean(balanced_accuracy))}
+        eval_summary = {"accuracy": float(np.mean(accuracy)),
+                        "balanced_accuracy": float(np.mean(balanced_accuracy))}
+        runner_common.log_summary_metrics(log_writer, eval_summary, config)
+        return eval_summary
 
     summary = train_loop(
         config=config,
@@ -260,6 +262,10 @@ def main(config: FinetuneRunConfig, bundle=None):
         model_ema=model_ema,
         enable_deepspeed=config.trainer.enable_deepspeed,
     )
+
+    # Persist the best-epoch metrics as ClearML single values (comparable in
+    # compare mode) + a final_metrics config section before finishing.
+    runner_common.log_summary_metrics(log_writer, summary, config)
 
     runner_common.finalize_run(config, log_writer)
     return summary

@@ -308,6 +308,15 @@ class TensorboardLogger(object):
         self.writer.add_figure(
             f"{title}/{series}", figure, self.step if step is None else step)
 
+    def report_single_value(self, name, value):
+        """TensorBoard has no single-value concept — record it as a scalar under
+        the ``summary/`` namespace so the final value is still captured."""
+        if value is None:
+            return
+        if isinstance(value, torch.Tensor):
+            value = value.item()
+        self.writer.add_scalar(f"summary/{name}", float(value), 0)
+
     def flush(self):
         self.writer.flush()
 
@@ -397,6 +406,17 @@ class ClearMLLogger(object):
             iteration=self.step if step is None else step,
             local_path=local_path)
 
+    def report_single_value(self, name, value):
+        """Log a single (iteration-independent) value. ClearML collects these in
+        the experiment's SCALARS "Summary" and, crucially, renders them as a
+        side-by-side **table** in COMPARE mode — the right home for a run's final
+        metrics so they can be compared across experiments/folds."""
+        if self._logger is None or value is None:
+            return
+        if isinstance(value, torch.Tensor):
+            value = value.item()
+        self._logger.report_single_value(name=name, value=float(value))
+
     def flush(self):
         if self._logger is not None:
             self._logger.flush()
@@ -446,6 +466,11 @@ class MultiWriter(object):
         for w in self.writers:
             if hasattr(w, 'report_media'):
                 w.report_media(title, series, local_path, step=step)
+
+    def report_single_value(self, name, value):
+        for w in self.writers:
+            if hasattr(w, 'report_single_value'):
+                w.report_single_value(name, value)
 
     def flush(self):
         for w in self.writers:
