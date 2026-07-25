@@ -4,6 +4,7 @@ installed, so they double as a check that the integration degrades gracefully.
 """
 import importlib.util
 import logging
+import re
 import types
 
 import pytest
@@ -287,6 +288,29 @@ class TestInitClearMLTaskDebug:
 
         assert task.kwargs["output_uri"] == "s3://clearml-eeg"
         assert "debug" not in task.tags
+
+    def test_task_name_gets_millisecond_timestamp_suffix(self, monkeypatch):
+        import clearml
+        from labram.runs import common
+        monkeypatch.setattr(clearml, "Task", _FakeTask, raising=False)
+
+        task = common.init_clearml_task(
+            self._cfg(task_name="myrun"),
+            types.SimpleNamespace(debug=False), global_rank=0)
+
+        # 'myrun' + '_' + YYYYmmdd_HHMMSS_fff
+        assert re.fullmatch(r"myrun_\d{8}_\d{6}_\d{3}", task.kwargs["task_name"])
+
+    def test_task_name_timestamp_can_be_disabled(self, monkeypatch):
+        import clearml
+        from labram.runs import common
+        monkeypatch.setattr(clearml, "Task", _FakeTask, raising=False)
+
+        task = common.init_clearml_task(
+            self._cfg(task_name="myrun", append_timestamp=False),
+            types.SimpleNamespace(debug=False), global_rank=0)
+
+        assert task.kwargs["task_name"] == "myrun"
 
     def test_disabled_returns_none(self):
         from labram.runs import common

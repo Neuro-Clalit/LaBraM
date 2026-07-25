@@ -83,6 +83,7 @@
         "enabled": false,
         "project_name": "LaBraM",
         "task_name": "",
+        "append_timestamp": true,
         "tags": [],
         "output_uri": "",
         "offline": false,
@@ -173,7 +174,7 @@
         "log_curves": true,
         "log_grad_components": false,
         "log_grad_freq": 50,
-        "agg_windows": "none",
+        "agg_windows": "mean",
         "agg_case_by": "recording"
     },
     "logging": {
