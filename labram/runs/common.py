@@ -117,6 +117,12 @@ def _derive_clearml_task_name(run_config: Any) -> str:
     return 'labram-run'
 
 
+def _timestamp_ms() -> str:
+    """Current local time as ``YYYYmmdd_HHMMSS_fff`` (millisecond precision)."""
+    now = datetime.datetime.now()
+    return now.strftime('%Y%m%d_%H%M%S') + f'_{now.microsecond // 1000:03d}'
+
+
 def _clearml_default_output_uri() -> Optional[str]:
     """The ``sdk.development.default_output_uri`` from the ClearML config, if set."""
     try:
@@ -169,6 +175,10 @@ def init_clearml_task(
 
     project_name = clearml_cfg.project_name or 'LaBraM'
     task_name = clearml_cfg.task_name or _derive_clearml_task_name(run_config)
+    # Uniquely identify each experiment: append a millisecond-precision timestamp
+    # to the task name (e.g. 'finetune_tuab_base_20260718_143025_123').
+    if getattr(clearml_cfg, 'append_timestamp', True):
+        task_name = f"{task_name}_{_timestamp_ms()}"
 
     output_uri = clearml_cfg.output_uri or None
     tags = list(clearml_cfg.tags)

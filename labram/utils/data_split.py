@@ -67,17 +67,25 @@ def build_data_split(dataset_train, dataset_val, dataset_test,
         if entry is not None:
             entries[name] = entry
             split[name] = entry
-    # Data-leakage guard: a subject appearing in more than one split is usually a bug.
-    subj = {k: set(v['subjects']) for k, v in entries.items()}
-    overlap = {}
-    names = list(subj)
+    # Data-leakage guards: the split must be over EEG *items* (subjects and
+    # recordings), never over windows of the same item. A subject OR a recording
+    # appearing in more than one split leaks information across train/val/test.
+    split['subject_overlap'] = _pairwise_overlap(entries, 'subjects')
+    split['recording_overlap'] = _pairwise_overlap(entries, 'recordings')
+    return split
+
+
+def _pairwise_overlap(entries: Dict[str, Dict[str, Any]], key: str) -> Dict[str, List[str]]:
+    """Common ``key`` identifiers between every pair of splits (empty = clean)."""
+    sets = {name: set(entry[key]) for name, entry in entries.items()}
+    overlap: Dict[str, List[str]] = {}
+    names = list(sets)
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
-            common = sorted(subj[names[i]] & subj[names[j]])
+            common = sorted(sets[names[i]] & sets[names[j]])
             if common:
                 overlap[f'{names[i]}∩{names[j]}'] = common
-    split['subject_overlap'] = overlap
-    return split
+    return overlap
 
 
 def save_data_split(split: Dict[str, Any], output_dir: str,
@@ -92,6 +100,9 @@ def save_data_split(split: Dict[str, Any], output_dir: str,
     counts = {k: v.get('n_windows') for k, v in split.items() if isinstance(v, dict) and 'n_windows' in v}
     logger.info("Saved data split (%s) -> %s", counts, path)
     if split.get('subject_overlap'):
-        logger.warning("Subject overlap between splits detected: %s",
+        logger.warning("Subject overlap between splits detected (data leakage): %s",
                        {k: len(v) for k, v in split['subject_overlap'].items()})
+    if split.get('recording_overlap'):
+        logger.warning("Recording overlap between splits detected (data leakage): %s",
+                       {k: len(v) for k, v in split['recording_overlap'].items()})
     return path

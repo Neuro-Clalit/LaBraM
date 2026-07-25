@@ -129,7 +129,9 @@ def train_one_epoch(
 
             if log_writer is not None:
                 log_writer.update(loss=loss_value, head="loss")
-                log_writer.update(loss_scale=loss_scale_value, head="opt")
+                # loss_scale (AMP) can reach ~65536 — its own plot keeps it off
+                # the small-valued "opt" (lr/wd) axis.
+                log_writer.update(loss_scale=loss_scale_value, head="scale")
                 log_writer.set_step()
 
             if lr_scheduler is not None:

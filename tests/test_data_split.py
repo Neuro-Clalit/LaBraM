@@ -42,8 +42,9 @@ def test_build_split_counts_and_ids(tuab):
     assert split['train']['n_recordings'] == 2
     assert split['val']['subjects'] == ["cccc"]
     assert split['test']['subjects'] == ["dddd"]
-    # clean split -> no subject overlap
+    # clean split (over EEG items) -> no subject and no recording overlap
     assert split['subject_overlap'] == {}
+    assert split['recording_overlap'] == {}
 
 
 def test_build_split_detects_subject_overlap(tuab):
@@ -53,6 +54,17 @@ def test_build_split_detects_subject_overlap(tuab):
     split = build_data_split(train, val, leaked, "TUAB")
     assert "train∩test" in split['subject_overlap']
     assert "aaaa" in split['subject_overlap']["train∩test"]
+
+
+def test_build_split_detects_recording_overlap(tuab):
+    train, val, test = tuab
+    # Windows 0 and 1 are both from recording 'aaaa_s1_t0'. Splitting them across
+    # train/test leaks that recording even though the leak is at the window level.
+    train_one = torch.utils.data.Subset(train.dataset, [0])   # aaaa_s1_t0_0
+    test_one = torch.utils.data.Subset(train.dataset, [1])    # aaaa_s1_t0_1
+    split = build_data_split(train_one, None, test_one, "TUAB")
+    assert "train∩test" in split['recording_overlap']
+    assert "aaaa_s1_t0" in split['recording_overlap']["train∩test"]
 
 
 def test_save_split_writes_json(tuab, tmp_path):

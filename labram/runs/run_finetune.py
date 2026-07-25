@@ -102,10 +102,14 @@ def main(config: FinetuneRunConfig, bundle=None):
     if config.trainer.disable_eval_during_finetuning:
         dataset_val = dataset_test = None
 
-    # Inference-mode per-case window aggregation needs the test dataset to
-    # surface a per-window case id (recording/subject).
-    if config.trainer.eval and config.evaluation.agg_windows != 'none' and dataset_test is not None:
-        enable_window_ids(dataset_test, config.evaluation.agg_case_by)
+    # Per-case window aggregation needs each eval dataset to surface a per-window
+    # case id (recording/subject). Enable it for val *and* test whenever an
+    # aggregation mode is configured — both during training (so per-epoch eval
+    # reports case-level metrics alongside per-window ones) and in eval-only mode.
+    if config.evaluation.agg_windows != 'none':
+        for eval_ds in (dataset_val, dataset_test):
+            if eval_ds is not None:
+                enable_window_ids(eval_ds, config.evaluation.agg_case_by)
 
     num_tasks, global_rank = utils.get_world_size(), utils.get_rank()
     sampler_train, sampler_val, sampler_test = build_samplers(

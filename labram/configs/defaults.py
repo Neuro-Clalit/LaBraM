@@ -136,6 +136,9 @@ DEFAULT_LOG_DATA_SPLIT: bool = True
 DEFAULT_CLEARML_ENABLED: bool = False
 DEFAULT_CLEARML_PROJECT_NAME: str = 'LaBraM'
 DEFAULT_CLEARML_TASK_NAME: str = ''      # '' -> derived from output_dir / run at task-init time
+# Append a millisecond-precision timestamp (YYYYmmdd_HHMMSS_fff) to the task name
+# so every run is uniquely identifiable in the ClearML UI.
+DEFAULT_CLEARML_APPEND_TIMESTAMP: bool = True
 DEFAULT_CLEARML_OUTPUT_URI: str = ''     # '' -> ClearML default (no artifact upload target)
 DEFAULT_CLEARML_OFFLINE: bool = False    # run without a ClearML server; store locally
 DEFAULT_CLEARML_CONTINUE_LAST_TASK: bool = False

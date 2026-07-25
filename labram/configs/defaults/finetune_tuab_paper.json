@@ -133,6 +133,7 @@
         "enabled": false,
         "project_name": "LaBraM",
         "task_name": "finetune_tuab_paper",
+        "append_timestamp": true,
         "tags": [],
         "output_uri": "",
         "offline": false,
