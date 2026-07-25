@@ -1,7 +1,8 @@
-"""Tests for post-training machine shutdown (labram.utils.shutdown)."""
+"""Tests for post-training machine shutdown (labram.utils.shutdown) and the
+ClearML task finalization that must precede an EC2 stop."""
 
-import pytest
 
+from labram.configs.run_configs import FinetuneRunConfig
 from labram.configs.train_config import ShutdownConfig
 from labram.utils import shutdown
 
@@ -61,3 +62,70 @@ def test_ec2_method_calls_boto3(monkeypatch):
 def test_unknown_method_returns_false():
     cfg = ShutdownConfig(stop_instance_on_finish=True, stop_method="bogus")
     assert shutdown.maybe_stop_instance(cfg) is False
+
+
+def test_finalize_run_closes_clearml_before_ec2_stop(monkeypatch):
+    """When shutdown is enabled and ClearML is on, finalize_run must flush+close
+    the ClearML task *before* stopping the instance, so the run is persisted."""
+    import labram.runs.common as common
+    from labram.utils.logging import ClearMLLogger
+
+    order = []
+
+    class _Task:
+        def flush(self, wait_for_uploads=False):
+            order.append("flush")
+
+        def mark_completed(self, force=False):
+            order.append("mark_completed")
+
+        def close(self):
+            order.append("close")
+
+    def _fake_stop(cfg):
+        order.append("stop_instance")
+        return True
+
+    # finalize_run imports maybe_stop_instance from the source module inside the
+    # function, so patch it there.
+    monkeypatch.setattr(shutdown, "maybe_stop_instance", _fake_stop)
+    # Avoid touching a real model dir / OutputModel.
+    monkeypatch.setattr(common.utils, "is_main_process", lambda: True)
+
+    config = FinetuneRunConfig()
+    config.clearml.enabled = True
+    config.clearml.upload_model_artifact = False
+    config.shutdown.stop_instance_on_finish = True
+
+    log_writer = ClearMLLogger(task=_Task(), clearml_logger=object())
+    common.finalize_run(config, log_writer)
+
+    # The task is finalized (flush -> close) strictly before the machine stops.
+    assert "close" in order and "stop_instance" in order
+    assert order.index("close") < order.index("stop_instance")
+    assert order[0] == "flush"
+
+
+def test_finalize_run_no_clearml_finalize_when_not_stopping(monkeypatch):
+    """Without a shutdown, finalize_run must NOT force-close the ClearML task
+    (it closes naturally at process exit)."""
+    import labram.runs.common as common
+    from labram.utils.logging import ClearMLLogger
+
+    closed = {"v": False}
+
+    class _Task:
+        def flush(self, wait_for_uploads=False):
+            pass
+
+        def close(self):
+            closed["v"] = True
+
+    monkeypatch.setattr(common.utils, "is_main_process", lambda: True)
+    config = FinetuneRunConfig()
+    config.clearml.enabled = True
+    config.clearml.upload_model_artifact = False
+    config.shutdown.stop_instance_on_finish = False
+
+    common.finalize_run(config, ClearMLLogger(task=_Task(), clearml_logger=object()))
+    assert closed["v"] is False

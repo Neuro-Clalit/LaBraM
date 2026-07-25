@@ -138,5 +138,30 @@
         "z_score_patches": true,
         "z_score_eps": 1e-05,
         "phase_loss": "sincos"
+    },
+    "sagemaker": {
+        "py/object": "labram.configs.sagemaker_config.SageMakerConfig",
+        "enabled": false,
+        "role": "",
+        "instance_type": "ml.g5.2xlarge",
+        "instance_count": 1,
+        "volume_size_gb": 100,
+        "max_run_sec": 345600,
+        "use_spot": false,
+        "max_wait_sec": 0,
+        "framework_version": "2.4.0",
+        "py_version": "py311",
+        "image_uri": "",
+        "entry_point": "labram/runs/sagemaker_entry.py",
+        "source_dir": "",
+        "job_name_prefix": "labram-finetune",
+        "region": "",
+        "output_path": "",
+        "code_location": "",
+        "config_channel": "",
+        "environment": {},
+        "hyperparameters": {},
+        "tags": {},
+        "wait": false
     }
 }

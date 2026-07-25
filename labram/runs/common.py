@@ -406,6 +406,86 @@ def log_data_split_artifact(logging_cfg: Any, output_cfg: OutputConfig,
     return path
 
 
+def flatten_summary_metrics(summary: Any) -> dict:
+    """Flatten a training ``summary`` (from ``train_loop`` / an eval-only run)
+    into a flat ``{name: float}`` of the final/best metrics, e.g.
+    ``{'best_epoch': 12, 'val_accuracy': 81.3, 'test_accuracy': 79.0,
+    'test_balanced_accuracy': 0.78, ...}``. Non-numeric fields are dropped."""
+    flat: dict = {}
+    if not isinstance(summary, dict):
+        return flat
+
+    def _is_num(v):
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+    if _is_num(summary.get('best_epoch')) and summary['best_epoch'] >= 0:
+        flat['best_epoch'] = summary['best_epoch']
+    for key, prefix in (('best_val_stats', 'val'), ('best_test_stats', 'test')):
+        for k, v in (summary.get(key) or {}).items():
+            if _is_num(v):
+                flat[f'{prefix}_{k}'] = v
+    # Eval-only runs return top-level accuracy/balanced_accuracy.
+    for k in ('accuracy', 'balanced_accuracy'):
+        if _is_num(summary.get(k)):
+            flat.setdefault(f'test_{k}', summary[k])
+    return flat
+
+
+def log_summary_metrics(log_writer: Any, summary: Any, config: Any = None,
+                        section: str = 'final_metrics') -> dict:
+    """Record a run's final/best eval metrics so they are comparable across
+    experiments in ClearML **compare** mode.
+
+    Reports each metric as a ClearML *single value* (which renders as a
+    side-by-side table when experiments are compared) and also connects the flat
+    metric dict to the task as a ``final_metrics`` hyperparameter section, so the
+    values additionally show up as sortable columns in the experiments table and
+    the hyperparameter comparison. Rank-0 only; returns the flat metric dict."""
+    if not utils.is_main_process() or log_writer is None:
+        return {}
+    from labram.utils.clearml_artifacts import get_clearml_task
+
+    flat = flatten_summary_metrics(summary)
+    if not flat:
+        return {}
+    for name, value in flat.items():
+        if hasattr(log_writer, 'report_single_value'):
+            try:
+                log_writer.report_single_value(name, value)
+            except Exception as exc:  # pragma: no cover - never fail a run on logging
+                logger.warning("report_single_value(%s) failed: %s", name, exc)
+    task = get_clearml_task(log_writer)
+    if task is not None:
+        try:
+            # str-cast values so ClearML records them as a stable config section.
+            task.connect({k: v for k, v in flat.items()}, name=section)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("ClearML connect(%s) failed: %s", section, exc)
+    logger.info("Logged %d final metric(s) for comparison: %s",
+                len(flat), sorted(flat))
+    return flat
+
+
+def log_cv_split_artifact(output_cfg: OutputConfig, log_writer: Any = None,
+                          filename: str = 'cv_split.json') -> Optional[str]:
+    """Upload the cross-validation fold partition (``cv_split.json``, written to
+    the fold's output dir by the CV runner) as a ClearML artifact so every fold
+    experiment records the exact partition it belongs to. Rank-0 only; returns
+    the path if found, else None."""
+    if not utils.is_main_process():
+        return None
+    out_dir = output_cfg.output_dir or output_cfg.log_dir
+    if not out_dir:
+        return None
+    path = os.path.join(out_dir, filename)
+    if not os.path.exists(path):
+        return None
+    from labram.utils.clearml_artifacts import get_clearml_task, upload_file_artifact
+    task = get_clearml_task(log_writer)
+    upload_file_artifact(task, 'cv_split', path)
+    return path
+
+
 def finalize_run(config: Any, log_writer: Any = None) -> None:
     """Post-training hook (rank 0): publish the model + optionally stop the box.
 
@@ -423,14 +503,15 @@ def finalize_run(config: Any, log_writer: Any = None) -> None:
         return
 
     from labram.utils.clearml_artifacts import (
-        get_clearml_task, resolve_final_checkpoint, upload_model_artifact,
+        finalize_clearml_task, get_clearml_task, resolve_final_checkpoint,
+        upload_model_artifact,
     )
     from labram.utils.shutdown import maybe_stop_instance
 
     clearml_cfg = getattr(config, 'clearml', None)
     output_cfg = getattr(config, 'output', None)
-    if (clearml_cfg is not None and clearml_cfg.enabled
-            and getattr(clearml_cfg, 'upload_model_artifact', False)
+    clearml_on = clearml_cfg is not None and clearml_cfg.enabled
+    if (clearml_on and getattr(clearml_cfg, 'upload_model_artifact', False)
             and output_cfg is not None):
         task = get_clearml_task(log_writer)
         model_path = resolve_final_checkpoint(output_cfg.output_dir)
@@ -441,7 +522,16 @@ def finalize_run(config: Any, log_writer: Any = None) -> None:
             logger.warning("ClearML upload requested but no checkpoint found in %r",
                            getattr(output_cfg, 'output_dir', None))
 
+    # If we're about to stop the machine, finish the ClearML task first so its
+    # final state and pending uploads are persisted before the box is killed —
+    # otherwise the abrupt stop can leave the task stuck "running" or lose the
+    # last metrics/artifacts.
+    shutdown_cfg = getattr(config, 'shutdown', None)
+    will_stop = shutdown_cfg is not None and getattr(shutdown_cfg, 'stop_instance_on_finish', False)
+    if will_stop and clearml_on:
+        finalize_clearml_task(get_clearml_task(log_writer))
+
     try:
-        maybe_stop_instance(getattr(config, 'shutdown', None))
+        maybe_stop_instance(shutdown_cfg)
     except Exception as exc:  # pragma: no cover - defensive
         logger.error("maybe_stop_instance failed: %s", exc)

@@ -69,6 +69,36 @@ def upload_file_artifact(task: Any, name: str, path: str) -> bool:
         return False
 
 
+def finalize_clearml_task(task: Any, mark_completed: bool = True,
+                          wait_for_uploads: bool = True) -> bool:
+    """Flush and close a ClearML ``Task`` so its final state and pending uploads
+    are persisted *before* the process/machine goes away.
+
+    This matters when ``shutdown.stop_instance_on_finish`` stops the EC2 box right
+    after training: without an explicit finish, the abrupt kill can leave the task
+    stuck in "running" or drop the last metrics. We flush (optionally waiting for
+    uploads), optionally ``mark_completed`` so a successful run is recorded as
+    Completed (not aborted), then ``close``. Best-effort: never raises, so it
+    cannot turn a finished run into a failure. Returns True on a clean close.
+    """
+    if task is None:
+        return False
+    try:
+        task.flush(wait_for_uploads=wait_for_uploads)
+    except Exception as exc:  # pragma: no cover - depends on clearml/server
+        logger.warning("ClearML task flush failed: %s", exc)
+    try:
+        if mark_completed and hasattr(task, "mark_completed"):
+            # force=False: record Completed without killing the current process.
+            task.mark_completed(force=False)
+        task.close()
+        logger.info("Finalized ClearML task (flushed + closed) before shutdown.")
+        return True
+    except Exception as exc:  # pragma: no cover - depends on clearml/server
+        logger.error("ClearML task finalize failed: %s", exc)
+        return False
+
+
 def upload_model_artifact(
     task: Any,
     model_path: str,

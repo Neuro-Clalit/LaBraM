@@ -1,9 +1,9 @@
 {
-    "py/object": "labram.configs.runner_configs.PretrainRunConfig",
+    "py/object": "labram.configs.runner_configs.FinetuneRunConfig",
     "output": {
         "py/object": "labram.configs.train_config.OutputConfig",
-        "output_dir": "./checkpoints/labram_plus_plus_base/",
-        "log_dir": "./log/labram_plus_plus_base",
+        "output_dir": "./checkpoints/finetune_tuab_cv5/",
+        "log_dir": "./log/finetune_tuab_cv5",
         "resume": "",
         "auto_resume": true,
         "save_ckpt": true,
@@ -16,7 +16,7 @@
         "local_rank": -1,
         "dist_on_itp": false,
         "dist_url": "env://",
-        "device": "cuda",
+        "device": "auto",
         "seed": 0,
         "dist_eval": false,
         "distributed": false,
@@ -26,24 +26,21 @@
         "py/object": "labram.configs.optim_config.OptimizerConfig",
         "opt": "adamw",
         "opt_eps": 1e-08,
-        "opt_betas": [
-            0.9,
-            0.98
-        ],
+        "opt_betas": null,
         "momentum": 0.9,
         "weight_decay": 0.05,
         "weight_decay_end": null,
         "lr": 0.0005,
         "warmup_lr": 1e-06,
-        "min_lr": 1e-05,
+        "min_lr": 1e-06,
         "warmup_epochs": 5,
         "warmup_steps": -1,
         "sched": "cosine",
         "decay_epochs": 30,
         "decay_rate": 0.1,
         "decay_milestones": null,
-        "clip_grad": 3.0,
-        "layer_decay": 0.9,
+        "clip_grad": null,
+        "layer_decay": 0.65,
         "smoothing": 0.1,
         "model_ema": false,
         "model_ema_decay": 0.9999,
@@ -57,10 +54,10 @@
         "gradient_accumulation_steps": 1,
         "update_freq": 1,
         "disable_eval_during_finetuning": false,
-        "debug": false,
         "disable_weight_decay_on_rel_pos_bias": false,
         "eval": false,
         "enable_deepspeed": false,
+        "debug": false,
         "debug_samples": 16
     },
     "data": {
@@ -78,14 +75,14 @@
         "start_percentage": 0.0,
         "end_percentage": 1.0,
         "robust_test": "",
-        "dataset": "",
-        "data_path": ""
+        "dataset": "TUAB",
+        "data_path": "./datasets/TUAB"
     },
     "clearml": {
         "py/object": "labram.configs.train_config.ClearMLConfig",
         "enabled": false,
         "project_name": "LaBraM",
-        "task_name": "",
+        "task_name": "finetune_tuab",
         "append_timestamp": true,
         "tags": [],
         "output_uri": "",
@@ -96,30 +93,71 @@
         "artifact_name": ""
     },
     "model": {
-        "py/object": "labram.configs.model_config.PretrainModelConfig",
-        "model": "labram_base_patch200_1600_8k_vocab",
-        "input_size": 1600,
+        "py/object": "labram.configs.model_config.FinetuneModelConfig",
+        "model": "labram_base_patch200_200",
+        "input_size": 200,
+        "qkv_bias": false,
         "rel_pos_bias": false,
         "abs_pos_emb": true,
         "layer_scale_init_value": 0.1,
-        "drop_path": 0.0,
-        "tokenizer": {
-            "py/object": "labram.configs.model_config.TokenizerConfig",
+        "drop": 0.0,
+        "attn_drop_rate": 0.0,
+        "drop_path": 0.1,
+        "use_mean_pooling": true,
+        "init_scale": 0.001,
+        "nb_classes": 0,
+        "codebook_reg": {
+            "py/object": "labram.configs.model_config.CodebookRegConfig",
+            "enabled": false,
             "tokenizer_model": "vqnsp_encoder_base_decoder_3x200x12",
-            "tokenizer_weight": "./checkpoints/vqnsp.pth",
-            "codebook_size": 8192,
-            "quantizer_dim": 32
+            "tokenizer_weight": "",
+            "feature_sources": [
+                "encoder_mean"
+            ],
+            "features_emb_dim": 128,
+            "linear_embedding": true,
+            "norm_embedding": true,
+            "classifier_type": "linear",
+            "encoder": {
+                "py/object": "labram.configs.model_config.ComponentTrainConfig",
+                "trainable": true,
+                "lr_scale": 0.1,
+                "n_last_trainable_layers": 2
+            },
+            "decoder": {
+                "py/object": "labram.configs.model_config.ComponentTrainConfig",
+                "trainable": false,
+                "lr_scale": 0.1,
+                "n_last_trainable_layers": null
+            },
+            "codebook": {
+                "py/object": "labram.configs.model_config.ComponentTrainConfig",
+                "trainable": false,
+                "lr_scale": 0.1,
+                "n_last_trainable_layers": null
+            },
+            "classifier_weight": 1.0,
+            "amplitude_weight": 1.0,
+            "phase_weight": 0.1,
+            "embedding_weight": 1.0
         }
+    },
+    "finetune_checkpoint": {
+        "py/object": "labram.configs.model_config.FinetuneCheckpointConfig",
+        "finetune": "./checkpoints/labram-base.pth",
+        "model_key": "model|module",
+        "model_prefix": "",
+        "model_filter_name": "gzp"
     },
     "loss": {
         "py/object": "labram.configs.loss_config.LossConfig",
         "amplitude_weight": 1.0,
-        "phase_weight": 1.0,
+        "phase_weight": 0.1,
         "embedding_weight": 1.0,
         "use_smooth_l1": false,
         "vq_commitment_beta": 1.0,
         "freq_fraction": 1.0,
-        "classification_label_smoothing": 0.0,
+        "classification_label_smoothing": 0.1,
         "classifier_weight": 1.0,
         "phase_loss": "angle"
     },
@@ -129,6 +167,16 @@
         "stop_delay_minutes": 5,
         "stop_method": "ec2"
     },
+    "evaluation": {
+        "py/object": "labram.configs.train_config.EvaluationConfig",
+        "detailed_metrics": true,
+        "log_confusion_matrix": true,
+        "log_curves": true,
+        "log_grad_components": false,
+        "log_grad_freq": 50,
+        "agg_windows": "mean",
+        "agg_case_by": "recording"
+    },
     "logging": {
         "py/object": "labram.configs.train_config.LoggingConfig",
         "log_model_graph": true,
@@ -137,11 +185,23 @@
     },
     "labram_plus": {
         "py/object": "labram.configs.labram_plus_config.LaBraMPlusConfig",
-        "enabled": true,
+        "enabled": false,
         "common_average_reference": true,
         "z_score_patches": true,
         "z_score_eps": 1e-05,
         "phase_loss": "sincos"
+    },
+    "cross_validation": {
+        "py/object": "labram.configs.cv_config.CrossValidationConfig",
+        "enabled": true,
+        "n_folds": 5,
+        "fold": -1,
+        "split_by": "subject",
+        "shuffle": true,
+        "seed": 42,
+        "pool": "train_val",
+        "split_json": "",
+        "base_dir": ""
     },
     "sagemaker": {
         "py/object": "labram.configs.sagemaker_config.SageMakerConfig",
@@ -156,7 +216,7 @@
         "framework_version": "2.4.0",
         "py_version": "py311",
         "image_uri": "",
-        "entry_point": "labram/runs/sagemaker_entry.py",
+        "entry_point": "run_finetune.py",
         "source_dir": "",
         "job_name_prefix": "labram-finetune",
         "region": "",

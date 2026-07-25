@@ -80,6 +80,26 @@ case via `agg_windows`) *and* the per-window metrics (mirrored under `window_*`
 keys, on the `val_window`/`test_window` plots). `evaluation.agg_case_by` selects
 whether a "case" is a `recording` or a `subject`.
 
+### Final metrics for cross-experiment comparison
+
+Per-epoch metrics are logged as scalar *series* (good for curves, but in
+ClearML's **Compare** view they show as plots, not a clean side-by-side table).
+So at the end of training the run's **best-epoch** eval metrics are additionally
+recorded as ClearML **single values** via `report_single_value` — `best_epoch`,
+`val_<metric>`, `test_<metric>` (accuracy, balanced_accuracy, f1, roc_auc,
+pr_auc, …). ClearML collects single values into the experiment's SCALARS
+"Summary" and renders them as a **side-by-side table when experiments are
+compared**, which is exactly what you want to compare runs (or CV folds) at a
+glance. The same flat dict is also `connect`-ed to the task as a `final_metrics`
+config section, so the values appear as **sortable columns in the experiments
+table** and in the hyperparameter comparison.
+
+This is handled by `runs/common.py::log_summary_metrics` (called from
+`run_finetune.main`), so every fine-tune — including each cross-validation fold —
+gets a comparable final-metrics table. (A CV study additionally logs a
+`cv_summary` task with the across-fold mean ± std table; see
+[`cross_validation.md`](cross_validation.md).)
+
 ## Enabling ClearML
 
 ClearML is an **optional dependency**. If the `clearml` package is not installed,

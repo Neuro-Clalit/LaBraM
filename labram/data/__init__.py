@@ -5,6 +5,16 @@
 # ---------------------------------------------------------
 
 from labram.data.bundles import DatasetBundle, get_dataset_bundle
+from labram.data.cross_validation import (
+    GroupedFolds,
+    apply_cv_split,
+    build_grouped_folds,
+    cv_split_to_dict,
+    load_cv_split_dict,
+    materialize_fold,
+    save_cv_split,
+    subject_overlap,
+)
 from labram.data.eeg_constants import (
     TUH_EEG_CH_NAMES,
     get_channel_indices,
@@ -32,14 +42,22 @@ from labram.data.tuh_datasets import (
 
 __all__ = [
     'DatasetBundle',
+    'GroupedFolds',
     'ShockDataset',
     'SingleShockDataset',
     'TUABLoader',
     'TUEVLoader',
     'TUHLoader',
     'TUH_EEG_CH_NAMES',
+    'apply_cv_split',
     'apply_labram_plus_preprocess',
+    'build_grouped_folds',
     'build_pretraining_dataset',
+    'cv_split_to_dict',
+    'load_cv_split_dict',
+    'materialize_fold',
+    'save_cv_split',
+    'subject_overlap',
     'collate_mask_time',
     'common_average_reference',
     'get_channel_indices',
