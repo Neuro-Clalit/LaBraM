@@ -68,6 +68,10 @@ class RunConfig(ConfigBase):
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     shutdown: ShutdownConfig = field(default_factory=ShutdownConfig)
     loss: LossConfig = field(default_factory=LossConfig)
+    # AWS SageMaker submission settings (only used by labram.runs.submit_sagemaker).
+    # On the base RunConfig so any phase (vqnsp / pretrain / finetune) can be
+    # dispatched as a training job.
+    sagemaker: SageMakerConfig = field(default_factory=SageMakerConfig)
     # LaBraM++ training mode (opt-in). Disabled by default -> original LaBraM.
     labram_plus: LaBraMPlusConfig = field(default_factory=LaBraMPlusConfig)
 
@@ -193,8 +197,6 @@ class FinetuneRunConfig(RunConfig):
     loss: LossConfig = field(default_factory=LossConfig)
     # K-fold cross-validation (opt-in). Disabled -> single train/val/test run.
     cross_validation: CrossValidationConfig = field(default_factory=CrossValidationConfig)
-    # AWS SageMaker submission settings (only used by labram.runs.submit_sagemaker).
-    sagemaker: SageMakerConfig = field(default_factory=SageMakerConfig)
     optimizer: OptimizerConfig = field(
         default_factory=lambda: OptimizerConfig(
             lr=conf_consts.DEFAULT_FINETUNE_LR,

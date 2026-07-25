@@ -21,10 +21,23 @@ from typing import Any, Dict, List, Optional
 
 import labram.utils as utils
 from labram.aws.sagemaker import SageMakerJobSpec, SageMakerLauncher
-from labram.configs.run_configs import FinetuneRunConfig
+from labram.configs.run_configs import (
+    FinetuneRunConfig,
+    PretrainRunConfig,
+    RunConfig,
+    VQNSPRunConfig,
+)
 from labram.configs.utils_conf import parse_overrides
 
 logger = utils.get_logger(__name__)
+
+# Trainer phase -> RunConfig class. Any phase can be dispatched to SageMaker;
+# only 'finetune' additionally supports cross-validation (one job per fold).
+PHASE_CONFIGS = {
+    'vqnsp': VQNSPRunConfig,
+    'pretrain': PretrainRunConfig,
+    'finetune': FinetuneRunConfig,
+}
 
 # Where SageMaker mounts the ``config`` input channel inside the container.
 CONFIG_CHANNEL_MOUNT = '/opt/ml/input/data/config'
@@ -79,19 +92,21 @@ def container_config_path(config_uri: str) -> str:
 # ------------------------------------------------------------------ plan
 
 
-def build_hyperparameters(config_uri: str, fold: Optional[int]) -> Dict[str, Any]:
-    hp: Dict[str, Any] = {'config': container_config_path(config_uri)}
+def build_hyperparameters(config_uri: str, fold: Optional[int],
+                          phase: str = 'finetune') -> Dict[str, Any]:
+    hp: Dict[str, Any] = {'config': container_config_path(config_uri), 'phase': phase}
     if fold is not None:
         hp['fold'] = fold
     return hp
 
 
-def build_job_spec(config: FinetuneRunConfig, config_uri: str,
-                   fold: Optional[int]) -> SageMakerJobSpec:
+def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
+                   phase: str = 'finetune') -> SageMakerJobSpec:
     """Build the :class:`SageMakerJobSpec` for one job (a fold, or the whole run)."""
     sm = config.sagemaker
     tags = dict(sm.tags)
     tags.setdefault('project', config.clearml.project_name or 'LaBraM')
+    tags['phase'] = phase
     if fold is not None:
         tags['cv_fold'] = str(fold)
     return SageMakerJobSpec(
@@ -107,7 +122,7 @@ def build_job_spec(config: FinetuneRunConfig, config_uri: str,
         framework_version=sm.framework_version,
         py_version=sm.py_version,
         image_uri=sm.image_uri,
-        hyperparameters={**sm.hyperparameters, **build_hyperparameters(config_uri, fold)},
+        hyperparameters={**sm.hyperparameters, **build_hyperparameters(config_uri, fold, phase)},
         environment=dict(sm.environment),
         tags=tags,
         inputs={'config': config_uri},
@@ -124,14 +139,15 @@ class JobPlan:
     spec: SageMakerJobSpec
 
 
-def plan_jobs(config: FinetuneRunConfig, config_uri: str) -> List[JobPlan]:
+def plan_jobs(config: RunConfig, config_uri: str, phase: str = 'finetune') -> List[JobPlan]:
     """Enumerate the jobs to submit without touching AWS.
 
-    Cross-validation -> one job per fold (or a single fold when
-    ``cross_validation.fold >= 0``); otherwise a single fine-tune job.
+    A fine-tune with cross-validation enabled -> one job per fold (or a single
+    fold when ``cross_validation.fold >= 0``); any other trainer (vqnsp,
+    pretrain, plain fine-tune) -> a single job.
     """
-    cv = config.cross_validation
-    if cv.enabled:
+    cv = getattr(config, 'cross_validation', None)
+    if phase == 'finetune' and cv is not None and cv.enabled:
         if cv.fold is not None and cv.fold >= 0:
             folds: List[Optional[int]] = [cv.fold]
         else:
@@ -141,7 +157,7 @@ def plan_jobs(config: FinetuneRunConfig, config_uri: str) -> List[JobPlan]:
 
     plans: List[JobPlan] = []
     for fold in folds:
-        spec = build_job_spec(config, config_uri, fold)
+        spec = build_job_spec(config, config_uri, fold, phase)
         plans.append(JobPlan(fold=fold, job_name=spec.base_job_name, spec=spec))
     return plans
 
@@ -170,16 +186,17 @@ def upload_run_config(launcher: SageMakerLauncher, config: FinetuneRunConfig,
     return uri
 
 
-def submit(config: FinetuneRunConfig, dry_run: bool = False) -> List[JobPlan]:
-    """Submit the planned SageMaker job(s). With ``dry_run`` only the plan is
-    returned (no AWS calls, no SDK import), which is what the tests exercise."""
+def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') -> List[JobPlan]:
+    """Submit the planned SageMaker job(s) for the given trainer ``phase``. With
+    ``dry_run`` only the plan is returned (no AWS calls, no SDK import), which is
+    what the tests exercise."""
     sm = config.sagemaker
     if dry_run:
         placeholder = sm.config_channel or 's3://<bucket>/<prefix>/run_config.yaml'
-        plans = plan_jobs(config, placeholder)
+        plans = plan_jobs(config, placeholder, phase)
         for p in plans:
-            logger.info("[dry-run] job=%s fold=%s hp=%s", p.job_name, p.fold,
-                        p.spec.hyperparameters)
+            logger.info("[dry-run] phase=%s job=%s fold=%s hp=%s", phase, p.job_name,
+                        p.fold, p.spec.hyperparameters)
         return plans
 
     # Make ClearML credentials available in-container before the config/env is
@@ -192,7 +209,7 @@ def submit(config: FinetuneRunConfig, dry_run: bool = False) -> List[JobPlan]:
     logger.info("SageMaker execution role: %s", role)
 
     config_uri = upload_run_config(launcher, config, sm.config_channel)
-    plans = plan_jobs(config, config_uri)
+    plans = plan_jobs(config, config_uri, phase)
     if plans:
         # Log the training image that will actually be used (verify it resolves).
         try:
@@ -213,8 +230,10 @@ def submit(config: FinetuneRunConfig, dry_run: bool = False) -> List[JobPlan]:
 
 
 def parse_cli() -> argparse.Namespace:
-    parser = argparse.ArgumentParser('Submit LaBraM fine-tuning to AWS SageMaker')
+    parser = argparse.ArgumentParser('Submit LaBraM training to AWS SageMaker')
     parser.add_argument('--config', type=str, default=None)
+    parser.add_argument('--phase', choices=sorted(PHASE_CONFIGS), default='finetune',
+                        help='Which trainer to submit: vqnsp | pretrain | finetune.')
     parser.add_argument('--set', dest='overrides', nargs='*', default=[], metavar='KEY=VALUE')
     parser.add_argument('--dry_run', action='store_true',
                         help='Print the job plan without contacting AWS.')
@@ -224,12 +243,13 @@ def parse_cli() -> argparse.Namespace:
 def main() -> None:
     cli = parse_cli()
     overrides = parse_overrides(cli.overrides)
-    config = FinetuneRunConfig.load_config(cli.config, **overrides)
+    config_cls = PHASE_CONFIGS[cli.phase]
+    config = config_cls.load_config(cli.config, **overrides)
     if not config.sagemaker.enabled and not cli.dry_run:
         raise SystemExit(
             "sagemaker.enabled is false; set it (e.g. --set sagemaker.enabled=true) "
             "or use --dry_run to preview the job plan.")
-    plans = submit(config, dry_run=cli.dry_run)
+    plans = submit(config, dry_run=cli.dry_run, phase=cli.phase)
     for p in plans:
         print(f"{'[dry-run] ' if cli.dry_run else ''}{p.job_name} (fold={p.fold})")
 

@@ -443,14 +443,15 @@ def finalize_run(config: Any, log_writer: Any = None) -> None:
         return
 
     from labram.utils.clearml_artifacts import (
-        get_clearml_task, resolve_final_checkpoint, upload_model_artifact,
+        finalize_clearml_task, get_clearml_task, resolve_final_checkpoint,
+        upload_model_artifact,
     )
     from labram.utils.shutdown import maybe_stop_instance
 
     clearml_cfg = getattr(config, 'clearml', None)
     output_cfg = getattr(config, 'output', None)
-    if (clearml_cfg is not None and clearml_cfg.enabled
-            and getattr(clearml_cfg, 'upload_model_artifact', False)
+    clearml_on = clearml_cfg is not None and clearml_cfg.enabled
+    if (clearml_on and getattr(clearml_cfg, 'upload_model_artifact', False)
             and output_cfg is not None):
         task = get_clearml_task(log_writer)
         model_path = resolve_final_checkpoint(output_cfg.output_dir)
@@ -461,7 +462,16 @@ def finalize_run(config: Any, log_writer: Any = None) -> None:
             logger.warning("ClearML upload requested but no checkpoint found in %r",
                            getattr(output_cfg, 'output_dir', None))
 
+    # If we're about to stop the machine, finish the ClearML task first so its
+    # final state and pending uploads are persisted before the box is killed —
+    # otherwise the abrupt stop can leave the task stuck "running" or lose the
+    # last metrics/artifacts.
+    shutdown_cfg = getattr(config, 'shutdown', None)
+    will_stop = shutdown_cfg is not None and getattr(shutdown_cfg, 'stop_instance_on_finish', False)
+    if will_stop and clearml_on:
+        finalize_clearml_task(get_clearml_task(log_writer))
+
     try:
-        maybe_stop_instance(getattr(config, 'shutdown', None))
+        maybe_stop_instance(shutdown_cfg)
     except Exception as exc:  # pragma: no cover - defensive
         logger.error("maybe_stop_instance failed: %s", exc)

@@ -96,6 +96,21 @@ def test_plan_jobs_non_cv():
     plans = sub.plan_jobs(c, 's3://b/run.yaml')
     assert len(plans) == 1 and plans[0].fold is None
     assert 'fold' not in plans[0].spec.hyperparameters
+    assert plans[0].spec.hyperparameters['phase'] == 'finetune'
+
+
+def test_plan_jobs_vqnsp_and_pretrain_single_job():
+    from labram.configs.run_configs import PretrainRunConfig, VQNSPRunConfig
+    for phase, cfg in (('vqnsp', VQNSPRunConfig()), ('pretrain', PretrainRunConfig())):
+        plans = sub.plan_jobs(cfg, 's3://b/run.yaml', phase=phase)
+        assert len(plans) == 1 and plans[0].fold is None
+        assert plans[0].spec.hyperparameters['phase'] == phase
+        assert 'fold' not in plans[0].spec.hyperparameters
+        assert plans[0].spec.tags['phase'] == phase
+
+
+def test_phase_configs_cover_all_trainers():
+    assert set(sub.PHASE_CONFIGS) == {'vqnsp', 'pretrain', 'finetune'}
 
 
 def test_submit_dry_run_no_sdk(monkeypatch):
@@ -142,6 +157,20 @@ def test_entry_build_config_sets_fold_and_output(tmp_path, monkeypatch):
     assert config.cross_validation.fold == 2
     assert config.output.output_dir.startswith(str(tmp_path / 'model'))
     assert config.cross_validation.base_dir.startswith(str(tmp_path / 'model'))
+
+
+def test_entry_build_config_phase_vqnsp(tmp_path, monkeypatch):
+    from labram.configs.run_configs import VQNSPRunConfig
+    from labram.runs import sagemaker_entry as entry
+    cfg_path = tmp_path / 'vqnsp.yaml'
+    VQNSPRunConfig().save_to(str(cfg_path))
+    monkeypatch.setenv('SM_MODEL_DIR', str(tmp_path / 'model'))
+
+    cli = entry.parse_cli(['--config', str(cfg_path), '--phase', 'vqnsp'])
+    config = entry.build_config(cli)
+    assert isinstance(config, VQNSPRunConfig)
+    assert config.output.output_dir == str(tmp_path / 'model' / 'vqnsp')
+    assert not hasattr(config, 'cross_validation')
 
 
 # ------------------------------------------------------------------ clearml env
@@ -238,11 +267,12 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
             channel_dir = os.path.dirname(cfg_uri)
             model_dir = tmp_path / "model" / spec.base_job_name
             fold = spec.hyperparameters.get("fold")
+            phase = spec.hyperparameters.get("phase", "finetune")
             prev = {k: os.environ.get(k) for k in ("SM_CHANNEL_CONFIG", "SM_MODEL_DIR")}
             os.environ["SM_CHANNEL_CONFIG"] = channel_dir
             os.environ["SM_MODEL_DIR"] = str(model_dir)
             try:
-                entry.main(["--fold", str(fold)])
+                entry.main(["--phase", phase, "--fold", str(fold)])
             finally:
                 for k, v in prev.items():
                     if v is None:
@@ -254,7 +284,7 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
             return spec.base_job_name
 
     monkeypatch.setattr(sub, "SageMakerLauncher", _FakeLauncher)
-    plans = sub.submit(config, dry_run=False)
+    plans = sub.submit(config, dry_run=False, phase="finetune")
 
     # One job per fold, fold number in the job name, image resolved.
     assert [p.fold for p in plans] == [0, 1, 2]

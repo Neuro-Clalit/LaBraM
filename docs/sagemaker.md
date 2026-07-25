@@ -1,7 +1,9 @@
 # Submitting training to AWS SageMaker
 
-LaBraM fine-tuning can be dispatched as managed **SageMaker training jobs**: a
-single fine-tune becomes one job; a cross-validation study becomes **one job per
+**Any** LaBraM trainer can be dispatched as a managed **SageMaker training job**
+— VQNSP tokenizer, masked pre-training, or fine-tuning — selected with
+`--phase {vqnsp,pretrain,finetune}` (default `finetune`). A single training run
+becomes one job; a fine-tune with cross-validation enabled becomes **one job per
 fold**, each job name embedding the fold number. The submission layer is
 `labram.runs.submit_sagemaker`; the generic SageMaker SDK wrapper lives in
 `labram.aws.sagemaker` (vendored from the shared `common` repo, mirroring
@@ -26,20 +28,29 @@ python -m labram.runs.submit_sagemaker \
         sagemaker.instance_type=ml.g5.2xlarge \
         sagemaker.output_path=s3://my-bucket/labram/finetune_tuab_cv5 \
         data.data_path=s3://my-bucket/data/TUAB
+
+# Submit a different trainer (VQNSP tokenizer / pre-training):
+python -m labram.runs.submit_sagemaker --phase vqnsp \
+  --config labram/configs/defaults/vqnsp.json --dry_run
+python -m labram.runs.submit_sagemaker --phase pretrain \
+  --config labram/configs/defaults/pretrain.json \
+  --set sagemaker.enabled=true sagemaker.role=arn:aws:iam::123:role/SM
 ```
 
 ## How a job runs
 
-1. The submit CLI resolves the `FinetuneRunConfig`, uploads it to S3, and mounts
-   it in-container via the **`config` input channel**
+1. The submit CLI resolves the phase's run config (`VQNSPRunConfig` /
+   `PretrainRunConfig` / `FinetuneRunConfig`), uploads it to S3, and mounts it
+   in-container via the **`config` input channel**
    (`/opt/ml/input/data/config/run_config.yaml`).
-2. For CV it plans one job per fold (or a single fold when
-   `cross_validation.fold >= 0`); otherwise a single job. Each job's name is
-   `‹job_name_prefix›-fold-‹k›` (or just `‹job_name_prefix›`).
-3. SageMaker launches `labram/runs/sagemaker_entry.py --config <mounted> --fold <k>`.
+2. For a fine-tune with CV it plans one job per fold (or a single fold when
+   `cross_validation.fold >= 0`); every other trainer is a single job. Each
+   job's name is `‹job_name_prefix›-fold-‹k›` (or just `‹job_name_prefix›`).
+3. SageMaker launches
+   `labram/runs/sagemaker_entry.py --phase <phase> --config <mounted> [--fold <k>]`.
    The entry point points outputs at `/opt/ml/model` (auto-uploaded to
-   `sagemaker.output_path` at job end) and dispatches to the cross-validation
-   runner or a plain fine-tune.
+   `sagemaker.output_path` at job end) and dispatches to the matching runner:
+   `run_vqnsp` / `run_pretrain` / (`finetune_cv` or plain `run_finetune`).
 
 ## Configuration (`sagemaker`)
 
@@ -63,17 +74,87 @@ python -m labram.runs.submit_sagemaker \
 
 ## IAM execution role (required)
 
-SageMaker training jobs **must** run under an IAM execution role, so
+SageMaker training jobs **must** run under an IAM *execution role* (the role the
+training container assumes — distinct from the identity you submit with). So
 `sagemaker.role` is required when you submit from a plain EC2 box or laptop.
 If `role` is empty the launcher calls `sagemaker.get_execution_role()`, which
 only works *inside* a SageMaker-managed environment (a notebook / training job)
-and otherwise raises a clear error asking for a role ARN. The role needs
-SageMaker permissions plus read access to the S3 data and write access to
-`output_path` (e.g. the `AmazonSageMakerFullAccess` managed policy + your bucket).
+and otherwise raises a clear error asking for a role ARN.
 
 ```bash
 --set sagemaker.role=arn:aws:iam::<account-id>:role/<SageMakerExecutionRole>
 ```
+
+### A. Create the execution role (AWS Console, one-time)
+
+1. **IAM → Roles → Create role**.
+2. **Trusted entity type**: *AWS service*. **Use case**: choose **SageMaker**
+   (this sets the trust policy so `sagemaker.amazonaws.com` can assume the role).
+   Next.
+3. AWS attaches **`AmazonSageMakerFullAccess`** automatically. Keep it. Next.
+4. **Name** it e.g. `LaBraMSageMakerExecutionRole` → **Create role**.
+5. Give it access to **your data/output bucket** (SageMakerFullAccess only covers
+   buckets named `*sagemaker*`). Open the role → **Add permissions → Create
+   inline policy**, JSON:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+       "Resource": ["arn:aws:s3:::my-bucket", "arn:aws:s3:::my-bucket/*"]
+     }]
+   }
+   ```
+6. Copy the role **ARN** (`arn:aws:iam::<account-id>:role/LaBraMSageMakerExecutionRole`)
+   — that is `sagemaker.role`. (CLI equivalent: `aws iam create-role
+   --role-name LaBraMSageMakerExecutionRole --assume-role-policy-document …` then
+   `aws iam attach-role-policy --policy-arn
+   arn:aws:iam::aws:policy/AmazonSageMakerFullAccess`.)
+
+### B. Give the *submitting* machine credentials + permission to launch
+
+The machine that runs `submit_sagemaker` authenticates as **you** (a different
+identity from the execution role) and needs permission to create training jobs
+and to hand the execution role to SageMaker.
+
+1. **Credentials** — how boto3 finds them, in order:
+   - **On the EC2 box (recommended):** attach an **instance profile** (IAM →
+     Roles → an EC2-trusted role, then EC2 → *Actions → Security → Modify IAM
+     role*). No keys to manage.
+   - **Laptop / elsewhere:** `aws configure` (writes `~/.aws/credentials`), or
+     export `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_DEFAULT_REGION`.
+   - Verify with `aws sts get-caller-identity`.
+2. **Permissions** for that submitting identity — attach a policy allowing job
+   creation and **passing the execution role**:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {"Effect": "Allow",
+        "Action": ["sagemaker:CreateTrainingJob", "sagemaker:DescribeTrainingJob",
+                   "sagemaker:StopTrainingJob", "sagemaker:AddTags"],
+        "Resource": "*"},
+       {"Effect": "Allow", "Action": "iam:PassRole",
+        "Resource": "arn:aws:iam::<account-id>:role/LaBraMSageMakerExecutionRole",
+        "Condition": {"StringEquals": {"iam:PassedToService": "sagemaker.amazonaws.com"}}},
+       {"Effect": "Allow",
+        "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
+        "Resource": ["arn:aws:s3:::my-bucket", "arn:aws:s3:::my-bucket/*"]}
+     ]
+   }
+   ```
+   `iam:PassRole` is the one people miss — without it `CreateTrainingJob` fails
+   with *"not authorized to perform iam:PassRole"* even though the role exists.
+3. **Submit**, passing the role ARN from step A:
+   ```bash
+   python -m labram.runs.submit_sagemaker \
+     --config labram/configs/defaults/finetune_tuab_cv.json \
+     --set sagemaker.enabled=true \
+           sagemaker.role=arn:aws:iam::<account-id>:role/LaBraMSageMakerExecutionRole
+   ```
+   Confirm the plan first with `--dry_run` (needs no AWS calls). The launcher
+   logs the resolved role and training image before it submits.
 
 ## Training image
 

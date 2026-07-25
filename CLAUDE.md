@@ -62,12 +62,15 @@ python -m labram.runs.finetune_cv \
 # Aggregate + report the fold results (optionally to ClearML):
 python -m labram.eval.cv_report --base_dir ./checkpoints/finetune_tuab_cv5
 
-# Submit fine-tuning to AWS SageMaker (one job per CV fold). See docs/sagemaker.md.
+# Submit any trainer to AWS SageMaker (--phase vqnsp|pretrain|finetune; a
+# fine-tune with CV enabled dispatches one job per fold). See docs/sagemaker.md.
 python -m labram.runs.submit_sagemaker \
   --config labram/configs/defaults/finetune_tuab_cv.json --dry_run   # preview
 python -m labram.runs.submit_sagemaker \
   --config labram/configs/defaults/finetune_tuab_cv.json \
   --set sagemaker.enabled=true sagemaker.role=arn:aws:iam::ACCT:role/SM
+python -m labram.runs.submit_sagemaker --phase vqnsp \
+  --config labram/configs/defaults/vqnsp.json --dry_run
 ```
 
 ### Installation
@@ -100,7 +103,7 @@ torch>=2.3. Install a compatible DeepSpeed manually only if you need it.
 - `labram/configs/` — Dataclass config tree on `ConfigBase` (JSON/YAML round-trip): model/data/optim/train/runner configs + `defaults/*.json`; constructors are config-driven (`VQNSP(VQNSPArchConfig)`, `NeuralTransformer(TransformerArchConfig)`)
 - `labram/train/` — Per-phase training/eval loops (`train_vqnsp.py`, `train_pretrain.py`, `train_finetune.py`); shared optimizer/LR/metric helpers (`optimizer_update`, `apply_lr_wd_schedule`, `log_lr_wd_grad_metrics`) live in `labram/optim_factory.py`
 - `labram/runs/` — Entry-point scripts (`run_vqnsp.py`, `run_pretrain.py`, `run_finetune.py`) invoked via `python -m`; `common.py` holds shared DDP setup, LR schedules, and dataloader construction; `finetune_setup.py`/`finetune_args.py` for fine-tuning setup; `finetune_cv.py` (K-fold cross-validation orchestration: fold naming, `cv_split.json`, per-fold runs, cross-fold aggregation); `submit_sagemaker.py` (submit fine-tune/CV as SageMaker jobs) + `sagemaker_entry.py` (in-container dispatcher)
-- `labram/aws/` — `sagemaker.py`: generic SageMaker SDK wrapper (`SageMakerJobSpec`, pure `estimator_kwargs`, `SageMakerLauncher`), vendored from the shared `common` repo (mirrors `labram/file_system`). See `docs/sagemaker.md`
+- `labram/aws/` — `sagemaker.py`: generic SageMaker SDK wrapper (`SageMakerJobSpec`, pure `estimator_kwargs`, `SageMakerLauncher` with `resolve_role`/`resolve_image_uri`), vendored from the shared `common` repo (mirrors `labram/file_system`). `SageMakerConfig` lives on the base `RunConfig`, so any phase (vqnsp/pretrain/finetune) can be submitted via `submit_sagemaker --phase`. See `docs/sagemaker.md`
 - `labram/eval/` — Offline evaluation toolkit for trained fine-tune models: `loading.py` (resolve checkpoint/config/`data_split.json` from a local dir or ClearML; rebuild the model; build a case-id-aware eval loader), `inference.py` (`collect_predictions` → `PredictionResult`), `aggregation.py` (per-case window pooling across methods, entropy/accuracy + selective-prediction analysis, case ranking), `cv_aggregation.py` + `cv_report.py` (collect a CV study's per-fold results from local dirs or ClearML, compute metrics over all folds (mean ± std), log a `cv_summary` to ClearML), `plots.py` (evaluation figure builders); `clearml_analysis.py` + `clearml_report.py` (pull a ClearML experiment's metrics/hyperparameters/console into a local `ExperimentSnapshot` and derive concrete heuristic insights — overfitting, divergence, LR-schedule issues — via `python -m labram.eval.clearml_report`; see `docs/clearml_local_analysis.md`). Driven by `notebooks/finetune_evaluation.ipynb`; see `docs/finetune_evaluation.md`
 - `labram/utils/` — `checkpoint.py`, `distributed.py`, `training.py` (cosine LR, layer decay), `logging.py` (`MetricLogger`, `TensorboardLogger`, `ClearMLLogger`, `MultiWriter` fan-out writer, plus `configure_logging`/`get_logger` for the rank-aware Python `logging` setup), `metrics.py`, `cli.py`; `__init__.py` also re-exports the `labram.data` public API for backward compatibility
 - `dataset_maker/` — Preprocessing scripts that convert raw EEG files (`.cnt`/`.edf`/`.bdf`) to HDF5 (`make_h5dataset_for_pretrain.py`) and TUH datasets to pickle (`make_TUAB.py`, `make_TUEV.py`)

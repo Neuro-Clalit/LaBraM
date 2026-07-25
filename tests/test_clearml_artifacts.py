@@ -4,14 +4,53 @@ labram.utils.clearml_artifacts."""
 import sys
 import types
 
-import pytest
 
 from labram.utils.clearml_artifacts import (
+    finalize_clearml_task,
     get_clearml_task,
     resolve_final_checkpoint,
     upload_model_artifact,
 )
 from labram.utils.logging import ClearMLLogger, MultiWriter, TensorboardLogger
+
+
+class _FakeTask:
+    def __init__(self):
+        self.calls = []
+
+    def flush(self, wait_for_uploads=False):
+        self.calls.append(("flush", wait_for_uploads))
+
+    def mark_completed(self, force=False):
+        self.calls.append(("mark_completed", force))
+
+    def close(self):
+        self.calls.append(("close", None))
+
+
+def test_finalize_clearml_task_flushes_marks_and_closes():
+    task = _FakeTask()
+    assert finalize_clearml_task(task) is True
+    names = [c[0] for c in task.calls]
+    # Flush waits for uploads, records Completed, then closes — in that order.
+    assert names == ["flush", "mark_completed", "close"]
+    assert ("flush", True) in task.calls
+
+
+def test_finalize_clearml_task_none_is_noop():
+    assert finalize_clearml_task(None) is False
+
+
+def test_finalize_clearml_task_survives_errors():
+    class _Boom:
+        def flush(self, wait_for_uploads=False):
+            raise RuntimeError("no server")
+
+        def close(self):
+            raise RuntimeError("no server")
+
+    # Best-effort: never raises, returns False on a failed close.
+    assert finalize_clearml_task(_Boom()) is False
 
 
 def test_get_task_from_clearml_logger():
