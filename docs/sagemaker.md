@@ -37,6 +37,12 @@ python -m labram.runs.submit_sagemaker --phase pretrain \
   --set sagemaker.enabled=true sagemaker.role=arn:aws:iam::123:role/SM
 ```
 
+`scripts/submit_paper_experiments.sh` bundles the paper experiment set (CV on the
+paper config + gradient-clip / codebook / LaBraM++ runs that reuse one recorded
+`data_split.json`) behind env-var knobs — `DRY_RUN=1 scripts/submit_paper_experiments.sh`
+to preview, or pass `ROLE`/`DATA`/`CKPT`/`VQNSP`/`OUT` to submit (optionally a
+subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
+
 ## How a job runs
 
 1. The submit CLI resolves the phase's run config (`VQNSPRunConfig` /
