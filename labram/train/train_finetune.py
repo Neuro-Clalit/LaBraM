@@ -12,6 +12,7 @@ import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import torch
+import torch.utils.data
 from timm.utils import ModelEma
 from einops import rearrange
 
@@ -265,6 +266,11 @@ def evaluate(
     case-level metrics and the per-window metrics are mirrored under ``window_*``
     keys (and logged under a ``{head}_window`` plot); otherwise the primary keys
     are the per-window metrics.
+
+    When the loader shards its dataset across ranks (``distributed.dist_eval``),
+    the per-rank predictions are all-gathered back into dataset order first, so
+    metrics — per-case pooling in particular — see every window of every case
+    exactly once rather than only the local shard.
     """
     if metrics is None:
         metrics = ['acc']
@@ -320,6 +326,14 @@ def evaluate(
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
+    # With a DistributedSampler on the eval loader each rank holds only its
+    # ~1/world_size shard; gather the shards back into dataset order before
+    # computing any metric. (Without dist_eval every rank iterates the full
+    # dataset, so there is nothing to gather.)
+    if _is_sharded_loader(data_loader):
+        pred, true, groups = utils.gather_sharded_eval(
+            pred, true, groups, total=_loader_dataset_len(data_loader))
+
     agg_mode = eval_cfg.agg_windows if eval_cfg is not None else 'none'
     detailed = eval_cfg is None or eval_cfg.detailed_metrics
     loss_avg = metric_logger.loss.global_avg
@@ -359,6 +373,23 @@ def evaluate(
         _log_detailed_report(log_writer, primary_report, head, epoch, eval_cfg)
 
     return ret
+
+
+def _is_sharded_loader(data_loader: Any) -> bool:
+    """True when ``data_loader`` splits its dataset across ranks (i.e. carries a
+    :class:`~torch.utils.data.DistributedSampler`), so each rank sees a shard."""
+    sampler = getattr(data_loader, 'sampler', None)
+    return isinstance(sampler, torch.utils.data.DistributedSampler)
+
+
+def _loader_dataset_len(data_loader: Any) -> Optional[int]:
+    """Length of the loader's underlying dataset — the count to truncate to
+    after gathering, dropping DistributedSampler's equalizing duplicates."""
+    dataset = getattr(data_loader, 'dataset', None)
+    try:
+        return len(dataset) if dataset is not None else None
+    except TypeError:  # iterable-style dataset with no __len__
+        return None
 
 
 def _metrics_and_report(
