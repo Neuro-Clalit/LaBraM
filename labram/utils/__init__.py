@@ -45,6 +45,8 @@ from labram.utils.logging import (
     TensorboardLogger,
     configure_logging,
     get_logger,
+    relative_components,
+    relative_components_if_enabled,
 )
 from labram.utils.metrics import get_metrics
 from labram.utils.eval_metrics import (
@@ -104,6 +106,8 @@ __all__ = [
     'is_main_process',
     'load_pretrained_weights',
     'load_state_dict',
+    'relative_components',
+    'relative_components_if_enabled',
     'prepare_TUAB_dataset',
     'prepare_TUEV_dataset',
     'save_model',

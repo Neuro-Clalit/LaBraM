@@ -18,7 +18,7 @@ from einops import rearrange
 
 import labram.utils as utils
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import EvaluationConfig, TrainerConfig
+from labram.configs.train_config import EvaluationConfig, LoggingConfig, TrainerConfig
 from labram.losses import CodebookRegularizedCriterion, build_classification_criterion
 from labram.losses.outputs import LossBreakdown
 from labram.models.outputs import PredictorOutput
@@ -79,6 +79,7 @@ def train_one_epoch(
     is_binary: bool = True,
     eval_cfg: Optional[EvaluationConfig] = None,
     nb_classes: Optional[int] = None,
+    logging_cfg: Optional[LoggingConfig] = None,
 ) -> Dict[str, float]:
     update_freq = trainer_cfg.update_freq
     if nb_classes is None:
@@ -209,12 +210,15 @@ def train_one_epoch(
             # The AMP loss scale can reach ~65536; on its own "scale" plot so it
             # does not flatten the small-valued lr/wd series on the "opt" plot.
             log_writer.update(loss_scale=loss_scale_value, head="scale")
-            if component_values is not None:
-                for name, value in component_values.items():
-                    log_writer.update(**{name: value}, head="loss")
-            if component_grad_values is not None:
-                for name, value in component_grad_values.items():
-                    log_writer.update(**{name: value}, head="grad")
+            # Components go to the writer as shares of their total (scale-free,
+            # comparable across runs/loss weights) unless relative logging is
+            # off; the console/`stats` meters above keep the raw magnitudes.
+            for name, value in (utils.relative_components_if_enabled(
+                    component_values, logging_cfg) or {}).items():
+                log_writer.update(**{name: value}, head="loss")
+            for name, value in (utils.relative_components_if_enabled(
+                    component_grad_values, logging_cfg) or {}).items():
+                log_writer.update(**{name: value}, head="grad")
             log_writer.set_step()
 
     # gather the stats from all processes
@@ -424,14 +428,26 @@ _LOGGED_EVAL_COUNT_KEYS = ('cm_tn', 'cm_fp', 'cm_fn', 'cm_tp')
 _LOGGED_EVAL_KEYS = _LOGGED_EVAL_RATE_KEYS + _LOGGED_EVAL_COUNT_KEYS
 
 
+def _epoch_axis_step(log_writer, epoch):
+    """Place an epoch-level metric on the writer's x-axis.
+
+    Returns the epoch unchanged on the absolute axis; on the relative axis it
+    becomes the same normalized-progress value the per-iteration series use, so
+    the train and val/test curves stay aligned."""
+    if log_writer is not None and hasattr(log_writer, 'epoch_step'):
+        return log_writer.epoch_step(epoch)
+    return epoch
+
+
 def _log_eval_stats(log_writer, stats, head, epoch):
     if log_writer is None:
         return
+    step = _epoch_axis_step(log_writer, epoch)
     for key, value in stats.items():
         if key in _LOGGED_EVAL_RATE_KEYS:
-            log_writer.update(**{key: value}, head=head, step=epoch)
+            log_writer.update(**{key: value}, head=head, step=step)
         elif key in _LOGGED_EVAL_COUNT_KEYS:
-            log_writer.update(**{key: value}, head=f"{head}_cm", step=epoch)
+            log_writer.update(**{key: value}, head=f"{head}_cm", step=step)
 
 
 def _log_detailed_report(log_writer, report, head, step, eval_cfg):
@@ -439,6 +455,7 @@ def _log_detailed_report(log_writer, report, head, step, eval_cfg):
     to the writer(s). Scalars are logged separately via ``_log_eval_stats``."""
     if log_writer is None or report is None or eval_cfg is None:
         return
+    step = _epoch_axis_step(log_writer, step)
     if eval_cfg.log_confusion_matrix and report.matrix is not None:
         log_writer.report_confusion_matrix(
             head, report.matrix, step=step, labels=report.labels)
@@ -488,6 +505,12 @@ def train_loop(
     wd_schedule_values = runner_common.make_wd_schedule(
         config.optimizer, config.trainer, num_training_steps_per_epoch)
 
+    # The writer advances once per micro-batch here, so the run spans
+    # epochs * steps_per_epoch * update_freq logging steps.
+    runner_common.configure_relative_step_axis(
+        log_writer, config, num_training_steps_per_epoch,
+        steps_per_logged_step=config.trainer.update_freq)
+
     nb_classes = config.model.nb_classes
     is_binary = nb_classes == 1
 
@@ -519,6 +542,7 @@ def train_loop(
             is_binary=is_binary,
             eval_cfg=config.evaluation,
             nb_classes=nb_classes,
+            logging_cfg=config.logging,
         )
 
         # Periodic/rolling per-epoch checkpoints are skipped when only the final

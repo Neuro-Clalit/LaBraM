@@ -12,10 +12,32 @@ import torch
 
 import labram.utils as utils
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import OutputConfig
+from labram.configs.train_config import LoggingConfig, OutputConfig
 from labram.optim_factory import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 logger = utils.get_logger(__name__)
+
+
+# Aggregate losses (and non-loss counters such as ``unused_code``) are reported
+# as-is; only the per-component losses become shares of the component total.
+_TOTAL_LOSS_KEYS = frozenset({'loss', 'total_loss'})
+
+
+def _writer_loss_values(values: Dict[str, Any],
+                        logging_cfg: Optional[LoggingConfig]) -> Dict[str, Any]:
+    """Prepare a VQNSP loss dict for the metric writer.
+
+    Totals and counters pass through unchanged; the per-component losses
+    (``rec_loss`` / ``rec_angle_loss`` / ``quant_loss``) are reported as their
+    share of the component total when relative logging is on, so the plot shows
+    how the reconstruction/quantization terms trade off rather than their raw
+    (weight- and dataset-dependent) magnitudes.
+    """
+    components = {k: v for k, v in values.items()
+                  if k.endswith('_loss') and k not in _TOTAL_LOSS_KEYS}
+    passthrough = {k: v for k, v in values.items() if k not in components}
+    return {**passthrough,
+            **(utils.relative_components_if_enabled(components, logging_cfg) or {})}
 
 
 def _get_codebook_zero_count(inner_model: torch.nn.Module) -> Optional[int]:
@@ -42,6 +64,7 @@ def train_one_epoch(
     start_steps: Optional[int] = None,
     lr_schedule_values: Optional[Sequence[float]] = None,
     ch_names_list: Optional[List[List[str]]] = None,
+    logging_cfg: Optional[LoggingConfig] = None,
 ) -> Dict[str, float]:
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -98,7 +121,8 @@ def train_one_epoch(
             log_lr_wd_grad_metrics(metric_logger, optimizer, grad_norm, log_writer)
 
             if log_writer is not None:
-                log_writer.update(**filtered_loss_dict, head="train/loss")
+                log_writer.update(**_writer_loss_values(filtered_loss_dict, logging_cfg),
+                                  head="train/loss")
                 # loss_scale (AMP) can reach ~65536 — its own plot keeps it off
                 # the small-valued "opt" (lr/wd) axis.
                 log_writer.update(loss_scale=loss_scale_value, head="scale")
@@ -210,6 +234,9 @@ def train_loop(
     lr_schedule_values = runner_common.make_lr_schedule(
         config.optimizer, config.trainer, num_training_steps_per_epoch)
 
+    runner_common.configure_relative_step_axis(
+        log_writer, config, num_training_steps_per_epoch)
+
     logger.info(f"Start training for {config.trainer.epochs} epochs")
     start_time = time.time()
 
@@ -228,6 +255,7 @@ def train_loop(
             start_steps=epoch * num_training_steps_per_epoch,
             lr_schedule_values=lr_schedule_values,
             ch_names_list=train_ch_names_list,
+            logging_cfg=config.logging,
         )
 
         if config.output.output_dir and not config.output.save_only_final_model:
@@ -244,7 +272,8 @@ def train_loop(
             )
             logger.info(f"Validation loss: {test_stats['loss']:.4f}")
             if log_writer is not None:
-                log_writer.update(**test_stats, head="val/loss")
+                log_writer.update(**_writer_loss_values(test_stats, config.logging),
+                                  head="val/loss")
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'test_{k}': v for k, v in test_stats.items()},

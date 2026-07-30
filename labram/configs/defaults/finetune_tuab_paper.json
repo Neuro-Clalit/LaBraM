@@ -146,7 +146,10 @@
         "py/object": "labram.configs.train_config.LoggingConfig",
         "log_model_graph": true,
         "model_graph_format": "svg",
-        "log_data_split": true
+        "log_data_split": true,
+        "relative_loss_components": true,
+        "relative_step_axis": true,
+        "relative_step_scale": 1000
     },
     "shutdown": {
         "py/object": "labram.configs.train_config.ShutdownConfig",
