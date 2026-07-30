@@ -131,6 +131,13 @@ DEFAULT_SAVE_ONLY_FINAL_MODEL: bool = False
 DEFAULT_LOG_MODEL_GRAPH: bool = True
 DEFAULT_MODEL_GRAPH_FORMAT: str = 'svg'   # svg (vector) | png
 DEFAULT_LOG_DATA_SPLIT: bool = True
+# Relative (scale-free) metric logging. Per-component losses / gradient norms
+# are reported as their share of the component total, and every metric is
+# plotted against normalized training progress instead of the raw iteration
+# count, so runs of different length / batch size overlay directly.
+DEFAULT_RELATIVE_LOSS_COMPONENTS: bool = True
+DEFAULT_RELATIVE_STEP_AXIS: bool = True
+DEFAULT_RELATIVE_STEP_SCALE: int = 1000   # progress 0..1 -> 0..scale (per-mille)
 
 # ---------- ClearML experiment tracking (labram/utils/logging.ClearMLLogger) ----------
 DEFAULT_CLEARML_ENABLED: bool = False

@@ -6,11 +6,12 @@
 
 import datetime
 import logging
+import math
 import os
 import sys
 import time
 from collections import defaultdict, deque
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 import torch
 import torch.distributed as dist
@@ -251,6 +252,123 @@ class MetricLogger(object):
             header, total_time_str, total_time / len(iterable)))
 
 
+# ============================================================
+# Relative (scale-free) metric logging
+# ============================================================
+
+RELATIVE_SUFFIX = "_rel"
+
+
+def relative_components(values: Mapping[str, Any],
+                        suffix: str = RELATIVE_SUFFIX) -> Dict[str, float]:
+    """Turn absolute per-component metrics into their share of the total.
+
+    Used for the per-loss-component and per-component-gradient-norm series: each
+    value is divided by the sum of the absolute component values, so the result
+    is scale-free (the shares sum to 1, and lie in ``[0, 1]`` for the
+    non-negative losses and grad norms this is applied to) and shows the
+    *balance* between the terms rather than their raw magnitudes — which is what
+    makes the plots comparable across runs, loss weights and datasets.
+
+    ``values`` must contain only components (no total). Keys gain ``suffix``.
+    A zero (or non-finite) total yields all-zero shares rather than NaN/inf.
+    """
+    numeric: Dict[str, float] = {}
+    for key, value in values.items():
+        if value is None:
+            continue
+        if isinstance(value, torch.Tensor):
+            value = value.detach().float().mean().item()
+        numeric[key] = float(value)
+
+    total = sum(abs(v) for v in numeric.values())
+    if not total or not math.isfinite(total):
+        return {f"{key}{suffix}": 0.0 for key in numeric}
+    return {f"{key}{suffix}": v / total for key, v in numeric.items()}
+
+
+def relative_components_if_enabled(values: Optional[Mapping[str, Any]],
+                                   logging_cfg: Any = None) -> Optional[Dict[str, Any]]:
+    """:func:`relative_components` gated on ``logging_cfg.relative_loss_components``.
+
+    Returns the values unchanged (as a plain dict) when the option is off, and
+    passes ``None``/empty through so call sites can forward an unavailable loss
+    breakdown untouched.
+    """
+    if not values:
+        return values
+    if logging_cfg is None or not getattr(logging_cfg, 'relative_loss_components', False):
+        return dict(values)
+    return relative_components(values)
+
+
+class _RelativeStepMixin(object):
+    """Maps absolute training steps onto a normalized progress x-axis.
+
+    Once :meth:`configure_relative_steps` is called with the run's total number
+    of logging steps, ``set_step`` reports progress in ``[0, scale]`` (per-mille
+    of the run by default) instead of the raw global iteration, so runs with
+    different dataset sizes / batch sizes / epoch counts overlay on a shared
+    axis. Until it is called (or when it is called with a non-positive total)
+    the writers behave exactly as before: absolute steps, passed through.
+
+    Call sites that log per-epoch metrics with an explicit ``step=`` pass the
+    epoch through :meth:`epoch_step` so those series land on the same axis.
+    """
+
+    def _init_relative_steps(self) -> None:
+        self.step = 0
+        self._abs_step = 0
+        self._rel_enabled = False
+        self._rel_total_steps: Optional[int] = None
+        self._rel_total_epochs: Optional[int] = None
+        self._rel_scale = 1000
+
+    def configure_relative_steps(self, total_steps: Optional[int] = None,
+                                 total_epochs: Optional[int] = None,
+                                 scale: int = 1000) -> bool:
+        """Enable the relative axis for a run of ``total_steps`` logging steps.
+
+        Returns whether the relative axis is active (a non-positive
+        ``total_steps``/``scale`` leaves the writer on the absolute axis).
+        """
+        if not total_steps or total_steps <= 0 or not scale or scale <= 0:
+            self._rel_enabled = False
+            return False
+        self._rel_total_steps = int(total_steps)
+        self._rel_total_epochs = int(total_epochs) if total_epochs else None
+        self._rel_scale = int(scale)
+        self._rel_enabled = True
+        self.step = self._to_relative(self._abs_step)
+        return True
+
+    def _to_relative(self, step: int) -> int:
+        """Map an absolute iteration onto the configured progress axis."""
+        if not self._rel_enabled:
+            return step
+        progress = min(max(step / self._rel_total_steps, 0.0), 1.0)
+        return int(round(progress * self._rel_scale))
+
+    def epoch_step(self, epoch: int) -> int:
+        """Map an epoch index onto the same axis as the iteration-based steps.
+
+        Epoch-level metrics describe the state *after* the epoch, so epoch ``e``
+        of ``E`` maps to progress ``(e + 1) / E``. Returns ``epoch`` unchanged
+        when the relative axis is off.
+        """
+        if not self._rel_enabled or not self._rel_total_epochs:
+            return epoch
+        progress = min(max((epoch + 1) / self._rel_total_epochs, 0.0), 1.0)
+        return int(round(progress * self._rel_scale))
+
+    def set_step(self, step: Optional[int] = None) -> None:
+        if step is not None:
+            self._abs_step = step
+        else:
+            self._abs_step += 1
+        self.step = self._to_relative(self._abs_step)
+
+
 def _confusion_matrix_markdown(matrix: Any, labels: Optional[List[Any]] = None) -> str:
     """Render a confusion matrix as a GitHub-flavoured markdown table.
 
@@ -268,16 +386,10 @@ def _confusion_matrix_markdown(matrix: Any, labels: Optional[List[Any]] = None) 
     return "\n".join([header, sep] + body)
 
 
-class TensorboardLogger(object):
+class TensorboardLogger(_RelativeStepMixin):
     def __init__(self, log_dir):
         self.writer = SummaryWriter(log_dir=log_dir)
-        self.step = 0
-
-    def set_step(self, step=None):
-        if step is not None:
-            self.step = step
-        else:
-            self.step += 1
+        self._init_relative_steps()
 
     def update(self, head='scalar', step=None, **kwargs):
         for k, v in kwargs.items():
@@ -321,7 +433,7 @@ class TensorboardLogger(object):
         self.writer.flush()
 
 
-class ClearMLLogger(object):
+class ClearMLLogger(_RelativeStepMixin):
     """Scalar/image logger that mirrors :class:`TensorboardLogger` but forwards
     to a ClearML ``Task`` logger.
 
@@ -343,13 +455,7 @@ class ClearMLLogger(object):
             self._logger = task.get_logger()
         else:
             self._logger = None
-        self.step = 0
-
-    def set_step(self, step=None):
-        if step is not None:
-            self.step = step
-        else:
-            self.step += 1
+        self._init_relative_steps()
 
     def update(self, head='scalar', step=None, **kwargs):
         if self._logger is None:
@@ -422,7 +528,7 @@ class ClearMLLogger(object):
             self._logger.flush()
 
 
-class MultiWriter(object):
+class MultiWriter(_RelativeStepMixin):
     """Fan-out writer that forwards every call to a list of underlying writers.
 
     Lets the training loops keep a single ``log_writer`` object while metrics go
@@ -433,13 +539,22 @@ class MultiWriter(object):
 
     def __init__(self, writers: List[Any]):
         self.writers = [w for w in writers if w is not None]
-        self.step = 0
+        self._init_relative_steps()
+
+    def configure_relative_steps(self, total_steps=None, total_epochs=None, scale=1000):
+        """Configure this writer and every underlying writer identically."""
+        enabled = super().configure_relative_steps(
+            total_steps=total_steps, total_epochs=total_epochs, scale=scale)
+        for w in self.writers:
+            if hasattr(w, 'configure_relative_steps'):
+                w.configure_relative_steps(
+                    total_steps=total_steps, total_epochs=total_epochs, scale=scale)
+        return enabled
 
     def set_step(self, step=None):
-        if step is not None:
-            self.step = step
-        else:
-            self.step += 1
+        # Children receive the *absolute* step and map it themselves, so the
+        # mapping is applied exactly once per writer.
+        super().set_step(step)
         for w in self.writers:
             w.set_step(step)
 
