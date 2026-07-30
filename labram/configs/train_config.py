@@ -133,16 +133,22 @@ class ShutdownConfig(ConfigBase):
 
 @dataclass
 class EvaluationConfig(ConfigBase):
-    """Detailed evaluation metrics + inference-time window aggregation.
+    """Detailed evaluation metrics + per-case window aggregation.
 
     ``detailed_metrics`` turns on the richer classification report (confusion
     matrix, F1, sensitivity/specificity, ROC/PR AUC) for train/val/test;
     ``log_confusion_matrix`` / ``log_curves`` additionally push the matrix and
     ROC/PR curves to TensorBoard / ClearML. ``log_grad_components`` logs the
     per-loss-component gradient norms every ``log_grad_freq`` steps.
-    ``agg_windows`` selects how per-window predictions are pooled into a single
-    per-case prediction during eval-only (inference) runs, and ``agg_case_by``
-    whether a "case" is a recording/session or a subject.
+
+    ``agg_windows`` selects how the per-window predictions of one EEG case are
+    pooled into a single per-case prediction, and ``agg_case_by`` whether a
+    "case" is a recording/session or a subject. This applies to the val/test
+    evaluation of *every* epoch of a fine-tune, not only eval-only runs: case
+    metrics become the primary set and per-window metrics are mirrored under
+    ``window_*``. It requires the eval dataset to emit per-window case ids
+    (``enable_window_ids``); when it cannot, a warning is logged and evaluation
+    stays window-level.
     """
     detailed_metrics: bool = DEFAULT_EVAL_DETAILED_METRICS
     log_confusion_matrix: bool = DEFAULT_EVAL_LOG_CONFUSION_MATRIX

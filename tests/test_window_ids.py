@@ -81,3 +81,50 @@ def test_enable_window_ids_on_loader_and_subset(tuab_root):
     lst = [TUABLoader(str(root), files)]
     enable_window_ids(lst)
     assert lst[0].return_id is True
+
+
+def test_enable_window_ids_recurses_into_concat_dataset(tuab_root):
+    """A cross-validation fold concatenates one loader per source (train + val
+    roots), so ids must reach the leaves through ConcatDataset — otherwise
+    per-case aggregation silently degrades to window-level."""
+    root, files = tuab_root
+    parts = [TUABLoader(str(root), files[:2]), TUABLoader(str(root), files[2:])]
+    concat = torch.utils.data.ConcatDataset(parts)
+
+    assert enable_window_ids(concat, group_by="recording") == 2
+    assert all(p.return_id is True and p.group_by == "recording" for p in parts)
+    # The concatenated dataset now yields 3-tuples end to end.
+    assert all(len(concat[i]) == 3 for i in range(len(concat)))
+
+
+def test_enable_window_ids_recurses_through_nested_wrappers(tuab_root):
+    """Subset(ConcatDataset(...)) — the debug-mode shape — also reaches leaves."""
+    root, files = tuab_root
+    parts = [TUABLoader(str(root), files[:2]), TUABLoader(str(root), files[2:])]
+    nested = torch.utils.data.Subset(
+        torch.utils.data.ConcatDataset(parts), [0, 1, 2])
+
+    assert enable_window_ids(nested, group_by="subject") == 2
+    assert all(p.return_id is True and p.group_by == "subject" for p in parts)
+    assert len(nested[0]) == 3
+
+
+def test_enable_window_ids_warns_when_no_leaf_supports_ids(caplog):
+    """An aggregation mode configured over a dataset that cannot emit case ids
+    must say so rather than silently producing window-level metrics."""
+    class _NoIds(torch.utils.data.Dataset):
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, i):
+            return torch.zeros(2, 200), 0
+
+    with caplog.at_level("WARNING"):
+        assert enable_window_ids(_NoIds()) == 0
+    assert "window-level metrics only" in caplog.text
+
+    # ...and stays quiet when the caller opts out of the warning.
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        enable_window_ids(_NoIds(), warn=False)
+    assert caplog.text == ""

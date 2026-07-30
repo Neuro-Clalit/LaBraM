@@ -43,19 +43,47 @@ def resolve_device(requested: str) -> torch.device:
     return torch.device(requested)
 
 
-def enable_window_ids(dataset, group_by: str = 'recording') -> None:
-    """In-place: make a TUH dataset (or list/Subset thereof) yield a per-window
-    case id, so inference can aggregate window predictions per recording/subject.
+def enable_window_ids(dataset, group_by: str = 'recording', *, warn: bool = True) -> int:
+    """In-place: make the leaf datasets under ``dataset`` yield a per-window case
+    id, so evaluation can aggregate window predictions per recording/subject.
 
-    Silently ignores datasets that don't support ids (e.g. non-TUH loaders)."""
+    Walks the whole wrapper tree — ``list``, :class:`~torch.utils.data.Subset`
+    (``.dataset``) and :class:`~torch.utils.data.ConcatDataset` (``.datasets``),
+    nested arbitrarily — and flips ``return_id`` on every leaf that supports it.
+    Recursing into ``ConcatDataset`` matters for cross-validation: a fold's split
+    concatenates one loader per source (train + val roots), so without it no leaf
+    is ever reached and per-case aggregation silently degrades to window-level.
+
+    Returns the number of leaf datasets that accepted ids. When that is zero and
+    ``warn`` is set, logs a warning — an aggregation mode was configured but the
+    data cannot support it (e.g. a non-TUH loader), which would otherwise fail
+    silently inside ``evaluate``."""
     if dataset is None:
-        return
-    targets = dataset if isinstance(dataset, list) else [dataset]
-    for d in targets:
-        base = d.dataset if isinstance(d, torch.utils.data.Subset) else d
-        if hasattr(base, 'return_id'):
-            base.return_id = True
-            base.group_by = group_by
+        return 0
+    n = _enable_window_ids(dataset, group_by)
+    if n == 0 and warn:
+        logger.warning(
+            "Per-case window aggregation is configured but no dataset in %s "
+            "supports per-window case ids; evaluation will report window-level "
+            "metrics only.", type(dataset).__name__)
+    return n
+
+
+def _enable_window_ids(dataset, group_by: str) -> int:
+    """Recursive worker for :func:`enable_window_ids`; returns the leaf count."""
+    if dataset is None:
+        return 0
+    if isinstance(dataset, (list, tuple)):
+        return sum(_enable_window_ids(d, group_by) for d in dataset)
+    if isinstance(dataset, torch.utils.data.Subset):
+        return _enable_window_ids(dataset.dataset, group_by)
+    if isinstance(dataset, torch.utils.data.ConcatDataset):
+        return sum(_enable_window_ids(d, group_by) for d in dataset.datasets)
+    if hasattr(dataset, 'return_id'):
+        dataset.return_id = True
+        dataset.group_by = group_by
+        return 1
+    return 0
 
 
 def subset_for_debug(dataset, n: int):

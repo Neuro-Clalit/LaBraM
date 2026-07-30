@@ -75,6 +75,60 @@ def all_gather_batch(tensors):
     return output_tensor
 
 
+def gather_sharded_eval(pred, true, groups, total=None):
+    """All-gather one rank's eval predictions and rebuild the dataset order.
+
+    Intended for an eval loader sharded by :class:`DistributedSampler`, where
+    rank ``r`` of ``W`` holds the samples at original positions
+    ``r, r + W, r + 2W, ...``. Interleaving the per-rank arrays in that order
+    reconstructs the sampler's (padded) sequence; ``total`` — the underlying
+    dataset length — then truncates the duplicate entries DistributedSampler
+    appends to equalize shard sizes.
+
+    Without this, each rank computes metrics over its own ~1/W shard: rate
+    metrics get noisy, confusion-matrix counts are a fraction of the true
+    totals, and per-case window aggregation pools only the windows of a case
+    that happened to land on the local rank.
+
+    Returns ``(pred, true, groups)`` unchanged outside distributed mode.
+    """
+    import numpy as np
+
+    world_size = get_world_size()
+    if world_size == 1:
+        return pred, true, groups
+
+    buf = [None] * world_size
+    dist.all_gather_object(buf, (np.asarray(pred), np.asarray(true), list(groups)))
+    return interleave_shards([b[0] for b in buf], [b[1] for b in buf],
+                             [b[2] for b in buf], total=total)
+
+
+def interleave_shards(preds, trues, grps, total=None):
+    """Rebuild dataset order from per-rank :class:`DistributedSampler` shards.
+
+    Rank ``r`` of ``W`` holds original positions ``r, r + W, r + 2W, ...``, so
+    taking one element from each rank in turn restores the sampler's sequence;
+    ``total`` truncates the equalizing duplicates the sampler appends. Split out
+    of :func:`gather_sharded_eval` so the reordering is testable without a
+    process group.
+    """
+    import numpy as np
+
+    world_size = len(preds)
+    order = [(r, i) for i in range(max(len(p) for p in preds))
+             for r in range(world_size) if i < len(preds[r])]
+    if total is not None:
+        order = order[:total]
+
+    pred_out = np.concatenate([np.asarray(preds[r])[i:i + 1] for r, i in order], axis=0)
+    true_out = np.concatenate([np.asarray(trues[r])[i:i + 1] for r, i in order], axis=0)
+    # Case ids are absent unless every rank reported them (the dataset yields
+    # 2-tuples); an empty list keeps evaluate() on the window-level path.
+    groups_out = [grps[r][i] for r, i in order] if all(grps) else []
+    return pred_out, true_out, groups_out
+
+
 class GatherLayer(torch.autograd.Function):
     """all_gather with backward support (gradients are not cut, unlike dist.all_gather)."""
 
