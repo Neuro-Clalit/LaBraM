@@ -3,6 +3,7 @@ from typing import List
 
 from labram.configs.base_configs import ConfigBase
 from labram.configs.defaults import (
+    DEFAULT_DATA_SPLIT_JSON,
     DEFAULT_DATASET_END_PERCENTAGE,
     DEFAULT_DATASET_START_PERCENTAGE,
     DEFAULT_NUM_WORKERS,
@@ -23,6 +24,9 @@ class DataConfig(ConfigBase):
     dataset: str = ""
     data_path: str = ""
     robust_test: str = ""
+    # Reuse a recorded data_split.json (local or s3://) instead of the dataset's
+    # default split — pins the train/val/test case assignment across runs.
+    split_json: str = DEFAULT_DATA_SPLIT_JSON
     num_workers: int = DEFAULT_NUM_WORKERS
     pin_mem: bool = DEFAULT_PIN_MEM
     datasets_train: List[List[str]] = field(default_factory=list)

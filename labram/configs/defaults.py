@@ -105,6 +105,10 @@ DEFAULT_FUSED_NOVOGRAD_BETAS: tuple = (0.95, 0.98)
 # ---------- Data ----------
 DEFAULT_NUM_WORKERS: int = 10
 DEFAULT_PIN_MEM: bool = True
+# '' -> build the dataset's default train/val/test split. Otherwise reuse the
+# exact case assignment recorded in this data_split.json (local path or s3://),
+# e.g. to run several models on an identical split. Fine-tuning only.
+DEFAULT_DATA_SPLIT_JSON: str = ''
 # build_pretraining_dataset arguments
 DEFAULT_PRETRAIN_STRIDE: int = 800        # run_pretrain.py
 DEFAULT_VQNSP_STRIDE: int = 200           # run_vqnsp.py

@@ -115,6 +115,7 @@
         "dataset": "TUAB",
         "data_path": "./datasets/TUAB",
         "robust_test": "",
+        "split_json": "",
         "num_workers": 10,
         "pin_mem": true,
         "datasets_train": [],

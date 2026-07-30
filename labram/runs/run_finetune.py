@@ -89,6 +89,12 @@ def main(config: FinetuneRunConfig, bundle=None):
 
     if bundle is None:
         bundle = get_dataset_bundle(config.data.dataset, config.data.data_path)
+        # Optionally pin the train/val/test split to a recorded data_split.json
+        # (local or s3://) so several models train on an identical split.
+        if config.data.split_json:
+            from labram.data.data_split_reuse import apply_data_split, load_data_split_json
+            logger.info("Reusing recorded data split from %s", config.data.split_json)
+            bundle = apply_data_split(bundle, load_data_split_json(config.data.split_json))
     config.model.nb_classes = bundle.nb_classes
     dataset_train, dataset_val, dataset_test = bundle.train, bundle.val, bundle.test
     ch_names, metrics = bundle.ch_names, bundle.metrics
