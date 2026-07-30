@@ -113,6 +113,52 @@ def test_phase_configs_cover_all_trainers():
     assert set(sub.PHASE_CONFIGS) == {'vqnsp', 'pretrain', 'finetune'}
 
 
+# ------------------------------------------------------------------ s3 channels
+
+
+def test_stage_s3_inputs_channels_data_and_checkpoint():
+    c = FinetuneRunConfig()
+    c.data.data_path = 's3://bucket/data/TUAB'
+    c.finetune_checkpoint.finetune = 's3://bucket/ckpts/labram-base.pth'
+    c.data.split_json = 's3://bucket/runs/data_split.json'
+
+    channels = sub.stage_s3_inputs(c, 'finetune')
+    assert channels['dataset'] == 's3://bucket/data/TUAB'
+    assert channels['pretrained'] == 's3://bucket/ckpts/labram-base.pth'
+    # Config rewritten to the in-container mounts.
+    assert c.data.data_path == '/opt/ml/input/data/dataset'
+    assert c.finetune_checkpoint.finetune == '/opt/ml/input/data/pretrained/labram-base.pth'
+    # split_json stays an s3:// URI (read directly in-container), no channel.
+    assert 'split' not in channels and c.data.split_json == 's3://bucket/runs/data_split.json'
+
+
+def test_stage_s3_inputs_codebook_tokenizer():
+    c = FinetuneRunConfig()
+    c.model.codebook_reg.tokenizer_weight = 's3://bucket/vqnsp.pth'
+    channels = sub.stage_s3_inputs(c, 'finetune')
+    assert channels['tokenizer'] == 's3://bucket/vqnsp.pth'
+    assert c.model.codebook_reg.tokenizer_weight == '/opt/ml/input/data/tokenizer/vqnsp.pth'
+
+
+def test_stage_s3_inputs_ignores_local_paths():
+    c = FinetuneRunConfig()
+    c.data.data_path = '/local/TUAB'
+    c.finetune_checkpoint.finetune = './checkpoints/labram-base.pth'
+    assert sub.stage_s3_inputs(c, 'finetune') == {}
+    assert c.data.data_path == '/local/TUAB'
+
+
+def test_submit_dry_run_includes_s3_channels_in_inputs():
+    c = FinetuneRunConfig()
+    c.data.data_path = 's3://bucket/data/TUAB'
+    c.finetune_checkpoint.finetune = 's3://bucket/ckpts/labram-base.pth'
+    plans = sub.submit(c, dry_run=True, phase='finetune')
+    inputs = plans[0].spec.inputs
+    assert inputs['dataset'] == 's3://bucket/data/TUAB'
+    assert inputs['pretrained'] == 's3://bucket/ckpts/labram-base.pth'
+    assert 'config' in inputs
+
+
 def test_submit_dry_run_no_sdk(monkeypatch):
     # Guarantee the SDK is never imported on the dry-run path.
     import builtins
