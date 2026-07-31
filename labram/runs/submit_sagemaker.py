@@ -39,8 +39,54 @@ PHASE_CONFIGS = {
     'finetune': FinetuneRunConfig,
 }
 
-# Where SageMaker mounts the ``config`` input channel inside the container.
-CONFIG_CHANNEL_MOUNT = '/opt/ml/input/data/config'
+# Where SageMaker mounts input channels inside the container.
+INPUT_MOUNT = '/opt/ml/input/data'
+CONFIG_CHANNEL_MOUNT = f'{INPUT_MOUNT}/config'
+
+
+def _channel_mount(channel: str) -> str:
+    return f'{INPUT_MOUNT}/{channel}'
+
+
+def _basename(uri: str) -> str:
+    return uri.rstrip('/').split('/')[-1]
+
+
+def stage_s3_inputs(config: RunConfig, phase: str = 'finetune') -> Dict[str, str]:
+    """Turn ``s3://`` paths in the run config into SageMaker input channels and
+    rewrite the config to the in-container mount paths, so the job can read data
+    and checkpoints locally. Returns ``{channel_name: s3_uri}``.
+
+    Handled: ``data.data_path`` -> ``dataset`` channel (TUAB/TUEV loaders use
+    ``os.listdir``, so the data must be a local mount, not an S3 URI);
+    ``finetune_checkpoint.finetune`` -> ``pretrained``; and
+    ``model.codebook_reg.tokenizer_weight`` -> ``tokenizer`` (finetune only).
+    ``data.split_json`` is left as an ``s3://`` URI — it is read directly via the
+    shared FileSystem in-container, no channel needed.
+    """
+    channels: Dict[str, str] = {}
+
+    def _is_s3(v):
+        return isinstance(v, str) and v.startswith('s3://')
+
+    data = config.data
+    if _is_s3(data.data_path):
+        channels['dataset'] = data.data_path
+        data.data_path = _channel_mount('dataset')
+
+    if phase == 'finetune':
+        ck = getattr(config, 'finetune_checkpoint', None)
+        if ck is not None and _is_s3(getattr(ck, 'finetune', '')):
+            channels['pretrained'] = ck.finetune
+            ck.finetune = f"{_channel_mount('pretrained')}/{_basename(ck.finetune)}"
+        cr = getattr(getattr(config, 'model', None), 'codebook_reg', None)
+        if cr is not None and _is_s3(getattr(cr, 'tokenizer_weight', '')):
+            channels['tokenizer'] = cr.tokenizer_weight
+            cr.tokenizer_weight = f"{_channel_mount('tokenizer')}/{_basename(cr.tokenizer_weight)}"
+
+    if channels:
+        logger.info("Staging %d S3 input channel(s): %s", len(channels), channels)
+    return channels
 
 # ClearML credential env vars forwarded into the training container so that
 # clearml.enabled runs can talk to the ClearML server from inside SageMaker.
@@ -101,7 +147,8 @@ def build_hyperparameters(config_uri: str, fold: Optional[int],
 
 
 def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
-                   phase: str = 'finetune') -> SageMakerJobSpec:
+                   phase: str = 'finetune',
+                   extra_inputs: Optional[Dict[str, str]] = None) -> SageMakerJobSpec:
     """Build the :class:`SageMakerJobSpec` for one job (a fold, or the whole run)."""
     sm = config.sagemaker
     tags = dict(sm.tags)
@@ -109,6 +156,7 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
     tags['phase'] = phase
     if fold is not None:
         tags['cv_fold'] = str(fold)
+    inputs = {'config': config_uri, **(extra_inputs or {})}
     return SageMakerJobSpec(
         entry_point=sm.entry_point,
         source_dir=sm.source_dir or '.',
@@ -125,7 +173,7 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
         hyperparameters={**sm.hyperparameters, **build_hyperparameters(config_uri, fold, phase)},
         environment=dict(sm.environment),
         tags=tags,
-        inputs={'config': config_uri},
+        inputs=inputs,
         output_path=sm.output_path,
         code_location=sm.code_location,
         base_job_name=fold_job_name(sm.job_name_prefix, fold),
@@ -139,7 +187,8 @@ class JobPlan:
     spec: SageMakerJobSpec
 
 
-def plan_jobs(config: RunConfig, config_uri: str, phase: str = 'finetune') -> List[JobPlan]:
+def plan_jobs(config: RunConfig, config_uri: str, phase: str = 'finetune',
+              extra_inputs: Optional[Dict[str, str]] = None) -> List[JobPlan]:
     """Enumerate the jobs to submit without touching AWS.
 
     A fine-tune with cross-validation enabled -> one job per fold (or a single
@@ -157,7 +206,7 @@ def plan_jobs(config: RunConfig, config_uri: str, phase: str = 'finetune') -> Li
 
     plans: List[JobPlan] = []
     for fold in folds:
-        spec = build_job_spec(config, config_uri, fold, phase)
+        spec = build_job_spec(config, config_uri, fold, phase, extra_inputs)
         plans.append(JobPlan(fold=fold, job_name=spec.base_job_name, spec=spec))
     return plans
 
@@ -191,12 +240,16 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
     ``dry_run`` only the plan is returned (no AWS calls, no SDK import), which is
     what the tests exercise."""
     sm = config.sagemaker
+    # Turn s3:// data/checkpoint paths into input channels + rewrite the config to
+    # the in-container mounts (done before upload so the job sees local paths).
+    channels = stage_s3_inputs(config, phase)
+
     if dry_run:
         placeholder = sm.config_channel or 's3://<bucket>/<prefix>/run_config.yaml'
-        plans = plan_jobs(config, placeholder, phase)
+        plans = plan_jobs(config, placeholder, phase, channels)
         for p in plans:
-            logger.info("[dry-run] phase=%s job=%s fold=%s hp=%s", phase, p.job_name,
-                        p.fold, p.spec.hyperparameters)
+            logger.info("[dry-run] phase=%s job=%s fold=%s inputs=%s hp=%s", phase,
+                        p.job_name, p.fold, p.spec.inputs, p.spec.hyperparameters)
         return plans
 
     # Make ClearML credentials available in-container before the config/env is
@@ -209,7 +262,7 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
     logger.info("SageMaker execution role: %s", role)
 
     config_uri = upload_run_config(launcher, config, sm.config_channel)
-    plans = plan_jobs(config, config_uri, phase)
+    plans = plan_jobs(config, config_uri, phase, channels)
     if plans:
         # Log the training image that will actually be used (verify it resolves).
         try:

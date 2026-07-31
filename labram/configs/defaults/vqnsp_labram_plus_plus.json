@@ -78,6 +78,7 @@
         "start_percentage": 0.0,
         "end_percentage": 1.0,
         "robust_test": "",
+        "split_json": "",
         "dataset": "",
         "data_path": ""
     },

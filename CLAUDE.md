@@ -114,7 +114,7 @@ torch>=2.3. Install a compatible DeepSpeed manually only if you need it.
 
 **Pre-training**: Raw EEG → frozen VQNSP → discrete codes → 50% random masking → trainable `NeuralTransformerForMaskedEEGModeling` → cross-entropy loss predicting masked tokens.
 
-**Fine-tuning**: Raw EEG → pre-trained `NeuralTransformer` (from `--finetune` checkpoint, head discarded) → mean-pool over time → classification head → cross-entropy.
+**Fine-tuning**: Raw EEG → pre-trained `NeuralTransformer` (from `--finetune` checkpoint, head discarded) → mean-pool over time → classification head → cross-entropy. Set `data.split_json` (local or `s3://`) to reuse a previous run's recorded `data_split.json` and pin the exact train/val/test case assignment across models (`labram/data/data_split_reuse.py`).
 
 **Codebook-regularized fine-tuning** (opt-in, `codebook_reg.enabled`): Raw EEG → trainable encoder (from pre-trained checkpoint) → classification head over configurable feature sources (`encoder_mean` / `quantize_mean` / `bag_of_codes`); the same patch tokens also go through the grafted VQNSP quantizer (codebook frozen) + trainable decoder to reconstruct the spectrum. Loss = classification + spectral (amplitude/phase) + quantization, combined by `CodebookRegularizedCriterion`. Encoder/decoder/codebook use LR scales below the head LR. See `docs/codebook_regularized_finetune_plan.md`.
 
