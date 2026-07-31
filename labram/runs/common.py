@@ -406,6 +406,11 @@ def log_data_split_artifact(logging_cfg: Any, output_cfg: OutputConfig,
     return path
 
 
+# Top-level metric keys an eval-only regression run reports.
+REGRESSION_SUMMARY_KEYS = ('mae', 'rmse', 'r2', 'pearson_r', 'mae_corrected',
+                           'age_bias_slope')
+
+
 def flatten_summary_metrics(summary: Any) -> dict:
     """Flatten a training ``summary`` (from ``train_loop`` / an eval-only run)
     into a flat ``{name: float}`` of the final/best metrics, e.g.
@@ -424,8 +429,9 @@ def flatten_summary_metrics(summary: Any) -> dict:
         for k, v in (summary.get(key) or {}).items():
             if _is_num(v):
                 flat[f'{prefix}_{k}'] = v
-    # Eval-only runs return top-level accuracy/balanced_accuracy.
-    for k in ('accuracy', 'balanced_accuracy'):
+    # Eval-only runs return their metrics at the top level: accuracy/balanced
+    # accuracy for classification, the regression metrics for a scalar target.
+    for k in ('accuracy', 'balanced_accuracy') + REGRESSION_SUMMARY_KEYS:
         if _is_num(summary.get(k)):
             flat.setdefault(f'test_{k}', summary[k])
     return flat

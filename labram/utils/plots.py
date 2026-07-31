@@ -54,6 +54,54 @@ def roc_curve_figure(fpr: np.ndarray, tpr: np.ndarray, auc: Optional[float] = No
     return fig
 
 
+def prediction_scatter_figure(
+    predictions: np.ndarray,
+    targets: np.ndarray,
+    metrics: Optional[dict] = None,
+    title: str = 'Predicted vs true',
+    max_points: int = 5000,
+) -> Optional[Any]:
+    """Predicted-vs-true scatter for a scalar target, with the identity line.
+
+    The regression counterpart of the confusion matrix / ROC curve. Points below
+    the diagonal at high true values and above it at low ones are the visual
+    signature of regression to the mean (see ``age_bias_slope``). Large splits are
+    subsampled to ``max_points`` to keep the figure light.
+    """
+    plt = _figure_module()
+    if plt is None:
+        return None
+    pred = np.asarray(predictions, dtype=float).ravel()
+    true = np.asarray(targets, dtype=float).ravel()
+    if pred.size == 0:
+        return None
+    if pred.size > max_points:
+        idx = np.linspace(0, pred.size - 1, max_points).astype(int)
+        pred, true = pred[idx], true[idx]
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    ax.scatter(true, pred, s=6, alpha=0.25, color='C0', edgecolors='none')
+    lo = float(min(true.min(), pred.min()))
+    hi = float(max(true.max(), pred.max()))
+    ax.plot([lo, hi], [lo, hi], color='gray', linestyle='--', linewidth=1,
+            label='ideal')
+    if metrics:
+        summary = ', '.join(f'{k}={v:.3f}' for k, v in metrics.items() if v is not None)
+        if summary:
+            ax.set_title(f'{title}\n{summary}', fontsize=9)
+        else:
+            ax.set_title(title)
+    else:
+        ax.set_title(title)
+    ax.set_xlabel('True')
+    ax.set_ylabel('Predicted')
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.legend(loc='upper left', fontsize=8)
+    fig.tight_layout()
+    return fig
+
+
 def pr_curve_figure(recall: np.ndarray, precision: np.ndarray, ap: Optional[float] = None,
                     title: str = 'Precision-Recall curve') -> Optional[Any]:
     plt = _figure_module()

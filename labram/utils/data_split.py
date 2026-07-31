@@ -28,15 +28,20 @@ def _unwrap(dataset):
     return dataset, getattr(dataset, 'files', None)
 
 
+def _basename(filename: str) -> str:
+    # Window files may be paths relative to the loader root (the age split stores
+    # 'train/<name>.pkl'), so ids are always derived from the basename.
+    b = os.path.basename(filename)
+    return b[:-4] if b.endswith('.pkl') else b
+
+
 def _recording_id(base, filename: str) -> str:
     sep = getattr(base, '_recording_sep', '_')
-    b = filename[:-4] if filename.endswith('.pkl') else filename
-    return b.rsplit(sep, 1)[0]
+    return _basename(filename).rsplit(sep, 1)[0]
 
 
 def _subject_id(filename: str) -> str:
-    b = filename[:-4] if filename.endswith('.pkl') else filename
-    return b.split('_')[0]
+    return _basename(filename).split('_')[0]
 
 
 def _split_entry(dataset) -> Optional[Dict[str, Any]]:

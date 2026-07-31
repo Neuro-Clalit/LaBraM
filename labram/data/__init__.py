@@ -4,7 +4,18 @@
 # per-task bundles. This is the public entry point for data code.
 # ---------------------------------------------------------
 
-from labram.data.bundles import DatasetBundle, get_dataset_bundle
+from labram.data.age_splits import (
+    AgeSplit,
+    build_age_split,
+    load_age_split,
+    save_age_split,
+)
+from labram.data.bundles import (
+    CLASSIFICATION,
+    REGRESSION,
+    DatasetBundle,
+    get_dataset_bundle,
+)
 from labram.data.cross_validation import (
     GroupedFolds,
     apply_cv_split,
@@ -32,17 +43,43 @@ from labram.data.preprocess import (
 )
 from labram.data.pretraining import build_pretraining_dataset
 from labram.data.tuh_datasets import (
+    TUABAgeLoader,
     TUABLoader,
     TUEVLoader,
     TUHLoader,
+    prepare_TUAB_age_dataset,
     prepare_TUAB_dataset,
     prepare_TUEV_dataset,
+)
+from labram.data.tuh_metadata import (
+    RecordingMetadata,
+    age_lookup,
+    load_metadata_sidecar,
+    parse_edf_header_metadata,
+    save_metadata_sidecar,
+    scan_corpus_metadata,
+    summarize_metadata,
 )
 
 
 __all__ = [
+    'AgeSplit',
+    'CLASSIFICATION',
     'DatasetBundle',
     'GroupedFolds',
+    'REGRESSION',
+    'RecordingMetadata',
+    'TUABAgeLoader',
+    'age_lookup',
+    'build_age_split',
+    'load_age_split',
+    'load_metadata_sidecar',
+    'parse_edf_header_metadata',
+    'prepare_TUAB_age_dataset',
+    'save_age_split',
+    'save_metadata_sidecar',
+    'scan_corpus_metadata',
+    'summarize_metadata',
     'ShockDataset',
     'SingleShockDataset',
     'TUABLoader',

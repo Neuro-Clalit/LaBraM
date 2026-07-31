@@ -52,6 +52,13 @@ from labram.utils.eval_metrics import (
     prediction_entropy,
     threshold_sweep,
 )
+from labram.utils.regression_metrics import (
+    RegressionReport,
+    best_metric_for,
+    denormalize,
+    regression_metrics_fn,
+    regression_report,
+)
 from labram.utils.training import (
     NativeScalerWithGradNormCount,
     build_lr_schedule,
@@ -88,9 +95,14 @@ __all__ = [
     'get_grad_norm_',
     'get_metrics',
     'ClassificationReport',
+    'RegressionReport',
     'aggregate_windows',
+    'best_metric_for',
     'classification_report',
+    'denormalize',
     'prediction_entropy',
+    'regression_metrics_fn',
+    'regression_report',
     'threshold_sweep',
     'get_model',
     'get_rank',

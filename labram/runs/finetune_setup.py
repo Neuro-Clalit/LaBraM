@@ -44,18 +44,32 @@ def resolve_device(requested: str) -> torch.device:
 
 
 def enable_window_ids(dataset, group_by: str = 'recording') -> None:
-    """In-place: make a TUH dataset (or list/Subset thereof) yield a per-window
-    case id, so inference can aggregate window predictions per recording/subject.
+    """In-place: make a TUH dataset (or list/Subset/ConcatDataset thereof) yield a
+    per-window case id, so inference can aggregate window predictions per
+    recording/subject.
+
+    Recursing through ConcatDataset matters for cross-validation, whose folds are
+    a ConcatDataset whenever a fold's groups span more than one source loader;
+    without it those runs silently reported per-window metrics as if they were
+    per-case.
 
     Silently ignores datasets that don't support ids (e.g. non-TUH loaders)."""
     if dataset is None:
         return
-    targets = dataset if isinstance(dataset, list) else [dataset]
-    for d in targets:
-        base = d.dataset if isinstance(d, torch.utils.data.Subset) else d
-        if hasattr(base, 'return_id'):
-            base.return_id = True
-            base.group_by = group_by
+    if isinstance(dataset, list):
+        for d in dataset:
+            enable_window_ids(d, group_by)
+        return
+    if isinstance(dataset, torch.utils.data.Subset):
+        enable_window_ids(dataset.dataset, group_by)
+        return
+    if isinstance(dataset, torch.utils.data.ConcatDataset):
+        for d in dataset.datasets:
+            enable_window_ids(d, group_by)
+        return
+    if hasattr(dataset, 'return_id'):
+        dataset.return_id = True
+        dataset.group_by = group_by
 
 
 def subset_for_debug(dataset, n: int):

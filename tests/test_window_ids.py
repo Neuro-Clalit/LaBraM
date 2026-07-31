@@ -81,3 +81,30 @@ def test_enable_window_ids_on_loader_and_subset(tuab_root):
     lst = [TUABLoader(str(root), files)]
     enable_window_ids(lst)
     assert lst[0].return_id is True
+
+
+def test_enable_window_ids_recurses_into_concat_dataset(tuab_root):
+    """Cross-validation materializes a fold as a ConcatDataset whenever its groups
+    span several source loaders. Without recursion those runs silently reported
+    per-window metrics as if they were per-case."""
+    root, files = tuab_root
+    parts = [TUABLoader(str(root), files), TUABLoader(str(root), files)]
+    concat = torch.utils.data.ConcatDataset(parts)
+
+    enable_window_ids(concat, group_by="subject")
+
+    for part in parts:
+        assert part.return_id is True and part.group_by == "subject"
+    # The wrapped dataset now actually yields the 3-tuple evaluate() looks for.
+    assert len(concat[0]) == 3
+
+
+def test_enable_window_ids_recurses_through_a_subset_of_a_concat(tuab_root):
+    root, files = tuab_root
+    part = TUABLoader(str(root), files)
+    nested = torch.utils.data.Subset(
+        torch.utils.data.ConcatDataset([part]), [0])
+
+    enable_window_ids(nested, group_by="recording")
+
+    assert part.return_id is True and part.group_by == "recording"

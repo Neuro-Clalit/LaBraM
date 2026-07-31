@@ -16,7 +16,7 @@ import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
 from labram.data import get_dataset_bundle
-from labram.losses import CodebookRegularizedCriterion, LossConfig, build_classification_criterion
+from labram.losses import CodebookRegularizedCriterion, LossConfig, build_downstream_criterion
 from labram.configs.run_configs import FinetuneRunConfig
 from labram.configs.utils_conf import parse_overrides
 from labram.train.train_finetune import evaluate, train_loop
@@ -89,7 +89,13 @@ def main(config: FinetuneRunConfig, bundle=None):
 
     if bundle is None:
         bundle = get_dataset_bundle(config.data.dataset, config.data.data_path)
+    # The bundle is the source of truth for the head size and the task: a scalar
+    # regression head and a binary classifier both have nb_classes == 1, so the
+    # task must travel with it.
     config.model.nb_classes = bundle.nb_classes
+    config.model.task = bundle.task
+    config.model.target_stats = bundle.target_stats
+    config.model.validate()
     dataset_train, dataset_val, dataset_test = bundle.train, bundle.val, bundle.test
     ch_names, metrics = bundle.ch_names, bundle.metrics
 
@@ -214,15 +220,23 @@ def main(config: FinetuneRunConfig, bundle=None):
         loss_scaler = NativeScaler()
 
     nb_classes = config.model.nb_classes
+    task = config.model.task
     if config.model.codebook_reg.enabled:
         loss_cfg = loss_config_from_codebook_reg(
             config.model.codebook_reg, config.optimizer.smoothing,
             phase_loss=config.labram_plus.resolved_phase_loss)
         criterion = CodebookRegularizedCriterion(
-            build_classification_criterion(nb_classes, loss_cfg), loss_cfg)
+            build_downstream_criterion(task, nb_classes, loss_cfg), loss_cfg)
     else:
-        criterion = build_classification_criterion(
-            nb_classes, LossConfig(classification_label_smoothing=config.optimizer.smoothing))
+        # Dispatched on the task, not on nb_classes: a scalar regression head is
+        # also nb_classes == 1, and cross-entropy on a raw age is meaningless
+        # (BCE on out-of-[0,1] targets even goes negative).
+        criterion = build_downstream_criterion(
+            task, nb_classes,
+            LossConfig(classification_label_smoothing=config.optimizer.smoothing,
+                       regression_loss=config.loss.regression_loss,
+                       huber_delta=config.loss.huber_delta))
+    logger.info("Downstream criterion (%s): %s", task, criterion)
 
     utils.auto_load_model(
         output_cfg=config.output, trainer_cfg=config.trainer,
@@ -235,18 +249,25 @@ def main(config: FinetuneRunConfig, bundle=None):
     if config.trainer.eval:
         # loaders.test may be a single loader or a list; normalize to a list.
         test_loaders = loaders.test if isinstance(loaders.test, list) else [loaders.test]
-        accuracy, balanced_accuracy = [], []
+        task = config.model.task
+        is_regression = task == 'regression'
+        # Report whatever the task actually produces: accuracy/balanced accuracy
+        # for classification, the regression metrics for a scalar target.
+        summary_keys = metrics if is_regression else ('accuracy', 'balanced_accuracy')
+        collected = {k: [] for k in summary_keys}
         for data_loader in test_loaders:
             test_stats = evaluate(data_loader, model, device, header='Test:',
-                                  ch_names=ch_names, metrics=metrics, is_binary=(nb_classes == 1),
+                                  ch_names=ch_names, metrics=metrics,
+                                  is_binary=(nb_classes == 1 and not is_regression),
                                   nb_classes=nb_classes, eval_cfg=config.evaluation,
-                                  log_writer=log_writer, head='test', epoch=0)
-            accuracy.append(test_stats['accuracy'])
-            balanced_accuracy.append(test_stats['balanced_accuracy'])
-        logger.info(f"Accuracy: {np.mean(accuracy):.3f} ± {np.std(accuracy):.3f}, "
-                    f"balanced: {np.mean(balanced_accuracy):.3f} ± {np.std(balanced_accuracy):.3f}")
-        eval_summary = {"accuracy": float(np.mean(accuracy)),
-                        "balanced_accuracy": float(np.mean(balanced_accuracy))}
+                                  log_writer=log_writer, head='test', epoch=0,
+                                  task=task, target_stats=config.model.target_stats,
+                                  loss_cfg=config.loss)
+            for k in summary_keys:
+                collected[k].append(test_stats[k])
+        logger.info(", ".join(
+            f"{k}: {np.mean(v):.3f} ± {np.std(v):.3f}" for k, v in collected.items()))
+        eval_summary = {k: float(np.mean(v)) for k, v in collected.items()}
         runner_common.log_summary_metrics(log_writer, eval_summary, config)
         return eval_summary
 
