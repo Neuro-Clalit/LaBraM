@@ -162,6 +162,26 @@ and to hand the execution role to SageMaker.
    Confirm the plan first with `--dry_run` (needs no AWS calls). The launcher
    logs the resolved role and training image before it submits.
 
+### C. Configure a default role locally (skip `--set sagemaker.role` every time)
+
+Pick whichever fits how you work — resolution order is: explicit
+`sagemaker.role` (config / `--set`) → env var → `get_execution_role()`.
+
+- **Environment variable (recommended, not committed):** export the ARN once and
+  every submit picks it up. Checked in order: `LABRAM_SAGEMAKER_ROLE`,
+  `SAGEMAKER_ROLE`, `AWS_SAGEMAKER_ROLE`.
+  ```bash
+  # add to ~/.bashrc / ~/.zshrc (or the EC2 box's shell profile):
+  export LABRAM_SAGEMAKER_ROLE=arn:aws:iam::<account-id>:role/LaBraMSageMakerExecutionRole
+  # then simply:
+  python -m labram.runs.submit_sagemaker --config … --set sagemaker.enabled=true
+  ```
+- **In a config file (committed default):** set `sagemaker.role` in a JSON config
+  (e.g. `finetune_tuab_cv.json`) so the repo carries the default. Fine for a
+  private repo; avoid committing the ARN if the repo is public.
+- **Inside SageMaker/EC2 with an attached role:** leave `sagemaker.role` empty and
+  `get_execution_role()` resolves it automatically — no config needed.
+
 ## Training image
 
 By default no `image_uri` is set, so the SDK resolves the **managed PyTorch Deep

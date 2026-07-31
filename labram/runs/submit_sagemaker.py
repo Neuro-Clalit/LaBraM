@@ -43,6 +43,26 @@ PHASE_CONFIGS = {
 INPUT_MOUNT = '/opt/ml/input/data'
 CONFIG_CHANNEL_MOUNT = f'{INPUT_MOUNT}/config'
 
+# Env vars consulted (in order) for a default execution role, so a machine can be
+# configured once instead of passing --set sagemaker.role every time.
+ROLE_ENV_VARS = ('LABRAM_SAGEMAKER_ROLE', 'SAGEMAKER_ROLE', 'AWS_SAGEMAKER_ROLE')
+
+
+def resolve_role_default(config: RunConfig) -> str:
+    """Fill an empty ``sagemaker.role`` from the environment (see
+    ``ROLE_ENV_VARS``) so the role can be configured locally rather than passed
+    on every submit. Returns the effective role (may still be '' -> the launcher
+    then tries ``get_execution_role``). An explicit config value always wins."""
+    if config.sagemaker.role:
+        return config.sagemaker.role
+    for var in ROLE_ENV_VARS:
+        val = os.environ.get(var)
+        if val:
+            config.sagemaker.role = val
+            logger.info("Using SageMaker role from $%s", var)
+            return val
+    return ''
+
 
 def _channel_mount(channel: str) -> str:
     return f'{INPUT_MOUNT}/{channel}'
@@ -240,6 +260,9 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
     ``dry_run`` only the plan is returned (no AWS calls, no SDK import), which is
     what the tests exercise."""
     sm = config.sagemaker
+    # A machine-level default role ($LABRAM_SAGEMAKER_ROLE, ...) fills an empty
+    # sagemaker.role so it need not be passed on every submit.
+    resolve_role_default(config)
     # Turn s3:// data/checkpoint paths into input channels + rewrite the config to
     # the in-container mounts (done before upload so the job sees local paths).
     channels = stage_s3_inputs(config, phase)

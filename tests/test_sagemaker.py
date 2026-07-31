@@ -113,6 +113,31 @@ def test_phase_configs_cover_all_trainers():
     assert set(sub.PHASE_CONFIGS) == {'vqnsp', 'pretrain', 'finetune'}
 
 
+# ------------------------------------------------------------------ role default
+
+
+def test_resolve_role_default_from_env(monkeypatch):
+    for v in sub.ROLE_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setenv('LABRAM_SAGEMAKER_ROLE', 'arn:aws:iam::0:role/env-role')
+    c = FinetuneRunConfig()
+    assert sub.resolve_role_default(c) == 'arn:aws:iam::0:role/env-role'
+    assert c.sagemaker.role == 'arn:aws:iam::0:role/env-role'
+
+
+def test_resolve_role_default_explicit_wins(monkeypatch):
+    monkeypatch.setenv('SAGEMAKER_ROLE', 'arn:aws:iam::0:role/env-role')
+    c = FinetuneRunConfig()
+    c.sagemaker.role = 'arn:aws:iam::0:role/explicit'
+    assert sub.resolve_role_default(c) == 'arn:aws:iam::0:role/explicit'
+
+
+def test_resolve_role_default_none(monkeypatch):
+    for v in sub.ROLE_ENV_VARS:
+        monkeypatch.delenv(v, raising=False)
+    assert sub.resolve_role_default(FinetuneRunConfig()) == ''
+
+
 # ------------------------------------------------------------------ s3 channels
 
 
