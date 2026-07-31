@@ -238,6 +238,21 @@ DEFAULT_SAGEMAKER_OUTPUT_PATH: str = ''         # S3 prefix for model artifacts
 DEFAULT_SAGEMAKER_CODE_LOCATION: str = ''       # S3 prefix for the packaged source
 DEFAULT_SAGEMAKER_CONFIG_CHANNEL: str = ''      # S3 uri of the config uploaded as an input channel
 DEFAULT_SAGEMAKER_WAIT: bool = False            # block until the job finishes
+# S3 dataset delivery: 'File' downloads the whole prefix to the instance's EBS
+# volume before training (simple, but slow/large for big datasets); 'FastFile'
+# streams objects from S3 on demand via a FUSE mount (no full download, small
+# volume) and still supports os.listdir, so the TUAB/TUEV loaders work.
+DEFAULT_SAGEMAKER_INPUT_MODE: str = 'File'      # File | FastFile
+# VPC (required for an EFS/FSx data mount): the subnets and security groups the
+# training instances join.
+DEFAULT_SAGEMAKER_SUBNETS: list = []
+DEFAULT_SAGEMAKER_SECURITY_GROUP_IDS: list = []
+# Attach an elastic file system (EFS / FSx for Lustre) as the read-only ``dataset``
+# channel instead of S3. Empty id -> not used. Requires the VPC config above.
+DEFAULT_SAGEMAKER_DATA_FS_ID: str = ''          # e.g. 'fs-0123...' (EFS) / 'fs-0abc...' (FSx)
+DEFAULT_SAGEMAKER_DATA_FS_TYPE: str = 'EFS'     # EFS | FSxLustre
+DEFAULT_SAGEMAKER_DATA_FS_DIR: str = '/'        # directory within the file system to mount
+DEFAULT_SAGEMAKER_DATA_FS_ACCESS: str = 'ro'    # ro | rw
 
 # ---------- Transformer architecture (NeuralTransformerBase) ----------
 # Defaults match the "base" variant used in almost all production factories.

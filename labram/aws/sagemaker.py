@@ -26,7 +26,7 @@ Typical use (from a submitting machine with AWS credentials)::
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -57,6 +57,15 @@ class SageMakerJobSpec:
     output_path: str = ""
     code_location: str = ""
     base_job_name: str = "training-job"
+    # 'File' (download) | 'FastFile' (stream S3 objects on demand via FUSE).
+    input_mode: str = "File"
+    # VPC placement (required when a channel is an EFS/FSx file system).
+    subnets: List[str] = field(default_factory=list)
+    security_group_ids: List[str] = field(default_factory=list)
+    # channel_name -> {file_system_id, file_system_type ('EFS'|'FSxLustre'),
+    # directory_path, file_system_access_mode ('ro'|'rw')}. Mounted as a
+    # FileSystemInput instead of an S3 channel.
+    file_system_inputs: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
 
 def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
@@ -95,6 +104,12 @@ def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
     if spec.use_spot:
         kwargs["use_spot_instances"] = True
         kwargs["max_wait"] = spec.max_wait_sec or spec.max_run_sec
+    if spec.input_mode:
+        kwargs["input_mode"] = spec.input_mode
+    if spec.subnets:
+        kwargs["subnets"] = list(spec.subnets)
+    if spec.security_group_ids:
+        kwargs["security_group_ids"] = list(spec.security_group_ids)
     return kwargs
 
 
@@ -161,13 +176,29 @@ class SageMakerLauncher:
         kwargs["sagemaker_session"] = self._get_session()
         return PyTorch(**kwargs)
 
+    def build_inputs(self, spec: SageMakerJobSpec) -> Dict[str, Any]:
+        """Assemble the ``estimator.fit`` inputs: S3 channels (plain URIs, mounted
+        per the estimator ``input_mode``) plus any EFS/FSx ``FileSystemInput``
+        channels."""
+        inputs: Dict[str, Any] = dict(spec.inputs)
+        if spec.file_system_inputs:
+            from sagemaker.inputs import FileSystemInput
+            for channel, fs in spec.file_system_inputs.items():
+                inputs[channel] = FileSystemInput(
+                    file_system_id=fs["file_system_id"],
+                    file_system_type=fs.get("file_system_type", "EFS"),
+                    directory_path=fs.get("directory_path", "/"),
+                    file_system_access_mode=fs.get("file_system_access_mode", "ro"))
+        return inputs
+
     def submit(self, spec: SageMakerJobSpec, wait: bool = False,
                job_name: Optional[str] = None) -> str:
         """Launch the training job; returns the (possibly SDK-generated) job name."""
         estimator = self.build_estimator(spec)
         fit_kwargs: Dict[str, Any] = {"wait": wait}
-        if spec.inputs:
-            fit_kwargs["inputs"] = dict(spec.inputs)
+        inputs = self.build_inputs(spec)
+        if inputs:
+            fit_kwargs["inputs"] = inputs
         if job_name:
             fit_kwargs["job_name"] = job_name
         estimator.fit(**fit_kwargs)

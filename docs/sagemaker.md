@@ -20,6 +20,23 @@ training — so `sagemaker.enabled` defaults to `false`.
 python -m labram.runs.submit_sagemaker \
   --config labram/configs/defaults/finetune_tuab_cv.json --dry_run
 
+# Smoke test — run a real but tiny fine-tune job in DEBUG mode to verify the whole
+# pipeline (image, pip install, data access, training, model upload) end-to-end.
+# trainer.debug shrinks epochs/samples; a cheap single-GPU spot instance keeps it
+# fast/cheap; wait=true blocks so you see it finish and can read the job log.
+python -m labram.runs.submit_sagemaker \
+  --config labram/configs/defaults/finetune_tuab.json \
+  --set sagemaker.enabled=true \
+        sagemaker.role=arn:aws:iam::123456789012:role/SageMakerRole \
+        sagemaker.instance_type=ml.g5.xlarge \
+        sagemaker.use_spot=true sagemaker.wait=true \
+        sagemaker.job_name_prefix=labram-debug-smoke \
+        sagemaker.output_path=s3://my-bucket/labram/debug \
+        data.data_path=s3://my-bucket/data/TUAB \
+        finetune_checkpoint.finetune=s3://my-bucket/checkpoints/labram-base.pth \
+        trainer.debug=true \
+        clearml.enabled=false
+
 # Submit one job per CV fold:
 python -m labram.runs.submit_sagemaker \
   --config labram/configs/defaults/finetune_tuab_cv.json \
@@ -77,6 +94,10 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 | `config_channel` | `''` | Pre-uploaded config S3 uri; `''` → the CLI uploads it. |
 | `environment` / `hyperparameters` / `tags` | `{}` | Extra container env vars / hyperparameters / job tags. |
 | `wait` | `false` | Block until the (last) job finishes. |
+| `input_mode` | `File` | S3 dataset delivery: `File` (download) or `FastFile` (stream on demand). |
+| `subnets` / `security_group_ids` | `[]` | VPC placement (required for an EFS/FSx data mount). |
+| `data_fs_id` | `''` | EFS/FSx file-system id to mount as the read-only `dataset` channel (empty → use S3). |
+| `data_fs_type` / `data_fs_dir` / `data_fs_access` | `EFS` / `/` / `ro` | File-system type (`EFS`\|`FSxLustre`), directory to mount, access mode. |
 
 ## IAM execution role (required)
 
@@ -194,19 +215,60 @@ resolved image before launching (`SageMaker training image: …`), and
 `sagemaker.image_uri` to override with your own ECR image (then
 `framework_version`/`py_version` are ignored).
 
-## S3 data & checkpoints (input channels)
+## Making the training dataset accessible to the job
 
-The TUAB/TUEV loaders read from a local directory (`os.listdir`), so the dataset
-must be **mounted**, not read from S3 at runtime. The submit CLI handles this
-automatically: any `s3://` value in `data.data_path`,
-`finetune_checkpoint.finetune`, or `model.codebook_reg.tokenizer_weight` is
-turned into a SageMaker **input channel** (`dataset` / `pretrained` /
-`tokenizer`, mounted under `/opt/ml/input/data/...`) and the uploaded config is
-rewritten to the in-container mount path. Just pass the S3 URIs on the normal
-config fields.
+The TUAB/TUEV loaders read from a **local directory** (`os.listdir`), so the
+dataset must be presented to the container as a mounted path — it can't be read
+straight from `s3://` at runtime. There are three supported ways, in increasing
+suitability for large datasets:
 
-`data.split_json` is the exception — it is left as an `s3://` URI and read
-directly in-container via the shared `FileSystem` (the execution role's S3
+### 1. S3 + `File` mode (default) — download to the instance
+Any `s3://` value in `data.data_path`, `finetune_checkpoint.finetune`, or
+`model.codebook_reg.tokenizer_weight` is turned into a SageMaker **input channel**
+(`dataset` / `pretrained` / `tokenizer`, mounted under `/opt/ml/input/data/...`)
+and the uploaded config is rewritten to the mount path — just pass the S3 URIs on
+the normal fields. In `File` mode SageMaker **downloads the whole prefix to the
+instance's EBS volume before training starts**, so size `sagemaker.volume_size_gb`
+to fit the dataset. Simple; fine for small/medium data.
+
+```bash
+--set data.data_path=s3://eeg-data-public/TUAB sagemaker.volume_size_gb=300
+```
+
+### 2. S3 + `FastFile` mode — stream on demand (recommended for large S3 data)
+`--set sagemaker.input_mode=FastFile` mounts the S3 prefix as a FUSE filesystem
+and fetches objects lazily on first access — **no full download, small EBS
+volume, faster job start**. `os.listdir` works, so the loaders are unchanged.
+Best default for a big bucket like `s3://eeg-data-public`.
+
+```bash
+--set data.data_path=s3://eeg-data-public/TUAB sagemaker.input_mode=FastFile
+```
+
+### 3. Elastic file system (EFS / FSx for Lustre) — read-only mount
+For data that already lives on a shared elastic filesystem, mount it directly
+(read-only) as the `dataset` channel instead of copying through S3. Set
+`sagemaker.data_fs_id` (+ type/dir) and the **required VPC** placement; the CLI
+adds a `FileSystemInput` and points `data.data_path` at the mount. FSx for Lustre
+(optionally backed by the S3 bucket) gives the highest throughput for repeated /
+multi-fold training.
+
+```bash
+--set sagemaker.data_fs_id=fs-0abc123 \
+      sagemaker.data_fs_type=FSxLustre \
+      sagemaker.data_fs_dir=/eeg/TUAB \
+      sagemaker.data_fs_access=ro \
+      sagemaker.subnets=subnet-0aaa,subnet-0bbb \
+      sagemaker.security_group_ids=sg-0ccc
+```
+An EFS/FSx mount **requires** `sagemaker.subnets` + `sagemaker.security_group_ids`
+(SageMaker runs the job in your VPC to reach the filesystem); the submit CLI errors
+early if they're missing. The security group must allow NFS (EFS) / Lustre (FSx)
+traffic to the filesystem's mount targets.
+
+### `data.split_json` — read directly from S3
+`data.split_json` is the exception to mounting: it is left as an `s3://` URI and
+read directly in-container via the shared `FileSystem` (the execution role's S3
 access), so **reusing a recorded split** across runs is just
 `--set data.split_json=s3://…/data_split.json` (see
 [`cross_validation.md`](cross_validation.md) for how the split is applied).

@@ -227,6 +227,13 @@
         "environment": {},
         "hyperparameters": {},
         "tags": {},
-        "wait": false
+        "wait": false,
+        "input_mode": "File",
+        "subnets": [],
+        "security_group_ids": [],
+        "data_fs_id": "",
+        "data_fs_type": "EFS",
+        "data_fs_dir": "/",
+        "data_fs_access": "ro"
     }
 }

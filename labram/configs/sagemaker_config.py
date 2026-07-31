@@ -8,16 +8,21 @@ in-container training itself, so it is off by default.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, List
 
 from labram.configs.base_configs import ConfigBase
 from labram.configs.defaults import (
     DEFAULT_SAGEMAKER_CODE_LOCATION,
     DEFAULT_SAGEMAKER_CONFIG_CHANNEL,
+    DEFAULT_SAGEMAKER_DATA_FS_ACCESS,
+    DEFAULT_SAGEMAKER_DATA_FS_DIR,
+    DEFAULT_SAGEMAKER_DATA_FS_ID,
+    DEFAULT_SAGEMAKER_DATA_FS_TYPE,
     DEFAULT_SAGEMAKER_ENABLED,
     DEFAULT_SAGEMAKER_ENTRY_POINT,
     DEFAULT_SAGEMAKER_FRAMEWORK_VERSION,
     DEFAULT_SAGEMAKER_IMAGE_URI,
+    DEFAULT_SAGEMAKER_INPUT_MODE,
     DEFAULT_SAGEMAKER_INSTANCE_COUNT,
     DEFAULT_SAGEMAKER_INSTANCE_TYPE,
     DEFAULT_SAGEMAKER_JOB_NAME_PREFIX,
@@ -87,3 +92,14 @@ class SageMakerConfig(ConfigBase):
     hyperparameters: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)
     wait: bool = DEFAULT_SAGEMAKER_WAIT
+    # Dataset delivery for an s3:// data_path: File (download) | FastFile (stream).
+    input_mode: str = DEFAULT_SAGEMAKER_INPUT_MODE
+    # VPC for the training instances (required for an EFS/FSx data mount).
+    subnets: List[str] = field(default_factory=list)
+    security_group_ids: List[str] = field(default_factory=list)
+    # Attach an elastic file system (EFS / FSx for Lustre) as the read-only
+    # ``dataset`` channel instead of S3. Empty id -> use S3.
+    data_fs_id: str = DEFAULT_SAGEMAKER_DATA_FS_ID
+    data_fs_type: str = DEFAULT_SAGEMAKER_DATA_FS_TYPE
+    data_fs_dir: str = DEFAULT_SAGEMAKER_DATA_FS_DIR
+    data_fs_access: str = DEFAULT_SAGEMAKER_DATA_FS_ACCESS

@@ -108,6 +108,31 @@ def stage_s3_inputs(config: RunConfig, phase: str = 'finetune') -> Dict[str, str
         logger.info("Staging %d S3 input channel(s): %s", len(channels), channels)
     return channels
 
+
+def stage_file_system_inputs(config: RunConfig, phase: str = 'finetune') -> Dict[str, Dict[str, str]]:
+    """When ``sagemaker.data_fs_id`` is set, attach an EFS / FSx-for-Lustre file
+    system as the read-only ``dataset`` channel (instead of S3) and point
+    ``data.data_path`` at its in-container mount. Returns
+    ``{channel: file_system_spec}``. Requires the VPC config (subnets +
+    security groups), which SageMaker mandates for a file-system mount."""
+    sm = config.sagemaker
+    if not sm.data_fs_id:
+        return {}
+    if not (sm.subnets and sm.security_group_ids):
+        raise ValueError(
+            "An EFS/FSx data mount (sagemaker.data_fs_id) requires a VPC: set "
+            "sagemaker.subnets and sagemaker.security_group_ids.")
+    fs_inputs = {'dataset': {
+        'file_system_id': sm.data_fs_id,
+        'file_system_type': sm.data_fs_type,
+        'directory_path': sm.data_fs_dir,
+        'file_system_access_mode': sm.data_fs_access,
+    }}
+    config.data.data_path = _channel_mount('dataset')
+    logger.info("Staging %s data mount %s (%s) -> %s", sm.data_fs_type, sm.data_fs_id,
+                sm.data_fs_access, config.data.data_path)
+    return fs_inputs
+
 # ClearML credential env vars forwarded into the training container so that
 # clearml.enabled runs can talk to the ClearML server from inside SageMaker.
 CLEARML_ENV_VARS = (
@@ -168,7 +193,8 @@ def build_hyperparameters(config_uri: str, fold: Optional[int],
 
 def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
                    phase: str = 'finetune',
-                   extra_inputs: Optional[Dict[str, str]] = None) -> SageMakerJobSpec:
+                   extra_inputs: Optional[Dict[str, str]] = None,
+                   fs_inputs: Optional[Dict[str, Dict[str, str]]] = None) -> SageMakerJobSpec:
     """Build the :class:`SageMakerJobSpec` for one job (a fold, or the whole run)."""
     sm = config.sagemaker
     tags = dict(sm.tags)
@@ -197,6 +223,10 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
         output_path=sm.output_path,
         code_location=sm.code_location,
         base_job_name=fold_job_name(sm.job_name_prefix, fold),
+        input_mode=sm.input_mode,
+        subnets=list(sm.subnets),
+        security_group_ids=list(sm.security_group_ids),
+        file_system_inputs=dict(fs_inputs or {}),
     )
 
 
@@ -208,7 +238,8 @@ class JobPlan:
 
 
 def plan_jobs(config: RunConfig, config_uri: str, phase: str = 'finetune',
-              extra_inputs: Optional[Dict[str, str]] = None) -> List[JobPlan]:
+              extra_inputs: Optional[Dict[str, str]] = None,
+              fs_inputs: Optional[Dict[str, Dict[str, str]]] = None) -> List[JobPlan]:
     """Enumerate the jobs to submit without touching AWS.
 
     A fine-tune with cross-validation enabled -> one job per fold (or a single
@@ -226,7 +257,7 @@ def plan_jobs(config: RunConfig, config_uri: str, phase: str = 'finetune',
 
     plans: List[JobPlan] = []
     for fold in folds:
-        spec = build_job_spec(config, config_uri, fold, phase, extra_inputs)
+        spec = build_job_spec(config, config_uri, fold, phase, extra_inputs, fs_inputs)
         plans.append(JobPlan(fold=fold, job_name=spec.base_job_name, spec=spec))
     return plans
 
@@ -263,16 +294,18 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
     # A machine-level default role ($LABRAM_SAGEMAKER_ROLE, ...) fills an empty
     # sagemaker.role so it need not be passed on every submit.
     resolve_role_default(config)
-    # Turn s3:// data/checkpoint paths into input channels + rewrite the config to
-    # the in-container mounts (done before upload so the job sees local paths).
+    # Attach the dataset: an EFS/FSx read-only mount (if configured) or s3:// data
+    # + checkpoints as input channels, rewriting the config to in-container mounts.
+    fs_inputs = stage_file_system_inputs(config, phase)
     channels = stage_s3_inputs(config, phase)
 
     if dry_run:
         placeholder = sm.config_channel or 's3://<bucket>/<prefix>/run_config.yaml'
-        plans = plan_jobs(config, placeholder, phase, channels)
+        plans = plan_jobs(config, placeholder, phase, channels, fs_inputs)
         for p in plans:
-            logger.info("[dry-run] phase=%s job=%s fold=%s inputs=%s hp=%s", phase,
-                        p.job_name, p.fold, p.spec.inputs, p.spec.hyperparameters)
+            logger.info("[dry-run] phase=%s job=%s fold=%s inputs=%s fs=%s mode=%s hp=%s",
+                        phase, p.job_name, p.fold, p.spec.inputs, p.spec.file_system_inputs,
+                        p.spec.input_mode, p.spec.hyperparameters)
         return plans
 
     # Make ClearML credentials available in-container before the config/env is
@@ -285,7 +318,7 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
     logger.info("SageMaker execution role: %s", role)
 
     config_uri = upload_run_config(launcher, config, sm.config_channel)
-    plans = plan_jobs(config, config_uri, phase, channels)
+    plans = plan_jobs(config, config_uri, phase, channels, fs_inputs)
     if plans:
         # Log the training image that will actually be used (verify it resolves).
         try:

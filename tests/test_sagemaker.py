@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from labram.aws.sagemaker import SageMakerJobSpec, estimator_kwargs
 from labram.configs.run_configs import FinetuneRunConfig
@@ -46,6 +47,14 @@ def test_estimator_kwargs_spot_sets_max_wait():
 def test_estimator_kwargs_tags_formatted():
     spec = SageMakerJobSpec(entry_point='e.py', tags={'a': 'b'})
     assert estimator_kwargs(spec)['tags'] == [{'Key': 'a', 'Value': 'b'}]
+
+
+def test_estimator_kwargs_input_mode_and_vpc():
+    spec = SageMakerJobSpec(entry_point='e.py', input_mode='FastFile',
+                            subnets=['subnet-1'], security_group_ids=['sg-1'])
+    kw = estimator_kwargs(spec)
+    assert kw['input_mode'] == 'FastFile'
+    assert kw['subnets'] == ['subnet-1'] and kw['security_group_ids'] == ['sg-1']
 
 
 # ------------------------------------------------------------------ naming
@@ -182,6 +191,55 @@ def test_submit_dry_run_includes_s3_channels_in_inputs():
     assert inputs['dataset'] == 's3://bucket/data/TUAB'
     assert inputs['pretrained'] == 's3://bucket/ckpts/labram-base.pth'
     assert 'config' in inputs
+
+
+def test_submit_dry_run_fastfile_mode_threaded():
+    c = FinetuneRunConfig()
+    c.data.data_path = 's3://bucket/data/TUAB'
+    c.sagemaker.input_mode = 'FastFile'
+    plans = sub.submit(c, dry_run=True, phase='finetune')
+    assert plans[0].spec.input_mode == 'FastFile'
+
+
+# ------------------------------------------------------------------ efs / fsx
+
+
+def test_stage_file_system_inputs_requires_vpc():
+    c = FinetuneRunConfig()
+    c.sagemaker.data_fs_id = 'fs-0123'
+    with pytest.raises(ValueError):
+        sub.stage_file_system_inputs(c, 'finetune')
+
+
+def test_stage_file_system_inputs_mounts_dataset_read_only():
+    c = FinetuneRunConfig()
+    c.data.data_path = 's3://bucket/TUAB'   # ignored once a file system is set
+    c.sagemaker.data_fs_id = 'fs-0123'
+    c.sagemaker.data_fs_type = 'FSxLustre'
+    c.sagemaker.data_fs_dir = '/eeg/TUAB'
+    c.sagemaker.subnets = ['subnet-1']
+    c.sagemaker.security_group_ids = ['sg-1']
+
+    fs = sub.stage_file_system_inputs(c, 'finetune')
+    assert fs['dataset']['file_system_id'] == 'fs-0123'
+    assert fs['dataset']['file_system_type'] == 'FSxLustre'
+    assert fs['dataset']['file_system_access_mode'] == 'ro'
+    assert fs['dataset']['directory_path'] == '/eeg/TUAB'
+    # data_path is rewritten to the mount; not staged as an S3 channel.
+    assert c.data.data_path == '/opt/ml/input/data/dataset'
+    assert sub.stage_s3_inputs(c, 'finetune') == {}
+
+
+def test_submit_dry_run_efs_puts_dataset_in_file_system_inputs():
+    c = FinetuneRunConfig()
+    c.sagemaker.data_fs_id = 'fs-0abc'
+    c.sagemaker.subnets = ['subnet-1']
+    c.sagemaker.security_group_ids = ['sg-1']
+    plans = sub.submit(c, dry_run=True, phase='finetune')
+    spec = plans[0].spec
+    assert 'dataset' in spec.file_system_inputs
+    assert 'dataset' not in spec.inputs          # not an S3 channel
+    assert spec.subnets == ['subnet-1'] and spec.security_group_ids == ['sg-1']
 
 
 def test_submit_dry_run_no_sdk(monkeypatch):
