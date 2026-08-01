@@ -19,14 +19,19 @@ import logging
 import os
 import sys
 
-from labram.data.age_splits import (
+# Run as a plain script (`python dataset_maker/make_TUAB_age.py`) and sys.path[0]
+# is dataset_maker/, not the repo root -- so `import labram` fails unless the
+# package happens to be pip-installed. Put the repo root on the path.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from labram.data.age_splits import (  # noqa: E402
     DEFAULT_SEED,
     DEFAULT_VAL_FRACTION,
     SPLIT_FILENAME,
     build_age_split,
     save_age_split,
 )
-from labram.data.tuh_metadata import (
+from labram.data.tuh_metadata import (  # noqa: E402
     DEFAULT_MAX_AGE,
     DEFAULT_MIN_AGE,
     SIDECAR_FILENAME,
