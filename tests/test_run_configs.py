@@ -6,9 +6,13 @@ Covers:
 * to_namespace flattens every leaf field; mutations don't leak back to the config.
 * YAML/JSON round-trip preserves nested structure.
 * parse_overrides coerces value types and rejects malformed entries.
+* Repeated ``--set`` flags accumulate rather than replacing each other.
 * PretrainRunConfig.load_config + overrides composes as expected.
 """
 
+import argparse
+import importlib
+import inspect
 from argparse import Namespace
 
 import pytest
@@ -26,7 +30,7 @@ from labram.configs.run_configs import (
     TrainerConfig,
     VQNSPRunConfig,
 )
-from labram.configs.utils_conf import parse_overrides
+from labram.configs.utils_conf import add_override_arg, parse_overrides
 
 
 # ============================================================
@@ -293,6 +297,53 @@ class TestParseOverrides:
 
     def test_empty_list_returns_empty_dict(self):
         assert parse_overrides([]) == {}
+
+
+class TestAddOverrideArg:
+    """``--set`` must accumulate across flags, not keep only the last one."""
+
+    @staticmethod
+    def _parser():
+        parser = argparse.ArgumentParser()
+        add_override_arg(parser)
+        return parser
+
+    def test_repeated_flags_accumulate(self):
+        cli = self._parser().parse_args([
+            '--set', 'data.data_path=/data/TUAB',
+            '--set', 'distributed.device=mps',
+            '--set', 'trainer.epochs=2',
+        ])
+        assert parse_overrides(cli.overrides) == {
+            'data.data_path': '/data/TUAB',
+            'distributed.device': 'mps',
+            'trainer.epochs': 2,
+        }
+
+    def test_several_values_on_one_flag(self):
+        cli = self._parser().parse_args(['--set', 'a=1', 'b=2'])
+        assert cli.overrides == ['a=1', 'b=2']
+
+    def test_default_is_empty_and_not_shared_between_parses(self):
+        parser = self._parser()
+        parser.parse_args(['--set', 'a=1'])
+        assert parser.parse_args([]).overrides == []
+
+
+@pytest.mark.parametrize('module_name', [
+    'labram.runs.run_finetune',
+    'labram.runs.run_pretrain',
+    'labram.runs.run_vqnsp',
+    'labram.runs.finetune_cv',
+    'labram.runs.sagemaker_entry',
+    'labram.runs.submit_sagemaker',
+])
+def test_entry_points_use_the_shared_override_arg(module_name):
+    """Every entry point must go through add_override_arg, so none of them
+    regresses to a plain nargs='*' that drops all but the last --set."""
+    source = inspect.getsource(importlib.import_module(module_name))
+    assert 'add_override_arg(parser)' in source
+    assert "add_argument('--set'" not in source
 
 
 # ============================================================

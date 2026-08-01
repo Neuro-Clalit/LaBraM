@@ -27,7 +27,7 @@ from labram.configs.run_configs import (
     RunConfig,
     VQNSPRunConfig,
 )
-from labram.configs.utils_conf import parse_overrides
+from labram.configs.utils_conf import add_override_arg, parse_overrides
 
 logger = utils.get_logger(__name__)
 
@@ -287,7 +287,7 @@ def parse_cli() -> argparse.Namespace:
     parser.add_argument('--config', type=str, default=None)
     parser.add_argument('--phase', choices=sorted(PHASE_CONFIGS), default='finetune',
                         help='Which trainer to submit: vqnsp | pretrain | finetune.')
-    parser.add_argument('--set', dest='overrides', nargs='*', default=[], metavar='KEY=VALUE')
+    add_override_arg(parser)
     parser.add_argument('--dry_run', action='store_true',
                         help='Print the job plan without contacting AWS.')
     return parser.parse_args()

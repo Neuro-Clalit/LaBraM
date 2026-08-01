@@ -230,6 +230,15 @@ def find_metadata_sidecar(start: str, *, filename: str = SIDECAR_FILENAME) -> Op
 
 def load_age_lookup_for(root: str, *, filename: str = SIDECAR_FILENAME) -> Dict[str, float]:
     """Resolve and load the age lookup covering the window directory *root*."""
+    # A non-existent root walks straight up to '/' and reports a missing
+    # sidecar, which reads as "run the scan step" when the real fault is a
+    # mistyped data_path. Name that case separately.
+    if not os.path.isdir(root):
+        raise FileNotFoundError(
+            f"Data directory does not exist: {root}\n"
+            f"  Check data.data_path -- it should point at the corpus directory "
+            f"holding the processed window pickles."
+        )
     path = find_metadata_sidecar(root, filename=filename)
     if path is None:
         raise FileNotFoundError(

@@ -13,7 +13,7 @@ import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
 from labram.configs.run_configs import VQNSPRunConfig
-from labram.configs.utils_conf import parse_overrides
+from labram.configs.utils_conf import add_override_arg, parse_overrides
 from labram.configs.defaults import DEFAULT_EVAL_BATCH_SCALE
 from labram.train.train_vqnsp import calculate_codebook_usage, evaluate, train_loop
 from labram.optim_factory import create_optimizer, log_trainable_parameters
@@ -26,8 +26,7 @@ def parse_cli() -> argparse.Namespace:
     parser = argparse.ArgumentParser('LaBraM VQNSP training (config-driven)', add_help=True)
     parser.add_argument('--config', type=str, default=None,
                         help='Path to a JSON or YAML VQNSPRunConfig file.')
-    parser.add_argument('--set', dest='overrides', nargs='*', default=[],
-                        metavar='KEY=VALUE')
+    add_override_arg(parser)
     return parser.parse_args()
 
 
