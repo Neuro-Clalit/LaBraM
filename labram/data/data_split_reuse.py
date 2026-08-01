@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import torch.utils.data
 
 from labram.data.bundles import DatasetBundle
+from labram.data.cross_validation import CARRIED_SOURCE_ATTRS
 from labram.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -63,7 +64,13 @@ def _build_split_dataset(index: Dict[str, Any], files: List[str], split_name: st
 
     parts = []
     for _key, (ds, fs_) in per_source.items():
-        parts.append(type(ds)(ds.root, sorted(fs_), getattr(ds, "sampling_rate", 200)))
+        loader = type(ds)(ds.root, sorted(fs_), getattr(ds, "sampling_rate", 200))
+        # Carry over state this positional rebuild cannot pass (notably a
+        # regression target's normalization stats); see cross_validation.
+        for attr in CARRIED_SOURCE_ATTRS:
+            if hasattr(ds, attr):
+                setattr(loader, attr, getattr(ds, attr))
+        parts.append(loader)
     if not parts:
         raise ValueError(
             f"data_split reuse produced an empty '{split_name}' split; none of its "
@@ -74,7 +81,8 @@ def _build_split_dataset(index: Dict[str, Any], files: List[str], split_name: st
 def apply_data_split(bundle: DatasetBundle, split: Dict[str, Any]) -> DatasetBundle:
     """Return a new bundle whose train/val/test are rebuilt from the recorded
     ``split`` (a parsed ``data_split.json``), keeping the bundle's channel
-    names / class count / metrics. Splits absent from the record become ``None``.
+    names / class count / metrics / task. Splits absent from the record become
+    ``None``.
     """
     index = _file_to_source(bundle)
     out: Dict[str, Optional[Any]] = {}
@@ -85,9 +93,13 @@ def apply_data_split(bundle: DatasetBundle, split: Dict[str, Any]) -> DatasetBun
 
     counts = {k: (len(v) if v is not None else 0) for k, v in out.items()}
     logger.info("Reused recorded data split (window counts: %s)", counts)
+    # ``task``/``target_stats`` must travel with the bundle: without them a reused
+    # split would silently downgrade a regression run to classification (both are
+    # nb_classes == 1) and drop the target normalization.
     return DatasetBundle(
         train=out["train"], val=out["val"], test=out["test"],
-        ch_names=bundle.ch_names, nb_classes=bundle.nb_classes, metrics=bundle.metrics)
+        ch_names=bundle.ch_names, nb_classes=bundle.nb_classes, metrics=bundle.metrics,
+        task=bundle.task, target_stats=bundle.target_stats)
 
 
 def bundle_from_data_split(dataset_name: str, data_path: str, split_json: str) -> DatasetBundle:

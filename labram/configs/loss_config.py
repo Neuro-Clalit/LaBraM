@@ -41,6 +41,13 @@ class LossConfig(ConfigBase):
     # Downstream classification criterion.
     classification_label_smoothing: float = 0.0
 
+    # Downstream regression criterion (used when the task is regression, e.g.
+    # brain-age prediction): "mse", "l1" or "huber". Huber is the default because
+    # clinical age distributions are long-tailed at both ends, and it is less
+    # dominated by the extremes than a plain squared error.
+    regression_loss: str = "huber"
+    huber_delta: float = 1.0
+
     # Codebook-regularized fine-tuning: weight on the classification term when
     # the spectral (amplitude/phase) and quantization losses regularize the
     # downstream task. Reuses amplitude_weight / phase_weight / embedding_weight

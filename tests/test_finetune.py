@@ -258,6 +258,146 @@ class TestEvaluate:
 
 
 # -----------------------------------------------------------------------
+# Regression task (brain age)
+# -----------------------------------------------------------------------
+
+def _make_regression_loader(n_samples: int = 8, ages=None) -> DataLoader:
+    """DataLoader yielding (EEG [B, N, T], age [B]) with a float32 scalar target."""
+    y = (torch.arange(n_samples, dtype=torch.float32) if ages is None
+         else torch.tensor(ages, dtype=torch.float32))
+    X = torch.randn(len(y), N_CHANNELS, T_PATCH)
+    return DataLoader(TensorDataset(X, y), batch_size=BATCH, drop_last=True)
+
+
+class TestRegressionTask:
+    """A regression head has num_classes == 1, exactly like a binary classifier,
+    so these tests pin the behaviour that only ``task`` can distinguish."""
+
+    def test_train_one_epoch_reports_mae_not_accuracy(self):
+        model = _make_model(num_classes=1).to("cpu")
+        loader = _make_regression_loader()
+        args = _make_epoch_args(model, loader, nn.HuberLoss(), is_binary=False)
+        args.update(task="regression", nb_classes=1)
+
+        stats = train_one_epoch(**args)
+
+        assert "mae" in stats
+        assert "class_acc" not in stats
+        assert stats["mae"] >= 0.0
+
+    def test_evaluate_returns_regression_metrics_and_no_classification_keys(self):
+        model = _make_model(num_classes=1).to("cpu")
+        loader = _make_regression_loader()
+
+        result = evaluate(
+            data_loader=loader,
+            model=model,
+            device=torch.device("cpu"),
+            metrics=["mae", "rmse", "r2", "pearson_r"],
+            is_binary=False,
+            nb_classes=1,
+            task="regression",
+        )
+
+        assert {"mae", "rmse", "r2", "pearson_r", "loss"} <= set(result)
+        # Probability-only metrics must not appear: their presence would mean the
+        # scalar output was scored as a classification score.
+        assert not {"roc_auc", "pr_auc", "accuracy", "cm_tp"} & set(result)
+
+    def test_evaluate_does_not_use_cross_entropy_on_a_regression_target(self):
+        """Guards evaluate()'s criterion dispatch. BCEWithLogitsLoss requires
+        targets in [0, 1]; ages do not satisfy that, so a mis-dispatch is visible
+        as an implausible loss (or an outright error) on out-of-range targets."""
+        model = _make_model(num_classes=1).to("cpu")
+        loader = _make_regression_loader(ages=[20.0, 40.0, 60.0, 80.0])
+
+        result = evaluate(
+            data_loader=loader,
+            model=model,
+            device=torch.device("cpu"),
+            metrics=["mae"],
+            is_binary=False,
+            nb_classes=1,
+            task="regression",
+        )
+
+        assert torch.isfinite(torch.tensor(result["loss"]))
+        # An untrained head starts near zero, so the error tracks the ages
+        # themselves rather than collapsing to a probability scale.
+        assert result["mae"] > 1.0
+
+    def test_metrics_are_reported_in_original_units_via_target_stats(self):
+        """The loader z-scores the target; evaluate must de-normalize so MAE reads
+        in years rather than standard deviations."""
+        model = _make_model(num_classes=1).to("cpu")
+        mean, std = 50.0, 10.0
+        # Normalized targets, as the loader would emit them.
+        loader = _make_regression_loader(ages=[-1.0, 0.0, 1.0, 2.0])
+
+        scaled = evaluate(
+            data_loader=loader, model=model, device=torch.device("cpu"),
+            metrics=["mae"], is_binary=False, nb_classes=1, task="regression",
+            target_stats=(mean, std))
+        raw = evaluate(
+            data_loader=loader, model=model, device=torch.device("cpu"),
+            metrics=["mae"], is_binary=False, nb_classes=1, task="regression")
+
+        # De-normalizing scales the error by std, putting it back in years.
+        assert scaled["mae"] == pytest.approx(raw["mae"] * std, rel=1e-4)
+
+    def test_case_aggregation_pools_windows_of_a_regression_case(self):
+        from labram.configs.train_config import EvaluationConfig
+
+        model = _make_model(num_classes=1).to("cpu")
+        X = torch.randn(4, N_CHANNELS, T_PATCH)
+        y = torch.tensor([30.0, 30.0, 60.0, 60.0])
+        ids = ["rec_a", "rec_a", "rec_b", "rec_b"]
+
+        class _WithIds(torch.utils.data.Dataset):
+            def __len__(self):
+                return len(y)
+
+            def __getitem__(self, i):
+                return X[i], y[i], ids[i]
+
+        loader = DataLoader(_WithIds(), batch_size=2)
+        result = evaluate(
+            data_loader=loader, model=model, device=torch.device("cpu"),
+            metrics=["mae"], is_binary=False, nb_classes=1, task="regression",
+            eval_cfg=EvaluationConfig(agg_windows="mean", agg_case_by="recording",
+                                      detailed_metrics=False))
+
+        # Case-level metrics become primary; per-window ones are mirrored.
+        assert "mae" in result and "window_mae" in result
+
+
+class TestClassificationUnchanged:
+    """The regression branch is additive: the classification default must behave
+    exactly as it did before ``task`` existed."""
+
+    def test_train_one_epoch_still_reports_class_acc_by_default(self):
+        model = _make_model(num_classes=1).to("cpu")
+        loader = _make_loader(n_samples=8, num_classes=1)
+        args = _make_epoch_args(model, loader, nn.BCEWithLogitsLoss(), is_binary=True)
+
+        stats = train_one_epoch(**args)
+
+        assert "class_acc" in stats
+        assert "mae" not in stats
+
+    def test_binary_evaluate_still_produces_probability_metrics(self):
+        model = _make_model(num_classes=1).to("cpu")
+        loader = _make_loader(n_samples=8, num_classes=1)
+
+        result = evaluate(
+            data_loader=loader, model=model, device=torch.device("cpu"),
+            metrics=["accuracy", "balanced_accuracy"], is_binary=True)
+
+        assert "accuracy" in result
+        assert 0.0 <= result["accuracy"] <= 1.0
+
+
+# -----------------------------------------------------------------------
 # MPS / device smoke tests
 # -----------------------------------------------------------------------
 

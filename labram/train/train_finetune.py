@@ -17,9 +17,12 @@ from timm.utils import ModelEma
 from einops import rearrange
 
 import labram.utils as utils
+from labram.configs.loss_config import LossConfig
 from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import EvaluationConfig, LoggingConfig, TrainerConfig
-from labram.losses import CodebookRegularizedCriterion, build_classification_criterion
+from labram.data.bundles import CLASSIFICATION as TASK_CLASSIFICATION
+from labram.data.bundles import REGRESSION as TASK_REGRESSION
+from labram.losses import CodebookRegularizedCriterion, build_downstream_criterion
 from labram.losses.outputs import LossBreakdown
 from labram.models.outputs import PredictorOutput
 from labram.optim_factory import (
@@ -79,11 +82,18 @@ def train_one_epoch(
     is_binary: bool = True,
     eval_cfg: Optional[EvaluationConfig] = None,
     nb_classes: Optional[int] = None,
+    task: str = TASK_CLASSIFICATION,
+    target_stats: Optional[Tuple[float, float]] = None,
     logging_cfg: Optional[LoggingConfig] = None,
 ) -> Dict[str, float]:
     update_freq = trainer_cfg.update_freq
     if nb_classes is None:
         nb_classes = 1 if is_binary else 2
+    is_regression = task == TASK_REGRESSION
+    # A regression target is a single float per window, so it is shaped like a
+    # binary target (B, 1) -- but it must never be passed through a sigmoid or
+    # scored as a probability.
+    scalar_target = is_binary or is_regression
     detailed = eval_cfg is not None and eval_cfg.detailed_metrics
     log_grad_components = eval_cfg is not None and eval_cfg.log_grad_components
     grad_freq = eval_cfg.log_grad_freq if eval_cfg is not None else 0
@@ -123,7 +133,7 @@ def train_one_epoch(
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
         
         targets = targets.to(device, non_blocking=True)
-        if is_binary:
+        if scalar_target:
             targets = targets.float().unsqueeze(-1)
 
         if loss_scaler is None:
@@ -176,19 +186,35 @@ def train_one_epoch(
         if torch.cuda.is_available():
             torch.cuda.synchronize()
 
-        if is_binary:
-            probs = torch.sigmoid(output).detach().cpu()
-            class_acc = utils.get_metrics(probs.numpy(), targets.detach().cpu().numpy(), ["accuracy"], is_binary)["accuracy"]
+        # ``step_scores`` are what a detailed epoch-level report is built from:
+        # probabilities for classification, raw scalar predictions for regression.
+        step_target = targets.detach().float().cpu()
+        if is_regression:
+            step_scores = output.detach().float().cpu()
+            # Report the running error in the target's own units (years), which
+            # the normalized training loss does not give directly.
+            step_metric = utils.regression_metrics_fn(
+                utils.denormalize(step_scores.numpy(), target_stats),
+                utils.denormalize(step_target.numpy(), target_stats),
+                ["mae"],
+            )["mae"]
+        elif is_binary:
+            step_scores = torch.sigmoid(output).detach().cpu()
+            step_metric = utils.get_metrics(
+                step_scores.numpy(), step_target.numpy(), ["accuracy"], is_binary)["accuracy"]
         else:
-            class_acc = (output.max(-1)[-1] == targets.squeeze()).float().mean()
+            step_scores = output.detach().float().cpu()
+            step_metric = (output.max(-1)[-1] == targets.squeeze()).float().mean()
 
         # Accumulate predictions for the epoch-level detailed train report.
         if detailed:
-            train_pred.append((probs if is_binary else output.detach().float().cpu()))
-            train_true.append(targets.detach().cpu())
+            train_pred.append(step_scores)
+            train_true.append(step_target)
 
         metric_logger.update(loss=loss_value)
-        metric_logger.update(class_acc=class_acc)
+        # Keep the meter name stable across tasks so the existing logging and
+        # progress output need no branching; for regression it holds MAE.
+        metric_logger.update(**{('mae' if is_regression else 'class_acc'): step_metric})
         metric_logger.update(loss_scale=loss_scale_value)
 
         # Per-component losses (classifier / magnitude / phase / quantize) when
@@ -206,7 +232,12 @@ def train_one_epoch(
 
         if log_writer is not None:
             log_writer.update(loss=loss_value, head="loss")
-            log_writer.update(class_acc=class_acc, head="loss")
+            if is_regression:
+                # MAE is in years (O(10)), so it would flatten the O(1) loss
+                # curve if it shared the "loss" plot.
+                log_writer.update(mae=step_metric, head="err")
+            else:
+                log_writer.update(class_acc=step_metric, head="loss")
             # The AMP loss scale can reach ~65536; on its own "scale" plot so it
             # does not flatten the small-valued lr/wd series on the "opt" plot.
             log_writer.update(loss_scale=loss_scale_value, head="scale")
@@ -231,7 +262,11 @@ def train_one_epoch(
     if detailed and train_pred:
         p = torch.cat(train_pred, dim=0).numpy()
         t = torch.cat(train_true, dim=0).numpy()
-        report = utils.classification_report(p, t, is_binary, nb_classes, 0.5)
+        if is_regression:
+            report = utils.regression_report(
+                utils.denormalize(p, target_stats), utils.denormalize(t, target_stats))
+        else:
+            report = utils.classification_report(p, t, is_binary, nb_classes, 0.5)
         stats.update(report.scalars)
         if log_writer is not None:
             _log_eval_stats(log_writer, report.scalars, head="train", epoch=epoch)
@@ -253,6 +288,9 @@ def evaluate(
     log_writer: Optional[Any] = None,
     head: Optional[str] = None,
     epoch: Optional[int] = None,
+    task: str = TASK_CLASSIFICATION,
+    target_stats: Optional[Tuple[float, float]] = None,
+    loss_cfg: Optional[LossConfig] = None,
 ) -> Dict[str, float]:
     """Evaluate a split.
 
@@ -271,6 +309,10 @@ def evaluate(
     keys (and logged under a ``{head}_window`` plot); otherwise the primary keys
     are the per-window metrics.
 
+    For ``task='regression'`` the scalar output is scored directly (no sigmoid)
+    and de-normalized with ``target_stats`` first, so the reported error is in the
+    target's original units.
+
     When the loader shards its dataset across ranks (``distributed.dist_eval``),
     the per-rank predictions are all-gathered back into dataset order first, so
     metrics — per-case pooling in particular — see every window of every case
@@ -280,10 +322,17 @@ def evaluate(
         metrics = ['acc']
     if nb_classes is None:
         nb_classes = 1 if is_binary else 2
+    is_regression = task == TASK_REGRESSION
+    scalar_target = is_binary or is_regression
     channel_indices = None
     if ch_names is not None:
         channel_indices = utils.get_channel_indices(ch_names)
-    criterion = build_classification_criterion(1 if is_binary else 2)
+    # Dispatched on the task: scoring a regression run with the classification
+    # criterion would silently compute cross-entropy on ages. ``loss_cfg`` is only
+    # forwarded for regression (to pick mse/l1/huber) so the classification eval
+    # criterion stays exactly what it was before this branch existed.
+    criterion = build_downstream_criterion(
+        task, 1 if is_binary else 2, loss_cfg if is_regression else None)
 
     metric_logger = utils.MetricLogger(delimiter="  ")
 
@@ -300,7 +349,7 @@ def evaluate(
         eeg_batch = eeg_batch.float().to(device, non_blocking=True) / 100
         eeg_batch = rearrange(eeg_batch, 'B N (A T) -> B N A T', T=200)
         target = target.to(device, non_blocking=True)
-        if is_binary:
+        if scalar_target:
             target = target.float().unsqueeze(-1)
 
         # compute output (classify_only skips the decoder branch on the
@@ -311,11 +360,14 @@ def evaluate(
                 output = output.logits
             loss = criterion(output, target)
 
-        if is_binary:
+        if is_regression:
+            # A scalar prediction, not a probability: no sigmoid.
+            output = output.float().cpu()
+        elif is_binary:
             output = torch.sigmoid(output).cpu()
         else:
             output = output.cpu()
-        target = target.cpu()
+        target = target.float().cpu() if is_regression else target.cpu()
 
         pred.append(output)
         true.append(target)
@@ -338,13 +390,20 @@ def evaluate(
         pred, true, groups = utils.gather_sharded_eval(
             pred, true, groups, total=_loader_dataset_len(data_loader))
 
+    if is_regression:
+        # Undo the loader's z-scoring once, on the gathered arrays, so every
+        # downstream metric and aggregation works in the target's original units
+        # (years, for age).
+        pred = utils.denormalize(pred, target_stats)
+        true = utils.denormalize(true, target_stats)
+
     agg_mode = eval_cfg.agg_windows if eval_cfg is not None else 'none'
     detailed = eval_cfg is None or eval_cfg.detailed_metrics
     loss_avg = metric_logger.loss.global_avg
 
     # Per-window ("per-crop") metrics: one prediction per ~10 s EEG window.
     window_ret, window_report = _metrics_and_report(
-        pred, true, metrics, is_binary, nb_classes, detailed)
+        pred, true, metrics, is_binary, nb_classes, detailed, task)
     window_ret['loss'] = loss_avg
 
     if agg_mode != 'none' and groups:
@@ -354,11 +413,11 @@ def evaluate(
         # primary set (a clinical decision is per EEG case, not per crop); the
         # per-window metrics are retained under ``window_*`` keys.
         case_pred, case_true = utils.aggregate_windows(
-            pred, true, groups, agg_mode, is_binary)
+            pred, true, groups, agg_mode, is_binary, is_regression=is_regression)
         logger.info("Aggregated %d windows into %d cases (mode=%s)",
                     len(groups), len(case_true), agg_mode)
         ret, case_report = _metrics_and_report(
-            case_pred, case_true, metrics, is_binary, nb_classes, detailed)
+            case_pred, case_true, metrics, is_binary, nb_classes, detailed, task)
         ret['loss'] = loss_avg
         ret.update({f'window_{k}': v for k, v in window_ret.items()})
         primary_report = case_report
@@ -403,13 +462,20 @@ def _metrics_and_report(
     is_binary: bool,
     nb_classes: int,
     detailed: bool,
+    task: str = TASK_CLASSIFICATION,
 ) -> Tuple[Dict[str, float], Optional[Any]]:
     """Compute the requested ``metrics`` and (when ``detailed``) the full
-    classification report for one set of predictions. Returns ``(scalars, report)``."""
-    ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5)
+    report for one set of predictions. Returns ``(scalars, report)``.
+
+    The report is a ``ClassificationReport`` or a ``RegressionReport`` depending on
+    the task; both expose ``.scalars``."""
+    ret = utils.get_metrics(pred, true, metrics, is_binary, 0.5, task=task)
     report = None
     if detailed:
-        report = utils.classification_report(pred, true, is_binary, nb_classes, 0.5)
+        if task == TASK_REGRESSION:
+            report = utils.regression_report(pred, true, metrics)
+        else:
+            report = utils.classification_report(pred, true, is_binary, nb_classes, 0.5)
         ret.update(report.scalars)
     return ret, report
 
@@ -419,13 +485,22 @@ def _metrics_and_report(
 _LOGGED_EVAL_RATE_KEYS = (
     'accuracy', 'balanced_accuracy', 'f1', 'f1_weighted', 'precision', 'recall',
     'sensitivity', 'specificity', 'pr_auc', 'roc_auc', 'cohen_kappa', 'loss',
+    # Regression goodness-of-fit measures, also on a roughly [-1, 1] scale.
+    'r2', 'pearson_r', 'spearman_r', 'age_bias_slope',
+)
+# Regression errors are in the target's units (years for age, so O(10)); they get
+# their own ``{head}_err`` plot so they do not flatten the [0, 1] metrics above.
+_LOGGED_EVAL_ERROR_KEYS = (
+    'mae', 'rmse', 'mse', 'mae_corrected',
+    'pred_mean', 'pred_std', 'target_mean', 'target_std',
 )
 # Confusion-matrix cell counts are raw integers that can reach the thousands
 # (>> 1); logged on a separate ``{head}_cm`` plot so they do not flatten the
 # normalized metrics above onto a single shared axis.
 _LOGGED_EVAL_COUNT_KEYS = ('cm_tn', 'cm_fp', 'cm_fn', 'cm_tp')
 
-_LOGGED_EVAL_KEYS = _LOGGED_EVAL_RATE_KEYS + _LOGGED_EVAL_COUNT_KEYS
+_LOGGED_EVAL_KEYS = (
+    _LOGGED_EVAL_RATE_KEYS + _LOGGED_EVAL_COUNT_KEYS + _LOGGED_EVAL_ERROR_KEYS)
 
 
 def _epoch_axis_step(log_writer, epoch):
@@ -448,14 +523,26 @@ def _log_eval_stats(log_writer, stats, head, epoch):
             log_writer.update(**{key: value}, head=head, step=step)
         elif key in _LOGGED_EVAL_COUNT_KEYS:
             log_writer.update(**{key: value}, head=f"{head}_cm", step=step)
+        elif key in _LOGGED_EVAL_ERROR_KEYS:
+            log_writer.update(**{key: value}, head=f"{head}_err", step=step)
 
 
 def _log_detailed_report(log_writer, report, head, step, eval_cfg):
-    """Push a :class:`ClassificationReport`'s confusion matrix and ROC/PR curves
-    to the writer(s). Scalars are logged separately via ``_log_eval_stats``."""
+    """Push a report's figures to the writer(s): a confusion matrix and ROC/PR
+    curves for classification, a predicted-vs-true scatter for regression.
+    Scalars are logged separately via ``_log_eval_stats``."""
     if log_writer is None or report is None or eval_cfg is None:
         return
     step = _epoch_axis_step(log_writer, step)
+    if isinstance(report, utils.RegressionReport):
+        if eval_cfg.log_curves and report.predictions is not None:
+            fig = plots.prediction_scatter_figure(
+                report.predictions, report.targets,
+                metrics={'mae': report.scalars.get('mae'),
+                         'r2': report.scalars.get('r2')},
+                title=f'{head} predicted vs true')
+            log_writer.report_figure(head, fig, step=step, series='pred_vs_true')
+        return
     if eval_cfg.log_confusion_matrix and report.matrix is not None:
         log_writer.report_confusion_matrix(
             head, report.matrix, step=step, labels=report.labels)
@@ -512,11 +599,21 @@ def train_loop(
         steps_per_logged_step=config.trainer.update_freq)
 
     nb_classes = config.model.nb_classes
-    is_binary = nb_classes == 1
+    task = getattr(config.model, 'task', TASK_CLASSIFICATION)
+    is_regression = task == TASK_REGRESSION
+    # A regression head also has a single output, so nb_classes == 1 alone cannot
+    # distinguish the two; the task decides.
+    is_binary = nb_classes == 1 and not is_regression
+    target_stats = getattr(config.model, 'target_stats', None)
+    # Model selection metric and its direction: accuracy (higher is better) for
+    # classification, MAE (lower is better) for regression.
+    select_metric, select_dir = utils.best_metric_for(task, metrics)
+    better = (lambda new, cur: new > cur) if select_dir == 'max' else (lambda new, cur: new < cur)
 
     logger.info(f"Start training for {config.trainer.epochs} epochs")
     start_time = time.time()
-    max_accuracy = max_accuracy_test = 0.0
+    best_val = float('-inf') if select_dir == 'max' else float('inf')
+    best_test = 0.0
     best_epoch = -1
     best_val_stats: dict = {}
     best_test_stats: dict = {}
@@ -542,6 +639,8 @@ def train_loop(
             is_binary=is_binary,
             eval_cfg=config.evaluation,
             nb_classes=nb_classes,
+            task=task,
+            target_stats=target_stats,
             logging_cfg=config.logging,
         )
 
@@ -559,16 +658,21 @@ def train_loop(
             val_stats = evaluate(loaders.val, model, device, header='Val:',
                                  ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                                  nb_classes=nb_classes, eval_cfg=config.evaluation,
-                                 log_writer=log_writer, head='val', epoch=epoch)
-            logger.info(f"Val EEG accuracy: {val_stats['accuracy']:.2f}%")
+                                 log_writer=log_writer, head='val', epoch=epoch,
+                                 task=task, target_stats=target_stats,
+                                 loss_cfg=config.loss)
+            unit = '' if is_regression else '%'
+            logger.info(f"Val EEG {select_metric}: {val_stats[select_metric]:.2f}{unit}")
             test_stats = evaluate(loaders.test, model, device, header='Test:',
                                   ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                                   nb_classes=nb_classes, eval_cfg=config.evaluation,
-                                  log_writer=log_writer, head='test', epoch=epoch)
-            logger.info(f"Test EEG accuracy: {test_stats['accuracy']:.2f}%")
+                                  log_writer=log_writer, head='test', epoch=epoch,
+                                  task=task, target_stats=target_stats,
+                                  loss_cfg=config.loss)
+            logger.info(f"Test EEG {select_metric}: {test_stats[select_metric]:.2f}{unit}")
 
-            if max_accuracy < val_stats["accuracy"]:
-                max_accuracy = val_stats["accuracy"]
+            if better(val_stats[select_metric], best_val):
+                best_val = val_stats[select_metric]
                 if config.output.output_dir and config.output.save_ckpt and not config.output.save_only_final_model:
                     utils.save_model(
                         output_cfg=config.output, trainer_cfg=config.trainer,
@@ -576,11 +680,12 @@ def train_loop(
                         optimizer=optimizer, loss_scaler=loss_scaler,
                         epoch="best", model_ema=model_ema,
                         enable_deepspeed=enable_deepspeed)
-                max_accuracy_test = test_stats["accuracy"]
+                best_test = test_stats[select_metric]
                 best_epoch = epoch
                 best_val_stats = dict(val_stats)
                 best_test_stats = dict(test_stats)
-            logger.info(f'Max accuracy val: {max_accuracy:.2f}%, test: {max_accuracy_test:.2f}%')
+            logger.info(f'Best {select_metric} val: {best_val:.2f}{unit}, '
+                        f'test: {best_test:.2f}{unit}')
 
             _log_eval_stats(log_writer, val_stats, head="val", epoch=epoch)
             _log_eval_stats(log_writer, test_stats, head="test", epoch=epoch)
@@ -609,9 +714,24 @@ def train_loop(
 
     runner_common.print_training_time(start_time)
 
+    # No epoch ever improved (e.g. no val loader), so report 0.0 rather than the
+    # +/-inf sentinel the comparison started from.
+    if best_epoch < 0:
+        best_val = best_test = 0.0
+
     return {
-        "max_accuracy": max_accuracy,
-        "max_accuracy_test": max_accuracy_test,
+        # Legacy key names, kept so eval/cv_aggregation.py and the ClearML summary
+        # tables keep working unchanged; for regression they hold the selection
+        # metric (MAE), not an accuracy.
+        "max_accuracy": best_val,
+        "max_accuracy_test": best_test,
+        # Task-neutral aliases, plus the metric's identity so a reader knows what
+        # the numbers above actually are.
+        "best_metric": best_val,
+        "best_metric_test": best_test,
+        "best_metric_name": select_metric,
+        "best_metric_direction": select_dir,
+        "task": task,
         "best_epoch": best_epoch,
         "best_val_stats": best_val_stats,
         "best_test_stats": best_test_stats,

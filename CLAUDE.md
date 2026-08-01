@@ -51,6 +51,17 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.finetune
 OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.vqnsp \
   --config labram/configs/defaults/vqnsp_labram_plus_plus.json
 
+# Age regression / EEG brain age (opt-in): patient age comes from the EDF
+# headers (MNE cannot see it -- the DOB is anonymized), joined onto the existing
+# window pickles by filename. Two read-only prep steps, then a normal fine-tune.
+# See docs/age_regression.md.
+python dataset_maker/make_TUAB_age.py scan  --root /data/TUAB/edf   # age_metadata.json
+python dataset_maker/make_TUAB_age.py split --root /data/TUAB/edf   # age_split.json
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_finetune \
+  --config labram/configs/defaults/finetune_tuab_age.json \
+  --set data.data_path=/data/TUAB/edf \
+        finetune_checkpoint.finetune=./checkpoints/labram-base.pth
+
 # K-fold cross-validation fine-tune (opt-in): group-disjoint folds (by
 # subject/recording), a reproducible cv_split.json artifact, per-fold experiments
 # named with the fold number, and metrics aggregated across folds. See
@@ -119,6 +130,27 @@ torch>=2.3. Install a compatible DeepSpeed manually only if you need it.
 **Codebook-regularized fine-tuning** (opt-in, `codebook_reg.enabled`): Raw EEG → trainable encoder (from pre-trained checkpoint) → classification head over configurable feature sources (`encoder_mean` / `quantize_mean` / `bag_of_codes`); the same patch tokens also go through the grafted VQNSP quantizer (codebook frozen) + trainable decoder to reconstruct the spectrum. Loss = classification + spectral (amplitude/phase) + quantization, combined by `CodebookRegularizedCriterion`. Encoder/decoder/codebook use LR scales below the head LR. See `docs/codebook_regularized_finetune_plan.md`.
 
 **Cross-validation fine-tuning** (opt-in, `cross_validation.enabled`): the data pool (train+val, or all splits) is partitioned into K **group-disjoint** folds (grouped by subject/recording so a case never straddles train/val/test). For fold *k*: test = fold *k*, val = fold *(k+1) mod K*, train = the rest. Each fold trains via the normal fine-tune path (`run_finetune.main(config, bundle=fold_bundle)`) as its own sub-experiment — output dir `‹base›/fold_<k>/` and ClearML `‹project›/‹experiment›` + task `fold_<k>`. Artifacts: `cv_split.json` (the reproducible fold partition), per-fold `fold_metrics.json`, and `cv_summary.json` (metrics aggregated across folds). Run all folds in-process (`cross_validation.fold=-1`) or one fold per job (`fold=k`). See `docs/cross_validation.md`.
+
+**Age-regression fine-tuning** (opt-in, `data.dataset=TUAB_AGE`): a scalar-target
+downstream task (EEG brain age). The label is **not** in the window pickles — TUH no longer
+distributes clinical reports, so the age is read from the EDF header's patient field
+(bytes 8:88, `... Age:42`). MNE cannot supply it: the DOB is anonymized to `01-JAN-0000`, so
+`raw.info['subject_info']` has no age and raw-byte parsing is mandatory
+(`data/tuh_metadata.py`). Verified on TUAB v3.0.0: 100% coverage over 2,993 recordings,
+reproducing the corpus AAREADME demographics tables exactly; `Age:999` is TUH's HIPAA
+redaction for 90+ and is excluded. Because processed window filenames map 1:1 onto EDF stems,
+ages join onto the **existing** pickles via an `age_metadata.json` sidecar — no
+re-preprocessing. `data/age_splits.py` also rebuilds a **subject-disjoint, seeded** train/val
+split (the shipped `make_TUAB.py` split leaks 16 subjects across train/val, which matters far
+more for age than for a class label) and asserts zero overlap on save *and* load. Task type
+lives on `DatasetBundle.task` / `FinetuneModelConfig.task` rather than being inferred from
+`nb_classes`, since a scalar head and a binary classifier are both `nb_classes == 1`; it
+selects the criterion (`losses/regression.py`, Huber by default),
+the metrics (`utils/regression_metrics.py` — MAE/RMSE/R²/r plus the `age_bias_slope` and
+`mae_corrected` brain-age diagnostics), and lower-is-better model selection on MAE. Targets are
+z-scored by the loader using train-split stats and de-normalized before metrics, so errors read
+in years. Split by subject, aggregate by recording — age is a property of the session, not the
+subject. See `docs/age_regression.md`.
 
 **LaBraM++ mode** (opt-in, `labram_plus.enabled`, arXiv:2505.16724): a bundle of three signal-processing/loss improvements over the original LaBraM, off by default so existing checkpoints/configs are unaffected. (1) Per-patch **Common Average Reference** and (2) per-patch **z-scoring** are applied to model inputs; (3) the VQNSP tokenizer's phase reconstruction uses a **sin/cos circular loss** (`‖sin φ̂ − sin φ‖² + ‖cos φ̂ − cos φ‖²`) instead of the raw-angle MSE, removing the ±π wrap-around discontinuity. The single switch is `LaBraMPlusConfig` (`labram/configs/labram_plus_config.py`) on every `RunConfig` as `config.labram_plus`; preprocessing is model-owned (applied in `NeuralTransformer._embed_inputs`, `NeuralTransformerForMaskedEEGModeling.forward_features`, and `VQNSP._preprocess`) so it stays consistent across training and evaluation and never double-applies. Config files: `configs/defaults/{vqnsp,pretrain_,finetune_tuab_}labram_plus_plus.json`. See `docs/labram_plus_plus.md`.
 

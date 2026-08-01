@@ -24,7 +24,10 @@ logger = get_logger(__name__)
 
 
 def _strip_ext(filename: str) -> str:
-    return filename[:-4] if filename.endswith(".pkl") else filename
+    # A window file may be given as a path relative to the loader root (the age
+    # split stores 'train/<name>.pkl'), so group ids come off the basename.
+    base = os.path.basename(filename)
+    return base[:-4] if base.endswith(".pkl") else base
 
 
 def group_id_for(source, filename: str, split_by: str) -> str:
@@ -150,6 +153,12 @@ def _split_summary(dataset, split_by: str) -> Dict[str, Any]:
 # ------------------------------------------------------------------ materialize
 
 
+# Loader attributes that must survive a positional loader rebuild
+# (``type(src)(root, files, sampling_rate)`` cannot pass keyword arguments).
+# Shared with labram.data.data_split_reuse, which rebuilds loaders the same way.
+CARRIED_SOURCE_ATTRS = ("target_stats",)
+
+
 def _build_split_dataset(folds: GroupedFolds, groups: List[str]):
     """ConcatDataset of one per-source loader restricted to ``groups``' files."""
     per_source: Dict[int, List[str]] = {}
@@ -163,6 +172,12 @@ def _build_split_dataset(folds: GroupedFolds, groups: List[str]):
         # Rebuild the same loader class over just this split's files from the
         # source's root, preserving its sampling rate.
         loader = type(src)(src.root, sorted(files), getattr(src, "sampling_rate", 200))
+        # Carry over state the positional constructor cannot receive. Notably a
+        # regression target's normalization stats: without them the fold would
+        # yield raw targets that the eval path then de-normalizes a second time.
+        for attr in CARRIED_SOURCE_ATTRS:
+            if hasattr(src, attr):
+                setattr(loader, attr, getattr(src, attr))
         parts.append(loader)
 
     if not parts:
@@ -197,7 +212,8 @@ def materialize_fold(folds: GroupedFolds, k: int, base_bundle: DatasetBundle) ->
     return DatasetBundle(
         train=dataset_train, val=dataset_val, test=dataset_test,
         ch_names=base_bundle.ch_names, nb_classes=base_bundle.nb_classes,
-        metrics=base_bundle.metrics)
+        metrics=base_bundle.metrics, task=base_bundle.task,
+        target_stats=base_bundle.target_stats)
 
 
 # ------------------------------------------------------------------ artifact

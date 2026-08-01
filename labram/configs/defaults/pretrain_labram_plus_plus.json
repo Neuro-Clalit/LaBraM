@@ -121,6 +121,8 @@
         "vq_commitment_beta": 1.0,
         "freq_fraction": 1.0,
         "classification_label_smoothing": 0.0,
+        "regression_loss": "huber",
+        "huber_delta": 1.0,
         "classifier_weight": 1.0,
         "phase_loss": "angle"
     },

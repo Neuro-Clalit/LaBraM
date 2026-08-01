@@ -158,6 +158,8 @@ def classification_report(
 # ---------------------------------------------------------------------------
 
 _AGG_MODES = ('none', 'mean', 'median', 'vote', 'max', 'entropy')
+# 'vote' and 'entropy' need class probabilities, which a scalar target has not.
+_REGRESSION_AGG_MODES = ('none', 'mean', 'median', 'max')
 
 
 def prediction_entropy(
@@ -197,6 +199,7 @@ def aggregate_windows(
     mode: str,
     is_binary: bool,
     threshold: float = 0.5,
+    is_regression: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Pool per-window predictions into one prediction per case (``group``).
 
@@ -218,12 +221,20 @@ def aggregate_windows(
       uncertain windows are down-weighted. Falls back to a plain mean when every
       window in the case is maximally uncertain.
     * ``none`` — return inputs unchanged (window-level).
+
+    With ``is_regression`` the prediction is a scalar in the target's units, so
+    only the order-statistic modes (``mean``, ``median``, ``max``) apply; ``vote``
+    and ``entropy`` are classification-only and are rejected.
     """
     mode = (mode or 'none').lower()
     if mode == 'none':
         return output, target
     if mode not in _AGG_MODES:
         raise ValueError(f"Unknown aggregation mode {mode!r}; expected one of {_AGG_MODES}")
+    if is_regression and mode not in _REGRESSION_AGG_MODES:
+        raise ValueError(
+            f"Aggregation mode {mode!r} is classification-only; for a regression "
+            f"target use one of {_REGRESSION_AGG_MODES}")
 
     output = np.asarray(output)
     target = np.asarray(target)
@@ -238,7 +249,9 @@ def aggregate_windows(
             order.append(g)
     idx_by_group = {g: [i for i, gg in enumerate(groups) if gg == g] for g in order}
 
-    if is_binary:
+    # A regression prediction pools exactly like a binary score: one scalar per
+    # window, averaged (or median/max) per case, with the case's constant target.
+    if is_binary or is_regression:
         scores = output.astype(float).ravel()
         ent = prediction_entropy(scores, is_binary=True) if mode == 'entropy' else None
         out_rows = []

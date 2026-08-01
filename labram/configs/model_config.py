@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from labram.configs.base_configs import ConfigBase
 from labram.configs import defaults as conf_consts
@@ -103,7 +103,24 @@ class FinetuneModelConfig(ConfigBase):
     use_mean_pooling: bool = conf_consts.DEFAULT_FINETUNE_USE_MEAN_POOLING
     init_scale: float = conf_consts.DEFAULT_FINETUNE_INIT_SCALE
     nb_classes: int = conf_consts.DEFAULT_FINETUNE_NB_CLASSES
+    # "classification" or "regression". Both use nb_classes == 1 for a single
+    # output unit -- binary classification and scalar regression are only
+    # distinguishable by this field, so it selects the criterion, the metrics and
+    # the model-selection direction. Set from the dataset bundle at runtime.
+    task: str = conf_consts.DEFAULT_FINETUNE_TASK
+    # (mean, std) the dataset used to z-score a regression target, so evaluation
+    # can report metrics in the target's original units.
+    target_stats: Optional[Tuple[float, float]] = None
     codebook_reg: CodebookRegConfig = field(default_factory=CodebookRegConfig)
+
+    def validate(self) -> None:
+        if self.task not in ("classification", "regression"):
+            raise ValueError(
+                f"model.task must be 'classification' or 'regression', got {self.task!r}")
+
+    @property
+    def is_regression(self) -> bool:
+        return self.task == "regression"
 
 
 @dataclass
