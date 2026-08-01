@@ -24,7 +24,7 @@ from typing import Dict, List, Optional
 import labram.models.registry  # noqa: F401
 import labram.utils as utils
 from labram.configs.run_configs import FinetuneRunConfig
-from labram.configs.utils_conf import parse_overrides
+from labram.configs.utils_conf import add_override_arg, parse_overrides
 from labram.data import (
     apply_cv_split,
     build_grouped_folds,
@@ -210,8 +210,7 @@ def parse_cli() -> argparse.Namespace:
     parser = argparse.ArgumentParser('LaBraM cross-validation fine-tuning', add_help=True)
     parser.add_argument('--config', type=str, default=None,
                         help='Path to a JSON or YAML FinetuneRunConfig file.')
-    parser.add_argument('--set', dest='overrides', nargs='*', default=[],
-                        metavar='KEY=VALUE')
+    add_override_arg(parser)
     return parser.parse_args()
 
 

@@ -13,7 +13,7 @@ import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
 from labram.configs.run_configs import PretrainRunConfig
-from labram.configs.utils_conf import parse_overrides
+from labram.configs.utils_conf import add_override_arg, parse_overrides
 from labram.train.train_pretrain import train_loop
 from labram.optim_factory import create_optimizer, log_trainable_parameters
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
@@ -25,9 +25,7 @@ def parse_cli() -> argparse.Namespace:
     parser = argparse.ArgumentParser('LaBraM pre-training (config-driven)', add_help=True)
     parser.add_argument('--config', type=str, default=None,
                         help='Path to a JSON or YAML PretrainRunConfig file.')
-    parser.add_argument('--set', dest='overrides', nargs='*', default=[],
-                        metavar='KEY=VALUE',
-                        help='Dotted-path overrides, e.g. --set trainer.epochs=5')
+    add_override_arg(parser)
     return parser.parse_args()
 
 

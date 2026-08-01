@@ -3,7 +3,22 @@
 Currently: CLI ``--set key.sub=value`` override parsing, consumed by every
 ``run_*.py`` entry point and applied via :meth:`ConfigBase.update`.
 """
+import argparse
 from typing import List
+
+
+def add_override_arg(parser: argparse.ArgumentParser) -> None:
+    """Register the shared ``--set key.sub=value`` argument on *parser*.
+
+    ``action='extend'`` (not the plain ``nargs='*'`` default) so that repeated
+    ``--set`` flags accumulate instead of the last one silently replacing all
+    the earlier ones -- spelling one override per flag is the natural way to
+    write these commands across multiple lines.
+    """
+    parser.add_argument('--set', dest='overrides', nargs='*', action='extend',
+                        default=[], metavar='KEY=VALUE',
+                        help='Dotted-path overrides, e.g. --set trainer.epochs=5; '
+                             'repeatable.')
 
 
 def _coerce_override(s: str):

@@ -18,7 +18,7 @@ import labram.utils as utils
 from labram.data import get_dataset_bundle
 from labram.losses import CodebookRegularizedCriterion, LossConfig, build_downstream_criterion
 from labram.configs.run_configs import FinetuneRunConfig
-from labram.configs.utils_conf import parse_overrides
+from labram.configs.utils_conf import add_override_arg, parse_overrides
 from labram.train.train_finetune import evaluate, train_loop
 from labram.runs.codebook_setup import (
     CodebookRegLayerAssigner, build_codebook_classifier, loss_config_from_codebook_reg,
@@ -40,8 +40,7 @@ def parse_cli() -> argparse.Namespace:
     parser = argparse.ArgumentParser('LaBraM fine-tuning (config-driven)', add_help=True)
     parser.add_argument('--config', type=str, default=None,
                         help='Path to a JSON or YAML FinetuneRunConfig file.')
-    parser.add_argument('--set', dest='overrides', nargs='*', default=[],
-                        metavar='KEY=VALUE')
+    add_override_arg(parser)
     return parser.parse_args()
 
 

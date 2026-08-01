@@ -18,7 +18,7 @@ from labram.configs.run_configs import (
     PretrainRunConfig,
     VQNSPRunConfig,
 )
-from labram.configs.utils_conf import parse_overrides
+from labram.configs.utils_conf import add_override_arg, parse_overrides
 
 logger = utils.get_logger(__name__)
 
@@ -57,8 +57,7 @@ def parse_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
                         help='Trainer to run: vqnsp | pretrain | finetune.')
     parser.add_argument('--fold', type=int, default=None,
                         help='CV fold to train (finetune only; -1 or omitted -> all / non-CV).')
-    parser.add_argument('--set', dest='overrides', nargs='*', default=[],
-                        metavar='KEY=VALUE')
+    add_override_arg(parser)
     return parser.parse_args(argv)
 
 
