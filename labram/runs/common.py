@@ -250,6 +250,48 @@ def create_log_writer(
     return utils.MultiWriter(writers)
 
 
+def configure_relative_step_axis(
+    log_writer: Any,
+    config: Any,
+    num_training_steps_per_epoch: int,
+    steps_per_logged_step: int = 1,
+) -> bool:
+    """Put ``log_writer`` on the normalized-progress x-axis for this run.
+
+    Metrics are then plotted against training progress (0 ->
+    ``logging.relative_step_scale`` over the whole run) instead of the raw
+    global iteration, so runs with different dataset sizes, batch sizes or
+    epoch counts overlay directly. ``steps_per_logged_step`` accounts for
+    trainers that advance the writer once per micro-batch while
+    ``num_training_steps_per_epoch`` counts optimizer steps (fine-tuning's
+    ``update_freq``).
+
+    No-op (absolute axis kept) when there is no writer, when the run has no
+    logging config, or when ``logging.relative_step_axis`` is off. Returns
+    whether the relative axis is active.
+    """
+    logging_cfg = getattr(config, 'logging', None)
+    if log_writer is None or logging_cfg is None:
+        return False
+    if not getattr(logging_cfg, 'relative_step_axis', False):
+        return False
+    if not hasattr(log_writer, 'configure_relative_steps'):
+        return False
+
+    epochs = config.trainer.epochs
+    total_steps = int(num_training_steps_per_epoch) * int(epochs) * int(steps_per_logged_step)
+    enabled = log_writer.configure_relative_steps(
+        total_steps=total_steps,
+        total_epochs=epochs,
+        scale=logging_cfg.relative_step_scale,
+    )
+    if enabled:
+        logger.info(
+            "Metrics use the relative x-axis: %d step(s) mapped onto 0..%d "
+            "(training progress).", total_steps, logging_cfg.relative_step_scale)
+    return enabled
+
+
 def build_distributed_train_sampler_list(
     datasets: Sequence[torch.utils.data.Dataset],
     num_tasks: int,

@@ -58,9 +58,9 @@ each plot on a comparable scale, series are grouped by magnitude:
 
 | Plot (`head`)   | Series                                             | Scale        |
 |-----------------|----------------------------------------------------|--------------|
-| `loss`          | `loss`, `class_acc`, per-component losses          | O(1)         |
+| `loss`          | `loss`, `class_acc`, per-component loss shares      | O(1)         |
 | `opt`           | `lr`, `min_lr`, `weight_decay`                      | ≤ ~1         |
-| `grad`          | `grad_norm` (+ per-component grad norms)            | can be `>> 1`|
+| `grad`          | `grad_norm` (+ per-component grad-norm shares)      | can be `>> 1`|
 | `scale`         | `loss_scale` (AMP dynamic scale, up to ~65536)     | `>> 1`       |
 | `val` / `test` / `train`      | `accuracy`, `f1`, `roc_auc`, … , `loss` | [0, 1] / O(1)|
 | `val_cm` / `test_cm` / `train_cm` | `cm_tn`, `cm_fp`, `cm_fn`, `cm_tp` (counts) | `>> 1`  |
@@ -69,6 +69,57 @@ each plot on a comparable scale, series are grouped by magnitude:
 Confusion-matrix cell **counts** and the AMP **loss scale** / **gradient norm**
 therefore live on their own plots rather than squashing the normalized metrics
 on the `val`/`test`/`opt` plots.
+
+### Relative (scale-free) metrics
+
+Metrics are reported in **relative** terms by default, so plots from different
+runs can be read — and overlaid — without first normalizing them by hand. Two
+`LoggingConfig` options control this; both are on by default and both *replace*
+the absolute form rather than adding a second series next to it.
+
+| Option (`logging.…`)         | Default | Effect                                                            |
+|------------------------------|---------|-------------------------------------------------------------------|
+| `relative_loss_components`   | `true`  | Per-component losses / gradient norms are logged as their **share of the component total** |
+| `relative_step_axis`         | `true`  | Every metric is plotted against **normalized training progress**   |
+| `relative_step_scale`        | `1000`  | x-axis units the full run spans (progress in per-mille)            |
+
+**Relative loss components.** When a run has a composite loss (the
+codebook-regularized fine-tune's `classifier` / `magnitude` / `phase` /
+`quantize` terms, or VQNSP's `rec` / `rec_angle` / `quant` terms), the writer
+receives `‹name›_loss_rel = |‹name›| / Σ|components|` — a `[0, 1]` series where
+all components sum to 1 — instead of the raw magnitude. The same applies to the
+per-component gradient norms (`grad_norm_‹name›_rel`) logged when
+`evaluation.log_grad_components` is on. This shows how the terms *trade off*,
+which is comparable across loss weights, datasets and runs, where the raw
+magnitudes are not.
+
+The **aggregate** loss (`loss`, VQNSP's `total_loss`) keeps its absolute value —
+it is the quantity being minimized — as do non-loss counters such as VQNSP's
+`unused_code`. Pre-training reports a single total loss and so has no component
+breakdown to relativize. The console `MetricLogger`, the per-epoch `log.txt`
+lines and the checkpoint/summary stats all keep the **raw magnitudes**; only the
+metric writers switch to shares.
+
+**Relative x-axis.** Instead of the raw global iteration, metrics are reported
+at `round(progress × relative_step_scale)`, where `progress ∈ [0, 1]` is the
+fraction of the run completed (`total_steps = epochs × steps_per_epoch ×
+update_freq`). Two runs with different dataset sizes, batch sizes or epoch
+counts then land on the same 0…1000 axis and can be compared directly in the
+ClearML/TensorBoard overlay. Per-epoch metrics (`val`/`test`) follow the same
+axis: epoch *e* of *E* reports at `(e + 1) / E`, exactly where the per-iteration
+series stands at that moment, so the train and eval curves stay aligned.
+
+The wiring is `runs/common.py::configure_relative_step_axis` (called by each
+phase's `train_loop`, which knows the run length) plus the writer-side mapping in
+`utils/logging.py`. Writers that are never configured — e.g. the offline
+evaluation toolkit — stay on the absolute axis.
+
+To get the old absolute logging back:
+
+```bash
+python -m labram.runs.finetune --config labram/configs/defaults/finetune_tuab.json \
+  --set logging.relative_loss_components=false logging.relative_step_axis=false
+```
 
 ### Per-window vs. per-case metrics
 

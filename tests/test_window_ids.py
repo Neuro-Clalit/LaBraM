@@ -84,27 +84,47 @@ def test_enable_window_ids_on_loader_and_subset(tuab_root):
 
 
 def test_enable_window_ids_recurses_into_concat_dataset(tuab_root):
-    """Cross-validation materializes a fold as a ConcatDataset whenever its groups
-    span several source loaders. Without recursion those runs silently reported
-    per-window metrics as if they were per-case."""
+    """A cross-validation fold concatenates one loader per source (train + val
+    roots), so ids must reach the leaves through ConcatDataset — otherwise
+    per-case aggregation silently degrades to window-level."""
     root, files = tuab_root
-    parts = [TUABLoader(str(root), files), TUABLoader(str(root), files)]
+    parts = [TUABLoader(str(root), files[:2]), TUABLoader(str(root), files[2:])]
     concat = torch.utils.data.ConcatDataset(parts)
 
-    enable_window_ids(concat, group_by="subject")
-
-    for part in parts:
-        assert part.return_id is True and part.group_by == "subject"
-    # The wrapped dataset now actually yields the 3-tuple evaluate() looks for.
-    assert len(concat[0]) == 3
+    assert enable_window_ids(concat, group_by="recording") == 2
+    assert all(p.return_id is True and p.group_by == "recording" for p in parts)
+    # The concatenated dataset now yields 3-tuples end to end.
+    assert all(len(concat[i]) == 3 for i in range(len(concat)))
 
 
-def test_enable_window_ids_recurses_through_a_subset_of_a_concat(tuab_root):
+def test_enable_window_ids_recurses_through_nested_wrappers(tuab_root):
+    """Subset(ConcatDataset(...)) — the debug-mode shape — also reaches leaves."""
     root, files = tuab_root
-    part = TUABLoader(str(root), files)
+    parts = [TUABLoader(str(root), files[:2]), TUABLoader(str(root), files[2:])]
     nested = torch.utils.data.Subset(
-        torch.utils.data.ConcatDataset([part]), [0])
+        torch.utils.data.ConcatDataset(parts), [0, 1, 2])
 
-    enable_window_ids(nested, group_by="recording")
+    assert enable_window_ids(nested, group_by="subject") == 2
+    assert all(p.return_id is True and p.group_by == "subject" for p in parts)
+    assert len(nested[0]) == 3
 
-    assert part.return_id is True and part.group_by == "recording"
+
+def test_enable_window_ids_warns_when_no_leaf_supports_ids(caplog):
+    """An aggregation mode configured over a dataset that cannot emit case ids
+    must say so rather than silently producing window-level metrics."""
+    class _NoIds(torch.utils.data.Dataset):
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, i):
+            return torch.zeros(2, 200), 0
+
+    with caplog.at_level("WARNING"):
+        assert enable_window_ids(_NoIds()) == 0
+    assert "window-level metrics only" in caplog.text
+
+    # ...and stays quiet when the caller opts out of the warning.
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        enable_window_ids(_NoIds(), warn=False)
+    assert caplog.text == ""

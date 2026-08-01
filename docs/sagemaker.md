@@ -37,6 +37,12 @@ python -m labram.runs.submit_sagemaker --phase pretrain \
   --set sagemaker.enabled=true sagemaker.role=arn:aws:iam::123:role/SM
 ```
 
+`scripts/submit_paper_experiments.sh` bundles the paper experiment set (CV on the
+paper config + gradient-clip / codebook / LaBraM++ runs that reuse one recorded
+`data_split.json`) behind env-var knobs — `DRY_RUN=1 scripts/submit_paper_experiments.sh`
+to preview, or pass `ROLE`/`DATA`/`CKPT`/`VQNSP`/`OUT` to submit (optionally a
+subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
+
 ## How a job runs
 
 1. The submit CLI resolves the phase's run config (`VQNSPRunConfig` /
@@ -167,6 +173,23 @@ resolved image before launching (`SageMaker training image: …`), and
 `SageMakerLauncher.resolve_image_uri(spec)` returns it for verification. Set
 `sagemaker.image_uri` to override with your own ECR image (then
 `framework_version`/`py_version` are ignored).
+
+## S3 data & checkpoints (input channels)
+
+The TUAB/TUEV loaders read from a local directory (`os.listdir`), so the dataset
+must be **mounted**, not read from S3 at runtime. The submit CLI handles this
+automatically: any `s3://` value in `data.data_path`,
+`finetune_checkpoint.finetune`, or `model.codebook_reg.tokenizer_weight` is
+turned into a SageMaker **input channel** (`dataset` / `pretrained` /
+`tokenizer`, mounted under `/opt/ml/input/data/...`) and the uploaded config is
+rewritten to the in-container mount path. Just pass the S3 URIs on the normal
+config fields.
+
+`data.split_json` is the exception — it is left as an `s3://` URI and read
+directly in-container via the shared `FileSystem` (the execution role's S3
+access), so **reusing a recorded split** across runs is just
+`--set data.split_json=s3://…/data_split.json` (see
+[`cross_validation.md`](cross_validation.md) for how the split is applied).
 
 ## Dependencies / `pip install` in the job
 

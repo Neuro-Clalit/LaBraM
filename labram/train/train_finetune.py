@@ -12,13 +12,14 @@ import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import torch
+import torch.utils.data
 from timm.utils import ModelEma
 from einops import rearrange
 
 import labram.utils as utils
 from labram.configs.loss_config import LossConfig
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import EvaluationConfig, TrainerConfig
+from labram.configs.train_config import EvaluationConfig, LoggingConfig, TrainerConfig
 from labram.data.bundles import CLASSIFICATION as TASK_CLASSIFICATION
 from labram.data.bundles import REGRESSION as TASK_REGRESSION
 from labram.losses import CodebookRegularizedCriterion, build_downstream_criterion
@@ -83,6 +84,7 @@ def train_one_epoch(
     nb_classes: Optional[int] = None,
     task: str = TASK_CLASSIFICATION,
     target_stats: Optional[Tuple[float, float]] = None,
+    logging_cfg: Optional[LoggingConfig] = None,
 ) -> Dict[str, float]:
     update_freq = trainer_cfg.update_freq
     if nb_classes is None:
@@ -239,12 +241,15 @@ def train_one_epoch(
             # The AMP loss scale can reach ~65536; on its own "scale" plot so it
             # does not flatten the small-valued lr/wd series on the "opt" plot.
             log_writer.update(loss_scale=loss_scale_value, head="scale")
-            if component_values is not None:
-                for name, value in component_values.items():
-                    log_writer.update(**{name: value}, head="loss")
-            if component_grad_values is not None:
-                for name, value in component_grad_values.items():
-                    log_writer.update(**{name: value}, head="grad")
+            # Components go to the writer as shares of their total (scale-free,
+            # comparable across runs/loss weights) unless relative logging is
+            # off; the console/`stats` meters above keep the raw magnitudes.
+            for name, value in (utils.relative_components_if_enabled(
+                    component_values, logging_cfg) or {}).items():
+                log_writer.update(**{name: value}, head="loss")
+            for name, value in (utils.relative_components_if_enabled(
+                    component_grad_values, logging_cfg) or {}).items():
+                log_writer.update(**{name: value}, head="grad")
             log_writer.set_step()
 
     # gather the stats from all processes
@@ -307,6 +312,11 @@ def evaluate(
     For ``task='regression'`` the scalar output is scored directly (no sigmoid)
     and de-normalized with ``target_stats`` first, so the reported error is in the
     target's original units.
+
+    When the loader shards its dataset across ranks (``distributed.dist_eval``),
+    the per-rank predictions are all-gathered back into dataset order first, so
+    metrics — per-case pooling in particular — see every window of every case
+    exactly once rather than only the local shard.
     """
     if metrics is None:
         metrics = ['acc']
@@ -372,9 +382,18 @@ def evaluate(
     pred = torch.cat(pred, dim=0).numpy()
     true = torch.cat(true, dim=0).numpy()
 
+    # With a DistributedSampler on the eval loader each rank holds only its
+    # ~1/world_size shard; gather the shards back into dataset order before
+    # computing any metric. (Without dist_eval every rank iterates the full
+    # dataset, so there is nothing to gather.)
+    if _is_sharded_loader(data_loader):
+        pred, true, groups = utils.gather_sharded_eval(
+            pred, true, groups, total=_loader_dataset_len(data_loader))
+
     if is_regression:
-        # Undo the loader's z-scoring once, here, so every downstream metric and
-        # aggregation works in the target's original units (years, for age).
+        # Undo the loader's z-scoring once, on the gathered arrays, so every
+        # downstream metric and aggregation works in the target's original units
+        # (years, for age).
         pred = utils.denormalize(pred, target_stats)
         true = utils.denormalize(true, target_stats)
 
@@ -417,6 +436,23 @@ def evaluate(
         _log_detailed_report(log_writer, primary_report, head, epoch, eval_cfg)
 
     return ret
+
+
+def _is_sharded_loader(data_loader: Any) -> bool:
+    """True when ``data_loader`` splits its dataset across ranks (i.e. carries a
+    :class:`~torch.utils.data.DistributedSampler`), so each rank sees a shard."""
+    sampler = getattr(data_loader, 'sampler', None)
+    return isinstance(sampler, torch.utils.data.DistributedSampler)
+
+
+def _loader_dataset_len(data_loader: Any) -> Optional[int]:
+    """Length of the loader's underlying dataset — the count to truncate to
+    after gathering, dropping DistributedSampler's equalizing duplicates."""
+    dataset = getattr(data_loader, 'dataset', None)
+    try:
+        return len(dataset) if dataset is not None else None
+    except TypeError:  # iterable-style dataset with no __len__
+        return None
 
 
 def _metrics_and_report(
@@ -467,16 +503,28 @@ _LOGGED_EVAL_KEYS = (
     _LOGGED_EVAL_RATE_KEYS + _LOGGED_EVAL_COUNT_KEYS + _LOGGED_EVAL_ERROR_KEYS)
 
 
+def _epoch_axis_step(log_writer, epoch):
+    """Place an epoch-level metric on the writer's x-axis.
+
+    Returns the epoch unchanged on the absolute axis; on the relative axis it
+    becomes the same normalized-progress value the per-iteration series use, so
+    the train and val/test curves stay aligned."""
+    if log_writer is not None and hasattr(log_writer, 'epoch_step'):
+        return log_writer.epoch_step(epoch)
+    return epoch
+
+
 def _log_eval_stats(log_writer, stats, head, epoch):
     if log_writer is None:
         return
+    step = _epoch_axis_step(log_writer, epoch)
     for key, value in stats.items():
         if key in _LOGGED_EVAL_RATE_KEYS:
-            log_writer.update(**{key: value}, head=head, step=epoch)
+            log_writer.update(**{key: value}, head=head, step=step)
         elif key in _LOGGED_EVAL_COUNT_KEYS:
-            log_writer.update(**{key: value}, head=f"{head}_cm", step=epoch)
+            log_writer.update(**{key: value}, head=f"{head}_cm", step=step)
         elif key in _LOGGED_EVAL_ERROR_KEYS:
-            log_writer.update(**{key: value}, head=f"{head}_err", step=epoch)
+            log_writer.update(**{key: value}, head=f"{head}_err", step=step)
 
 
 def _log_detailed_report(log_writer, report, head, step, eval_cfg):
@@ -485,6 +533,7 @@ def _log_detailed_report(log_writer, report, head, step, eval_cfg):
     Scalars are logged separately via ``_log_eval_stats``."""
     if log_writer is None or report is None or eval_cfg is None:
         return
+    step = _epoch_axis_step(log_writer, step)
     if isinstance(report, utils.RegressionReport):
         if eval_cfg.log_curves and report.predictions is not None:
             fig = plots.prediction_scatter_figure(
@@ -543,6 +592,12 @@ def train_loop(
     wd_schedule_values = runner_common.make_wd_schedule(
         config.optimizer, config.trainer, num_training_steps_per_epoch)
 
+    # The writer advances once per micro-batch here, so the run spans
+    # epochs * steps_per_epoch * update_freq logging steps.
+    runner_common.configure_relative_step_axis(
+        log_writer, config, num_training_steps_per_epoch,
+        steps_per_logged_step=config.trainer.update_freq)
+
     nb_classes = config.model.nb_classes
     task = getattr(config.model, 'task', TASK_CLASSIFICATION)
     is_regression = task == TASK_REGRESSION
@@ -586,6 +641,7 @@ def train_loop(
             nb_classes=nb_classes,
             task=task,
             target_stats=target_stats,
+            logging_cfg=config.logging,
         )
 
         # Periodic/rolling per-epoch checkpoints are skipped when only the final

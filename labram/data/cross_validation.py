@@ -153,9 +153,10 @@ def _split_summary(dataset, split_by: str) -> Dict[str, Any]:
 # ------------------------------------------------------------------ materialize
 
 
-# Loader attributes that must survive the positional rebuild in
-# _build_split_dataset (which cannot pass keyword arguments).
-_CARRIED_SOURCE_ATTRS = ("target_stats",)
+# Loader attributes that must survive a positional loader rebuild
+# (``type(src)(root, files, sampling_rate)`` cannot pass keyword arguments).
+# Shared with labram.data.data_split_reuse, which rebuilds loaders the same way.
+CARRIED_SOURCE_ATTRS = ("target_stats",)
 
 
 def _build_split_dataset(folds: GroupedFolds, groups: List[str]):
@@ -174,7 +175,7 @@ def _build_split_dataset(folds: GroupedFolds, groups: List[str]):
         # Carry over state the positional constructor cannot receive. Notably a
         # regression target's normalization stats: without them the fold would
         # yield raw targets that the eval path then de-normalizes a second time.
-        for attr in _CARRIED_SOURCE_ATTRS:
+        for attr in CARRIED_SOURCE_ATTRS:
             if hasattr(src, attr):
                 setattr(loader, attr, getattr(src, attr))
         parts.append(loader)

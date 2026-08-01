@@ -232,6 +232,32 @@ def test_cv_fold_rebuild_preserves_target_normalization(tmp_path):
         assert abs(float(split[0][1])) < 10.0
 
 
+def test_data_split_reuse_preserves_the_regression_task(tmp_path):
+    """Reusing a recorded data_split.json rebuilds the bundle and its loaders. Both
+    rebuilds must carry ``task``/``target_stats``, or an age run would silently
+    revert to classification (both are nb_classes == 1) with raw targets."""
+    from labram.data.data_split_reuse import apply_data_split
+    from labram.data import get_dataset_bundle
+
+    root, _, _ = _make_corpus(tmp_path, subjects_per_split=(6, 2, 2))
+    bundle = get_dataset_bundle("TUAB_AGE", str(root))
+    recorded = {
+        name: {"files": list(getattr(bundle, name).files)}
+        for name in ("train", "val", "test")
+    }
+
+    reused = apply_data_split(bundle, recorded)
+
+    assert reused.task == "regression" and reused.is_regression
+    assert reused.target_stats == bundle.target_stats
+    for split in (reused.train, reused.val, reused.test):
+        parts = (list(split.datasets)
+                 if isinstance(split, torch.utils.data.ConcatDataset) else [split])
+        for part in parts:
+            assert part.target_stats == bundle.target_stats
+        assert abs(float(split[0][1])) < 10.0, "target must still be normalized"
+
+
 def test_loader_group_ids_survive_a_split_prefixed_path(tmp_path):
     """A pooled split stores files as '<subdir>/<name>.pkl' so it stays one
     loader; case ids and CV grouping must still see through to the basename."""

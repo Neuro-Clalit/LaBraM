@@ -89,6 +89,12 @@ def main(config: FinetuneRunConfig, bundle=None):
 
     if bundle is None:
         bundle = get_dataset_bundle(config.data.dataset, config.data.data_path)
+        # Optionally pin the train/val/test split to a recorded data_split.json
+        # (local or s3://) so several models train on an identical split.
+        if config.data.split_json:
+            from labram.data.data_split_reuse import apply_data_split, load_data_split_json
+            logger.info("Reusing recorded data split from %s", config.data.split_json)
+            bundle = apply_data_split(bundle, load_data_split_json(config.data.split_json))
     # The bundle is the source of truth for the head size and the task: a scalar
     # regression head and a binary classifier both have nb_classes == 1, so the
     # task must travel with it.

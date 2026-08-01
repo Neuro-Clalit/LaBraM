@@ -35,6 +35,9 @@ from labram.configs.defaults import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_PRETRAIN_EPOCHS,
     DEFAULT_PRETRAIN_SAVE_CKPT_FREQ,
+    DEFAULT_RELATIVE_LOSS_COMPONENTS,
+    DEFAULT_RELATIVE_STEP_AXIS,
+    DEFAULT_RELATIVE_STEP_SCALE,
     DEFAULT_RESUME,
     DEFAULT_SAVE_CKPT,
     DEFAULT_SAVE_ONLY_FINAL_MODEL,
@@ -110,10 +113,28 @@ class LoggingConfig(ConfigBase):
     the model graph visualization (colored by frozen/trainable layers) and the
     train/val/test data-split record. The metric backend itself (TensorBoard /
     ClearML) is configured separately in :class:`ClearMLConfig` / ``output.log_dir``.
+
+    ``relative_loss_components`` and ``relative_step_axis`` make the reported
+    metrics **scale-free** (see ``docs/logging_clearml.md``):
+
+    * ``relative_loss_components`` — per-component losses and per-component
+      gradient norms are reported as their *share of the component total*
+      (``<name>_loss_rel`` in ``[0, 1]``, summing to 1) **instead of** their raw
+      magnitudes. The total loss itself stays absolute.
+    * ``relative_step_axis`` — every metric is plotted against normalized
+      training progress (0 -> ``relative_step_scale`` over the whole run)
+      **instead of** the raw global iteration, so runs with different dataset
+      sizes, batch sizes or epoch counts overlay on a common x-axis.
+
+    Set either to ``False`` to fall back to the absolute (pre-relative) logging.
     """
     log_model_graph: bool = DEFAULT_LOG_MODEL_GRAPH
     model_graph_format: str = DEFAULT_MODEL_GRAPH_FORMAT  # svg (vector) | png
     log_data_split: bool = DEFAULT_LOG_DATA_SPLIT
+    relative_loss_components: bool = DEFAULT_RELATIVE_LOSS_COMPONENTS
+    relative_step_axis: bool = DEFAULT_RELATIVE_STEP_AXIS
+    # Number of x-axis units the full run spans when relative_step_axis is on.
+    relative_step_scale: int = DEFAULT_RELATIVE_STEP_SCALE
 
 
 @dataclass
@@ -133,16 +154,22 @@ class ShutdownConfig(ConfigBase):
 
 @dataclass
 class EvaluationConfig(ConfigBase):
-    """Detailed evaluation metrics + inference-time window aggregation.
+    """Detailed evaluation metrics + per-case window aggregation.
 
     ``detailed_metrics`` turns on the richer classification report (confusion
     matrix, F1, sensitivity/specificity, ROC/PR AUC) for train/val/test;
     ``log_confusion_matrix`` / ``log_curves`` additionally push the matrix and
     ROC/PR curves to TensorBoard / ClearML. ``log_grad_components`` logs the
     per-loss-component gradient norms every ``log_grad_freq`` steps.
-    ``agg_windows`` selects how per-window predictions are pooled into a single
-    per-case prediction during eval-only (inference) runs, and ``agg_case_by``
-    whether a "case" is a recording/session or a subject.
+
+    ``agg_windows`` selects how the per-window predictions of one EEG case are
+    pooled into a single per-case prediction, and ``agg_case_by`` whether a
+    "case" is a recording/session or a subject. This applies to the val/test
+    evaluation of *every* epoch of a fine-tune, not only eval-only runs: case
+    metrics become the primary set and per-window metrics are mirrored under
+    ``window_*``. It requires the eval dataset to emit per-window case ids
+    (``enable_window_ids``); when it cannot, a warning is logged and evaluation
+    stays window-level.
     """
     detailed_metrics: bool = DEFAULT_EVAL_DETAILED_METRICS
     log_confusion_matrix: bool = DEFAULT_EVAL_LOG_CONFUSION_MATRIX

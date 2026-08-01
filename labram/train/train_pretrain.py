@@ -167,6 +167,11 @@ def train_loop(
     wd_schedule_values = runner_common.make_wd_schedule(
         config.optimizer, config.trainer, num_training_steps_per_epoch)
 
+    # Pre-training reports a single total loss (no component breakdown), so the
+    # relative treatment here is the normalized-progress x-axis.
+    runner_common.configure_relative_step_axis(
+        log_writer, config, num_training_steps_per_epoch)
+
     logger.info(f"Start training for {config.trainer.epochs} epochs")
     start_time = time.time()
 

@@ -106,6 +106,10 @@ DEFAULT_FUSED_NOVOGRAD_BETAS: tuple = (0.95, 0.98)
 # ---------- Data ----------
 DEFAULT_NUM_WORKERS: int = 10
 DEFAULT_PIN_MEM: bool = True
+# '' -> build the dataset's default train/val/test split. Otherwise reuse the
+# exact case assignment recorded in this data_split.json (local path or s3://),
+# e.g. to run several models on an identical split. Fine-tuning only.
+DEFAULT_DATA_SPLIT_JSON: str = ''
 # build_pretraining_dataset arguments
 DEFAULT_PRETRAIN_STRIDE: int = 800        # run_pretrain.py
 DEFAULT_VQNSP_STRIDE: int = 200           # run_vqnsp.py
@@ -132,6 +136,13 @@ DEFAULT_SAVE_ONLY_FINAL_MODEL: bool = False
 DEFAULT_LOG_MODEL_GRAPH: bool = True
 DEFAULT_MODEL_GRAPH_FORMAT: str = 'svg'   # svg (vector) | png
 DEFAULT_LOG_DATA_SPLIT: bool = True
+# Relative (scale-free) metric logging. Per-component losses / gradient norms
+# are reported as their share of the component total, and every metric is
+# plotted against normalized training progress instead of the raw iteration
+# count, so runs of different length / batch size overlay directly.
+DEFAULT_RELATIVE_LOSS_COMPONENTS: bool = True
+DEFAULT_RELATIVE_STEP_AXIS: bool = True
+DEFAULT_RELATIVE_STEP_SCALE: int = 1000   # progress 0..1 -> 0..scale (per-mille)
 
 # ---------- ClearML experiment tracking (labram/utils/logging.ClearMLLogger) ----------
 DEFAULT_CLEARML_ENABLED: bool = False

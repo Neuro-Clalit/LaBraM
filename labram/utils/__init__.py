@@ -27,6 +27,8 @@ from labram.utils.distributed import (
     all_gather_batch,
     all_gather_batch_with_grad,
     all_reduce,
+    gather_sharded_eval,
+    interleave_shards,
     get_rank,
     get_world_size,
     init_distributed_mode,
@@ -43,6 +45,8 @@ from labram.utils.logging import (
     TensorboardLogger,
     configure_logging,
     get_logger,
+    relative_components,
+    relative_components_if_enabled,
 )
 from labram.utils.metrics import get_metrics
 from labram.utils.eval_metrics import (
@@ -89,6 +93,8 @@ __all__ = [
     'build_lr_schedule',
     'cosine_scheduler',
     'create_ds_config',
+    'gather_sharded_eval',
+    'interleave_shards',
     'get_channel_indices',
     'get_logger',
     'get_grad_norm',
@@ -112,6 +118,8 @@ __all__ = [
     'is_main_process',
     'load_pretrained_weights',
     'load_state_dict',
+    'relative_components',
+    'relative_components_if_enabled',
     'prepare_TUAB_dataset',
     'prepare_TUEV_dataset',
     'save_model',

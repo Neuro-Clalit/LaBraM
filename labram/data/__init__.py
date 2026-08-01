@@ -26,6 +26,11 @@ from labram.data.cross_validation import (
     save_cv_split,
     subject_overlap,
 )
+from labram.data.data_split_reuse import (
+    apply_data_split,
+    bundle_from_data_split,
+    load_data_split_json,
+)
 from labram.data.eeg_constants import (
     TUH_EEG_CH_NAMES,
     get_channel_indices,
@@ -87,10 +92,13 @@ __all__ = [
     'TUHLoader',
     'TUH_EEG_CH_NAMES',
     'apply_cv_split',
+    'apply_data_split',
     'apply_labram_plus_preprocess',
     'build_grouped_folds',
     'build_pretraining_dataset',
+    'bundle_from_data_split',
     'cv_split_to_dict',
+    'load_data_split_json',
     'load_cv_split_dict',
     'materialize_fold',
     'save_cv_split',
