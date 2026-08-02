@@ -153,6 +153,197 @@ A model that just predicts the training mean scores MAE ≈ 14 on TUAB. Publishe
 EEG brain-age benchmarks land around **MAE 7–8 years**, so that is the range to
 aim for; anything near 14 means the target plumbing is broken.
 
+## Loss functions
+
+The downstream criterion is chosen by task, not by `nb_classes`:
+`build_downstream_criterion(task, nb_classes, cfg)`
+(`labram/losses/regression.py:36`) is the single dispatch point used by **both**
+the training loop and `evaluate`, so a regression run can never silently fall back
+to the classification criterion. When `task == "regression"` it returns
+`build_regression_criterion` (`labram/losses/regression.py:16`), selected by
+`LossConfig.regression_loss` (`labram/configs/loss_config.py:48`).
+
+**Everything is computed on the z-scored target.** The loader z-scores the age
+with the train split's mean/std $(\mu,\sigma)$ before it ever reaches the model
+(`labram/data/tuh_datasets.py:205`):
+
+$$
+z_i \;=\; \frac{y_i - \mu}{\sigma},
+\qquad (\mu,\sigma)=\texttt{target\_stats}\ \text{(train split; sample std)}
+$$
+
+with $y_i$ the age in years. The scalar head predicts $\hat z_i$ in that same
+normalized space, so define the per-window residual
+
+$$
+r_i \;=\; \hat z_i - z_i .
+$$
+
+For a batch of $N$ windows the three selectable losses are:
+
+* **Huber** (`nn.HuberLoss(delta=`$\delta$`)`, the default, `regression.py:31`;
+  $\delta=$ `loss.huber_delta` $=1.0$). Robust to the long tails of a clinical age
+  distribution — quadratic near zero, linear in the tails:
+
+$$
+\mathcal{L}_{\text{Huber}}
+= \frac{1}{N}\sum_{i=1}^{N}\ell_\delta(r_i),
+\qquad
+\ell_\delta(r)=
+\begin{cases}
+\tfrac{1}{2}\,r^{2}, & |r|\le\delta,\\[4pt]
+\delta\bigl(|r|-\tfrac{1}{2}\delta\bigr), & |r|>\delta.
+\end{cases}
+$$
+
+* **MSE** (`nn.MSELoss`, `regression.py:27`):
+
+$$
+\mathcal{L}_{\text{MSE}}=\frac{1}{N}\sum_{i=1}^{N} r_i^{2}.
+$$
+
+* **L1** (`nn.L1Loss`, `regression.py:29`):
+
+$$
+\mathcal{L}_{\text{L1}}=\frac{1}{N}\sum_{i=1}^{N} \lvert r_i\rvert .
+$$
+
+Because $r_i$ is in **z-score units**, the Huber knee $\delta=1.0$ sits at one
+standard deviation of age — with TUAB's $\sigma\approx 17.8$ years, the
+quadratic→linear transition is at ≈ 17.8 years of error, not 1 year. Raise
+`loss.huber_delta` to widen the quadratic region, lower it to make the loss more
+L1-like. The loss value therefore stays $O(1)$ regardless of the age scale; the
+**metrics** de-normalize (below) so their numbers read in years. For contrast,
+the classification branch returns `BCEWithLogitsLoss` / `CrossEntropyLoss`
+(`labram/losses/classification.py:14`) — never used for age.
+
+## Evaluation metrics
+
+Computed by `regression_metrics_fn` (`labram/utils/regression_metrics.py:81`) on
+**de-normalized** arrays: `evaluate` undoes the z-scoring once on the gathered
+predictions/targets (`denormalize`, `regression_metrics.py:154`;
+$\text{value}\cdot\sigma+\mu$) before any metric runs, so every number below is in
+**years**. Let $\hat y_i,\,y_i$ be the de-normalized prediction/target,
+$\bar y=\tfrac1N\sum_i y_i$, and the residual $e_i=\hat y_i-y_i$.
+
+* **MAE** — the model-selection metric (lower is better):
+
+$$
+\text{MAE}=\frac{1}{N}\sum_{i=1}^{N}\lvert e_i\rvert .
+$$
+
+* **MSE / RMSE**:
+
+$$
+\text{MSE}=\frac{1}{N}\sum_i e_i^{2},
+\qquad
+\text{RMSE}=\sqrt{\frac{1}{N}\sum_i e_i^{2}} .
+$$
+
+* **R²** (coefficient of determination; `0` when $\text{SS}_\text{tot}=0$):
+
+$$
+R^{2}=1-\frac{\sum_i (y_i-\hat y_i)^{2}}{\sum_i (y_i-\bar y)^{2}}
+      =1-\frac{\text{SS}_\text{res}}{\text{SS}_\text{tot}} .
+$$
+
+* **Pearson $r$** (`_correlation`, `regression_metrics.py:65`; `0` when either
+  series is constant or $N<2$):
+
+$$
+r=\frac{\sum_i (\hat y_i-\bar{\hat y})(y_i-\bar y)}
+        {\sqrt{\sum_i (\hat y_i-\bar{\hat y})^{2}}\,\sqrt{\sum_i (y_i-\bar y)^{2}}} .
+$$
+
+* **Spearman $r$** — Pearson $r$ on the **average ranks** of $\hat y$ and $y$
+  (`_rank`, `regression_metrics.py:51`; ties share the mean rank).
+
+* **`age_bias_slope`** — OLS slope of the residual on the true age
+  (`_ols_slope`, `regression_metrics.py:71`), the brain-age regression-to-the-mean
+  diagnostic:
+
+$$
+\beta=\frac{\operatorname{Cov}(y,e)}{\operatorname{Var}(y)}
+     =r\cdot\frac{\sigma_{\hat y}}{\sigma_{y}}-1 .
+$$
+
+  A mean-collapsed decoder ($\hat y\equiv\bar y$) gives $\beta=-1$; an unbiased one
+  gives $\beta=0$. So $\beta\in[-1,0]$ in practice (regression to the mean shrinks
+  $\sigma_{\hat y}$ below $\sigma_y$).
+
+* **`mae_corrected`** — MAE after removing that linear bias, with intercept
+  $\alpha=\bar e-\beta\bar y$ (`regression_metrics.py:116`, `:128`):
+
+$$
+\text{MAE}_\text{corr}
+=\frac{1}{N}\sum_{i=1}^{N}\bigl\lvert e_i-(\beta y_i+\alpha)\bigr\rvert .
+$$
+
+* **`pred_mean` / `pred_std` / `target_mean` / `target_std`** — $\tfrac1N\sum\hat y$,
+  $\operatorname{std}(\hat y)$, and the same for $y$. `pred_std`→0 flags
+  mean-collapse; the `target_*` pair is a constant per-split reference.
+
+`NaN`/`inf` from a degenerate batch are replaced with `0.0` by `_sanitize`
+(`regression_metrics.py:43`) so logging never breaks. The bundle requests
+`["mae","rmse","r2","pearson_r"]` (`labram/data/bundles.py:61`); with
+`evaluation.detailed_metrics=true` (the default), `regression_report`
+(`regression_metrics.py:137`) additionally computes **all** of
+`REGRESSION_METRIC_NAMES` (`regression_metrics.py:15`), and those extra scalars
+are what get logged too. Model selection uses `best_metric_for`
+(`regression_metrics.py:162`): the first `LOWER_IS_BETTER` metric — MAE —
+minimized, versus accuracy-maximized for classification.
+
+## Validity of the metrics' active range in the logging
+
+To keep a large-magnitude series from flattening a small one on a shared axis,
+`_log_eval_stats` (`labram/train/train_finetune.py:517`) routes each scalar to one
+of three plots by its expected range:
+
+| plot (`head` suffix) | key set (`train_finetune.py`) | intended range | regression members |
+|---|---|---|---|
+| `{head}` | `_LOGGED_EVAL_RATE_KEYS` (`:485`) | $\sim[-1,1]$ + `loss` ($O(1)$) | `r2`, `pearson_r`, `spearman_r`, `age_bias_slope` |
+| `{head}_err` | `_LOGGED_EVAL_ERROR_KEYS` (`:493`) | target units (years, $O(10)$) | `mae`, `rmse`, `mse`, `mae_corrected`, `pred_mean`, `pred_std`, `target_mean`, `target_std` |
+| `{head}_cm` | `_LOGGED_EVAL_COUNT_KEYS` (`:500`) | integer counts | classification only |
+
+Every one of the 12 `REGRESSION_METRIC_NAMES` lands in exactly one group, so
+nothing is dropped. Checking each against its **actual** range:
+
+| metric | theoretical range | typical (TUAB age) | plot | on-scale? |
+|---|---|---|---|---|
+| `pearson_r`, `spearman_r` | $[-1,1]$ | 0.4–0.8 | rate | ✓ |
+| `age_bias_slope` | $[-1,0]$ typ. ($-1$=mean-collapse) | $-0.7\ldots-0.2$ | rate | ✓ |
+| `r2` | $(-\infty,\,1]$ | 0–0.6 | rate | ⚠ unbounded below |
+| `mae`, `rmse`, `mae_corrected` | $[0,\infty)$, years | 7–18 | err | ✓ |
+| `pred_mean`, `target_mean` | $\sim[1,89]$ years | ≈ 49 | err | ✓ |
+| `pred_std`, `target_std` | $[0,\infty)$, years | ≈ 15–18 | err | ✓ |
+| `mse` | $[0,\infty)$, years² | 80–350 | err | ⚠ one order above the others |
+| `loss` (z-score Huber) | $[0,\infty)$, $O(1)$ | 0.1–0.5 | rate | ✓ |
+
+The grouping is sound for a trained model, with **two ranges worth flagging**:
+
+1. **`mse` shares `{head}_err` with the year-scale series.** MSE is in years²
+   ($\approx\text{RMSE}^2$, so $O(10^2)$), an order of magnitude above `mae` /
+   `rmse` / `mae_corrected` and the year-scale location/scale stats ($O(10)$). On a
+   shared linear axis it visually dominates and squashes them. MSE is not in the
+   default/bundle metric list, but `detailed_metrics=true` computes and logs it,
+   and it is monotone-redundant with RMSE anyway — so either drop it from the error
+   plot or give it its own `head`. This is a plot-readability issue, not a
+   correctness bug.
+
+2. **`r2` on the rate plot is unbounded below.** `pearson_r`, `spearman_r` and
+   `age_bias_slope` are all bounded to $\sim[-1,1]$, but $R^2\to$ large-negative
+   when the model does worse than predicting the mean (early or divergent epochs).
+   A single very-negative $R^2$ auto-scales the shared axis and flattens its
+   bounded companions for that plot. For a converged model $R^2\in[0,1]$ and there
+   is no problem — the risk is transient, and `_sanitize` only guards `NaN`/`inf`,
+   not large finite magnitudes.
+
+Everything else sits correctly in its band: the four rate metrics are genuinely in
+$[-1,1]$ for a trained model, and the eight error-plot series are all in year (or
+year-derived) units. The per-step training curve is consistent — it logs running
+MAE under `head="err"` (`train_finetune.py:238`), computed in years via
+`denormalize` before the meter update (`train_finetune.py:196`).
+
 ## Usage
 
 ```bash
