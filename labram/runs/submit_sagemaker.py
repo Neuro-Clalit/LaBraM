@@ -21,7 +21,7 @@ import subprocess
 import tarfile
 import tempfile
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 import labram.utils as utils
 from labram.aws.sagemaker import SageMakerJobSpec, SageMakerLauncher
@@ -69,10 +69,17 @@ class StagedInputs:
     ``uploads`` are local weight files that must be uploaded first (done in
     :func:`submit`, skipped on a dry run). The run config has already been
     rewritten to the in-container mount paths for both.
+
+    ``object_channels`` names the channels whose S3 uri is a *single object*
+    rather than a prefix (every weight file; the dataset is always a prefix).
+    They are tracked because ``FastFile``/``Pipe`` expose only the keys *beneath*
+    the given prefix, so an object uri yields an empty mount — those channels
+    have to be delivered as ``File`` (see :func:`channel_input_modes`).
     """
 
     channels: Dict[str, str] = field(default_factory=dict)
     uploads: Dict[str, str] = field(default_factory=dict)
+    object_channels: Set[str] = field(default_factory=set)
 
     def resolved(self, uploaded: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         return {**self.channels, **(uploaded or {})}
@@ -173,15 +180,22 @@ def _stage_weight_file(staged: StagedInputs, channel: str, value: str,
     ``./checkpoints/*.pth`` are not re-shipped on every submission. Any other
     existing local file is queued for upload; anything else is a path that would
     only fail once the job is running on a GPU, so it fails here instead.
+
+    Every weight channel is a *single object*, so it is recorded in
+    ``staged.object_channels`` — the returned mount path is
+    ``<mount>/<basename>``, which only holds when the channel is delivered as
+    ``File`` (see :func:`channel_input_modes`).
     """
     if value.startswith('https://') or value.startswith('http://'):
         return value
     if _is_s3(value):
         staged.channels[channel] = value
+        staged.object_channels.add(channel)
         return f"{_channel_mount(channel)}/{_basename(value)}"
     mirror = _weight_mirror(value, mirrors or {})
     if mirror:
         staged.channels[channel] = mirror
+        staged.object_channels.add(channel)
         logger.info("Using S3 mirror for %s=%r instead of uploading the local "
                     "file: %s", field_name, value, mirror)
         return f"{_channel_mount(channel)}/{_basename(mirror)}"
@@ -192,6 +206,7 @@ def _stage_weight_file(staged: StagedInputs, channel: str, value: str,
             f"local file ({local}). Point it at the checkpoint you want the job "
             "to start from.")
     staged.uploads[channel] = local
+    staged.object_channels.add(channel)
     return f"{_channel_mount(channel)}/{os.path.basename(local)}"
 
 
@@ -399,10 +414,34 @@ def validate_input_mode(input_mode: str) -> str:
     return input_mode
 
 
+# Channels whose S3 uri addresses one object rather than a prefix. The config is
+# always one uploaded file; weight channels are registered as they are staged.
+SINGLE_OBJECT_CHANNELS = ('config',)
+
+
+def channel_input_modes(input_mode: str,
+                        object_channels: Optional[Set[str]] = None) -> Dict[str, str]:
+    """Per-channel ``File`` overrides for the channels that address a single S3
+    object, when the job-level mode is ``FastFile``/``Pipe``.
+
+    ``FastFile`` "supports S3 prefixes only": it mounts the uri as a prefix and
+    exposes the keys *beneath* it, so a channel pointing at one object (the run
+    config, a checkpoint) mounts as an empty directory and the job dies on a
+    missing file. Those channels are small, so delivering just them as ``File``
+    costs one quick download and restores ``<mount>/<basename>``, while the big
+    ``dataset`` channel keeps streaming. ``File`` (or unset) needs no override.
+    """
+    if input_mode in ('', 'File'):
+        return {}
+    channels = set(SINGLE_OBJECT_CHANNELS) | set(object_channels or ())
+    return {channel: 'File' for channel in sorted(channels)}
+
+
 def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
                    phase: str = 'finetune',
                    extra_inputs: Optional[Dict[str, str]] = None,
-                   source_dir: str = '') -> SageMakerJobSpec:
+                   source_dir: str = '',
+                   object_channels: Optional[Set[str]] = None) -> SageMakerJobSpec:
     """Build the :class:`SageMakerJobSpec` for one job (a fold, or the whole run)."""
     sm = config.sagemaker
     tags = dict(sm.tags)
@@ -411,6 +450,9 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
     if fold is not None:
         tags['cv_fold'] = str(fold)
     inputs = {'config': config_uri, **(extra_inputs or {})}
+    modes = channel_input_modes(sm.input_mode, object_channels)
+    # Only channels this job actually has.
+    modes = {c: m for c, m in modes.items() if c in inputs}
     return SageMakerJobSpec(
         entry_point=sm.entry_point,
         source_dir=source_dir or sm.source_dir or '.',
@@ -429,6 +471,7 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
         tags=tags,
         inputs=inputs,
         input_mode=validate_input_mode(sm.input_mode),
+        channel_input_modes=modes,
         output_path=sm.output_path,
         code_location=sm.code_location,
         output_kms_key=sm.output_kms_key,
@@ -445,7 +488,8 @@ class JobPlan:
 
 def plan_jobs(config: RunConfig, config_uri: str, phase: str = 'finetune',
               extra_inputs: Optional[Dict[str, str]] = None,
-              source_dir: str = '') -> List[JobPlan]:
+              source_dir: str = '',
+              object_channels: Optional[Set[str]] = None) -> List[JobPlan]:
     """Enumerate the jobs to submit without touching AWS.
 
     A fine-tune with cross-validation enabled -> one job per fold (or a single
@@ -463,7 +507,8 @@ def plan_jobs(config: RunConfig, config_uri: str, phase: str = 'finetune',
 
     plans: List[JobPlan] = []
     for fold in folds:
-        spec = build_job_spec(config, config_uri, fold, phase, extra_inputs, source_dir)
+        spec = build_job_spec(config, config_uri, fold, phase, extra_inputs, source_dir,
+                              object_channels)
         plans.append(JobPlan(fold=fold, job_name=spec.base_job_name, spec=spec))
     return plans
 
@@ -599,10 +644,12 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
     if dry_run:
         placeholder = sm.config_channel or 's3://<bucket>/<prefix>/run_config.yaml'
         pending = {c: f'<upload {p}>' for c, p in staged.uploads.items()}
-        plans = plan_jobs(config, placeholder, phase, staged.resolved(pending))
+        plans = plan_jobs(config, placeholder, phase, staged.resolved(pending),
+                          object_channels=staged.object_channels)
         for p in plans:
-            logger.info("[dry-run] phase=%s job=%s fold=%s inputs=%s hp=%s", phase,
-                        p.job_name, p.fold, p.spec.inputs, p.spec.hyperparameters)
+            logger.info("[dry-run] phase=%s job=%s fold=%s inputs=%s hp=%s modes=%s", phase,
+                        p.job_name, p.fold, p.spec.inputs, p.spec.hyperparameters,
+                        p.spec.channel_input_modes)
         return plans
 
     # Make ClearML credentials available in-container before the config/env is
@@ -621,7 +668,15 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
         # sourcedir.tar.gz, so it skips its own KMS-inheriting code upload.
         with staged_source_dir(config) as source_dir:
             source_uri = package_and_upload_source(launcher, config, source_dir)
-        plans = plan_jobs(config, config_uri, phase, staged.resolved(uploaded), source_uri)
+        plans = plan_jobs(config, config_uri, phase, staged.resolved(uploaded), source_uri,
+                          object_channels=staged.object_channels)
+        if plans and plans[0].spec.channel_input_modes:
+            # Loud, because it silently rescues an otherwise-baffling failure.
+            logger.info(
+                "Delivering single-object channel(s) %s as File (input_mode=%s "
+                "exposes only keys *under* a prefix, so an object uri would mount "
+                "empty); the dataset channel still streams.",
+                sorted(plans[0].spec.channel_input_modes), sm.input_mode)
         if plans:
             # Log the training image that will actually be used (verify it resolves).
             try:

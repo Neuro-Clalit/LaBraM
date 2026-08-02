@@ -74,6 +74,71 @@ def test_input_mode_flows_from_config_to_spec():
     assert estimator_kwargs(plans[0].spec)['input_mode'] == 'FastFile'
 
 
+# --------------------------------------------- single-object channels vs FastFile
+
+
+def test_channel_input_modes_only_overrides_for_streaming_modes():
+    """FastFile/Pipe expose only the keys *under* a prefix, so single-object
+    channels must be delivered as File; File needs no override."""
+    assert sub.channel_input_modes('File', {'pretrained'}) == {}
+    assert sub.channel_input_modes('', {'pretrained'}) == {}
+    assert sub.channel_input_modes('FastFile', {'pretrained'}) == {
+        'config': 'File', 'pretrained': 'File'}
+    assert sub.channel_input_modes('Pipe', set()) == {'config': 'File'}
+    # The bulk dataset channel is a prefix -> keeps streaming, never overridden.
+    assert 'dataset' not in sub.channel_input_modes('FastFile', {'pretrained'})
+
+
+def test_fastfile_forces_file_mode_on_config_and_weight_channels():
+    c = _s3_config()
+    c.sagemaker.input_mode = 'FastFile'
+    staged = sub.stage_s3_inputs(c, 'finetune')
+    assert staged.object_channels == {'pretrained'}          # dataset is a prefix
+    plans = sub.plan_jobs(c, 's3://b/run.yaml', extra_inputs=staged.resolved(),
+                          object_channels=staged.object_channels)
+    modes = plans[0].spec.channel_input_modes
+    assert modes == {'config': 'File', 'pretrained': 'File'}
+    assert plans[0].spec.input_mode == 'FastFile'            # job-level unchanged
+
+
+def test_channel_modes_restricted_to_channels_the_job_has():
+    # No weights staged -> only the config override, never a phantom channel.
+    c = FinetuneRunConfig()
+    c.sagemaker.input_mode = 'FastFile'
+    plans = sub.plan_jobs(c, 's3://b/run.yaml', object_channels={'tokenizer'})
+    assert plans[0].spec.channel_input_modes == {'config': 'File'}
+
+
+def test_uploaded_weight_channel_is_an_object_channel(tmp_path):
+    ckpt = tmp_path / 'labram-base.pth'
+    ckpt.write_bytes(b'weights')
+    c = _s3_config()
+    c.sagemaker.weight_s3_uris = {}          # force the upload path
+    c.finetune_checkpoint.finetune = str(ckpt)
+    staged = sub.stage_s3_inputs(c, 'finetune')
+    assert staged.uploads == {'pretrained': str(ckpt)}
+    assert 'pretrained' in staged.object_channels
+
+
+def test_build_inputs_wraps_only_overridden_channels():
+    """The launcher turns overridden channels into TrainingInput and leaves the
+    rest as plain uris (no SDK import needed when there are no overrides)."""
+    from labram.aws.sagemaker import SageMakerLauncher
+    spec = SageMakerJobSpec(entry_point='e.py',
+                            inputs={'config': 's3://b/run.yaml', 'dataset': 's3://b/data/'})
+    assert SageMakerLauncher().build_inputs(spec) == {
+        'config': 's3://b/run.yaml', 'dataset': 's3://b/data/'}
+
+
+def test_entry_missing_config_in_channel_raises_diagnostic(tmp_path, monkeypatch):
+    from labram.runs import sagemaker_entry as entry
+    channel = tmp_path / 'config'
+    channel.mkdir()                                   # mounted but empty (the bug)
+    monkeypatch.setenv('SM_CHANNEL_CONFIG', str(channel))
+    with pytest.raises(FileNotFoundError, match='FastFile/Pipe'):
+        entry.find_config_path('/opt/ml/input/data/config/run_config.yaml')
+
+
 def test_output_kms_key_flows_from_config_to_spec():
     c = FinetuneRunConfig()
     c.sagemaker.output_kms_key = 'arn:aws:kms:us-east-1:0:key/abc'
