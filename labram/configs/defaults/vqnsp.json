@@ -165,6 +165,7 @@
         "output_path": "",
         "code_location": "",
         "config_channel": "",
+        "input_mode": "File",
         "environment": {},
         "hyperparameters": {},
         "tags": {},

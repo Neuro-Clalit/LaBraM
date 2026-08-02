@@ -37,6 +37,32 @@ python -m labram.runs.submit_sagemaker --phase pretrain \
   --set sagemaker.enabled=true sagemaker.role=arn:aws:iam::123:role/SM
 ```
 
+A complete single-job TUAB abnormal/normal fine-tune on spot, streaming the
+corpus with `FastFile` and reporting to ClearML — `trainer.debug=true` makes it a
+few-batch smoke test, drop it for the real run:
+
+```bash
+python -m labram.runs.submit_sagemaker \
+  --config labram/configs/defaults/finetune_tuab.json \
+  --set sagemaker.enabled=true \
+        sagemaker.role=arn:aws:iam::<account-id>:role/SageMakerExecutionRole \
+        sagemaker.instance_type=ml.g5.xlarge \
+        sagemaker.input_mode=FastFile sagemaker.use_spot=true sagemaker.wait=true \
+        sagemaker.job_name_prefix=labram-abnormal \
+        data.dataset=TUAB \
+        data.data_path=s3://<bucket>/TUH_Abnormal/v3.0.0/edf/processed/ \
+        output.output_dir= output.log_dir= \
+        clearml.enabled=true clearml.project_name=eeg/abnormal \
+        clearml.task_name=finetune_tuab_abnormal \
+        trainer.debug=true
+```
+
+Empty `output.output_dir` / `output.log_dir` are filled in by the container
+entry point with `/opt/ml/model/finetune` and `…/finetune/tensorboard`, so
+checkpoints and TensorBoard events end up in the job's `model.tar.gz`. The local
+`./checkpoints/labram-base.pth` from the config is uploaded and mounted as the
+`pretrained` channel.
+
 `scripts/submit_paper_experiments.sh` bundles the paper experiment set (CV on the
 paper config + gradient-clip / codebook / LaBraM++ runs that reuse one recorded
 `data_split.json`) behind env-var knobs — `DRY_RUN=1 scripts/submit_paper_experiments.sh`
@@ -75,8 +101,29 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 | `region` | `''` | AWS region; `''` → boto3 default. |
 | `output_path` / `code_location` | `''` | S3 prefixes for model artifacts / packaged source. |
 | `config_channel` | `''` | Pre-uploaded config S3 uri; `''` → the CLI uploads it. |
+| `input_mode` | `File` | Channel delivery: `File`, `FastFile` or `Pipe` (see below). |
 | `environment` / `hyperparameters` / `tags` | `{}` | Extra container env vars / hyperparameters / job tags. |
 | `wait` | `false` | Block until the (last) job finishes. |
+
+Unknown `--set` keys are rejected, so a typo in one of these names fails the
+submission instead of being silently dropped.
+
+### `input_mode`: use `FastFile` for the TUH corpora
+
+`File` (the default) downloads every object in every channel onto the instance's
+EBS volume before training starts. The preprocessed TUAB corpus is ~400k small
+pickles, so that means a long idle download and a `volume_size_gb` big enough to
+hold the whole corpus — on a spot instance, paid for and repeated after every
+interruption.
+
+`FastFile` streams the channel from S3 through a FUSE mount instead: training
+starts immediately and the volume only holds checkpoints. The window loaders'
+access pattern (`os.listdir` + open-one-pickle-per-item) is exactly what it
+suits, so prefer it for any real dataset channel:
+
+```bash
+--set sagemaker.input_mode=FastFile
+```
 
 ## IAM execution role (required)
 
@@ -185,17 +232,43 @@ turned into a SageMaker **input channel** (`dataset` / `pretrained` /
 rewritten to the in-container mount path. Just pass the S3 URIs on the normal
 config fields.
 
+Nothing on the submitting machine's filesystem exists inside the container, so
+**local** paths are handled rather than passed through:
+
+- `finetune_checkpoint.finetune` / `model.codebook_reg.tokenizer_weight` — a
+  local file is **uploaded** to the session bucket and mounted on its channel,
+  so the shipped configs' `./checkpoints/labram-base.pth` works as written. A
+  path that does not exist fails the submission immediately. `https://` URLs are
+  left alone (`torch.hub` fetches them in-container).
+- `data.data_path` — **rejected**. Corpora are far too large to upload as part
+  of a submission; put the preprocessed data in S3 first (see
+  `scripts/upload_tuab_to_s3.sh`) and pass the uri.
+
 `data.split_json` is the exception — it is left as an `s3://` URI and read
 directly in-container via the shared `FileSystem` (the execution role's S3
 access), so **reusing a recorded split** across runs is just
 `--set data.split_json=s3://…/data_split.json` (see
 [`cross_validation.md`](cross_validation.md) for how the split is applied).
 
+## What gets packaged as `source_dir`
+
+The estimator tars and uploads the whole `source_dir`, and the repo root also
+holds `.venv/`, downloaded `checkpoints/` and local `log/` output — gigabytes
+that have no business in a code upload. So when `sagemaker.source_dir` is empty
+the CLI builds the package from the **git-tracked files** (working-tree content,
+so uncommitted edits ship) into a temp directory, minus model weights
+(`*.pth`/`*.pt`/`*.ckpt`/`*.h5`/`*.pkl`) — those travel as input channels. The
+temp directory is removed once the jobs are dispatched.
+
+Untracked `.py` files under `labram/` are **not** packaged; the CLI warns about
+them by name, so `git add` anything the job needs. Set `sagemaker.source_dir`
+explicitly to bypass all of this and upload a directory verbatim.
+
 ## Dependencies / `pip install` in the job
 
-The estimator packages `source_dir` (the repo root by default) and uploads it;
-the SageMaker training toolkit then runs **`pip install -r requirements.txt`**
-from that directory before invoking the entry point. LaBraM's `requirements.txt`
+The SageMaker training toolkit runs **`pip install -r requirements.txt`** from
+the packaged source dir before invoking the entry point. LaBraM's
+`requirements.txt`
 deliberately does **not** pin `torch`, so the container keeps the DLC's CUDA
 torch build and only the remaining libraries (timm, mne, pyhealth, scikit-learn,
 `boto3`/`s3fs` for S3 data, `clearml` for tracking, …) are installed at start-up.
@@ -207,19 +280,31 @@ To add job-only dependencies, either extend `requirements.txt` or point
 ClearML logging works inside the job: `clearml` is in `requirements.txt`, and the
 per-fold tasks group under `‹project›/‹experiment›` exactly as for a local run.
 It only needs credentials in the container. When `clearml.enabled` is set, the
-submit CLI **forwards the submitter's `CLEARML_*` environment variables**
+submit CLI **forwards the submitter's ClearML credentials**
 (`CLEARML_API_ACCESS_KEY`, `CLEARML_API_SECRET_KEY`, `CLEARML_API_HOST`,
-`CLEARML_WEB_HOST`, `CLEARML_FILES_HOST`) into the job's environment (without
-overwriting any you set explicitly via `sagemaker.environment`). Provide them on
-the submitting machine (or pass them through `sagemaker.environment`) and the
-fold jobs will report to your ClearML server; the fold-number parsing in
-`cv_report` tolerates the `append_timestamp` task-name suffix.
+`CLEARML_WEB_HOST`, `CLEARML_FILES_HOST`) into the job's environment, resolving
+each from — in order — an explicit `sagemaker.environment` entry, the matching
+environment variable, then the local **`clearml.conf`** (which is where
+`clearml-init` puts them, so the common setup needs no extra work). If the
+access key, secret key and API host still cannot be resolved the CLI warns
+before submitting, because the job would otherwise fail to report. The
+fold-number parsing in `cv_report` tolerates the `append_timestamp` task-name
+suffix.
 
 ## Requirements (submitting machine)
 
-The `sagemaker` and `boto3` SDKs, AWS credentials able to create training jobs,
-and an execution role (above). The generic wrapper imports the SDK lazily, so
-`--dry_run` and the unit tests need neither the SDK nor credentials.
+AWS credentials able to create training jobs, an execution role (above), and the
+SageMaker SDK — which is **not** in `requirements.txt`, because that file is also
+what the training container installs and the SDK's dependency tree (mlflow, onnx,
+tritonclient, `urllib3>=2`) conflicts with `pyhealth` and does not belong in the
+job. Install it separately on the submitting machine:
+
+```bash
+pip install -r requirements-sagemaker.txt
+```
+
+The generic wrapper imports the SDK lazily, so `--dry_run` and the unit tests
+need neither the SDK nor credentials.
 
 ## Design notes
 

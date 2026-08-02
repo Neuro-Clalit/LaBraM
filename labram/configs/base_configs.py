@@ -163,6 +163,11 @@ class ConfigBase(ABC):
         Updates the values of given configuration elements
         :param kwargs: The names and values of the configuration elements to update.
         :return: self
+
+        The final key must already be a field of the target config: assigning
+        into ``__dict__`` would otherwise happily create an attribute nothing
+        reads, so a mistyped ``--set some.field=value`` would be silently
+        dropped instead of failing the run.
         """
 
         try:
@@ -171,6 +176,8 @@ class ConfigBase(ABC):
                 *sub_keys, final_key = key.split('.')
                 for sub_key in sub_keys:
                     c = c[sub_key].__dict__
+                if final_key not in c:
+                    raise KeyError(f'unknown config field {final_key!r} in {key!r}')
                 c[final_key] = value
         except KeyError as e:
             raise KeyError(f'Non-valid update input {kwargs} , error message: {e}')

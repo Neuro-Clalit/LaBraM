@@ -66,9 +66,14 @@ def build_config(cli: argparse.Namespace):
     overrides = parse_overrides(cli.overrides)
     config = PHASE_CONFIGS[cli.phase].load_config(cfg_path, **overrides)
 
+    # Unset output paths land under the SageMaker model dir, which is tarred to
+    # sagemaker.output_path when the job ends — so checkpoints and TensorBoard
+    # event files survive the container.
     model_dir = os.environ.get('SM_MODEL_DIR', '/opt/ml/model')
     if not config.output.output_dir:
         config.output.output_dir = os.path.join(model_dir, cli.phase)
+    if not config.output.log_dir:
+        config.output.log_dir = os.path.join(config.output.output_dir, 'tensorboard')
 
     # Cross-validation applies to fine-tuning only.
     if cli.phase == 'finetune':

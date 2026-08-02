@@ -42,6 +42,12 @@ jsonpickle
 boto3
 s3fs
 
+# NOTE: the AWS SageMaker SDK needed to *submit* training jobs is deliberately
+# NOT here — see requirements-sagemaker.txt. This file is also what the training
+# container pip-installs, and the SDK's dependency tree (mlflow, onnx,
+# tritonclient, urllib3>=2 …) conflicts with pyhealth and has no business inside
+# the job.
+
 # Experiment tracking (optional; only needed when clearml.enabled is set).
 # Training degrades gracefully to TensorBoard-only logging if this is absent.
 clearml
