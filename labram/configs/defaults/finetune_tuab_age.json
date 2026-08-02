@@ -232,6 +232,7 @@
         "region": "",
         "output_path": "",
         "code_location": "",
+        "output_kms_key": "",
         "config_channel": "",
         "input_mode": "File",
         "environment": {},

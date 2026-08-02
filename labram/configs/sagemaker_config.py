@@ -24,6 +24,7 @@ from labram.configs.defaults import (
     DEFAULT_SAGEMAKER_JOB_NAME_PREFIX,
     DEFAULT_SAGEMAKER_MAX_RUN_SEC,
     DEFAULT_SAGEMAKER_MAX_WAIT_SEC,
+    DEFAULT_SAGEMAKER_OUTPUT_KMS_KEY,
     DEFAULT_SAGEMAKER_OUTPUT_PATH,
     DEFAULT_SAGEMAKER_PY_VERSION,
     DEFAULT_SAGEMAKER_REGION,
@@ -58,6 +59,12 @@ class SageMakerConfig(ConfigBase):
         region: AWS region; empty -> boto3 default.
         output_path / code_location: S3 prefixes for model artifacts and the
             packaged source.
+        output_kms_key: KMS key for the S3 objects this submission writes — the
+            job's model output and the code/config/weight objects uploaded at
+            submit time. Empty (default) uploads them without a customer key, so
+            the submitting identity never needs ``kms:GenerateDataKey`` on an
+            account-default key it may be denied (e.g. an MFA-enforced account);
+            set it to a key you are allowed to use to force SSE-KMS instead.
         config_channel: S3 uri of the run config uploaded as the ``config``
             input channel (mounted at ``/opt/ml/input/data/config`` in-container).
         input_mode: How every input channel is delivered — ``File`` (download to
@@ -86,6 +93,7 @@ class SageMakerConfig(ConfigBase):
     region: str = DEFAULT_SAGEMAKER_REGION
     output_path: str = DEFAULT_SAGEMAKER_OUTPUT_PATH
     code_location: str = DEFAULT_SAGEMAKER_CODE_LOCATION
+    output_kms_key: str = DEFAULT_SAGEMAKER_OUTPUT_KMS_KEY
     config_channel: str = DEFAULT_SAGEMAKER_CONFIG_CHANNEL
     input_mode: str = DEFAULT_SAGEMAKER_INPUT_MODE
     environment: Dict[str, str] = field(default_factory=dict)

@@ -100,6 +100,7 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 | `job_name_prefix` | `labram-finetune` | Prefix; the fold number is appended for CV. |
 | `region` | `''` | AWS region; `''` → boto3 default. |
 | `output_path` / `code_location` | `''` | S3 prefixes for model artifacts / packaged source. |
+| `output_kms_key` | `''` | KMS key for the S3 objects the submission writes (model output + the code/config/weight uploads). `''` → plain uploads and the SDK/account default for the job output (see [KMS-encrypted buckets](#kms-encrypted-buckets--mfa-enforced-accounts)). |
 | `config_channel` | `''` | Pre-uploaded config S3 uri; `''` → the CLI uploads it. |
 | `input_mode` | `File` | Channel delivery: `File`, `FastFile` or `Pipe` (see below). |
 | `environment` / `hyperparameters` / `tags` | `{}` | Extra container env vars / hyperparameters / job tags. |
@@ -209,6 +210,41 @@ and to hand the execution role to SageMaker.
    Confirm the plan first with `--dry_run` (needs no AWS calls). The launcher
    logs the resolved role and training image before it submits.
 
+### KMS-encrypted buckets / MFA-enforced accounts
+
+Some accounts attach a policy that **denies `kms:GenerateDataKey`** unless the
+session is MFA-backed (e.g. an `Admin-MFA-Enforcement` policy), and set a default
+KMS key on the SageMaker session bucket via `sagemaker.config`. A submission then
+fails with:
+
+```
+S3UploadFailedError: Failed to upload …/source.tar.gz … An error occurred
+(AccessDenied) when calling the PutObject operation: User … is not authorized to
+perform: kms:GenerateDataKey … with an explicit deny in an identity-based
+policy: …/Admin-MFA-Enforcement
+```
+
+The tell is that the code, config and weight uploads **succeed** and only the
+estimator's own source-code upload fails — because that upload inherits the
+account-default `output_kms_key`, while the CLI's uploads use no customer key.
+LaBraM already sidesteps this by packaging and uploading the code itself (so the
+estimator gets an `s3://` `source_dir` and skips its KMS upload), so a plain
+`submit_sagemaker` no longer hits this. If you still see a `kms:GenerateDataKey`
+`AccessDenied` (e.g. your output/session bucket *mandates* a CMK), fix it one of
+these ways:
+
+- **Submit with MFA-backed credentials** — assume a role / get session-token
+  credentials that satisfy the MFA condition, then submit.
+- **Use a key you are allowed to use** — `--set sagemaker.output_kms_key=arn:aws:kms:…:key/…`.
+  It is applied to *all* the submission's S3 writes (code, config, weights, and
+  the job's model output).
+- **Write to a bucket without a mandatory CMK** — point
+  `--set sagemaker.output_path=s3://my-bucket/…` at a bucket whose default
+  encryption you can satisfy.
+
+Note the job's **model output** is written by the *execution role* at runtime,
+not by you, so an account-default output key it can use is fine and left in place.
+
 ## Training image
 
 By default no `image_uri` is set, so the SDK resolves the **managed PyTorch Deep
@@ -252,17 +288,26 @@ access), so **reusing a recorded split** across runs is just
 
 ## What gets packaged as `source_dir`
 
-The estimator tars and uploads the whole `source_dir`, and the repo root also
+The code is tarred and uploaded before the job starts, and the repo root also
 holds `.venv/`, downloaded `checkpoints/` and local `log/` output — gigabytes
 that have no business in a code upload. So when `sagemaker.source_dir` is empty
 the CLI builds the package from the **git-tracked files** (working-tree content,
 so uncommitted edits ship) into a temp directory, minus model weights
 (`*.pth`/`*.pt`/`*.ckpt`/`*.h5`/`*.pkl`) — those travel as input channels. The
-temp directory is removed once the jobs are dispatched.
+temp directory is removed once the tarball is uploaded.
 
 Untracked `.py` files under `labram/` are **not** packaged; the CLI warns about
 them by name, so `git add` anything the job needs. Set `sagemaker.source_dir`
 explicitly to bypass all of this and upload a directory verbatim.
+
+The CLI packages that directory into `sourcedir.tar.gz` and **uploads it itself**
+(same S3 path as the config and weights), then hands the estimator an
+`s3://…/sourcedir.tar.gz` `source_dir` — the SDK then skips its own code upload.
+This is deliberate: the SDK's built-in upload inherits the estimator's
+`output_kms_key`, which an account-level `sagemaker.config` default can set to a
+customer KMS key the *submitting* identity isn't allowed to use, so it would fail
+where the config/weight uploads succeed (see
+[KMS-encrypted buckets](#kms-encrypted-buckets--mfa-enforced-accounts)).
 
 ## Dependencies / `pip install` in the job
 
@@ -313,5 +358,8 @@ need neither the SDK nor credentials.
   `common/sagemaker.py` so both repos share one implementation.
 - **`labram.runs.submit_sagemaker`** — builds specs from `FinetuneRunConfig`,
   plans the fold jobs (`plan_jobs`, unit-tested via `--dry_run`), uploads the
-  config, and submits.
+  config, weights and code tarball (`package_and_upload_source`, so the estimator
+  skips its `output_kms_key`-inheriting upload), and submits.
+  `_reraise_kms_access_denied` turns a residual `kms:GenerateDataKey` denial into
+  an actionable error.
 - **`labram.runs.sagemaker_entry`** — the in-container dispatcher.
