@@ -34,8 +34,10 @@ class SageMakerJobSpec:
     """Everything needed to launch one SageMaker PyTorch training job.
 
     ``inputs`` maps an input-channel name to an S3 uri; each channel is mounted
-    in-container at ``/opt/ml/input/data/<channel>``. ``hyperparameters`` are
-    passed to the entry point as ``--key value`` CLI args by the SDK.
+    in-container at ``/opt/ml/input/data/<channel>``. ``input_mode`` selects how
+    they are delivered (``File`` / ``FastFile`` / ``Pipe``); empty keeps the SDK
+    default (``File``). ``hyperparameters`` are passed to the entry point as
+    ``--key value`` CLI args by the SDK.
     """
 
     entry_point: str
@@ -54,6 +56,7 @@ class SageMakerJobSpec:
     environment: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)
     inputs: Dict[str, str] = field(default_factory=dict)
+    input_mode: str = ""
     output_path: str = ""
     code_location: str = ""
     base_job_name: str = "training-job"
@@ -66,6 +69,7 @@ def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
     An explicit ``image_uri`` takes precedence over the managed-DLC
     ``framework_version``/``py_version`` selectors (the SDK rejects both at once).
     Managed spot training sets ``max_wait`` (falling back to ``max_run_sec``).
+    An empty ``input_mode`` is omitted so the SDK applies its own default.
     """
     kwargs: Dict[str, Any] = {
         "entry_point": spec.entry_point,
@@ -84,6 +88,8 @@ def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
     else:
         kwargs["framework_version"] = spec.framework_version
         kwargs["py_version"] = spec.py_version
+    if spec.input_mode:
+        kwargs["input_mode"] = spec.input_mode
     if spec.environment:
         kwargs["environment"] = dict(spec.environment)
     if spec.output_path:
@@ -113,7 +119,15 @@ class SageMakerLauncher:
         if self._session is not None:
             return self._session
         import boto3
-        import sagemaker
+        try:
+            import sagemaker
+        except ImportError as exc:
+            raise ImportError(
+                "The `sagemaker` SDK is required to submit training jobs but is "
+                "not installed. Install it with "
+                "`pip install -r requirements-sagemaker.txt`, or preview the plan "
+                "with --dry_run, which needs neither the SDK nor AWS credentials."
+            ) from exc
         boto_session = boto3.Session(region_name=self._region) if self._region else boto3.Session()
         self._session = sagemaker.Session(boto_session=boto_session)
         return self._session

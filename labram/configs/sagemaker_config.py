@@ -18,6 +18,7 @@ from labram.configs.defaults import (
     DEFAULT_SAGEMAKER_ENTRY_POINT,
     DEFAULT_SAGEMAKER_FRAMEWORK_VERSION,
     DEFAULT_SAGEMAKER_IMAGE_URI,
+    DEFAULT_SAGEMAKER_INPUT_MODE,
     DEFAULT_SAGEMAKER_INSTANCE_COUNT,
     DEFAULT_SAGEMAKER_INSTANCE_TYPE,
     DEFAULT_SAGEMAKER_JOB_NAME_PREFIX,
@@ -59,6 +60,9 @@ class SageMakerConfig(ConfigBase):
             packaged source.
         config_channel: S3 uri of the run config uploaded as the ``config``
             input channel (mounted at ``/opt/ml/input/data/config`` in-container).
+        input_mode: How every input channel is delivered — ``File`` (download to
+            the EBS volume first), ``FastFile`` (stream from S3 through a FUSE
+            mount; recommended for the many-small-files TUH corpora) or ``Pipe``.
         environment: Extra environment variables for the training container.
         hyperparameters: Extra hyperparameters merged into every job.
         tags: ``{Key: Value}`` tags applied to each job.
@@ -83,6 +87,7 @@ class SageMakerConfig(ConfigBase):
     output_path: str = DEFAULT_SAGEMAKER_OUTPUT_PATH
     code_location: str = DEFAULT_SAGEMAKER_CODE_LOCATION
     config_channel: str = DEFAULT_SAGEMAKER_CONFIG_CHANNEL
+    input_mode: str = DEFAULT_SAGEMAKER_INPUT_MODE
     environment: Dict[str, str] = field(default_factory=dict)
     hyperparameters: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)

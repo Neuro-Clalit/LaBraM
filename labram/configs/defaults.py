@@ -246,6 +246,13 @@ DEFAULT_SAGEMAKER_OUTPUT_PATH: str = ''         # S3 prefix for model artifacts
 DEFAULT_SAGEMAKER_CODE_LOCATION: str = ''       # S3 prefix for the packaged source
 DEFAULT_SAGEMAKER_CONFIG_CHANNEL: str = ''      # S3 uri of the config uploaded as an input channel
 DEFAULT_SAGEMAKER_WAIT: bool = False            # block until the job finishes
+# How input channels are delivered to the container. 'File' copies every object
+# onto the EBS volume before training starts (simple, but the TUH corpora are
+# ~400k small files and would need both the wait and the disk); 'FastFile'
+# streams them through a FUSE mount, which the pickle loaders' os.listdir/open
+# access pattern supports and which starts training immediately.
+DEFAULT_SAGEMAKER_INPUT_MODE: str = 'File'
+SAGEMAKER_INPUT_MODES = ('File', 'FastFile', 'Pipe')
 
 # ---------- Transformer architecture (NeuralTransformerBase) ----------
 # Defaults match the "base" variant used in almost all production factories.

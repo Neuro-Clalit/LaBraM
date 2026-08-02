@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from labram.aws.sagemaker import SageMakerJobSpec, estimator_kwargs
 from labram.configs.run_configs import FinetuneRunConfig
@@ -46,6 +47,28 @@ def test_estimator_kwargs_spot_sets_max_wait():
 def test_estimator_kwargs_tags_formatted():
     spec = SageMakerJobSpec(entry_point='e.py', tags={'a': 'b'})
     assert estimator_kwargs(spec)['tags'] == [{'Key': 'a', 'Value': 'b'}]
+
+
+def test_estimator_kwargs_input_mode():
+    spec = SageMakerJobSpec(entry_point='e.py', input_mode='FastFile')
+    assert estimator_kwargs(spec)['input_mode'] == 'FastFile'
+    # Unset -> omitted so the SDK applies its own default.
+    assert 'input_mode' not in estimator_kwargs(SageMakerJobSpec(entry_point='e.py'))
+
+
+def test_input_mode_flows_from_config_to_spec():
+    c = FinetuneRunConfig()
+    c.sagemaker.input_mode = 'FastFile'
+    plans = sub.plan_jobs(c, 's3://b/run.yaml')
+    assert plans[0].spec.input_mode == 'FastFile'
+    assert estimator_kwargs(plans[0].spec)['input_mode'] == 'FastFile'
+
+
+def test_invalid_input_mode_rejected():
+    c = FinetuneRunConfig()
+    c.sagemaker.input_mode = 'Fastfile'  # wrong case
+    with pytest.raises(ValueError, match='input_mode'):
+        sub.submit(c, dry_run=True)
 
 
 # ------------------------------------------------------------------ naming
@@ -116,47 +139,114 @@ def test_phase_configs_cover_all_trainers():
 # ------------------------------------------------------------------ s3 channels
 
 
-def test_stage_s3_inputs_channels_data_and_checkpoint():
+def _s3_config():
     c = FinetuneRunConfig()
     c.data.data_path = 's3://bucket/data/TUAB'
     c.finetune_checkpoint.finetune = 's3://bucket/ckpts/labram-base.pth'
+    return c
+
+
+def test_stage_s3_inputs_channels_data_and_checkpoint():
+    c = _s3_config()
     c.data.split_json = 's3://bucket/runs/data_split.json'
 
-    channels = sub.stage_s3_inputs(c, 'finetune')
-    assert channels['dataset'] == 's3://bucket/data/TUAB'
-    assert channels['pretrained'] == 's3://bucket/ckpts/labram-base.pth'
+    staged = sub.stage_s3_inputs(c, 'finetune')
+    assert staged.channels['dataset'] == 's3://bucket/data/TUAB'
+    assert staged.channels['pretrained'] == 's3://bucket/ckpts/labram-base.pth'
+    assert staged.uploads == {}
     # Config rewritten to the in-container mounts.
     assert c.data.data_path == '/opt/ml/input/data/dataset'
     assert c.finetune_checkpoint.finetune == '/opt/ml/input/data/pretrained/labram-base.pth'
     # split_json stays an s3:// URI (read directly in-container), no channel.
-    assert 'split' not in channels and c.data.split_json == 's3://bucket/runs/data_split.json'
+    assert 'split' not in staged.channels
+    assert c.data.split_json == 's3://bucket/runs/data_split.json'
 
 
 def test_stage_s3_inputs_codebook_tokenizer():
-    c = FinetuneRunConfig()
+    c = _s3_config()
     c.model.codebook_reg.tokenizer_weight = 's3://bucket/vqnsp.pth'
-    channels = sub.stage_s3_inputs(c, 'finetune')
-    assert channels['tokenizer'] == 's3://bucket/vqnsp.pth'
+    staged = sub.stage_s3_inputs(c, 'finetune')
+    assert staged.channels['tokenizer'] == 's3://bucket/vqnsp.pth'
     assert c.model.codebook_reg.tokenizer_weight == '/opt/ml/input/data/tokenizer/vqnsp.pth'
 
 
-def test_stage_s3_inputs_ignores_local_paths():
+def test_stage_s3_inputs_rejects_local_data_path():
     c = FinetuneRunConfig()
     c.data.data_path = '/local/TUAB'
-    c.finetune_checkpoint.finetune = './checkpoints/labram-base.pth'
-    assert sub.stage_s3_inputs(c, 'finetune') == {}
-    assert c.data.data_path == '/local/TUAB'
+    with pytest.raises(ValueError, match='data.data_path'):
+        sub.stage_s3_inputs(c, 'finetune')
+
+
+def test_stage_s3_inputs_queues_local_checkpoint_for_upload(tmp_path):
+    ckpt = tmp_path / 'labram-base.pth'
+    ckpt.write_bytes(b'weights')
+    c = _s3_config()
+    c.finetune_checkpoint.finetune = str(ckpt)
+
+    staged = sub.stage_s3_inputs(c, 'finetune')
+    assert staged.uploads == {'pretrained': str(ckpt)}
+    assert 'pretrained' not in staged.channels
+    # The job still sees a mounted path, not the submitter's filesystem.
+    assert c.finetune_checkpoint.finetune == '/opt/ml/input/data/pretrained/labram-base.pth'
+
+
+def test_stage_s3_inputs_missing_local_checkpoint_fails_fast():
+    c = _s3_config()
+    c.finetune_checkpoint.finetune = './checkpoints/does-not-exist.pth'
+    with pytest.raises(FileNotFoundError, match='finetune_checkpoint.finetune'):
+        sub.stage_s3_inputs(c, 'finetune')
+
+
+def test_stage_s3_inputs_leaves_http_checkpoint_alone():
+    c = _s3_config()
+    c.finetune_checkpoint.finetune = 'https://example.com/labram-base.pth'
+    staged = sub.stage_s3_inputs(c, 'finetune')
+    assert 'pretrained' not in staged.channels and staged.uploads == {}
+    assert c.finetune_checkpoint.finetune == 'https://example.com/labram-base.pth'
 
 
 def test_submit_dry_run_includes_s3_channels_in_inputs():
-    c = FinetuneRunConfig()
-    c.data.data_path = 's3://bucket/data/TUAB'
-    c.finetune_checkpoint.finetune = 's3://bucket/ckpts/labram-base.pth'
-    plans = sub.submit(c, dry_run=True, phase='finetune')
+    plans = sub.submit(_s3_config(), dry_run=True, phase='finetune')
     inputs = plans[0].spec.inputs
     assert inputs['dataset'] == 's3://bucket/data/TUAB'
     assert inputs['pretrained'] == 's3://bucket/ckpts/labram-base.pth'
     assert 'config' in inputs
+
+
+def test_submit_dry_run_marks_pending_uploads(tmp_path):
+    ckpt = tmp_path / 'labram-base.pth'
+    ckpt.write_bytes(b'weights')
+    c = _s3_config()
+    c.finetune_checkpoint.finetune = str(ckpt)
+    plans = sub.submit(c, dry_run=True, phase='finetune')
+    assert plans[0].spec.inputs['pretrained'] == f'<upload {ckpt}>'
+
+
+# ------------------------------------------------------------------ source dir
+
+
+def test_staged_source_dir_excludes_weights_and_untracked_bulk(tmp_path):
+    """The packaged code is the git-tracked tree minus model weights — the repo
+    root itself also holds the venv, checkpoints and run outputs."""
+    c = FinetuneRunConfig()
+    with sub.staged_source_dir(c) as source_dir:
+        assert source_dir != sub.repo_root()
+        staged = {os.path.relpath(os.path.join(dirpath, f), source_dir)
+                  for dirpath, _, files in os.walk(source_dir) for f in files}
+        assert 'requirements.txt' in staged
+        assert 'labram/runs/sagemaker_entry.py' in staged
+        assert not [p for p in staged if p.endswith(('.pth', '.pt', '.ckpt'))]
+        assert not [p for p in staged if p.startswith('.venv')]
+    # Cleaned up on exit.
+    assert not os.path.exists(source_dir)
+
+
+def test_staged_source_dir_honours_explicit_setting(tmp_path):
+    c = FinetuneRunConfig()
+    c.sagemaker.source_dir = str(tmp_path)
+    with sub.staged_source_dir(c) as source_dir:
+        assert source_dir == str(tmp_path)
+    assert os.path.exists(tmp_path)  # not ours to delete
 
 
 def test_submit_dry_run_no_sdk(monkeypatch):
@@ -279,7 +369,10 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
 
     config = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_cv.json")
     config.update(**{
-        "data.dataset": "TUAB", "data.data_path": str(data),
+        # Submitted as an s3:// uri, so the run really goes through channel
+        # staging; the fake container below maps the mount back to `data`.
+        "data.dataset": "TUAB", "data.data_path": "s3://fake-bucket/data/TUAB",
+        "finetune_checkpoint.finetune": "",   # train from scratch, no weights to ship
         "trainer.debug": True, "trainer.epochs": 1, "trainer.debug_samples": 4,
         "optimizer.warmup_epochs": 0, "distributed.device": "cpu",
         "model.model": "labram_base_patch200_200",
@@ -308,7 +401,10 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
 
         def submit(self, spec, wait=False, job_name=None):
             # Simulate the container: mount the config channel, point outputs at a
-            # per-job model dir, and run the real entry point for this fold.
+            # per-job model dir, and run the real entry point for this fold. The
+            # dataset channel stands in for the /opt/ml/input/data/dataset mount.
+            assert spec.inputs["dataset"] == "s3://fake-bucket/data/TUAB"
+            assert os.path.isfile(os.path.join(spec.source_dir, "requirements.txt"))
             cfg_uri = spec.inputs["config"]
             channel_dir = os.path.dirname(cfg_uri)
             model_dir = tmp_path / "model" / spec.base_job_name
@@ -318,7 +414,8 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
             os.environ["SM_CHANNEL_CONFIG"] = channel_dir
             os.environ["SM_MODEL_DIR"] = str(model_dir)
             try:
-                entry.main(["--phase", phase, "--fold", str(fold)])
+                entry.main(["--phase", phase, "--fold", str(fold),
+                            "--set", f"data.data_path={data}"])
             finally:
                 for k, v in prev.items():
                     if v is None:

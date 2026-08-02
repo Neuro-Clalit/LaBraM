@@ -1,0 +1,15 @@
+# Extra requirements for the machine that *submits* SageMaker training jobs
+# (`python -m labram.runs.submit_sagemaker`). Install on top of requirements.txt:
+#
+#   pip install -r requirements.txt -r requirements-sagemaker.txt
+#
+# Kept out of requirements.txt on purpose: that file is what the training
+# container pip-installs, and this SDK drags in mlflow / onnx / tritonclient and
+# requires urllib3>=2, which conflicts with pyhealth's urllib3<=1.26.15 pin.
+#
+# Pinned to the v2 SDK: labram/aws/sagemaker.py targets the v2 estimator API
+# (`sagemaker.pytorch.PyTorch`, `sagemaker.Session`, `sagemaker.get_execution_role`,
+# `sagemaker.image_uris.retrieve`), which v3 reorganised. Capped below 2.253
+# because from that release the SDK requires pandas>=2.3, which contradicts the
+# pandas<2.2.0 pin the training code needs.
+sagemaker>=2.200,<2.253
