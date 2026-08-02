@@ -123,3 +123,6 @@ def test_default_jsons_load_with_new_fields(path, cls):
     assert isinstance(cfg.logging, LoggingConfig)
     assert cfg.output.save_only_final_model in (True, False)
     assert cfg.clearml.upload_model_artifact in (True, False)
+    # Shipped configs carry the SageMaker weight-mirror map (strict load would
+    # otherwise reject the field as missing).
+    assert cfg.sagemaker.weight_s3_uris['./checkpoints/labram-base.pth'].startswith('s3://')

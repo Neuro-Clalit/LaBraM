@@ -4,6 +4,7 @@ Currently: CLI ``--set key.sub=value`` override parsing, consumed by every
 ``run_*.py`` entry point and applied via :meth:`ConfigBase.update`.
 """
 import argparse
+import json
 from typing import List
 
 
@@ -24,8 +25,18 @@ def add_override_arg(parser: argparse.ArgumentParser) -> None:
 def _coerce_override(s: str):
     """Map a CLI override string to a Python literal.
 
-    Order: None -> bool -> int -> float -> str.
+    Order: JSON object/array (``{...}`` / ``[...]``) -> None -> bool -> int ->
+    float -> str. The JSON branch lets dict/list fields be set from the CLI, e.g.
+    ``--set sagemaker.weight_s3_uris='{"./checkpoints/labram-base.pth": "s3://b/x.pth"}'``
+    or ``--set sagemaker.weight_s3_uris='{}'`` to clear it; a ``{``/``[`` string
+    that is not valid JSON falls through to be treated as a plain string.
     """
+    stripped = s.strip()
+    if stripped[:1] in '{[':
+        try:
+            return json.loads(stripped)
+        except ValueError:
+            pass
     if s.lower() == 'none':
         return None
     if s.lower() == 'true':

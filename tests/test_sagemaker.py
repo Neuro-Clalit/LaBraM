@@ -205,6 +205,91 @@ def test_stage_s3_inputs_leaves_http_checkpoint_alone():
     assert c.finetune_checkpoint.finetune == 'https://example.com/labram-base.pth'
 
 
+# ------------------------------------------------------------ weight S3 mirrors
+
+
+def test_weight_s3_uris_default_ships_the_public_checkpoints():
+    # The shipped configs' local ./checkpoints/*.pth have known S3 copies, so a
+    # fresh config carries the mirror map out of the box.
+    c = FinetuneRunConfig()
+    m = c.sagemaker.weight_s3_uris
+    assert m['./checkpoints/labram-base.pth'] == \
+        's3://eeg-data-public/models/labram/labram-base.pth'
+    assert m['./checkpoints/vqnsp.pth'] == \
+        's3://eeg-data-public/models/labram/vqnsp.pth'
+
+
+def test_stage_s3_inputs_mirrors_local_weight_instead_of_uploading():
+    # The shipped ./checkpoints/labram-base.pth is served from its S3 mirror as a
+    # channel -- not uploaded -- so the heavy file is not re-shipped each run.
+    c = _s3_config()
+    c.finetune_checkpoint.finetune = './checkpoints/labram-base.pth'
+    staged = sub.stage_s3_inputs(c, 'finetune')
+    assert staged.channels['pretrained'] == \
+        's3://eeg-data-public/models/labram/labram-base.pth'
+    assert staged.uploads == {}
+    assert c.finetune_checkpoint.finetune == \
+        '/opt/ml/input/data/pretrained/labram-base.pth'
+
+
+def test_weight_mirror_matches_by_normalized_path():
+    # 'checkpoints/x.pth' (no ./) resolves to the same mirror as './checkpoints/x.pth'.
+    c = _s3_config()
+    c.finetune_checkpoint.finetune = 'checkpoints/labram-base.pth'
+    staged = sub.stage_s3_inputs(c, 'finetune')
+    assert staged.channels['pretrained'] == \
+        's3://eeg-data-public/models/labram/labram-base.pth'
+    assert staged.uploads == {}
+
+
+def test_weight_mirror_skips_the_local_existence_check():
+    # A mirrored path need not exist on the submitting machine -- the point is to
+    # avoid the local file entirely -- so no FileNotFoundError is raised.
+    c = _s3_config()
+    c.sagemaker.weight_s3_uris = {'./ghost/labram-base.pth': 's3://mirror/base.pth'}
+    c.finetune_checkpoint.finetune = './ghost/labram-base.pth'
+    staged = sub.stage_s3_inputs(c, 'finetune')
+    assert staged.channels['pretrained'] == 's3://mirror/base.pth'
+    assert staged.uploads == {}
+    assert c.finetune_checkpoint.finetune == '/opt/ml/input/data/pretrained/base.pth'
+
+
+def test_cleared_mirror_falls_back_to_upload(tmp_path):
+    # Clearing the map forces the local file to upload again (opt-out path).
+    ckpt = tmp_path / 'labram-base.pth'
+    ckpt.write_bytes(b'weights')
+    c = _s3_config()
+    c.sagemaker.weight_s3_uris = {}
+    c.finetune_checkpoint.finetune = str(ckpt)
+    staged = sub.stage_s3_inputs(c, 'finetune')
+    assert staged.uploads == {'pretrained': str(ckpt)}
+    assert 'pretrained' not in staged.channels
+
+
+def test_stage_s3_inputs_pretrain_tokenizer_uses_mirror():
+    from labram.configs.run_configs import PretrainRunConfig
+    c = PretrainRunConfig()
+    c.data.data_path = 's3://bucket/data/TUEG'
+    c.model.tokenizer.tokenizer_weight = './checkpoints/vqnsp.pth'
+    staged = sub.stage_s3_inputs(c, 'pretrain')
+    assert staged.channels['tokenizer'] == \
+        's3://eeg-data-public/models/labram/vqnsp.pth'
+    assert staged.uploads == {}
+    assert c.model.tokenizer.tokenizer_weight == \
+        '/opt/ml/input/data/tokenizer/vqnsp.pth'
+
+
+def test_submit_dry_run_shipped_config_ships_no_weight_uploads():
+    # End-to-end plan for a shipped fine-tune config: the pretrained weight is the
+    # S3 mirror, and nothing is queued for upload.
+    c = FinetuneRunConfig.load_config('labram/configs/defaults/finetune_tuab.json')
+    c.data.data_path = 's3://bucket/data/TUAB'
+    plans = sub.submit(c, dry_run=True, phase='finetune')
+    inputs = plans[0].spec.inputs
+    assert inputs['pretrained'] == 's3://eeg-data-public/models/labram/labram-base.pth'
+    assert not any(str(v).startswith('<upload') for v in inputs.values())
+
+
 def test_submit_dry_run_includes_s3_channels_in_inputs():
     plans = sub.submit(_s3_config(), dry_run=True, phase='finetune')
     inputs = plans[0].spec.inputs

@@ -287,6 +287,22 @@ class TestParseOverrides:
         out = parse_overrides(['model.model=labram_custom_patch'])
         assert out == {'model.model': 'labram_custom_patch'}
 
+    def test_json_object_value_is_parsed(self):
+        out = parse_overrides(['sagemaker.weight_s3_uris={"./a.pth": "s3://b/a.pth"}'])
+        assert out == {'sagemaker.weight_s3_uris': {'./a.pth': 's3://b/a.pth'}}
+
+    def test_json_empty_object_clears_dict(self):
+        assert parse_overrides(['sagemaker.weight_s3_uris={}']) == \
+            {'sagemaker.weight_s3_uris': {}}
+
+    def test_json_array_value_is_parsed(self):
+        out = parse_overrides(['model.codebook_reg.feature_sources=["encoder_mean", "quantize_mean"]'])
+        assert out == {'model.codebook_reg.feature_sources': ['encoder_mean', 'quantize_mean']}
+
+    def test_invalid_json_braces_fall_back_to_string(self):
+        # A '{'-prefixed value that is not valid JSON stays a plain string.
+        assert parse_overrides(['x={not json}']) == {'x': '{not json}'}
+
     def test_multiple_overrides(self):
         out = parse_overrides(['a=1', 'b=2.5', 'c=hello', 'd=false'])
         assert out == {'a': 1, 'b': 2.5, 'c': 'hello', 'd': False}

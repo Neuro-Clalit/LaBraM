@@ -59,9 +59,10 @@ python -m labram.runs.submit_sagemaker \
 
 Empty `output.output_dir` / `output.log_dir` are filled in by the container
 entry point with `/opt/ml/model/finetune` and `…/finetune/tensorboard`, so
-checkpoints and TensorBoard events end up in the job's `model.tar.gz`. The local
-`./checkpoints/labram-base.pth` from the config is uploaded and mounted as the
-`pretrained` channel.
+checkpoints and TensorBoard events end up in the job's `model.tar.gz`. The
+shipped `./checkpoints/labram-base.pth` is **not** re-uploaded: it has an S3
+mirror in `sagemaker.weight_s3_uris`, so it is mounted as the `pretrained`
+channel straight from S3 (see [S3 data & checkpoints](#s3-data--checkpoints-input-channels)).
 
 `scripts/submit_paper_experiments.sh` bundles the paper experiment set (CV on the
 paper config + gradient-clip / codebook / LaBraM++ runs that reuse one recorded
@@ -101,6 +102,7 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 | `region` | `''` | AWS region; `''` → boto3 default. |
 | `output_path` / `code_location` | `''` | S3 prefixes for model artifacts / packaged source. |
 | `config_channel` | `''` | Pre-uploaded config S3 uri; `''` → the CLI uploads it. |
+| `weight_s3_uris` | `{./checkpoints/labram-base.pth → s3://eeg-data-public/models/labram/labram-base.pth, ./checkpoints/vqnsp.pth → s3://…/vqnsp.pth}` | Local weight paths whose bytes already live in S3; the mirror is mounted as a channel instead of the local file being uploaded (see below). |
 | `input_mode` | `File` | Channel delivery: `File`, `FastFile` or `Pipe` (see below). |
 | `environment` / `hyperparameters` / `tags` | `{}` | Extra container env vars / hyperparameters / job tags. |
 | `wait` | `false` | Block until the (last) job finishes. |
@@ -226,7 +228,8 @@ resolved image before launching (`SageMaker training image: …`), and
 The TUAB/TUEV loaders read from a local directory (`os.listdir`), so the dataset
 must be **mounted**, not read from S3 at runtime. The submit CLI handles this
 automatically: any `s3://` value in `data.data_path`,
-`finetune_checkpoint.finetune`, or `model.codebook_reg.tokenizer_weight` is
+`finetune_checkpoint.finetune`, `model.codebook_reg.tokenizer_weight` (finetune),
+or `model.tokenizer.tokenizer_weight` (the frozen VQNSP used by pre-training) is
 turned into a SageMaker **input channel** (`dataset` / `pretrained` /
 `tokenizer`, mounted under `/opt/ml/input/data/...`) and the uploaded config is
 rewritten to the in-container mount path. Just pass the S3 URIs on the normal
@@ -235,14 +238,47 @@ config fields.
 Nothing on the submitting machine's filesystem exists inside the container, so
 **local** paths are handled rather than passed through:
 
-- `finetune_checkpoint.finetune` / `model.codebook_reg.tokenizer_weight` — a
-  local file is **uploaded** to the session bucket and mounted on its channel,
-  so the shipped configs' `./checkpoints/labram-base.pth` works as written. A
-  path that does not exist fails the submission immediately. `https://` URLs are
-  left alone (`torch.hub` fetches them in-container).
+- `finetune_checkpoint.finetune` / `model.codebook_reg.tokenizer_weight` /
+  `model.tokenizer.tokenizer_weight` — a local file is **uploaded** to the
+  session bucket and mounted on its channel, *unless* the path has an S3 mirror
+  in `sagemaker.weight_s3_uris` (see below), in which case the mirror is mounted
+  and nothing is uploaded. A path that is neither mirrored nor an existing local
+  file fails the submission immediately. `https://` URLs are left alone
+  (`torch.hub` fetches them in-container).
 - `data.data_path` — **rejected**. Corpora are far too large to upload as part
   of a submission; put the preprocessed data in S3 first (see
   `scripts/upload_tuab_to_s3.sh`) and pass the uri.
+
+### `weight_s3_uris`: don't re-upload the checkpoints in git
+
+The shipped `./checkpoints/labram-base.pth` and `./checkpoints/vqnsp.pth` are
+~95 MB each and version controlled, so uploading them to S3 on **every**
+submission is pure waste. `sagemaker.weight_s3_uris` maps a local weight path to
+the S3 copy of the same bytes; when a weight field points at a mapped path, the
+submission mounts that S3 object as the channel and skips the upload. The default
+covers the two shipped checkpoints:
+
+```json
+{
+  "./checkpoints/labram-base.pth": "s3://eeg-data-public/models/labram/labram-base.pth",
+  "./checkpoints/vqnsp.pth":       "s3://eeg-data-public/models/labram/vqnsp.pth"
+}
+```
+
+So the shipped fine-tune / pre-train / codebook configs submit with **no weight
+upload** out of the box — the `pretrained` and `tokenizer` channels come straight
+from `s3://eeg-data-public/...`. Paths are matched normalized (`./checkpoints/x.pth`
+== `checkpoints/x.pth`), and a mirrored path need not exist locally at all.
+
+- Point the mirror at your own bucket: `--set
+  sagemaker.weight_s3_uris='{"./checkpoints/labram-base.pth": "s3://my-bucket/labram-base.pth"}'`
+  (config-file edit is easier for multi-entry maps).
+- Force a fresh local checkpoint to upload again: clear the map with
+  `--set sagemaker.weight_s3_uris='{}'`, or just point the weight field at a path
+  that isn't in the map.
+
+This is a submit-side convenience only — `weight_s3_uris` never affects
+in-container or local (non-SageMaker) training.
 
 `data.split_json` is the exception — it is left as an `s3://` URI and read
 directly in-container via the shared `FileSystem` (the execution role's S3

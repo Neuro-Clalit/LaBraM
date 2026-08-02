@@ -231,6 +231,10 @@
         "output_path": "",
         "code_location": "",
         "config_channel": "",
+        "weight_s3_uris": {
+            "./checkpoints/labram-base.pth": "s3://eeg-data-public/models/labram/labram-base.pth",
+            "./checkpoints/vqnsp.pth": "s3://eeg-data-public/models/labram/vqnsp.pth"
+        },
         "input_mode": "File",
         "environment": {},
         "hyperparameters": {},

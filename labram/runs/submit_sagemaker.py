@@ -84,14 +84,18 @@ def stage_s3_inputs(config: RunConfig, phase: str = 'finetune') -> StagedInputs:
 
     Handled: ``data.data_path`` -> ``dataset`` channel (TUAB/TUEV loaders use
     ``os.listdir``, so the data must be a mount, not an S3 URI);
-    ``finetune_checkpoint.finetune`` -> ``pretrained``; and
-    ``model.codebook_reg.tokenizer_weight`` -> ``tokenizer`` (finetune only).
-    ``data.split_json`` is left as an ``s3://`` URI — it is read directly via the
-    shared FileSystem in-container, no channel needed.
+    ``finetune_checkpoint.finetune`` -> ``pretrained`` and
+    ``model.codebook_reg.tokenizer_weight`` -> ``tokenizer`` (finetune); and
+    ``model.tokenizer.tokenizer_weight`` -> ``tokenizer`` (pretrain, the frozen
+    VQNSP). ``data.split_json`` is left as an ``s3://`` URI — it is read directly
+    via the shared FileSystem in-container, no channel needed.
 
     A *local* weight file is staged too: nothing in the submitting machine's
     filesystem exists inside the container, so it is queued for upload rather
-    than silently handed to the job as a path that will not resolve. A local
+    than silently handed to the job as a path that will not resolve — unless the
+    path has a configured S3 mirror in ``sagemaker.weight_s3_uris`` (the shipped
+    ``./checkpoints/labram-base.pth`` / ``./checkpoints/vqnsp.pth`` do), in which
+    case the mirror is used as a channel and nothing is uploaded. A local
     ``data.data_path`` is rejected instead — corpora are far too large to upload
     as part of a submission.
     """
@@ -108,16 +112,25 @@ def stage_s3_inputs(config: RunConfig, phase: str = 'finetune') -> StagedInputs:
             "dataset to S3 and pass the uri, e.g. "
             "--set data.data_path=s3://<bucket>/<prefix>.")
 
+    mirrors = dict(getattr(config.sagemaker, 'weight_s3_uris', {}) or {})
     if phase == 'finetune':
         ck = getattr(config, 'finetune_checkpoint', None)
         if ck is not None and getattr(ck, 'finetune', ''):
             ck.finetune = _stage_weight_file(staged, 'pretrained', ck.finetune,
-                                             'finetune_checkpoint.finetune')
+                                             'finetune_checkpoint.finetune', mirrors)
         cr = getattr(getattr(config, 'model', None), 'codebook_reg', None)
         if cr is not None and getattr(cr, 'tokenizer_weight', ''):
             cr.tokenizer_weight = _stage_weight_file(
                 staged, 'tokenizer', cr.tokenizer_weight,
-                'model.codebook_reg.tokenizer_weight')
+                'model.codebook_reg.tokenizer_weight', mirrors)
+    elif phase == 'pretrain':
+        # Masked pre-training loads a frozen VQNSP tokenizer via torch.load, so
+        # its weight needs the same staging as the fine-tune checkpoints.
+        tok = getattr(getattr(config, 'model', None), 'tokenizer', None)
+        if tok is not None and getattr(tok, 'tokenizer_weight', ''):
+            tok.tokenizer_weight = _stage_weight_file(
+                staged, 'tokenizer', tok.tokenizer_weight,
+                'model.tokenizer.tokenizer_weight', mirrors)
 
     if staged.channels:
         logger.info("Staging %d S3 input channel(s): %s",
@@ -128,20 +141,49 @@ def stage_s3_inputs(config: RunConfig, phase: str = 'finetune') -> StagedInputs:
     return staged
 
 
+def _normalize_path(value: str) -> str:
+    return os.path.normpath(os.path.expanduser(value))
+
+
+def _weight_mirror(value: str, mirrors: Dict[str, str]) -> str:
+    """Return the configured S3 mirror for a local weight path, or ``''``.
+
+    Keys in ``mirrors`` are matched by normalized path, so the shipped
+    ``./checkpoints/labram-base.pth`` matches whether written with or without the
+    ``./`` prefix (and ``~`` is expanded on both sides).
+    """
+    if not mirrors:
+        return ''
+    target = _normalize_path(value)
+    for key, uri in mirrors.items():
+        if _normalize_path(key) == target:
+            return uri
+    return ''
+
+
 def _stage_weight_file(staged: StagedInputs, channel: str, value: str,
-                       field_name: str) -> str:
+                       field_name: str, mirrors: Optional[Dict[str, str]] = None) -> str:
     """Route one weight path onto ``channel`` and return its in-container path.
 
     ``s3://`` and ``https://`` values need no work beyond the channel (the latter
-    is fetched by ``torch.hub`` in-container); an existing local file is queued
-    for upload; anything else is a path that would only fail once the job is
-    running on a GPU, so it fails here instead.
+    is fetched by ``torch.hub`` in-container). A local path that has a configured
+    S3 mirror (``sagemaker.weight_s3_uris``) is served from that mirror as a
+    channel instead of being uploaded -- so the version-controlled
+    ``./checkpoints/*.pth`` are not re-shipped on every submission. Any other
+    existing local file is queued for upload; anything else is a path that would
+    only fail once the job is running on a GPU, so it fails here instead.
     """
     if value.startswith('https://') or value.startswith('http://'):
         return value
     if _is_s3(value):
         staged.channels[channel] = value
         return f"{_channel_mount(channel)}/{_basename(value)}"
+    mirror = _weight_mirror(value, mirrors or {})
+    if mirror:
+        staged.channels[channel] = mirror
+        logger.info("Using S3 mirror for %s=%r instead of uploading the local "
+                    "file: %s", field_name, value, mirror)
+        return f"{_channel_mount(channel)}/{_basename(mirror)}"
     local = os.path.abspath(os.path.expanduser(value))
     if not os.path.isfile(local):
         raise FileNotFoundError(
