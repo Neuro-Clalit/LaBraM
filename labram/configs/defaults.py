@@ -13,6 +13,8 @@ instead of re-stating literals. Inventory was swept from:
 * labram/utils/training.py cosine_scheduler
 """
 
+from typing import Dict
+
 # ---------- Trainer ----------
 DEFAULT_BATCH_SIZE: int = 64
 DEFAULT_PRETRAIN_EPOCHS: int = 300
@@ -253,6 +255,20 @@ DEFAULT_SAGEMAKER_WAIT: bool = False            # block until the job finishes
 # access pattern supports and which starts training immediately.
 DEFAULT_SAGEMAKER_INPUT_MODE: str = 'File'
 SAGEMAKER_INPUT_MODES = ('File', 'FastFile', 'Pipe')
+# Local weight files whose bytes already live in S3. When submitting to
+# SageMaker, a weight field (finetune_checkpoint.finetune /
+# model.codebook_reg.tokenizer_weight) pointing at one of these local paths is
+# served from its S3 mirror as an input channel instead of being re-uploaded on
+# every submission -- the shipped ./checkpoints/*.pth are ~95 MB each and version
+# controlled, so uploading them on each run is pure waste. Keyed by the path as
+# written in the configs (matched by normalized path, so './checkpoints/x.pth'
+# and 'checkpoints/x.pth' are the same); clear it (weight_s3_uris={}) to force the
+# local file to upload, or add entries for your own weights. Consulted only by the
+# submit CLI -- it never affects local (non-SageMaker) training.
+DEFAULT_SAGEMAKER_WEIGHT_S3_URIS: Dict[str, str] = {
+    './checkpoints/labram-base.pth': 's3://eeg-data-public/models/labram/labram-base.pth',
+    './checkpoints/vqnsp.pth': 's3://eeg-data-public/models/labram/vqnsp.pth',
+}
 
 # ---------- Transformer architecture (NeuralTransformerBase) ----------
 # Defaults match the "base" variant used in almost all production factories.

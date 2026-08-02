@@ -32,6 +32,7 @@ from labram.configs.defaults import (
     DEFAULT_SAGEMAKER_USE_SPOT,
     DEFAULT_SAGEMAKER_VOLUME_SIZE_GB,
     DEFAULT_SAGEMAKER_WAIT,
+    DEFAULT_SAGEMAKER_WEIGHT_S3_URIS,
 )
 
 
@@ -60,6 +61,14 @@ class SageMakerConfig(ConfigBase):
             packaged source.
         config_channel: S3 uri of the run config uploaded as the ``config``
             input channel (mounted at ``/opt/ml/input/data/config`` in-container).
+        weight_s3_uris: ``{local_weight_path: s3_uri}`` mirrors for weight files
+            whose bytes already live in S3. A weight field
+            (``finetune_checkpoint.finetune`` / ``model.codebook_reg.tokenizer_weight``)
+            pointing at one of these local paths is served from the S3 mirror as
+            an input channel instead of being re-uploaded on every submission.
+            Keys are matched by normalized path. Clear it (``{}``) to force the
+            local file to upload; add entries for your own weights. Never affects
+            local (non-SageMaker) training.
         input_mode: How every input channel is delivered — ``File`` (download to
             the EBS volume first), ``FastFile`` (stream from S3 through a FUSE
             mount; recommended for the many-small-files TUH corpora) or ``Pipe``.
@@ -87,6 +96,8 @@ class SageMakerConfig(ConfigBase):
     output_path: str = DEFAULT_SAGEMAKER_OUTPUT_PATH
     code_location: str = DEFAULT_SAGEMAKER_CODE_LOCATION
     config_channel: str = DEFAULT_SAGEMAKER_CONFIG_CHANNEL
+    weight_s3_uris: Dict[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_SAGEMAKER_WEIGHT_S3_URIS))
     input_mode: str = DEFAULT_SAGEMAKER_INPUT_MODE
     environment: Dict[str, str] = field(default_factory=dict)
     hyperparameters: Dict[str, str] = field(default_factory=dict)
