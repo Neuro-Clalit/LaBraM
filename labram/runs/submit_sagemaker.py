@@ -14,6 +14,7 @@
 
 import argparse
 import contextlib
+import io
 import os
 import re
 import shutil
@@ -484,6 +485,9 @@ class JobPlan:
     fold: Optional[int]
     job_name: str
     spec: SageMakerJobSpec
+    # The real, timestamped name SageMaker assigned (known only after submission);
+    # ``job_name`` is just the base prefix.
+    submitted_name: str = ''
 
 
 def plan_jobs(config: RunConfig, config_uri: str, phase: str = 'finetune',
@@ -582,7 +586,8 @@ def upload_staged_weights(launcher: SageMakerLauncher, config: RunConfig,
 
 
 def package_and_upload_source(launcher: SageMakerLauncher, config: RunConfig,
-                              source_dir: str) -> str:
+                              source_dir: str,
+                              git_info: Optional[Dict[str, Any]] = None) -> str:
     """Tar ``source_dir`` and upload it as ``sourcedir.tar.gz``, returning the
     ``s3://`` uri to hand the estimator as its ``source_dir``.
 
@@ -607,9 +612,26 @@ def package_and_upload_source(launcher: SageMakerLauncher, config: RunConfig,
         with tarfile.open(tar_path, 'w:gz') as tar:
             for name in sorted(os.listdir(source_dir)):
                 tar.add(os.path.join(source_dir, name), arcname=name)
+            if git_info:
+                _add_git_info_member(tar, git_info)
         uri = _upload_data(session, tar_path, f'{prefix}/source', extra_args)
     logger.info("Uploaded source dir -> %s", uri)
     return uri
+
+
+def _add_git_info_member(tar: tarfile.TarFile, info: Dict[str, Any]) -> None:
+    """Embed the checkout's git metadata in the source tarball.
+
+    Added from memory rather than written into ``source_dir``, so an explicit
+    ``sagemaker.source_dir`` (a directory the user owns) is never mutated. The
+    in-container ClearML task reads it back to fill the experiment's code section,
+    which it otherwise cannot: the packaged tree has no ``.git``.
+    """
+    payload = utils.git_info_bytes(info)
+    entry = tarfile.TarInfo(name=utils.GIT_INFO_FILENAME)
+    entry.size = len(payload)
+    entry.mtime = 0            # keep the tarball byte-stable for identical trees
+    tar.addfile(entry, io.BytesIO(payload))
 
 
 def _reraise_kms_access_denied(exc: Exception) -> None:
@@ -631,7 +653,100 @@ def _reraise_kms_access_denied(exc: Exception) -> None:
         "CMK. See docs/sagemaker.md > KMS-encrypted buckets.") from exc
 
 
-def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') -> List[JobPlan]:
+# ------------------------------------------------------------------ reporting
+
+_RULE = '=' * 78
+_THIN = '-' * 78
+
+
+def console_url(job_name: str, region: str) -> str:
+    if not region:
+        return ''
+    return (f"https://{region}.console.aws.amazon.com/sagemaker/home"
+            f"?region={region}#/jobs/{job_name}")
+
+
+def _fmt_duration(seconds: int) -> str:
+    hours, rem = divmod(int(seconds), 3600)
+    return f"{hours}h{rem // 60:02d}m" if rem // 60 else f"{hours}h"
+
+
+def submitted_banner(plan: JobPlan, config: RunConfig, region: str,
+                     will_wait: bool, git_summary: str = '') -> str:
+    """A deliberately loud block confirming the job is running on AWS.
+
+    Printed as soon as the job exists — before any log streaming — because the
+    single most useful fact at that moment is that the *remote* job is now
+    independent of this terminal: interrupting the local process only stops the
+    log tail, never the training. Without saying so, Ctrl-C looks destructive and
+    a dropped SSH session looks like a lost run.
+    """
+    sm = config.sagemaker
+    spot = ' (spot)' if sm.use_spot else ''
+    lines = [
+        '', _RULE,
+        '  SAGEMAKER TRAINING JOB SUBMITTED — NOW RUNNING ON AWS',
+        _RULE,
+        f"  job name    : {plan.submitted_name or plan.job_name}",
+        f"  phase/fold  : {plan.spec.hyperparameters.get('phase', '?')}"
+        f"{'' if plan.fold is None else f' / fold {plan.fold}'}",
+        f"  instance    : {sm.instance_count} x {sm.instance_type}{spot}",
+        f"  max runtime : {_fmt_duration(sm.max_run_sec)} (job is stopped at the cap)",
+    ]
+    if git_summary:
+        lines.append(f"  code        : {git_summary}")
+    if config.clearml.enabled:
+        lines.append(f"  clearml     : {config.clearml.project_name or 'LaBraM'}"
+                     f" / {config.clearml.task_name or '<derived>'}")
+    url = console_url(plan.submitted_name or plan.job_name, region)
+    if url:
+        lines.append(f"  console     : {url}")
+    lines += [
+        _THIN,
+        '  The job runs on AWS, NOT in this terminal.',
+    ]
+    if will_wait:
+        lines += [
+            '  This process is only STREAMING its logs from CloudWatch.',
+            '  Ctrl-C (or closing this terminal, or losing the connection) stops',
+            '  the log tail ONLY — training continues and still writes its',
+            '  checkpoints to S3 and its metrics to ClearML.',
+        ]
+    else:
+        lines.append('  Nothing left to wait for locally — this command is done.')
+    lines += [
+        _THIN,
+        '  monitor : aws sagemaker describe-training-job --training-job-name \\',
+        f"                {plan.submitted_name or plan.job_name}",
+        '  stop    : aws sagemaker stop-training-job --training-job-name \\',
+        f"                {plan.submitted_name or plan.job_name}",
+        _RULE, '',
+    ]
+    return '\n'.join(lines)
+
+
+def interrupted_banner(plans: List[JobPlan], region: str) -> str:
+    """Shown when the user interrupts a wait: the jobs are still running."""
+    names = [p.submitted_name or p.job_name for p in plans if p.submitted_name]
+    lines = ['', _RULE,
+             '  LOCAL WAIT INTERRUPTED — THE SAGEMAKER JOB(S) ARE STILL RUNNING',
+             _RULE,
+             '  Only the log stream stopped. Training continues on AWS and its',
+             '  outputs still land in S3 / ClearML.', _THIN]
+    for name in names:
+        lines.append(f"  {name}")
+        url = console_url(name, region)
+        if url:
+            lines.append(f"      {url}")
+    lines += [_THIN,
+              '  To actually stop a job:',
+              '      aws sagemaker stop-training-job --training-job-name <name>',
+              _RULE, '']
+    return '\n'.join(lines)
+
+
+def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
+           detach: bool = False) -> List[JobPlan]:
     """Submit the planned SageMaker job(s) for the given trainer ``phase``. With
     ``dry_run`` only the plan is returned (no AWS calls, no SDK import), which is
     what the tests exercise."""
@@ -661,13 +776,29 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
     role = launcher.resolve_role(sm.role)
     logger.info("SageMaker execution role: %s", role)
 
+    # Record what code this run *is*: the container has no .git, so this is the
+    # only way branch/commit/uncommitted changes reach the ClearML experiment.
+    git_info = utils.collect_git_info(repo_root())
+    git_summary = utils.format_git_summary(git_info)
+    if git_info:
+        logger.info("Shipping git provenance to the job: %s", git_summary)
+        if git_info.get('dirty'):
+            logger.warning(
+                "The working tree is dirty — the job runs the *working tree* "
+                "content, which does not match commit %s. The diff is recorded "
+                "on the ClearML experiment.", git_info.get('commit_short'))
+    else:
+        logger.warning("No git metadata for %s — the ClearML experiment will not "
+                       "record a branch/commit for this run.", repo_root())
+
     try:
         uploaded = upload_staged_weights(launcher, config, staged)
         config_uri = upload_run_config(launcher, config, sm.config_channel)
         # Package + upload the code ourselves and pass the estimator an s3://
         # sourcedir.tar.gz, so it skips its own KMS-inheriting code upload.
         with staged_source_dir(config) as source_dir:
-            source_uri = package_and_upload_source(launcher, config, source_dir)
+            source_uri = package_and_upload_source(launcher, config, source_dir,
+                                                   git_info)
         plans = plan_jobs(config, config_uri, phase, staged.resolved(uploaded), source_uri,
                           object_channels=staged.object_channels)
         if plans and plans[0].spec.channel_input_modes:
@@ -684,12 +815,28 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
                             launcher.resolve_image_uri(plans[0].spec))
             except Exception as exc:  # pragma: no cover - depends on SDK/region
                 logger.warning("Could not resolve training image URI: %s", exc)
+        region = sm.region or getattr(launcher._get_session(), 'boto_region_name', '')
+        # --detach: create the job(s) and return, streaming nothing.
+        stream_logs = sm.stream_logs and not detach
         for p in plans:
             logger.info("Submitting SageMaker job %s (fold=%s)", p.job_name, p.fold)
             # Only the final job blocks when wait is requested, so earlier folds are
             # dispatched without waiting on each other.
-            wait = sm.wait and (p is plans[-1])
-            launcher.submit(p.spec, wait=wait)
+            wait = sm.wait and (p is plans[-1]) and not detach
+
+            def announce(name: str, plan: JobPlan = p, waiting: bool = wait) -> None:
+                # Runs the moment the job exists, before any log streaming, so the
+                # real (timestamped) job name is on screen even if the wait is
+                # later interrupted or the connection drops.
+                plan.submitted_name = name
+                logger.info(submitted_banner(plan, config, region, waiting,
+                                             git_summary))
+            try:
+                launcher.submit(p.spec, wait=wait, stream_logs=stream_logs,
+                                on_submitted=announce)
+            except KeyboardInterrupt:
+                logger.warning(interrupted_banner(plans, region))
+                raise SystemExit(130) from None
     except Exception as exc:
         _reraise_kms_access_denied(exc)  # raises a clearer error, or returns
         raise
@@ -708,6 +855,10 @@ def parse_cli() -> argparse.Namespace:
     add_override_arg(parser)
     parser.add_argument('--dry_run', action='store_true',
                         help='Print the job plan without contacting AWS.')
+    parser.add_argument('--detach', action='store_true',
+                        help='Submit and exit immediately: do not wait for the '
+                             'job and do not stream its logs (overrides '
+                             'sagemaker.wait). The job keeps running on AWS.')
     return parser.parse_args()
 
 
@@ -723,9 +874,10 @@ def main() -> None:
         raise SystemExit(
             "sagemaker.enabled is false; set it (e.g. --set sagemaker.enabled=true) "
             "or use --dry_run to preview the job plan.")
-    plans = submit(config, dry_run=cli.dry_run, phase=cli.phase)
+    plans = submit(config, dry_run=cli.dry_run, phase=cli.phase, detach=cli.detach)
     for p in plans:
-        print(f"{'[dry-run] ' if cli.dry_run else ''}{p.job_name} (fold={p.fold})")
+        name = p.submitted_name or p.job_name
+        print(f"{'[dry-run] ' if cli.dry_run else ''}{name} (fold={p.fold})")
 
 
 if __name__ == '__main__':

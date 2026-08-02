@@ -26,7 +26,7 @@ Typical use (from a submitting machine with AWS credentials)::
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 
 @dataclass
@@ -49,7 +49,7 @@ class SageMakerJobSpec:
     instance_type: str = "ml.g4dn.xlarge"
     instance_count: int = 1
     volume_size_gb: int = 100
-    max_run_sec: int = 4 * 24 * 60 * 60
+    max_run_sec: int = 24 * 60 * 60      # SageMaker stops the job at this cap
     use_spot: bool = False
     max_wait_sec: int = 0
     framework_version: str = "2.4.1"
@@ -196,13 +196,26 @@ class SageMakerLauncher:
         }
 
     def submit(self, spec: SageMakerJobSpec, wait: bool = False,
-               job_name: Optional[str] = None) -> str:
-        """Launch the training job; returns the (possibly SDK-generated) job name."""
+               job_name: Optional[str] = None, stream_logs: bool = True,
+               on_submitted: Optional[Callable[[str], None]] = None) -> str:
+        """Launch the training job; returns the (possibly SDK-generated) job name.
+
+        The job is always *created* without blocking so its real name is known
+        immediately; ``on_submitted(name)`` is then called (the caller uses it to
+        report the job before any waiting), and only afterwards does ``wait``
+        block on completion. ``stream_logs=False`` waits without pulling the
+        container's CloudWatch log stream into this process.
+        """
         estimator = self.build_estimator(spec)
-        fit_kwargs: Dict[str, Any] = {"wait": wait}
+        fit_kwargs: Dict[str, Any] = {"wait": False}
         if spec.inputs:
             fit_kwargs["inputs"] = self.build_inputs(spec)
         if job_name:
             fit_kwargs["job_name"] = job_name
         estimator.fit(**fit_kwargs)
-        return estimator.latest_training_job.name
+        name = estimator.latest_training_job.name
+        if on_submitted is not None:
+            on_submitted(name)
+        if wait:
+            estimator.latest_training_job.wait(logs="All" if stream_logs else "None")
+        return name

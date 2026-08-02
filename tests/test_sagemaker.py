@@ -130,6 +130,223 @@ def test_build_inputs_wraps_only_overridden_channels():
         'config': 's3://b/run.yaml', 'dataset': 's3://b/data/'}
 
 
+# ------------------------------------------------- runtime cap / detach / banner
+
+
+def test_default_max_run_sec_is_24h():
+    """A forgotten GPU job is capped at a day, not four."""
+    c = FinetuneRunConfig()
+    assert c.sagemaker.max_run_sec == 24 * 60 * 60
+    assert sub.plan_jobs(c, 's3://b/run.yaml')[0].spec.max_run_sec == 86400
+    assert estimator_kwargs(SageMakerJobSpec(entry_point='e.py'))['max_run'] == 86400
+
+
+def test_spot_max_wait_follows_the_24h_cap():
+    c = FinetuneRunConfig()
+    c.sagemaker.use_spot = True
+    kw = estimator_kwargs(sub.plan_jobs(c, 's3://b/run.yaml')[0].spec)
+    assert kw['max_wait'] == 86400
+
+
+def test_stream_logs_default_and_flow():
+    c = FinetuneRunConfig()
+    assert c.sagemaker.stream_logs is True
+
+
+def test_submit_detach_does_not_wait_or_stream(tmp_path, monkeypatch):
+    """--detach: create the job, then return — no wait, no log streaming."""
+    calls = []
+
+    class _L:
+        def __init__(self, region=None, default_role='', sagemaker_session=None):
+            pass
+
+        def _get_session(self):
+            return _FakeSession(tmp_path)
+
+        def resolve_role(self, role=''):
+            return role or 'arn:aws:iam::0:role/r'
+
+        def resolve_image_uri(self, spec):
+            return 'img'
+
+        def submit(self, spec, wait=False, job_name=None, stream_logs=True,
+                   on_submitted=None):
+            calls.append({'wait': wait, 'stream_logs': stream_logs})
+            if on_submitted:
+                on_submitted(spec.base_job_name + '-ts')
+            return spec.base_job_name + '-ts'
+
+    monkeypatch.setattr(sub, 'SageMakerLauncher', _L)
+
+    def _fresh(**sm):
+        # submit() rewrites the config to the in-container mounts, so each
+        # submission needs its own config object.
+        c = _s3_config()
+        c.sagemaker.wait = True      # deliberately on: --detach must override it
+        for key, value in sm.items():
+            setattr(c.sagemaker, key, value)
+        return c
+
+    sub.submit(_fresh(), dry_run=False, phase='finetune', detach=True)
+    assert calls == [{'wait': False, 'stream_logs': False}]
+
+    calls.clear()
+    plans = sub.submit(_fresh(), dry_run=False, phase='finetune')  # waits+streams
+    assert calls == [{'wait': True, 'stream_logs': True}]
+    assert plans[0].submitted_name.endswith('-ts')
+
+    # stream_logs=false waits quietly.
+    calls.clear()
+    sub.submit(_fresh(stream_logs=False), dry_run=False, phase='finetune')
+    assert calls == [{'wait': True, 'stream_logs': False}]
+
+
+def test_submitted_banner_says_the_job_survives_a_local_interrupt():
+    c = _s3_config()
+    c.sagemaker.instance_type = 'ml.g5.xlarge'
+    c.sagemaker.use_spot = True
+    plan = sub.plan_jobs(c, 's3://b/run.yaml')[0]
+    plan.submitted_name = 'labram-abnormal-2026-08-02-20-32-23-168'
+
+    text = sub.submitted_banner(plan, c, 'us-east-1', will_wait=True,
+                                git_summary='commit abc123, branch main, clean')
+    assert 'labram-abnormal-2026-08-02-20-32-23-168' in text
+    # The point of the banner: Ctrl-C does not kill the training job.
+    assert 'training continues' in text.lower()
+    assert 'ml.g5.xlarge' in text and '(spot)' in text
+    assert '24h' in text                                   # the runtime cap
+    assert 'stop-training-job' in text                     # how to really stop it
+    assert 'us-east-1.console.aws.amazon.com' in text
+    assert 'commit abc123' in text
+
+    # Detached: nothing is streaming, so no "interrupt is safe" wording needed.
+    detached = sub.submitted_banner(plan, c, 'us-east-1', will_wait=False)
+    assert 'this command is done' in detached.lower()
+
+
+def test_interrupted_banner_lists_still_running_jobs():
+    c = _s3_config()
+    plan = sub.plan_jobs(c, 's3://b/run.yaml')[0]
+    plan.submitted_name = 'labram-abnormal-ts'
+    text = sub.interrupted_banner([plan], 'us-east-1')
+    assert 'STILL RUNNING' in text
+    assert 'labram-abnormal-ts' in text
+    assert 'stop-training-job' in text
+
+
+def test_console_url():
+    assert sub.console_url('job-1', 'eu-west-1') == (
+        'https://eu-west-1.console.aws.amazon.com/sagemaker/home'
+        '?region=eu-west-1#/jobs/job-1')
+    assert sub.console_url('job-1', '') == ''      # unknown region -> no link
+
+
+# ------------------------------------------------------------------ git provenance
+
+
+def test_collect_git_info_on_this_repo():
+    from labram.utils import git_info as gi
+    info = gi.collect_git_info(sub.repo_root())
+    assert info is not None and len(info['commit']) == 40
+    assert info['commit_short'] == info['commit'][:12]
+    assert isinstance(info['dirty'], bool)
+    assert 'labram' in info['remote'].lower() or info['remote'] == ''
+    assert gi.format_git_summary(info).startswith('commit ')
+
+
+def test_collect_git_info_outside_a_checkout(tmp_path):
+    from labram.utils import git_info as gi
+    assert gi.collect_git_info(str(tmp_path)) is None
+    assert 'no git metadata' in gi.format_git_summary(None)
+
+
+def test_git_remote_credentials_are_stripped():
+    from labram.utils.git_info import _sanitize_remote
+    assert _sanitize_remote('https://user:ghp_secret@github.com/o/r.git') == \
+        'https://github.com/o/r.git'
+    assert _sanitize_remote('git@github.com:o/r.git') == 'git@github.com:o/r.git'
+    assert _sanitize_remote('https://github.com/o/r.git') == 'https://github.com/o/r.git'
+
+
+def test_git_info_is_shipped_inside_the_source_tarball(tmp_path):
+    """The container has no .git, so the metadata travels in the tarball."""
+    from labram.utils import git_info as gi
+    src = tmp_path / 'src'
+    src.mkdir()
+    (src / 'requirements.txt').write_text('timm\n')
+
+    session = _RecordingSession()
+    c = FinetuneRunConfig()
+    info = {'commit': 'a' * 40, 'commit_short': 'a' * 12, 'branch': 'feature/x',
+            'remote': 'https://github.com/o/r.git', 'dirty': True,
+            'modified_files': ['labram/x.py'], 'untracked_files': [],
+            'diff': 'diff --git a/x b/x\n', 'diff_truncated': False}
+    sub.package_and_upload_source(_RecordingLauncher(session), c, str(src), info)
+    assert gi.GIT_INFO_FILENAME in session.calls[-1]['names']
+
+
+def test_load_and_apply_git_info_to_clearml_task(tmp_path, monkeypatch):
+    from labram.utils import git_info as gi
+    info = {'commit': 'b' * 40, 'commit_short': 'b' * 12, 'branch': 'main',
+            'remote': 'https://github.com/o/r.git', 'dirty': True,
+            'modified_files': ['a.py'], 'untracked_files': ['b.py'],
+            'diff': 'DIFF', 'diff_truncated': False}
+    gi.write_git_info(str(tmp_path / gi.GIT_INFO_FILENAME), info)
+    monkeypatch.chdir(tmp_path)
+    assert gi.load_git_info()['commit'] == 'b' * 40
+
+    class _Task:
+        def __init__(self):
+            self.script, self.connected = None, {}
+
+        def set_script(self, **kw):
+            self.script = kw
+
+        def connect(self, d, name=None):
+            self.connected[name] = d
+
+    task = _Task()
+    assert gi.apply_git_info_to_task(task) is True
+    assert task.script['branch'] == 'main'
+    assert task.script['commit'] == 'b' * 40
+    assert task.script['repository'] == 'https://github.com/o/r.git'
+    assert task.script['diff'] == 'DIFF'          # uncommitted changes recorded
+    assert task.connected['git']['dirty'] is True
+    assert task.connected['git']['untracked_files'] == 'b.py'
+
+
+def test_apply_git_info_is_a_noop_without_shipped_metadata(tmp_path, monkeypatch):
+    """A local run keeps ClearML's own git detection; nothing to replay."""
+    from labram.utils import git_info as gi
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(gi.GIT_INFO_ENV_VAR, raising=False)
+    assert gi.load_git_info() is None
+    assert gi.apply_git_info_to_task(object()) is False
+    assert gi.apply_git_info_to_task(None) is False
+
+
+def test_apply_git_info_never_raises_on_a_broken_task(tmp_path, monkeypatch):
+    from labram.utils import git_info as gi
+
+    class _Boom:
+        def set_script(self, **kw):
+            raise RuntimeError('clearml server down')
+
+    info = {'commit': 'c' * 40, 'branch': 'x', 'remote': '', 'diff': ''}
+    assert gi.apply_git_info_to_task(_Boom(), info) is False   # warned, not raised
+
+
+def test_git_diff_is_capped(monkeypatch):
+    from labram.utils import git_info as gi
+    monkeypatch.setattr(gi, '_git', lambda root, *a: (
+        'x' * (gi.MAX_DIFF_BYTES * 2) if a[0] == 'diff' else
+        'd' * 40 if a[0] == 'rev-parse' and a[1] == 'HEAD' else 'main'))
+    info = gi.collect_git_info('/anywhere')
+    assert info['diff_truncated'] is True
+    assert len(info['diff'].encode()) < gi.MAX_DIFF_BYTES + 200
+
+
 def test_entry_missing_config_in_channel_raises_diagnostic(tmp_path, monkeypatch):
     from labram.runs import sagemaker_entry as entry
     channel = tmp_path / 'config'
@@ -648,7 +865,8 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
         def resolve_image_uri(self, spec):
             return f"763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-training:{spec.framework_version}-gpu-{spec.py_version}"
 
-        def submit(self, spec, wait=False, job_name=None):
+        def submit(self, spec, wait=False, job_name=None, stream_logs=True,
+                   on_submitted=None):
             # Simulate the container: mount the config channel, point outputs at a
             # per-job model dir, and run the real entry point for this fold. The
             # dataset channel stands in for the /opt/ml/input/data/dataset mount.
@@ -679,7 +897,12 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
                         os.environ[k] = v
             submitted.append((spec.base_job_name, fold, str(model_dir),
                               self.resolve_image_uri(spec)))
-            return spec.base_job_name
+            # SageMaker appends a timestamp to the base name; the caller learns the
+            # real name through on_submitted, before any waiting.
+            real_name = f"{spec.base_job_name}-2026-01-01-00-00-00-000"
+            if on_submitted is not None:
+                on_submitted(real_name)
+            return real_name
 
     monkeypatch.setattr(sub, "SageMakerLauncher", _FakeLauncher)
     plans = sub.submit(config, dry_run=False, phase="finetune")
@@ -687,6 +910,8 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
     # One job per fold, fold number in the job name, image resolved.
     assert [p.fold for p in plans] == [0, 1, 2]
     assert {j[0] for j in submitted} == {"labram-e2e-fold-0", "labram-e2e-fold-1", "labram-e2e-fold-2"}
+    # The real submitted name is recorded on each plan (used by the banner/CLI).
+    assert all(p.submitted_name.startswith(p.job_name) for p in plans)
     for _name, fold, model_dir, image in submitted:
         assert "pytorch-training:2.4.0-gpu-py311" in image
         assert (Path(model_dir) / "cv" / f"fold_{fold}" / "fold_metrics.json").exists()
