@@ -246,6 +246,11 @@ DEFAULT_SAGEMAKER_JOB_NAME_PREFIX: str = 'labram-finetune'
 DEFAULT_SAGEMAKER_REGION: str = ''              # '' -> boto3 default region
 DEFAULT_SAGEMAKER_OUTPUT_PATH: str = ''         # S3 prefix for model artifacts
 DEFAULT_SAGEMAKER_CODE_LOCATION: str = ''       # S3 prefix for the packaged source
+# KMS key for the S3 objects this submission writes (model output + the code /
+# config / weight objects uploaded at submit time). '' -> plain uploads and the
+# SDK/account default for the job output, so the submitting identity never needs
+# kms:GenerateDataKey it may not have (e.g. an MFA-enforced account).
+DEFAULT_SAGEMAKER_OUTPUT_KMS_KEY: str = ''
 DEFAULT_SAGEMAKER_CONFIG_CHANNEL: str = ''      # S3 uri of the config uploaded as an input channel
 DEFAULT_SAGEMAKER_WAIT: bool = False            # block until the job finishes
 # How input channels are delivered to the container. 'File' copies every object

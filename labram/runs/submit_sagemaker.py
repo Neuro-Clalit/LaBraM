@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Optional
@@ -196,10 +197,10 @@ def _stage_weight_file(staged: StagedInputs, channel: str, value: str,
 
 # ------------------------------------------------------------------ source dir
 
-# The estimator tars and uploads the whole source_dir. The repo root also holds
-# the virtualenv, downloaded checkpoints and local run outputs (gigabytes), so
-# the packaged code is built from the git-tracked files instead, minus the model
-# weights — those travel as input channels, not as code.
+# The source_dir is tarred and uploaded before the job starts. The repo root also
+# holds the virtualenv, downloaded checkpoints and local run outputs (gigabytes),
+# so the packaged code is built from the git-tracked files instead, minus the
+# model weights — those travel as input channels, not as code.
 CODE_EXCLUDED_SUFFIXES = ('.pth', '.pt', '.ckpt', '.h5', '.hdf5', '.pkl')
 
 
@@ -430,6 +431,7 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
         input_mode=validate_input_mode(sm.input_mode),
         output_path=sm.output_path,
         code_location=sm.code_location,
+        output_kms_key=sm.output_kms_key,
         base_job_name=fold_job_name(sm.job_name_prefix, fold),
     )
 
@@ -469,6 +471,31 @@ def plan_jobs(config: RunConfig, config_uri: str, phase: str = 'finetune',
 # ------------------------------------------------------------------ submit
 
 
+def source_upload_extra_args(config: RunConfig) -> Optional[Dict[str, str]]:
+    """SSE-KMS ``ExtraArgs`` for the submit-side S3 uploads, or ``None`` for a
+    plain upload.
+
+    Only set when ``sagemaker.output_kms_key`` is given. The default is a plain
+    ``PutObject`` so the submitting identity never needs ``kms:GenerateDataKey``
+    on a key it may be denied — which is exactly what breaks the estimator's own
+    code upload on an MFA-enforced account (see :func:`package_and_upload_source`
+    and docs/sagemaker.md).
+    """
+    key = config.sagemaker.output_kms_key
+    if not key:
+        return None
+    return {'ServerSideEncryption': 'aws:kms', 'SSEKMSKeyId': key}
+
+
+def _upload_data(session, local: str, key_prefix: str,
+                 extra_args: Optional[Dict[str, str]]) -> str:
+    """``session.upload_data`` that only forwards ``extra_args`` when there is
+    something to forward, so the common no-KMS path stays a plain upload."""
+    if extra_args:
+        return session.upload_data(local, key_prefix=key_prefix, extra_args=extra_args)
+    return session.upload_data(local, key_prefix=key_prefix)
+
+
 def upload_run_config(launcher: SageMakerLauncher, config: RunConfig,
                       config_channel: str = '') -> str:
     """Return the S3 uri of the run config, uploading it if not pre-supplied.
@@ -485,7 +512,7 @@ def upload_run_config(launcher: SageMakerLauncher, config: RunConfig,
         local = os.path.join(tmp, 'run_config.yaml')
         config.save_to(local)
         key_prefix = sanitize_job_name(sm.job_name_prefix) + '/config'
-        uri = session.upload_data(local, key_prefix=key_prefix)
+        uri = _upload_data(session, local, key_prefix, source_upload_extra_args(config))
     logger.info("Uploaded run config -> %s", uri)
     return uri
 
@@ -498,14 +525,65 @@ def upload_staged_weights(launcher: SageMakerLauncher, config: RunConfig,
         return {}
     session = launcher._get_session()
     prefix = sanitize_job_name(config.sagemaker.job_name_prefix)
+    extra_args = source_upload_extra_args(config)
     uploaded = {}
     for channel, local in staged.uploads.items():
         logger.info("Uploading %s (%.0f MB) as the %r input channel...",
                     local, os.path.getsize(local) / 1e6, channel)
-        uploaded[channel] = session.upload_data(
-            local, key_prefix=f'{prefix}/{channel}')
+        uploaded[channel] = _upload_data(
+            session, local, f'{prefix}/{channel}', extra_args)
         logger.info("  -> %s", uploaded[channel])
     return uploaded
+
+
+def package_and_upload_source(launcher: SageMakerLauncher, config: RunConfig,
+                              source_dir: str) -> str:
+    """Tar ``source_dir`` and upload it as ``sourcedir.tar.gz``, returning the
+    ``s3://`` uri to hand the estimator as its ``source_dir``.
+
+    The estimator would otherwise tar-and-upload the code itself inside
+    ``fit()`` — but that upload inherits the estimator's ``output_kms_key`` (which
+    an account-level ``sagemaker.config`` default can set to a customer KMS key),
+    so on an MFA-enforced account the submitting identity is denied
+    ``kms:GenerateDataKey`` and the whole submission fails. Uploading the code
+    ourselves keeps it on the same plain path already used for the config and
+    weights (or SSE-KMS with ``sagemaker.output_kms_key`` when set), and the SDK
+    skips its own upload when ``source_dir`` is an ``s3://`` tarball. The job's
+    model output still honours ``output_kms_key`` at runtime under the execution
+    role. See docs/sagemaker.md.
+    """
+    session = launcher._get_session()
+    prefix = sanitize_job_name(config.sagemaker.job_name_prefix)
+    extra_args = source_upload_extra_args(config)
+    with tempfile.TemporaryDirectory(prefix='labram-sagemaker-tar-') as tmp:
+        tar_path = os.path.join(tmp, 'sourcedir.tar.gz')
+        # Tar the *contents* of source_dir at the archive root, matching the SDK's
+        # layout so the entry point and requirements.txt resolve in-container.
+        with tarfile.open(tar_path, 'w:gz') as tar:
+            for name in sorted(os.listdir(source_dir)):
+                tar.add(os.path.join(source_dir, name), arcname=name)
+        uri = _upload_data(session, tar_path, f'{prefix}/source', extra_args)
+    logger.info("Uploaded source dir -> %s", uri)
+    return uri
+
+
+def _reraise_kms_access_denied(exc: Exception) -> None:
+    """If ``exc`` is an S3/KMS ``AccessDenied`` on ``kms:GenerateDataKey``, raise a
+    ``RuntimeError`` with an actionable message; otherwise return so the caller
+    re-raises the original."""
+    text = str(exc)
+    if 'AccessDenied' not in text or 'kms:' not in text:
+        return
+    raise RuntimeError(
+        "An S3 upload was denied a KMS data key (kms:GenerateDataKey). The "
+        "submitting identity is not allowed to use the KMS key that encrypts the "
+        "target bucket — often an MFA-enforcement policy that denies KMS without "
+        "an MFA-backed session. LaBraM uploads the code, config and weights "
+        "itself without a customer key, so this most likely comes from the "
+        "output/session bucket enforcing one. Fixes: submit with MFA-backed "
+        "credentials; set sagemaker.output_kms_key to a key you are allowed to "
+        "use; or point sagemaker.output_path at a bucket without a mandatory "
+        "CMK. See docs/sagemaker.md > KMS-encrypted buckets.") from exc
 
 
 def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') -> List[JobPlan]:
@@ -536,12 +614,14 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
     role = launcher.resolve_role(sm.role)
     logger.info("SageMaker execution role: %s", role)
 
-    uploaded = upload_staged_weights(launcher, config, staged)
-    config_uri = upload_run_config(launcher, config, sm.config_channel)
-    # The estimator tars source_dir at fit() time, so the staged copy has to stay
-    # alive for the whole submission.
-    with staged_source_dir(config) as source_dir:
-        plans = plan_jobs(config, config_uri, phase, staged.resolved(uploaded), source_dir)
+    try:
+        uploaded = upload_staged_weights(launcher, config, staged)
+        config_uri = upload_run_config(launcher, config, sm.config_channel)
+        # Package + upload the code ourselves and pass the estimator an s3://
+        # sourcedir.tar.gz, so it skips its own KMS-inheriting code upload.
+        with staged_source_dir(config) as source_dir:
+            source_uri = package_and_upload_source(launcher, config, source_dir)
+        plans = plan_jobs(config, config_uri, phase, staged.resolved(uploaded), source_uri)
         if plans:
             # Log the training image that will actually be used (verify it resolves).
             try:
@@ -555,6 +635,9 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
             # dispatched without waiting on each other.
             wait = sm.wait and (p is plans[-1])
             launcher.submit(p.spec, wait=wait)
+    except Exception as exc:
+        _reraise_kms_access_denied(exc)  # raises a clearer error, or returns
+        raise
     logger.info("Submitted %d SageMaker job(s).", len(plans))
     return plans
 

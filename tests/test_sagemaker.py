@@ -5,6 +5,7 @@ AWS (a fake launcher simulates the container by running the real entry point).""
 import os
 import pickle
 import shutil
+import tarfile
 from pathlib import Path
 
 import numpy as np
@@ -56,12 +57,30 @@ def test_estimator_kwargs_input_mode():
     assert 'input_mode' not in estimator_kwargs(SageMakerJobSpec(entry_point='e.py'))
 
 
+def test_estimator_kwargs_output_kms_key():
+    spec = SageMakerJobSpec(entry_point='e.py',
+                            output_kms_key='arn:aws:kms:us-east-1:0:key/abc')
+    assert estimator_kwargs(spec)['output_kms_key'] == 'arn:aws:kms:us-east-1:0:key/abc'
+    # Unset -> omitted so the SDK / account default applies (used by the
+    # execution role for model output at runtime).
+    assert 'output_kms_key' not in estimator_kwargs(SageMakerJobSpec(entry_point='e.py'))
+
+
 def test_input_mode_flows_from_config_to_spec():
     c = FinetuneRunConfig()
     c.sagemaker.input_mode = 'FastFile'
     plans = sub.plan_jobs(c, 's3://b/run.yaml')
     assert plans[0].spec.input_mode == 'FastFile'
     assert estimator_kwargs(plans[0].spec)['input_mode'] == 'FastFile'
+
+
+def test_output_kms_key_flows_from_config_to_spec():
+    c = FinetuneRunConfig()
+    c.sagemaker.output_kms_key = 'arn:aws:kms:us-east-1:0:key/abc'
+    plans = sub.plan_jobs(c, 's3://b/run.yaml')
+    assert plans[0].spec.output_kms_key == 'arn:aws:kms:us-east-1:0:key/abc'
+    assert estimator_kwargs(plans[0].spec)['output_kms_key'] == \
+        'arn:aws:kms:us-east-1:0:key/abc'
 
 
 def test_invalid_input_mode_rejected():
@@ -334,6 +353,86 @@ def test_staged_source_dir_honours_explicit_setting(tmp_path):
     assert os.path.exists(tmp_path)  # not ours to delete
 
 
+class _RecordingSession:
+    """Minimal sagemaker.Session stand-in that records the last upload."""
+
+    def __init__(self):
+        self.calls = []
+
+    def upload_data(self, path, bucket=None, key_prefix="", extra_args=None):
+        names = set(tarfile.open(path).getnames()) if path.endswith('.tar.gz') else None
+        self.calls.append({'key_prefix': key_prefix, 'extra_args': extra_args,
+                           'names': names})
+        return f"s3://fake-bucket/{key_prefix}/{os.path.basename(path)}"
+
+
+class _RecordingLauncher:
+    def __init__(self, session):
+        self._session = session
+
+    def _get_session(self):
+        return self._session
+
+
+def test_source_upload_extra_args():
+    c = FinetuneRunConfig()
+    assert sub.source_upload_extra_args(c) is None            # plain upload by default
+    c.sagemaker.output_kms_key = 'k-123'
+    assert sub.source_upload_extra_args(c) == {
+        'ServerSideEncryption': 'aws:kms', 'SSEKMSKeyId': 'k-123'}
+
+
+def test_package_and_upload_source_tars_contents(tmp_path):
+    """The code is packaged + uploaded by the CLI (not the estimator) as an
+    s3:// sourcedir.tar.gz, so the estimator skips its KMS-inheriting upload."""
+    src = tmp_path / "src"
+    (src / "labram" / "runs").mkdir(parents=True)
+    (src / "labram" / "runs" / "sagemaker_entry.py").write_text("# entry\n")
+    (src / "requirements.txt").write_text("timm\n")
+
+    session = _RecordingSession()
+    c = FinetuneRunConfig()
+    c.sagemaker.job_name_prefix = "labram-abnormal"
+    uri = sub.package_and_upload_source(_RecordingLauncher(session), c, str(src))
+
+    assert uri == "s3://fake-bucket/labram-abnormal/source/sourcedir.tar.gz"
+    call = session.calls[-1]
+    assert call['key_prefix'] == "labram-abnormal/source"
+    assert call['extra_args'] is None            # plain upload — no KMS by default
+    assert "requirements.txt" in call['names']   # contents at the archive root
+    assert "labram/runs/sagemaker_entry.py" in call['names']
+
+
+def test_package_and_upload_source_honours_kms_key(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "requirements.txt").write_text("timm\n")
+
+    session = _RecordingSession()
+    c = FinetuneRunConfig()
+    c.sagemaker.output_kms_key = "arn:aws:kms:us-east-1:0:key/abc"
+    sub.package_and_upload_source(_RecordingLauncher(session), c, str(src))
+    assert session.calls[-1]['extra_args'] == {
+        'ServerSideEncryption': 'aws:kms',
+        'SSEKMSKeyId': 'arn:aws:kms:us-east-1:0:key/abc'}
+
+
+def test_reraise_kms_access_denied_wraps_kms_errors():
+    orig = Exception(
+        "S3UploadFailedError: Failed to upload /tmp/x/source.tar.gz ...: An error "
+        "occurred (AccessDenied) when calling the PutObject operation: User is not "
+        "authorized to perform: kms:GenerateDataKey on resource: arn:aws:kms:...")
+    with pytest.raises(RuntimeError, match="output_kms_key"):
+        sub._reraise_kms_access_denied(orig)
+
+
+def test_reraise_kms_access_denied_ignores_other_errors():
+    # Non-KMS errors return None so the caller re-raises the original untouched.
+    assert sub._reraise_kms_access_denied(ValueError("boom")) is None
+    assert sub._reraise_kms_access_denied(
+        Exception("AccessDenied on s3:PutObject")) is None  # S3-only, not KMS
+
+
 def test_submit_dry_run_no_sdk(monkeypatch):
     # Guarantee the SDK is never imported on the dry-run path.
     import builtins
@@ -432,7 +531,7 @@ class _FakeSession:
     def default_bucket(self):
         return "fake-bucket"
 
-    def upload_data(self, path, bucket=None, key_prefix=""):
+    def upload_data(self, path, bucket=None, key_prefix="", extra_args=None):
         dest = self.store / key_prefix
         dest.mkdir(parents=True, exist_ok=True)
         out = dest / os.path.basename(path)
@@ -489,7 +588,13 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
             # per-job model dir, and run the real entry point for this fold. The
             # dataset channel stands in for the /opt/ml/input/data/dataset mount.
             assert spec.inputs["dataset"] == "s3://fake-bucket/data/TUAB"
-            assert os.path.isfile(os.path.join(spec.source_dir, "requirements.txt"))
+            # The CLI packages + "uploads" the code itself, so source_dir is a
+            # sourcedir.tar.gz (an s3:// uri in real runs) rather than a local dir.
+            assert spec.source_dir.endswith("sourcedir.tar.gz")
+            with tarfile.open(spec.source_dir) as tar:
+                names = set(tar.getnames())
+            assert "requirements.txt" in names
+            assert "labram/runs/sagemaker_entry.py" in names
             cfg_uri = spec.inputs["config"]
             channel_dir = os.path.dirname(cfg_uri)
             model_dir = tmp_path / "model" / spec.base_job_name

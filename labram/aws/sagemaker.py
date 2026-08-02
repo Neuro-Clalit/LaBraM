@@ -59,6 +59,7 @@ class SageMakerJobSpec:
     input_mode: str = ""
     output_path: str = ""
     code_location: str = ""
+    output_kms_key: str = ""
     base_job_name: str = "training-job"
 
 
@@ -96,6 +97,8 @@ def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
         kwargs["output_path"] = spec.output_path
     if spec.code_location:
         kwargs["code_location"] = spec.code_location
+    if spec.output_kms_key:
+        kwargs["output_kms_key"] = spec.output_kms_key
     if spec.tags:
         kwargs["tags"] = [{"Key": k, "Value": v} for k, v in spec.tags.items()]
     if spec.use_spot:
