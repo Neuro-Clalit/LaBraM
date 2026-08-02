@@ -46,6 +46,13 @@ python -m labram.runs.submit_sagemaker \
         sagemaker.output_path=s3://my-bucket/labram/finetune_tuab_cv5 \
         data.data_path=s3://my-bucket/data/TUAB
 
+# Ready-made profile: TUH Abnormal (normal/abnormal) on SageMaker with the role,
+# S3 dataset, FastFile streaming and ClearML project baked in — add trainer.debug
+# for a debug smoke test (auto-tagged `debug` in ClearML):
+python -m labram.runs.submit_sagemaker \
+  --config labram/configs/defaults/finetune_tuab_abnormal_sagemaker.json \
+  --set trainer.debug=true
+
 # Submit a different trainer (VQNSP tokenizer / pre-training):
 python -m labram.runs.submit_sagemaker --phase vqnsp \
   --config labram/configs/defaults/vqnsp.json --dry_run
