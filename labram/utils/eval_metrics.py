@@ -62,16 +62,19 @@ def _binary_report(y_score: np.ndarray, y_true: np.ndarray, threshold: float) ->
     specificity = tn / (tn + fp) if (tn + fp) else 0.0
     precision = tp / (tp + fp) if (tp + fp) else 0.0
 
+    single_class = _is_single_class(y_true)
     scalars = {
         'accuracy': float(accuracy_score(y_true, y_pred)),
-        'balanced_accuracy': float(balanced_accuracy_score(y_true, y_pred)),
+        'balanced_accuracy': (float(accuracy_score(y_true, y_pred)) if single_class
+                              else float(balanced_accuracy_score(y_true, y_pred))),
         'precision': float(precision),
         'recall': float(sensitivity),
         'sensitivity': float(sensitivity),
         'specificity': float(specificity),
         'f1': float(f1_score(y_true, y_pred, zero_division=0)),
         'f1_weighted': float(f1_score(y_true, y_pred, average='weighted', zero_division=0)),
-        'cohen_kappa': float(cohen_kappa_score(y_true, y_pred)),
+        'cohen_kappa': (0.0 if single_class
+                        else float(cohen_kappa_score(y_true, y_pred))),
         'cm_tn': float(tn), 'cm_fp': float(fp), 'cm_fn': float(fn), 'cm_tp': float(tp),
     }
 
@@ -111,16 +114,19 @@ def _multiclass_report(logits: np.ndarray, y_true: np.ndarray, nb_classes: int) 
         per_sens = np.where((tp + fn) > 0, tp / (tp + fn), 0.0)
         per_spec = np.where((tn + fp) > 0, tn / (tn + fp), 0.0)
 
+    single_class = np.unique(y_true).size < 2
     scalars = {
         'accuracy': float(accuracy_score(y_true, y_pred)),
-        'balanced_accuracy': float(balanced_accuracy_score(y_true, y_pred)),
-        'precision': float(precision_score(y_true, y_pred, average='macro', zero_division=0)),
-        'recall': float(recall_score(y_true, y_pred, average='macro', zero_division=0)),
+        'balanced_accuracy': (float(accuracy_score(y_true, y_pred)) if single_class
+                              else float(balanced_accuracy_score(y_true, y_pred))),
+        'precision': float(precision_score(y_true, y_pred, labels=labels, average='macro', zero_division=0)),
+        'recall': float(recall_score(y_true, y_pred, labels=labels, average='macro', zero_division=0)),
         'sensitivity': float(per_sens.mean()),
         'specificity': float(per_spec.mean()),
-        'f1': float(f1_score(y_true, y_pred, average='macro', zero_division=0)),
-        'f1_weighted': float(f1_score(y_true, y_pred, average='weighted', zero_division=0)),
-        'cohen_kappa': float(cohen_kappa_score(y_true, y_pred)),
+        'f1': float(f1_score(y_true, y_pred, labels=labels, average='macro', zero_division=0)),
+        'f1_weighted': float(f1_score(y_true, y_pred, labels=labels, average='weighted', zero_division=0)),
+        'cohen_kappa': (0.0 if single_class
+                        else float(cohen_kappa_score(y_true, y_pred))),
     }
     # Multiclass AUROC (one-vs-rest, macro) requires every class present.
     if np.unique(y_true).size == nb_classes and nb_classes > 1:

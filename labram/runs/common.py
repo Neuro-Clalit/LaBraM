@@ -104,6 +104,27 @@ def flatten_config(d: Any, prefix: str = '') -> dict:
     return out
 
 
+def _clearml_task_url(task: Any) -> str:
+    """Extract the web UI URL from a ClearML ``Task``, or return ``''``."""
+    if task is None:
+        return ''
+    try:
+        url = task.get_output_log_web_page()
+        if url:
+            return str(url)
+    except Exception:
+        pass
+    try:
+        task_id = task.id
+        project_id = task.project
+        if task_id:
+            web_host = os.environ.get('CLEARML_WEB_HOST', 'https://app.clear.ml')
+            return f"{web_host}/projects/{project_id or '*'}/experiments/{task_id}/output/log"
+    except Exception:
+        pass
+    return ''
+
+
 def _derive_clearml_task_name(run_config: Any) -> str:
     """Pick a stable, human-readable ClearML task name from the run config."""
     output_cfg = getattr(run_config, 'output', None)
@@ -216,9 +237,12 @@ def init_clearml_task(
             task.connect(flatten_config(run_config.as_dict()), name='config')
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("ClearML connect (hyperparameters) failed: %s", exc)
+    task_url = _clearml_task_url(task)
     logger.info(
         "ClearML tracking enabled: project=%r task=%r debug=%s output_uri=%r",
         project_name, task_name, is_debug, output_uri)
+    if task_url:
+        logger.info("ClearML task URL: %s", task_url)
     return task
 
 
@@ -573,6 +597,12 @@ def finalize_run(config: Any, log_writer: Any = None) -> None:
         elif task is not None:
             logger.warning("ClearML upload requested but no checkpoint found in %r",
                            getattr(output_cfg, 'output_dir', None))
+
+    if clearml_on:
+        task = get_clearml_task(log_writer)
+        task_url = _clearml_task_url(task)
+        if task_url:
+            logger.info("ClearML results: %s", task_url)
 
     # If we're about to stop the machine, finish the ClearML task first so its
     # final state and pending uploads are persisted before the box is killed —

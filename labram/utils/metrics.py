@@ -4,11 +4,18 @@
 # regression computed locally since pyhealth has no regression metrics.
 # ---------------------------------------------------------
 
+import warnings
 from typing import Any, Dict, List
 
+import numpy as np
 from pyhealth.metrics import binary_metrics_fn, multiclass_metrics_fn
 
 from labram.utils.regression_metrics import regression_metrics_fn
+
+
+def _is_single_class(target: Any) -> bool:
+    """True when ``target`` contains fewer than 2 distinct values."""
+    return np.unique(np.asarray(target).ravel()).size < 2
 
 
 def get_metrics(
@@ -25,13 +32,26 @@ def get_metrics(
     """
     if task == "regression":
         return regression_metrics_fn(output, target, metrics)
+
+    single_class = _is_single_class(target)
+
     if is_binary:
-        if 'roc_auc' not in metrics or sum(target) * (len(target) - sum(target)) != 0:
+        if single_class and 'roc_auc' in metrics:
+            return {m: 0.0 for m in metrics}
+        with warnings.catch_warnings():
+            if single_class:
+                warnings.filterwarnings("ignore", category=UserWarning)
+                warnings.filterwarnings("ignore", category=RuntimeWarning)
+                warnings.filterwarnings("ignore", message=".*single label.*")
+                warnings.filterwarnings("ignore", message=".*invalid value.*")
+                warnings.filterwarnings("ignore", message=".*classes not in y_true.*")
             return binary_metrics_fn(target, output, metrics=metrics, threshold=threshold)
-        return {
-            "accuracy": 0.0,
-            "balanced_accuracy": 0.0,
-            "pr_auc": 0.0,
-            "roc_auc": 0.0,
-        }
-    return multiclass_metrics_fn(target, output, metrics=metrics)
+
+    with warnings.catch_warnings():
+        if single_class:
+            warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
+            warnings.filterwarnings("ignore", message=".*single label.*")
+            warnings.filterwarnings("ignore", message=".*invalid value.*")
+            warnings.filterwarnings("ignore", message=".*classes not in y_true.*")
+        return multiclass_metrics_fn(target, output, metrics=metrics)

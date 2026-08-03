@@ -7,6 +7,7 @@
 # https://github.com/facebookresearch/deit/
 # https://github.com/facebookresearch/dino
 # ---------------------------------------------------------
+import math
 from typing import Any, Iterable, Optional, Sequence
 
 import torch
@@ -349,6 +350,8 @@ def log_lr_wd_grad_metrics(
     metric_logger.update(lr=max_lr)
     metric_logger.update(min_lr=min_lr)
     metric_logger.update(weight_decay=weight_decay_value)
+    if grad_norm is not None and not math.isfinite(grad_norm):
+        grad_norm = None
     metric_logger.update(grad_norm=grad_norm)
     if log_writer is not None:
         # lr/min_lr/weight_decay live on a small (<= ~1) scale; keep them together
