@@ -93,7 +93,7 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 | `role` | `''` | Execution role ARN; `''` → `sagemaker.get_execution_role()`. |
 | `instance_type` / `instance_count` | `ml.g5.2xlarge` / `1` | Compute per job (matches a g5.2xl EC2 box; use `ml.g5.xlarge` for the cheaper single-GPU option). |
 | `volume_size_gb` | `100` | EBS volume per instance. |
-| `max_run_sec` | `345600` | Hard wall-clock cap per job. |
+| `max_run_sec` | `86400` (24h) | Hard wall-clock cap per job — SageMaker **stops** the job at the cap, bounding what one submission can cost. Raise it explicitly for long pre-training runs. |
 | `use_spot` / `max_wait_sec` | `false` / `0` | Managed spot training (`0` → reuse `max_run_sec`). |
 | `framework_version` / `py_version` | `2.4.0` / `py311` | Managed PyTorch DLC selectors (2.4.0 is a published DLC; 2.4.1 is not). |
 | `image_uri` | `''` | Explicit training image (overrides the managed DLC). |
@@ -106,7 +106,8 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 | `weight_s3_uris` | `{./checkpoints/labram-base.pth → s3://eeg-data-public/models/labram/labram-base.pth, ./checkpoints/vqnsp.pth → s3://…/vqnsp.pth}` | Local weight paths whose bytes already live in S3; the mirror is mounted as a channel instead of the local file being uploaded (see below). |
 | `input_mode` | `File` | Channel delivery: `File`, `FastFile` or `Pipe` (see below). |
 | `environment` / `hyperparameters` / `tags` | `{}` | Extra container env vars / hyperparameters / job tags. |
-| `wait` | `false` | Block until the (last) job finishes. |
+| `wait` | `false` | Block until the (last) job finishes. The job runs on AWS either way — waiting only keeps the local process attached. |
+| `stream_logs` | `true` | While waiting, stream the job's CloudWatch logs locally. `false` waits quietly; `--detach` turns this *and* `wait` off. |
 
 Unknown `--set` keys are rejected, so a typo in one of these names fails the
 submission instead of being silently dropped.
@@ -127,6 +128,25 @@ suits, so prefer it for any real dataset channel:
 ```bash
 --set sagemaker.input_mode=FastFile
 ```
+
+#### Single-object channels are always delivered as `File`
+
+Fast file mode "supports S3 prefixes **only**": it mounts the channel's S3 uri as
+a *prefix* and exposes the keys **beneath** it. Two of the channels address a
+single object rather than a prefix — `config` (the uploaded `run_config.yaml`) and
+the weight channels (`pretrained` / `tokenizer`) — so under `FastFile` their
+mounts come up **empty** and the job dies on a file that was never there:
+
+```
+RuntimeError: Non valid  path: /opt/ml/input/data/config/run_config.yaml
+```
+
+The submitter prevents this: channels that address one object get a per-channel
+`File` `InputMode` (via `TrainingInput`), which restores the
+`‹mount›/‹basename›` layout the container expects. They are small, so this costs
+one quick download, and the big `dataset` channel keeps streaming — which is the
+point of `FastFile`. `channel_input_modes()` decides this, and the submit log
+names the channels it overrode. Nothing to configure.
 
 ## IAM execution role (required)
 
@@ -356,6 +376,41 @@ torch build and only the remaining libraries (timm, mne, pyhealth, scikit-learn,
 To add job-only dependencies, either extend `requirements.txt` or point
 `sagemaker.source_dir` at a directory whose `requirements.txt` you control.
 
+## After submission: the job is independent of your terminal
+
+As soon as a job is created the CLI prints a banner with its **real** (timestamped)
+job name, the instance, the runtime cap, the git commit, and a console link — before
+any log streaming, so the name is on screen even if the wait is later interrupted.
+
+The banner exists to make one thing unmissable: **the job runs on AWS, not in your
+terminal.** With `sagemaker.wait=true` the local process is only tailing CloudWatch;
+Ctrl-C, closing the terminal, or losing the connection stops the *log tail* only —
+training continues and still writes checkpoints to S3 and metrics to ClearML. An
+interrupt during a wait prints a second banner repeating that, with the job names
+still running. To actually stop a job:
+
+```bash
+aws sagemaker stop-training-job --training-job-name ‹name›
+```
+
+### Submit and exit: `--detach`
+
+```bash
+python -m labram.runs.submit_sagemaker --config ‹cfg› --detach --set ...
+```
+
+`--detach` creates the job(s), prints the banner, and returns — it waits for
+nothing and streams no logs, overriding `sagemaker.wait`. Use it for long runs, or
+from a script that should not hold a terminal open. To wait but without the log
+firehose, keep `wait=true` and set `--set sagemaker.stream_logs=false`.
+
+### Runtime cap
+
+`max_run_sec` defaults to **24h** and SageMaker *stops* the job when it is reached,
+so a hung or diverging run cannot burn a GPU for days. Long pre-training needs it
+raised explicitly (`--set sagemaker.max_run_sec=345600` for 4 days). With
+`use_spot`, `max_wait_sec=0` reuses the same value.
+
 ## ClearML logging from SageMaker
 
 ClearML logging works inside the job: `clearml` is in `requirements.txt`, and the
@@ -371,6 +426,29 @@ access key, secret key and API host still cannot be resolved the CLI warns
 before submitting, because the job would otherwise fail to report. The
 fold-number parsing in `cv_report` tolerates the `append_timestamp` task-name
 suffix.
+
+### Git provenance (branch / commit / uncommitted changes)
+
+ClearML fills an experiment's *code* section by finding a `.git` next to the
+running script. A SageMaker job has none — the packaged source is built from
+`git ls-files`, so `.git` is deliberately absent — which would leave every
+submitted experiment with **no branch, no commit and no record of uncommitted
+edits**.
+
+So the submitter captures that metadata from your checkout
+(`labram/utils/git_info.py`), ships it inside the source tarball as
+`labram_git_info.json`, and the in-container run replays it onto the task with
+`Task.set_script()`, so ClearML shows:
+
+- **repository** (with any embedded credentials stripped from the URL), **branch**
+  and **full commit sha**;
+- the **uncommitted diff** — because the job runs your *working tree*, not the
+  commit — capped at 256 KiB, plus the modified/untracked file lists as a
+  searchable `git` parameter section.
+
+The submit log states the commit and warns when the tree is dirty. Local runs are
+untouched: they have a real `.git`, ship no metadata file, and keep ClearML's own
+detection. Tracking never fails a run — every step degrades to a warning.
 
 ## Requirements (submitting machine)
 

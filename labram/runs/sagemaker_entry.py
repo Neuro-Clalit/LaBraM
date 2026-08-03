@@ -34,7 +34,14 @@ PHASE_CONFIGS = {
 
 def find_config_path(explicit: Optional[str]) -> Optional[str]:
     """Locate the run config: an explicit path, else a well-known name (or the
-    first YAML/JSON) in the SageMaker ``config`` input channel."""
+    first YAML/JSON) in the SageMaker ``config`` input channel.
+
+    Raises when the channel is mounted but holds no config, rather than returning
+    a path that does not exist — the downstream loader only reports
+    ``Non valid path: <path>``, which says nothing about *why* the channel is
+    empty (the usual cause is a ``FastFile``/``Pipe`` channel whose S3 uri is a
+    single object instead of a prefix, which mounts as an empty directory).
+    """
     if explicit and os.path.exists(explicit):
         return explicit
     channel = os.environ.get('SM_CHANNEL_CONFIG')
@@ -47,6 +54,13 @@ def find_config_path(explicit: Optional[str]) -> Optional[str]:
                       if f.endswith(('.yaml', '.yml', '.json')))
         if cfgs:
             return os.path.join(channel, cfgs[0])
+        raise FileNotFoundError(
+            f"The SageMaker 'config' channel is mounted at {channel} but contains "
+            f"no .yaml/.yml/.json run config (found: {sorted(os.listdir(channel))}). "
+            f"--config was {explicit!r}. A FastFile/Pipe channel exposes only the "
+            "keys *beneath* its S3 uri, so pointing it at a single object mounts "
+            "an empty directory; the channel must be delivered as File (see "
+            "labram.runs.submit_sagemaker.channel_input_modes).")
     return explicit
 
 

@@ -230,7 +230,12 @@ DEFAULT_SAGEMAKER_ROLE: str = ''                # '' -> resolve via sagemaker.ge
 DEFAULT_SAGEMAKER_INSTANCE_TYPE: str = 'ml.g5.2xlarge'
 DEFAULT_SAGEMAKER_INSTANCE_COUNT: int = 1
 DEFAULT_SAGEMAKER_VOLUME_SIZE_GB: int = 100
-DEFAULT_SAGEMAKER_MAX_RUN_SEC: int = 4 * 24 * 60 * 60   # 4 days
+# Hard wall-clock cap per training job: SageMaker stops the job when it is hit,
+# so this is the ceiling on what a single submission can cost if training hangs,
+# diverges, or is simply slower than expected. 24h covers the LaBraM fine-tunes
+# and keeps a forgotten GPU job from running for days; raise it explicitly
+# (--set sagemaker.max_run_sec=...) for long pre-training runs.
+DEFAULT_SAGEMAKER_MAX_RUN_SEC: int = 24 * 60 * 60   # 24 hours
 DEFAULT_SAGEMAKER_USE_SPOT: bool = False
 DEFAULT_SAGEMAKER_MAX_WAIT_SEC: int = 0         # 0 -> falls back to max_run_sec when spot is on
 # Managed PyTorch Deep Learning Container selector. 2.4.0 + py311 is a published
@@ -253,6 +258,9 @@ DEFAULT_SAGEMAKER_CODE_LOCATION: str = ''       # S3 prefix for the packaged sou
 DEFAULT_SAGEMAKER_OUTPUT_KMS_KEY: str = ''
 DEFAULT_SAGEMAKER_CONFIG_CHANNEL: str = ''      # S3 uri of the config uploaded as an input channel
 DEFAULT_SAGEMAKER_WAIT: bool = False            # block until the job finishes
+# Stream the job's CloudWatch logs into the submitting terminal while waiting.
+# False waits quietly; --detach turns both this and `wait` off (submit and exit).
+DEFAULT_SAGEMAKER_STREAM_LOGS: bool = True
 # How input channels are delivered to the container. 'File' copies every object
 # onto the EBS volume before training starts (simple, but the TUH corpora are
 # ~400k small files and would need both the wait and the disk); 'FastFile'

@@ -200,6 +200,10 @@ def init_clearml_task(
     )
     if tags:
         task.add_tags(tags)
+    # A SageMaker job runs from a source tarball with no .git, so ClearML cannot
+    # auto-detect the code state. When the submitter shipped its git metadata,
+    # replay it so branch/commit/uncommitted-diff still reach the experiment.
+    utils.apply_git_info_to_task(task)
     if run_config is not None and hasattr(run_config, 'as_dict'):
         try:
             task.connect_configuration(run_config.as_dict(), name='run_config')

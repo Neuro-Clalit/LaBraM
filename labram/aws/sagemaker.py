@@ -26,7 +26,7 @@ Typical use (from a submitting machine with AWS credentials)::
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 
 @dataclass
@@ -36,8 +36,11 @@ class SageMakerJobSpec:
     ``inputs`` maps an input-channel name to an S3 uri; each channel is mounted
     in-container at ``/opt/ml/input/data/<channel>``. ``input_mode`` selects how
     they are delivered (``File`` / ``FastFile`` / ``Pipe``); empty keeps the SDK
-    default (``File``). ``hyperparameters`` are passed to the entry point as
-    ``--key value`` CLI args by the SDK.
+    default (``File``). ``channel_input_modes`` overrides the mode for individual
+    channels (``{channel: mode}``) — needed because ``FastFile``/``Pipe`` treat an
+    S3 uri as a *prefix* and expose only the keys beneath it, so a channel whose
+    uri is a single object must be delivered as ``File``. ``hyperparameters`` are
+    passed to the entry point as ``--key value`` CLI args by the SDK.
     """
 
     entry_point: str
@@ -46,7 +49,7 @@ class SageMakerJobSpec:
     instance_type: str = "ml.g4dn.xlarge"
     instance_count: int = 1
     volume_size_gb: int = 100
-    max_run_sec: int = 4 * 24 * 60 * 60
+    max_run_sec: int = 24 * 60 * 60      # SageMaker stops the job at this cap
     use_spot: bool = False
     max_wait_sec: int = 0
     framework_version: str = "2.4.1"
@@ -57,6 +60,7 @@ class SageMakerJobSpec:
     tags: Dict[str, str] = field(default_factory=dict)
     inputs: Dict[str, str] = field(default_factory=dict)
     input_mode: str = ""
+    channel_input_modes: Dict[str, str] = field(default_factory=dict)
     output_path: str = ""
     code_location: str = ""
     output_kms_key: str = ""
@@ -178,14 +182,40 @@ class SageMakerLauncher:
         kwargs["sagemaker_session"] = self._get_session()
         return PyTorch(**kwargs)
 
+    def build_inputs(self, spec: SageMakerJobSpec) -> Dict[str, Any]:
+        """The ``fit(inputs=...)`` mapping: a plain uri per channel, or a
+        ``TrainingInput`` for channels that override the job-level input mode."""
+        modes = {c: m for c, m in (spec.channel_input_modes or {}).items() if m}
+        if not modes:
+            return dict(spec.inputs)
+        from sagemaker.inputs import TrainingInput
+        return {
+            channel: (TrainingInput(s3_data=uri, input_mode=modes[channel])
+                      if channel in modes else uri)
+            for channel, uri in spec.inputs.items()
+        }
+
     def submit(self, spec: SageMakerJobSpec, wait: bool = False,
-               job_name: Optional[str] = None) -> str:
-        """Launch the training job; returns the (possibly SDK-generated) job name."""
+               job_name: Optional[str] = None, stream_logs: bool = True,
+               on_submitted: Optional[Callable[[str], None]] = None) -> str:
+        """Launch the training job; returns the (possibly SDK-generated) job name.
+
+        The job is always *created* without blocking so its real name is known
+        immediately; ``on_submitted(name)`` is then called (the caller uses it to
+        report the job before any waiting), and only afterwards does ``wait``
+        block on completion. ``stream_logs=False`` waits without pulling the
+        container's CloudWatch log stream into this process.
+        """
         estimator = self.build_estimator(spec)
-        fit_kwargs: Dict[str, Any] = {"wait": wait}
+        fit_kwargs: Dict[str, Any] = {"wait": False}
         if spec.inputs:
-            fit_kwargs["inputs"] = dict(spec.inputs)
+            fit_kwargs["inputs"] = self.build_inputs(spec)
         if job_name:
             fit_kwargs["job_name"] = job_name
         estimator.fit(**fit_kwargs)
-        return estimator.latest_training_job.name
+        name = estimator.latest_training_job.name
+        if on_submitted is not None:
+            on_submitted(name)
+        if wait:
+            estimator.latest_training_job.wait(logs="All" if stream_logs else "None")
+        return name
