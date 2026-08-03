@@ -22,6 +22,14 @@ from labram.data.tuh_datasets import (
     prepare_TUEV_dataset,
 )
 from labram.utils.cli import bool_flag, get_model
+from labram.utils.git_info import (
+    GIT_INFO_FILENAME,
+    apply_git_info_to_task,
+    collect_git_info,
+    format_git_summary,
+    git_info_bytes,
+    load_git_info,
+)
 from labram.utils.distributed import (
     GatherLayer,
     all_gather_batch,

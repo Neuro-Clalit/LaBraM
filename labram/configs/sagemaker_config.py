@@ -30,6 +30,7 @@ from labram.configs.defaults import (
     DEFAULT_SAGEMAKER_REGION,
     DEFAULT_SAGEMAKER_ROLE,
     DEFAULT_SAGEMAKER_SOURCE_DIR,
+    DEFAULT_SAGEMAKER_STREAM_LOGS,
     DEFAULT_SAGEMAKER_USE_SPOT,
     DEFAULT_SAGEMAKER_VOLUME_SIZE_GB,
     DEFAULT_SAGEMAKER_WAIT,
@@ -46,7 +47,9 @@ class SageMakerConfig(ConfigBase):
         role: SageMaker execution role ARN. Empty -> resolved on the submitting
             machine via ``sagemaker.get_execution_role()``.
         instance_type / instance_count / volume_size_gb: Compute for each job.
-        max_run_sec: Hard wall-clock cap per training job.
+        max_run_sec: Hard wall-clock cap per training job — SageMaker stops the
+            job when it is reached, bounding the cost of one submission (default
+            24h; raise it for long pre-training runs).
         use_spot / max_wait_sec: Managed spot training and its max wait (0 ->
             reuse ``max_run_sec`` when spot is enabled).
         framework_version / py_version: Managed PyTorch DLC selectors.
@@ -82,7 +85,12 @@ class SageMakerConfig(ConfigBase):
         environment: Extra environment variables for the training container.
         hyperparameters: Extra hyperparameters merged into every job.
         tags: ``{Key: Value}`` tags applied to each job.
-        wait: Block until the (last) job finishes.
+        wait: Block until the (last) job finishes. The job itself runs on AWS
+            either way — waiting only keeps this process attached to it.
+        stream_logs: While waiting, stream the job's CloudWatch logs into the
+            submitting terminal. False waits quietly. The ``--detach`` CLI flag
+            turns this *and* ``wait`` off, so the command returns as soon as the
+            job is created.
     """
 
     enabled: bool = DEFAULT_SAGEMAKER_ENABLED
@@ -111,3 +119,4 @@ class SageMakerConfig(ConfigBase):
     hyperparameters: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)
     wait: bool = DEFAULT_SAGEMAKER_WAIT
+    stream_logs: bool = DEFAULT_SAGEMAKER_STREAM_LOGS
