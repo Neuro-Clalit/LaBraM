@@ -103,18 +103,26 @@ def validate_s3_inputs(staged: 'StagedInputs') -> None:
         validate_s3_uri(uri, label=f'channel {channel!r}')
 
 
+def _s3_client(launcher: 'SageMakerLauncher'):
+    """A boto3 S3 client from the launcher's session, or ``None`` when the SDK /
+    credentials are unavailable (so pre-flight checks degrade to no-ops)."""
+    try:
+        session = launcher._get_session()
+        boto_session = getattr(session, 'boto_session', None)
+        if boto_session is None:
+            return None
+        return boto_session.client('s3')
+    except Exception:
+        return None
+
+
 def check_s3_reachability(launcher: 'SageMakerLauncher',
                           staged: 'StagedInputs') -> None:
     """Best-effort HEAD check on each S3 channel URI. Warns on failure rather
     than raising, because the submitter's credentials may differ from the
     execution role's."""
-    try:
-        session = launcher._get_session()
-        boto_session = getattr(session, 'boto_session', None)
-        if boto_session is None:
-            return
-        s3 = boto_session.client('s3')
-    except Exception:
+    s3 = _s3_client(launcher)
+    if s3 is None:
         return
     for channel, uri in staged.channels.items():
         parsed = urlparse(uri)
@@ -146,6 +154,87 @@ def check_s3_reachability(launcher: 'SageMakerLauncher',
                 logger.debug("S3 check for %s: %s", uri, exc)
         except Exception:
             pass
+
+
+def _s3_object_exists(s3, bucket: str, key: str) -> Optional[bool]:
+    """``True``/``False`` if the object is known to exist, ``None`` when the
+    submitter cannot tell (access denied / transport error)."""
+    try:
+        s3.head_object(Bucket=bucket, Key=key)
+        return True
+    except Exception as exc:
+        code = ''
+        response = getattr(exc, 'response', None)
+        if isinstance(response, dict):
+            code = response.get('Error', {}).get('Code', '')
+        if code in ('404', 'NoSuchKey', 'NoSuchBucket'):
+            return False
+        return None
+
+
+def check_age_sidecars(launcher: 'SageMakerLauncher', config: RunConfig,
+                       staged: 'StagedInputs') -> None:
+    """Verify the brain-age sidecars exist under the ``dataset`` prefix.
+
+    ``data.dataset='TUAB_AGE'`` takes its target from an ``age_metadata.json``
+    sidecar rather than the window pickles, and reads ``age_split.json`` for the
+    subject-disjoint split. Neither is produced by ``make_TUAB.py``, so a corpus
+    uploaded to S3 before the ``make_TUAB_age.py scan``/``split`` steps were run
+    is missing them — and the job only discovers that *after* a GPU has been
+    provisioned, failing with a message telling you to run a local scan (useless
+    advice inside a container). Checking here turns that into a submit-time error.
+    """
+    if getattr(config.data, 'dataset', '') != 'TUAB_AGE':
+        return
+    prefix_uri = staged.channels.get('dataset')
+    if not prefix_uri:
+        return
+    from labram.data.age_splits import SPLIT_FILENAME
+    from labram.data.tuh_metadata import SIDECAR_FILENAME
+
+    s3 = _s3_client(launcher)
+    if s3 is None:
+        return
+    parsed = urlparse(prefix_uri)
+    bucket = parsed.hostname or ''
+    prefix = parsed.path.lstrip('/').rstrip('/')
+    if not bucket:
+        return
+
+    def locate(filename: str) -> Optional[bool]:
+        """Mirror the container-side lookup: the mount root, then a ``processed/``
+        subdirectory under it (``prepare_TUAB_age_dataset`` prefers the latter)."""
+        seen_unknown = False
+        for candidate in (f'{prefix}/{filename}' if prefix else filename,
+                          f'{prefix}/processed/{filename}' if prefix
+                          else f'processed/{filename}'):
+            found = _s3_object_exists(s3, bucket, candidate)
+            if found:
+                logger.info("Found brain-age sidecar s3://%s/%s", bucket, candidate)
+                return True
+            if found is None:
+                seen_unknown = True
+        return None if seen_unknown else False
+
+    if locate(SIDECAR_FILENAME) is False:
+        raise ValueError(
+            f"data.dataset='TUAB_AGE' needs the {SIDECAR_FILENAME} sidecar, but "
+            f"none was found under {prefix_uri} (nor a processed/ subdirectory of "
+            f"it). The age comes from the EDF headers, not the window pickles, so "
+            f"the job would fail after its instance is provisioned.\nGenerate the "
+            f"sidecars against your local corpus and upload them next to the "
+            f"windows:\n"
+            f"  python dataset_maker/make_TUAB_age.py scan  --root <corpus>/edf\n"
+            f"  python dataset_maker/make_TUAB_age.py split --root <corpus>/edf\n"
+            f"  aws s3 cp <corpus>/edf/processed/{SIDECAR_FILENAME} {prefix_uri}\n"
+            f"  aws s3 cp <corpus>/edf/processed/{SPLIT_FILENAME} {prefix_uri}")
+
+    if locate(SPLIT_FILENAME) is False:
+        logger.warning(
+            "No %s under %s — the job will rebuild the subject-disjoint split "
+            "in memory. That is seeded and safe, but the split is then not "
+            "recorded next to the data; upload the file from the `split` step to "
+            "pin it across runs.", SPLIT_FILENAME, prefix_uri)
 
 
 @dataclass
@@ -864,6 +953,7 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
     logger.info("SageMaker execution role: %s", role)
 
     check_s3_reachability(launcher, staged)
+    check_age_sidecars(launcher, config, staged)
 
     # Record what code this run *is*: the container has no .git, so this is the
     # only way branch/commit/uncommitted changes reach the ClearML experiment.

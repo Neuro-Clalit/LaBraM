@@ -916,3 +916,114 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
         assert "pytorch-training:2.4.0-gpu-py311" in image
         assert (Path(model_dir) / "cv" / f"fold_{fold}" / "fold_metrics.json").exists()
         assert (Path(model_dir) / "cv" / "cv_split.json").exists()
+
+
+# ------------------------------------------------- brain-age sidecar pre-flight
+
+
+class _FakeS3:
+    """Minimal S3 client: ``head_object`` resolves against a key set, and keys
+    listed in *denied* raise AccessDenied (the submitter cannot tell)."""
+
+    class _Err(Exception):
+        def __init__(self, code):
+            super().__init__(code)
+            self.response = {'Error': {'Code': code}}
+
+    def __init__(self, keys, denied=()):
+        self.keys = set(keys)
+        self.denied = set(denied)
+        self.head_calls = []
+
+    def head_object(self, Bucket, Key):
+        self.head_calls.append(Key)
+        if Key in self.denied:
+            raise self._Err('AccessDenied')
+        if Key not in self.keys:
+            raise self._Err('404')
+        return {'ContentLength': 1}
+
+
+class _S3Launcher:
+    """Launcher stub exposing just what ``_s3_client`` reaches for."""
+
+    def __init__(self, s3):
+        self._s3 = s3
+
+    def _get_session(self):
+        boto_session = type('B', (), {'client': lambda _s, _n: self._s3})()
+        return type('S', (), {'boto_session': boto_session})()
+
+
+def _age_config(data_path='s3://bucket/TUAB/processed/'):
+    c = FinetuneRunConfig()
+    c.data.dataset = 'TUAB_AGE'
+    c.data.data_path = data_path
+    return c
+
+
+def _staged(uri):
+    staged = sub.StagedInputs()
+    staged.channels['dataset'] = uri
+    return staged
+
+
+def test_age_sidecar_check_skipped_for_other_datasets():
+    c = FinetuneRunConfig()
+    c.data.dataset = 'TUAB'
+    s3 = _FakeS3(keys=())
+    # No sidecars exist, but a classification run does not need them.
+    sub.check_age_sidecars(_S3Launcher(s3), c, _staged('s3://bucket/TUAB/'))
+    assert s3.head_calls == []
+
+
+def test_age_sidecar_check_passes_at_prefix_root():
+    s3 = _FakeS3(keys={'TUAB/processed/age_metadata.json',
+                       'TUAB/processed/age_split.json'})
+    sub.check_age_sidecars(_S3Launcher(s3), _age_config(),
+                           _staged('s3://bucket/TUAB/processed/'))
+
+
+def test_age_sidecar_check_passes_under_processed_subdir():
+    """``prepare_TUAB_age_dataset`` prefers a ``processed/`` subdir of the mount,
+    so a prefix one level up is equally valid."""
+    s3 = _FakeS3(keys={'TUAB/processed/age_metadata.json',
+                       'TUAB/processed/age_split.json'})
+    sub.check_age_sidecars(_S3Launcher(s3), _age_config('s3://bucket/TUAB/'),
+                           _staged('s3://bucket/TUAB/'))
+
+
+def test_age_sidecar_check_raises_when_metadata_missing():
+    s3 = _FakeS3(keys=())
+    with pytest.raises(ValueError) as exc:
+        sub.check_age_sidecars(_S3Launcher(s3), _age_config(),
+                               _staged('s3://bucket/TUAB/processed/'))
+    msg = str(exc.value)
+    assert 'age_metadata.json' in msg
+    # The message must name the fix, not just the failure.
+    assert 'make_TUAB_age.py scan' in msg
+
+
+def test_age_sidecar_check_warns_when_only_split_missing(caplog):
+    s3 = _FakeS3(keys={'TUAB/processed/age_metadata.json'})
+    with caplog.at_level('WARNING'):
+        sub.check_age_sidecars(_S3Launcher(s3), _age_config(),
+                               _staged('s3://bucket/TUAB/processed/'))
+    assert any('age_split.json' in r.getMessage() for r in caplog.records)
+
+
+def test_age_sidecar_check_tolerates_access_denied():
+    """Denied HEADs mean 'cannot tell', not 'missing' — the execution role may
+    still have access, so the submission must not be blocked."""
+    keys = {'TUAB/processed/age_metadata.json', 'TUAB/processed/age_split.json'}
+    s3 = _FakeS3(keys=(), denied=keys)
+    sub.check_age_sidecars(_S3Launcher(s3), _age_config(),
+                           _staged('s3://bucket/TUAB/processed/'))
+
+
+def test_age_sidecar_check_noop_without_credentials():
+    class _NoSession:
+        def _get_session(self):
+            raise RuntimeError('no credentials')
+    sub.check_age_sidecars(_NoSession(), _age_config(),
+                           _staged('s3://bucket/TUAB/processed/'))

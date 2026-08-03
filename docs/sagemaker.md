@@ -64,6 +64,67 @@ shipped `./checkpoints/labram-base.pth` is **not** re-uploaded: it has an S3
 mirror in `sagemaker.weight_s3_uris`, so it is mounted as the `pretrained`
 channel straight from S3 (see [S3 data & checkpoints](#s3-data--checkpoints-input-channels)).
 
+### Brain-age regression (`TUAB_AGE`)
+
+The age-regression downstream task submits like any other fine-tune — the same
+`--phase finetune`, plus one prerequisite: the label lives in an
+**`age_metadata.json` sidecar**, not in the window pickles, so it has to be in S3
+next to them. Build both sidecars locally (read-only over the EDF headers, no
+re-preprocessing — see [`age_regression.md`](age_regression.md)) and upload them
+into the same prefix as the windows:
+
+```bash
+TUAB=/path/to/TUH_Abnormal/v3.0.0/edf
+python dataset_maker/make_TUAB_age.py scan  --root "$TUAB"   # age_metadata.json
+python dataset_maker/make_TUAB_age.py split --root "$TUAB"   # age_split.json
+
+aws s3 cp "$TUAB/processed/age_metadata.json" s3://<bucket>/TUAB/processed/
+aws s3 cp "$TUAB/processed/age_split.json"    s3://<bucket>/TUAB/processed/
+```
+
+Then submit a single brain-age job on spot, streaming the corpus:
+
+```bash
+python -m labram.runs.submit_sagemaker \
+  --config labram/configs/defaults/finetune_tuab_age.json \
+  --set sagemaker.enabled=true \
+        sagemaker.role=arn:aws:iam::<account-id>:role/SageMakerExecutionRole \
+        sagemaker.instance_type=ml.g5.2xlarge \
+        sagemaker.input_mode=FastFile sagemaker.use_spot=true \
+        sagemaker.job_name_prefix=labram-brain-age \
+        sagemaker.output_path=s3://<bucket>/labram/brain_age \
+        data.data_path=s3://<bucket>/TUAB/processed/ \
+        output.output_dir= output.log_dir= \
+        clearml.enabled=true clearml.project_name=eeg/brain_age \
+        clearml.task_name=finetune_tuab_age
+```
+
+Add `--dry_run` first to preview the plan, and `trainer.debug=true` for a
+few-batch smoke test before committing a GPU. For the cross-validated study
+(group-disjoint by subject — one job per fold) add:
+
+```bash
+        cross_validation.enabled=true cross_validation.n_folds=5
+```
+
+which plans `labram-brain-age-fold-0 … -fold-4`; aggregate them afterwards with
+`python -m labram.eval.cv_report --base_dir …` (see
+[`cross_validation.md`](cross_validation.md)).
+
+Nothing else differs: `data.dataset=TUAB_AGE` already carries `task=regression`
+through the config, so the container picks the Huber criterion, MAE-based model
+selection (lower is better) and the predicted-vs-true scatter instead of a
+confusion matrix. Expect **MAE ≈ 7–8 years** for a working run; ≈ 14 means the
+model is predicting the cohort mean.
+
+**Submit-time check.** Because a missing sidecar would otherwise only surface
+*after* an instance is provisioned — with an error telling you to run a local
+scan, useless inside a container — the submitter verifies `age_metadata.json`
+exists under the dataset prefix (or a `processed/` subdirectory of it) and fails
+the submission with the upload commands above if it does not. A missing
+`age_split.json` is only a warning: the job rebuilds that partition in memory,
+seeded and subject-disjoint, but does not record it next to the data.
+
 `scripts/submit_paper_experiments.sh` bundles the paper experiment set (CV on the
 paper config + gradient-clip / codebook / LaBraM++ runs that reuse one recorded
 `data_split.json`) behind env-var knobs — `DRY_RUN=1 scripts/submit_paper_experiments.sh`

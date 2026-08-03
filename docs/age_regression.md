@@ -380,6 +380,37 @@ python -m labram.runs.finetune_cv \
   --set data.data_path="$TUAB" cross_validation.enabled=true
 ```
 
+### On AWS SageMaker
+
+Same config, dispatched as a managed job. The one extra step is that both
+sidecars must be uploaded into the **same S3 prefix as the window pickles** —
+the age comes from the sidecar, not the pickles, so the container cannot
+reconstruct it from the corpus alone:
+
+```bash
+aws s3 cp "$TUAB/processed/age_metadata.json" s3://<bucket>/TUAB/processed/
+aws s3 cp "$TUAB/processed/age_split.json"    s3://<bucket>/TUAB/processed/
+
+python -m labram.runs.submit_sagemaker \
+  --config labram/configs/defaults/finetune_tuab_age.json \
+  --set sagemaker.enabled=true \
+        sagemaker.role=arn:aws:iam::<account-id>:role/SageMakerExecutionRole \
+        sagemaker.instance_type=ml.g5.2xlarge \
+        sagemaker.input_mode=FastFile sagemaker.use_spot=true \
+        sagemaker.job_name_prefix=labram-brain-age \
+        sagemaker.output_path=s3://<bucket>/labram/brain_age \
+        data.data_path=s3://<bucket>/TUAB/processed/ \
+        output.output_dir= output.log_dir= \
+        clearml.enabled=true clearml.project_name=eeg/brain_age \
+        clearml.task_name=finetune_tuab_age
+```
+
+The submitter fails fast if `age_metadata.json` is not under that prefix rather
+than letting the job die after provisioning a GPU. Add
+`cross_validation.enabled=true cross_validation.n_folds=5` for one job per fold.
+Full details — spot capacity, `FastFile`, IAM, ClearML — in
+[`sagemaker.md`](sagemaker.md#brain-age-regression-tuab_age).
+
 ## Scaling to TUEG
 
 The parser is corpus-agnostic — nothing in it is TUAB-specific. TUEG v2.0.2
