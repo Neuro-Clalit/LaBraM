@@ -21,7 +21,8 @@ import subprocess
 import tarfile
 import tempfile
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Set
+from urllib.parse import urlparse
 
 import labram.utils as utils
 from labram.aws.sagemaker import SageMakerJobSpec, SageMakerLauncher
@@ -59,6 +60,91 @@ def _basename(uri: str) -> str:
 
 def _is_s3(value: Any) -> bool:
     return isinstance(value, str) and value.startswith('s3://')
+
+
+# S3 bucket naming: 3-63 chars, lowercase/digits/hyphens/dots, no IP addresses.
+_S3_BUCKET_RE = re.compile(
+    r'^(?!(\d{1,3}\.){3}\d{1,3}$)'   # not an IP address
+    r'[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$')
+
+
+def validate_s3_uri(uri: str, label: str = '') -> None:
+    """Validate that *uri* is a well-formed ``s3://bucket/key`` URI.
+
+    Catches typos like ``s3://`` with no bucket, ``s3:///key`` (empty bucket),
+    ``s3://UPPER/key`` (invalid bucket name), and malformed paths — all of which
+    would only fail deep inside a running SageMaker job after an instance has
+    already been provisioned. Raises :class:`ValueError` with an actionable
+    message; does NOT check reachability (that needs AWS credentials).
+    """
+    parsed = urlparse(uri)
+    bucket = parsed.hostname or ''
+    key = parsed.path.lstrip('/')
+    ctx = f" ({label})" if label else ''
+    if not bucket:
+        raise ValueError(
+            f"S3 URI{ctx} has no bucket: {uri!r}. "
+            "Expected s3://<bucket>/<key>.")
+    if not _S3_BUCKET_RE.match(bucket):
+        raise ValueError(
+            f"S3 URI{ctx} has an invalid bucket name {bucket!r} in {uri!r}. "
+            "Bucket names must be 3-63 lowercase alphanumeric/hyphen/dot "
+            "characters (see AWS S3 naming rules).")
+    if not key:
+        logger.warning(
+            "S3 URI%s points at a bucket root with no key prefix: %s — "
+            "this is valid but unusual for an input channel.", ctx, uri)
+
+
+def validate_s3_inputs(staged: 'StagedInputs') -> None:
+    """Validate every S3 URI in the staged inputs before contacting AWS."""
+    for channel, uri in staged.channels.items():
+        validate_s3_uri(uri, label=f'channel {channel!r}')
+
+
+def check_s3_reachability(launcher: 'SageMakerLauncher',
+                          staged: 'StagedInputs') -> None:
+    """Best-effort HEAD check on each S3 channel URI. Warns on failure rather
+    than raising, because the submitter's credentials may differ from the
+    execution role's."""
+    try:
+        session = launcher._get_session()
+        boto_session = getattr(session, 'boto_session', None)
+        if boto_session is None:
+            return
+        s3 = boto_session.client('s3')
+    except Exception:
+        return
+    for channel, uri in staged.channels.items():
+        parsed = urlparse(uri)
+        bucket = parsed.hostname or ''
+        key = parsed.path.lstrip('/')
+        if not bucket or not key:
+            continue
+        try:
+            if key.endswith('/'):
+                s3.list_objects_v2(Bucket=bucket, Prefix=key, MaxKeys=1)
+            else:
+                s3.head_object(Bucket=bucket, Key=key)
+        except s3.exceptions.NoSuchBucket:
+            logger.error(
+                "S3 bucket %r does not exist (channel %r, uri %s). "
+                "The job will fail at startup.", bucket, channel, uri)
+        except s3.exceptions.ClientError as exc:
+            code = exc.response.get('Error', {}).get('Code', '')
+            if code in ('404', 'NoSuchKey'):
+                logger.warning(
+                    "S3 object not found: %s (channel %r). If the execution "
+                    "role has broader access than the submitter, this may still "
+                    "work.", uri, channel)
+            elif code in ('403', 'AccessDenied'):
+                logger.info(
+                    "Cannot verify %s (channel %r) — access denied from the "
+                    "submitter. The execution role may have access.", uri, channel)
+            else:
+                logger.debug("S3 check for %s: %s", uri, exc)
+        except Exception:
+            pass
 
 
 @dataclass
@@ -595,6 +681,7 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
     # Turn the data/checkpoint paths into input channels + rewrite the config to
     # the in-container mounts (done before upload so the job sees local paths).
     staged = stage_s3_inputs(config, phase)
+    validate_s3_inputs(staged)
 
     if dry_run:
         placeholder = sm.config_channel or 's3://<bucket>/<prefix>/run_config.yaml'
@@ -613,6 +700,8 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune') ->
     # Fail fast with an actionable message if no usable execution role.
     role = launcher.resolve_role(sm.role)
     logger.info("SageMaker execution role: %s", role)
+
+    check_s3_reachability(launcher, staged)
 
     try:
         uploaded = upload_staged_weights(launcher, config, staged)

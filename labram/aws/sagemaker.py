@@ -25,8 +25,27 @@ Typical use (from a submitting machine with AWS credentials)::
     job_name = launcher.submit(spec, wait=False)
 """
 
+import logging
+import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+SPOT_INSTANCE_ALTERNATIVES: Dict[str, List[str]] = {
+    'ml.g5.xlarge': ['ml.g5.2xlarge', 'ml.g4dn.xlarge', 'ml.g4dn.2xlarge'],
+    'ml.g5.2xlarge': ['ml.g5.4xlarge', 'ml.g5.xlarge', 'ml.g4dn.2xlarge'],
+    'ml.g5.4xlarge': ['ml.g5.8xlarge', 'ml.g5.2xlarge'],
+    'ml.g5.8xlarge': ['ml.g5.12xlarge', 'ml.g5.4xlarge'],
+    'ml.g5.12xlarge': ['ml.g5.24xlarge', 'ml.g5.8xlarge'],
+    'ml.g4dn.xlarge': ['ml.g4dn.2xlarge', 'ml.g5.xlarge'],
+    'ml.g4dn.2xlarge': ['ml.g4dn.4xlarge', 'ml.g4dn.xlarge', 'ml.g5.2xlarge'],
+    'ml.g4dn.4xlarge': ['ml.g4dn.8xlarge', 'ml.g4dn.2xlarge'],
+    'ml.g4dn.8xlarge': ['ml.g4dn.12xlarge', 'ml.g4dn.4xlarge'],
+    'ml.p3.2xlarge': ['ml.p3.8xlarge', 'ml.g5.4xlarge'],
+    'ml.p3.8xlarge': ['ml.p3.16xlarge', 'ml.p3.2xlarge'],
+    'ml.p4d.24xlarge': ['ml.p3.16xlarge'],
+}
 
 
 @dataclass
@@ -179,13 +198,71 @@ class SageMakerLauncher:
         return PyTorch(**kwargs)
 
     def submit(self, spec: SageMakerJobSpec, wait: bool = False,
-               job_name: Optional[str] = None) -> str:
-        """Launch the training job; returns the (possibly SDK-generated) job name."""
-        estimator = self.build_estimator(spec)
-        fit_kwargs: Dict[str, Any] = {"wait": wait}
-        if spec.inputs:
-            fit_kwargs["inputs"] = dict(spec.inputs)
-        if job_name:
-            fit_kwargs["job_name"] = job_name
-        estimator.fit(**fit_kwargs)
-        return estimator.latest_training_job.name
+               job_name: Optional[str] = None, stream_logs: bool = True,
+               on_submitted: Optional[Callable[[str], None]] = None,
+               max_capacity_retries: int = 3,
+               capacity_retry_delay: float = 60.0) -> str:
+        """Launch the training job; returns the (possibly SDK-generated) job name.
+
+        When ``spec.use_spot`` is set and the job fails with an
+        ``InsufficientInstanceCapacity`` error, retries up to
+        *max_capacity_retries* times with exponential backoff, suggesting
+        alternative instance types from :data:`SPOT_INSTANCE_ALTERNATIVES`.
+        """
+        last_exc: Optional[Exception] = None
+        for attempt in range(max_capacity_retries + 1):
+            try:
+                estimator = self.build_estimator(spec)
+                fit_kwargs: Dict[str, Any] = {"wait": False}
+                if spec.inputs:
+                    fit_kwargs["inputs"] = self.build_inputs(spec)
+                if job_name:
+                    fit_kwargs["job_name"] = job_name
+                estimator.fit(**fit_kwargs)
+                name = estimator.latest_training_job.name
+                if on_submitted is not None:
+                    on_submitted(name)
+                if wait:
+                    estimator.latest_training_job.wait(
+                        logs="All" if stream_logs else "None")
+                return name
+            except Exception as exc:
+                if not _is_capacity_error(exc):
+                    raise
+                last_exc = exc
+                if attempt < max_capacity_retries:
+                    delay = capacity_retry_delay * (2 ** attempt)
+                    alts = SPOT_INSTANCE_ALTERNATIVES.get(spec.instance_type, [])
+                    alt_msg = (f" Consider switching to: {', '.join(alts)}"
+                               if alts else "")
+                    logger.warning(
+                        "Insufficient capacity for %s (spot=%s), retrying in "
+                        "%.0fs (attempt %d/%d).%s",
+                        spec.instance_type, spec.use_spot, delay,
+                        attempt + 1, max_capacity_retries, alt_msg)
+                    time.sleep(delay)
+                else:
+                    alts = SPOT_INSTANCE_ALTERNATIVES.get(spec.instance_type, [])
+                    raise RuntimeError(
+                        f"Insufficient capacity for {spec.instance_type} after "
+                        f"{max_capacity_retries} retries. "
+                        + (f"Alternative instance types to try: {', '.join(alts)}. "
+                           if alts else "")
+                        + "You can change the instance type with "
+                        "--set sagemaker.instance_type=<type>, or disable spot "
+                        "instances with --set sagemaker.use_spot=false."
+                    ) from last_exc
+        raise last_exc  # unreachable, but keeps mypy happy
+
+
+def _is_capacity_error(exc: Exception) -> bool:
+    """Return True if *exc* is a spot/on-demand capacity error from EC2."""
+    text = str(exc).lower()
+    markers = (
+        'insufficientinstancecapacity',
+        'insufficient capacity',
+        'instancelimitexceeded',
+        'no current capacity',
+        'capacity error from ec2',
+    )
+    return any(m in text for m in markers)
