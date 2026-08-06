@@ -311,6 +311,38 @@ class TestParseOverrides:
         with pytest.raises(ValueError, match='key=value'):
             parse_overrides(['trainer.epochs'])
 
+    def test_spaces_around_equals_are_joined(self):
+        # `--set sagemaker.wait = True` reaches argv as three tokens.
+        out = parse_overrides(['sagemaker.wait', '=', 'True'])
+        assert out == {'sagemaker.wait': True}
+
+    def test_equals_attached_to_value_is_joined(self):
+        assert parse_overrides(['trainer.epochs', '=5']) == {'trainer.epochs': 5}
+
+    def test_trailing_equals_takes_the_next_token_as_value(self):
+        assert parse_overrides(['trainer.epochs=', '5']) == {'trainer.epochs': 5}
+
+    def test_leading_whitespace_in_token_is_stripped(self):
+        # A stray '\ key=value' in a multi-line shell command keeps the space.
+        assert parse_overrides([' sagemaker.wait=True']) == {'sagemaker.wait': True}
+
+    def test_adjacent_empty_values_are_not_merged(self):
+        out = parse_overrides(['output.output_dir=', 'output.log_dir='])
+        assert out == {'output.output_dir': '', 'output.log_dir': ''}
+
+    def test_trailing_empty_value_stays_empty(self):
+        assert parse_overrides(['a=1', 'output.log_dir=']) == \
+            {'a': 1, 'output.log_dir': ''}
+
+    def test_stray_value_token_still_raises(self):
+        # An unquoted space inside a value is not silently glued back together.
+        with pytest.raises(ValueError, match='key=value'):
+            parse_overrides(['clearml.task_name=my', 'run'])
+
+    def test_empty_key_raises_value_error(self):
+        with pytest.raises(ValueError, match='empty key'):
+            parse_overrides(['=', '5'])
+
     def test_empty_list_returns_empty_dict(self):
         assert parse_overrides([]) == {}
 
