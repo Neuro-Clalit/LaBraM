@@ -831,6 +831,74 @@ def test_profile_flows_from_config_to_the_launcher(tmp_path, monkeypatch):
     assert seen['profile'] == 'neuro'
 
 
+def test_discover_aws_profile_walks_up_from_a_subdirectory(tmp_path):
+    (tmp_path / '.aws-profile').write_text('neuro\n')
+    deep = tmp_path / 'labram' / 'runs'
+    deep.mkdir(parents=True)
+    profile, source = sub.discover_aws_profile(str(deep))
+    assert profile == 'neuro'
+    assert source == str(tmp_path / '.aws-profile')
+
+
+def test_discover_aws_profile_without_a_file(tmp_path):
+    assert sub.discover_aws_profile(str(tmp_path)) == ('', '')
+
+
+def test_discover_aws_profile_ignores_a_blank_file(tmp_path):
+    (tmp_path / '.aws-profile').write_text('  \n')
+    assert sub.discover_aws_profile(str(tmp_path)) == ('', '')
+
+
+def test_discover_aws_profile_takes_the_nearest_file(tmp_path):
+    (tmp_path / '.aws-profile').write_text('outer')
+    inner = tmp_path / 'inner'
+    inner.mkdir()
+    (inner / '.aws-profile').write_text('inner')
+    assert sub.discover_aws_profile(str(inner))[0] == 'inner'
+
+
+def test_resolve_aws_profile_prefers_the_explicit_config(tmp_path, monkeypatch):
+    (tmp_path / '.aws-profile').write_text('from-file')
+    monkeypatch.setattr(sub, 'repo_root', lambda: str(tmp_path))
+    c = FinetuneRunConfig()
+    assert sub.resolve_aws_profile(c) == 'from-file'
+    c.sagemaker.profile = 'from-config'
+    assert sub.resolve_aws_profile(c) == 'from-config'
+
+
+def test_submit_uses_the_discovered_profile(tmp_path, monkeypatch):
+    """No sagemaker.profile set: the checkout's .aws-profile decides which
+    account submits, so an IDE/cron run lands in the same account as a shell."""
+    (tmp_path / '.aws-profile').write_text('neuro\n')
+    monkeypatch.setattr(sub, 'repo_root', lambda: str(tmp_path))
+    seen = {}
+
+    class _L:
+        def __init__(self, region=None, default_role='', sagemaker_session=None,
+                     profile=None):
+            seen['profile'] = profile
+
+        def _get_session(self):
+            return _FakeSession(tmp_path)
+
+        def caller_identity(self):
+            return {}
+
+        def resolve_role(self, role=''):
+            return role or 'arn:aws:iam::0:role/r'
+
+        def resolve_image_uri(self, spec):
+            return 'img'
+
+        def submit(self, spec, wait=False, job_name=None, stream_logs=True,
+                   on_submitted=None):
+            return 'job'
+
+    monkeypatch.setattr(sub, 'SageMakerLauncher', _L)
+    sub.submit(_s3_config(), dry_run=False, phase='finetune')
+    assert seen['profile'] == 'neuro'
+
+
 def test_launcher_passes_the_profile_to_boto3(monkeypatch):
     from labram.aws import sagemaker as sm_lib
     seen = {}

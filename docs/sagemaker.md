@@ -100,7 +100,7 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 | `entry_point` / `source_dir` | `labram/runs/sagemaker_entry.py` / repo root | Training script and packaged code. |
 | `job_name_prefix` | `labram-finetune` | Prefix; the fold number is appended for CV. |
 | `region` | `''` | AWS region; `''` → boto3 default. |
-| `profile` | `''` | AWS credential profile to submit from; `''` → boto3's own resolution (`AWS_PROFILE`, then `default`). Must name the same account as `role` — see [Cross-account role](#cross-account-role). |
+| `profile` | `''` | AWS credential profile to submit from; `''` → the checkout's `.aws-profile` file if it has one, else boto3's own resolution. Must name the same account as `role` — see [Cross-account role](#cross-account-role). |
 | `output_path` / `code_location` | `''` | S3 prefixes for model artifacts / packaged source. |
 | `output_kms_key` | `''` | KMS key for the S3 objects the submission writes (model output + the code/config/weight uploads). `''` → plain uploads and the SDK/account default for the job output (see [KMS-encrypted buckets](#kms-encrypted-buckets--mfa-enforced-accounts)). |
 | `config_channel` | `''` | Pre-uploaded config S3 uri; `''` → the CLI uploads it. |
@@ -272,6 +272,30 @@ python -m labram.runs.submit_sagemaker --config … --set sagemaker.profile=neur
 determines which account's default bucket (`sagemaker-<region>-<account>`)
 receives the config, code and weight uploads. If STS cannot be reached the check
 is skipped rather than blocking the submission.
+
+#### `.aws-profile`: the checkout's account
+
+When `sagemaker.profile` is empty, the submitter walks up from the repo root for
+a `.aws-profile` file holding a profile name and uses that, logging where it
+came from:
+
+```
+[INFO] Using AWS profile 'neuro' from /path/to/LaBraM/.aws-profile (set sagemaker.profile to override).
+```
+
+This is the same convention as a `chpwd` shell hook that exports `AWS_PROFILE`
+per repository, but reading the file directly also covers the contexts where
+such a hook never runs — PyCharm run configurations, cron, `ssh host 'cmd'`.
+
+It is also strictly more reliable than `AWS_PROFILE`. **Exported
+`AWS_ACCESS_KEY_ID` / `AWS_SESSION_TOKEN` credentials outrank `AWS_PROFILE`** in
+botocore's chain, so an MFA session minted from another account silently wins —
+`aws sts get-caller-identity` then contradicts the `AWS_PROFILE` you set. A
+profile handed to `boto3.Session(profile_name=…)` does not have that problem:
+botocore drops the environment provider when the profile is set programmatically.
+If you keep per-account MFA sessions, cache them per profile
+(`session-<profile>.env`) and clear a session belonging to a different profile
+when you switch.
 
 ### KMS-encrypted buckets / MFA-enforced accounts
 

@@ -22,7 +22,7 @@ import subprocess
 import tarfile
 import tempfile
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Set
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 import labram.utils as utils
 from labram.aws.sagemaker import SageMakerJobSpec, SageMakerLauncher, role_account
@@ -222,6 +222,53 @@ CODE_EXCLUDED_SUFFIXES = ('.pth', '.pt', '.ckpt', '.h5', '.hdf5', '.pkl')
 
 def repo_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+AWS_PROFILE_FILE = '.aws-profile'
+
+
+def discover_aws_profile(start: str) -> Tuple[str, str]:
+    """Find the AWS profile a directory belongs to: ``(profile, source_path)``.
+
+    Walks up from ``start`` for an :data:`AWS_PROFILE_FILE` holding a profile
+    name — the same convention as the shell hook that exports ``AWS_PROFILE``
+    per repository, so a checkout wired to one account keeps submitting to it.
+    Reading it here (rather than relying on the exported variable) also covers
+    the contexts where that hook never runs — IDE run configurations, cron,
+    non-interactive shells — and, unlike ``AWS_PROFILE``, a profile passed
+    explicitly to boto3 is not overridden by ambient ``AWS_ACCESS_KEY_ID``
+    credentials from a different account.
+
+    Returns ``('', '')`` when there is no such file, it is empty, or it cannot
+    be read.
+    """
+    path = os.path.abspath(start)
+    while True:
+        candidate = os.path.join(path, AWS_PROFILE_FILE)
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate) as fh:
+                    profile = fh.read().strip()
+            except OSError:
+                return '', ''
+            return (profile, candidate) if profile else ('', '')
+        parent = os.path.dirname(path)
+        if parent == path:            # reached the filesystem root
+            return '', ''
+        path = parent
+
+
+def resolve_aws_profile(config: RunConfig) -> str:
+    """The AWS profile to submit with: ``sagemaker.profile`` if set, else the
+    one the checkout is wired to. Logs a discovered profile — picking an account
+    out of a file must never be silent."""
+    if config.sagemaker.profile:
+        return config.sagemaker.profile
+    profile, source = discover_aws_profile(repo_root())
+    if profile:
+        logger.info("Using AWS profile %r from %s (set sagemaker.profile to override).",
+                    profile, source)
+    return profile
 
 
 def git_tracked_files(root: str) -> Optional[List[str]]:
@@ -802,8 +849,9 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
     # packaged, so clearml.enabled runs can log from inside SageMaker.
     forward_clearml_env(config)
 
+    profile = resolve_aws_profile(config)
     launcher = SageMakerLauncher(region=sm.region or None, default_role=sm.role,
-                                 profile=sm.profile or None)
+                                 profile=profile or None)
     # Fail fast with an actionable message if no usable execution role.
     role = launcher.resolve_role(sm.role)
     logger.info("SageMaker execution role: %s", role)
@@ -815,11 +863,11 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
     if identity:
         logger.info("AWS caller identity: %s (account %s%s)",
                     identity.get('Arn', '<unknown>'), identity.get('Account', '?'),
-                    f", profile {sm.profile}" if sm.profile else '')
+                    f", profile {profile}" if profile else '')
     else:
         logger.warning("Could not read the AWS caller identity (sts:GetCallerIdentity); "
                        "skipping the cross-account role check.")
-    mismatch = cross_account_role_error(role, identity, sm.profile)
+    mismatch = cross_account_role_error(role, identity, profile)
     if mismatch:
         raise SystemExit(mismatch)
 
