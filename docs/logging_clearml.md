@@ -173,7 +173,7 @@ section (`labram.configs.train_config.ClearMLConfig`):
 | `project_name`            | `LaBraM`  | ClearML project the task is filed under.                       |
 | `task_name`               | `""`      | Task name; empty ⇒ derived from `output_dir` (or model name).  |
 | `append_timestamp`        | `true`    | Append a millisecond timestamp (`YYYYmmdd_HHMMSS_fff`) to the task name so each run is uniquely identifiable. |
-| `tags`                    | `[]`      | Tags added to the task.                                        |
+| `tags`                    | `[]`      | Tags added to the task. Two more are added automatically: `debug` for debug runs, and `sagemaker` when `sagemaker.enabled` is also set. |
 | `output_uri`              | `""`      | Artifact upload target; empty ⇒ ClearML default.               |
 | `offline`                 | `false`   | Run without a server, storing results locally.                 |
 | `continue_last_task`      | `false`   | Resume/append to the previous task instead of creating a new.  |
@@ -181,6 +181,12 @@ section (`labram.configs.train_config.ClearMLConfig`):
 
 The full run config is connected to the task (under `run_config`) for
 reproducibility. Only rank 0 initializes the task.
+
+When both `clearml.enabled` and `sagemaker.enabled` are true, the task also gets
+a `sagemaker` tag (`labram.runs.common.SAGEMAKER_TAG`), so managed-training runs
+filter apart from local ones in the experiments table. The flag travels with the
+config into the container, so the tag is applied by the run itself, not by the
+submitting machine; a CV study's `cv_summary` task is tagged the same way.
 
 ### Examples
 
