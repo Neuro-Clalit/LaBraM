@@ -5,6 +5,7 @@ AWS (a fake launcher simulates the container by running the real entry point).""
 import os
 import pickle
 import shutil
+import sys
 import tarfile
 from pathlib import Path
 
@@ -158,11 +159,15 @@ def test_submit_detach_does_not_wait_or_stream(tmp_path, monkeypatch):
     calls = []
 
     class _L:
-        def __init__(self, region=None, default_role='', sagemaker_session=None):
+        def __init__(self, region=None, default_role='', sagemaker_session=None,
+                     profile=None):
             pass
 
         def _get_session(self):
             return _FakeSession(tmp_path)
+
+        def caller_identity(self):
+            return {}
 
         def resolve_role(self, role=''):
             return role or 'arn:aws:iam::0:role/r'
@@ -715,6 +720,144 @@ def test_reraise_kms_access_denied_ignores_other_errors():
         Exception("AccessDenied on s3:PutObject")) is None  # S3-only, not KMS
 
 
+# ------------------------------------------------------- cross-account preflight
+
+
+def test_role_account_parses_the_arn():
+    from labram.aws.sagemaker import role_account
+    assert role_account('arn:aws:iam::574441342949:role/SageMakerExecutionRole') \
+        == '574441342949'
+    assert role_account('arn:aws-us-gov:iam::123456789012:role/x') == '123456789012'
+
+
+def test_role_account_of_a_non_arn_is_empty():
+    from labram.aws.sagemaker import role_account
+    assert role_account('') == ''
+    assert role_account('SageMakerExecutionRole') == ''
+    assert role_account('arn:aws:s3:::bucket/key') == ''
+
+
+def test_cross_account_role_error_names_both_accounts():
+    msg = sub.cross_account_role_error(
+        'arn:aws:iam::574441342949:role/SM',
+        {'Account': '660185423351', 'Arn': 'arn:aws:iam::660185423351:user/leon'})
+    assert msg is not None
+    assert '574441342949' in msg and '660185423351' in msg
+    assert 'user/leon' in msg
+    assert 'sagemaker.profile' in msg          # points at the fix
+
+
+def test_cross_account_role_error_mentions_the_configured_profile():
+    msg = sub.cross_account_role_error(
+        'arn:aws:iam::111:role/SM', {'Account': '222', 'Arn': 'a'}, profile='neuro')
+    assert "profile 'neuro'" in msg
+
+
+def test_same_account_role_passes():
+    assert sub.cross_account_role_error(
+        'arn:aws:iam::111:role/SM',
+        {'Account': '111', 'Arn': 'arn:aws:iam::111:user/x'}) is None
+
+
+def test_unknown_identity_or_role_never_blocks():
+    # STS unreachable, or a role name the account cannot be read from: the check
+    # cannot be made, so it must not stand in the way of a submission.
+    assert sub.cross_account_role_error('arn:aws:iam::111:role/SM', {}) is None
+    assert sub.cross_account_role_error('SomeRoleName', {'Account': '111'}) is None
+
+
+def test_submit_aborts_on_cross_account_role_before_uploading(tmp_path, monkeypatch):
+    """The preflight must fire before any S3 upload — otherwise the code, config
+    and weights land in the *caller's* bucket for a job that can never start."""
+    session = _RecordingSession()
+
+    class _L:
+        def __init__(self, region=None, default_role='', sagemaker_session=None,
+                     profile=None):
+            pass
+
+        def _get_session(self):
+            return session
+
+        def caller_identity(self):
+            return {'Account': '660185423351',
+                    'Arn': 'arn:aws:iam::660185423351:user/leon'}
+
+        def resolve_role(self, role=''):
+            return role
+
+        def submit(self, spec, **kwargs):  # pragma: no cover - must not be reached
+            raise AssertionError("submit() must not be called")
+
+    monkeypatch.setattr(sub, 'SageMakerLauncher', _L)
+    c = _s3_config()
+    c.sagemaker.role = 'arn:aws:iam::574441342949:role/SageMakerExecutionRole'
+
+    with pytest.raises(SystemExit) as excinfo:
+        sub.submit(c, dry_run=False, phase='finetune')
+    assert 'Cross-account' in str(excinfo.value)
+    assert session.calls == []      # nothing was uploaded
+
+
+def test_profile_flows_from_config_to_the_launcher(tmp_path, monkeypatch):
+    seen = {}
+
+    class _L:
+        def __init__(self, region=None, default_role='', sagemaker_session=None,
+                     profile=None):
+            seen['profile'] = profile
+            seen['role'] = default_role
+
+        def _get_session(self):
+            return _FakeSession(tmp_path)
+
+        def caller_identity(self):
+            return {}
+
+        def resolve_role(self, role=''):
+            return role or 'arn:aws:iam::0:role/r'
+
+        def resolve_image_uri(self, spec):
+            return 'img'
+
+        def submit(self, spec, wait=False, job_name=None, stream_logs=True,
+                   on_submitted=None):
+            return 'job'
+
+    monkeypatch.setattr(sub, 'SageMakerLauncher', _L)
+    c = _s3_config()
+    c.sagemaker.profile = 'neuro'
+    sub.submit(c, dry_run=False, phase='finetune')
+    assert seen['profile'] == 'neuro'
+
+
+def test_launcher_passes_the_profile_to_boto3(monkeypatch):
+    from labram.aws import sagemaker as sm_lib
+    seen = {}
+
+    class _FakeBoto3:
+        @staticmethod
+        def Session(**kwargs):
+            seen.update(kwargs)
+            return 'boto-session'
+
+    class _FakeSdk:
+        @staticmethod
+        def Session(boto_session=None):
+            return f'sm-session({boto_session})'
+
+    monkeypatch.setitem(sys.modules, 'boto3', _FakeBoto3)
+    monkeypatch.setitem(sys.modules, 'sagemaker', _FakeSdk)
+    assert sm_lib.SageMakerLauncher(region='us-east-1', profile='neuro')._get_session() \
+        == 'sm-session(boto-session)'
+    assert seen == {'profile_name': 'neuro', 'region_name': 'us-east-1'}
+
+    # No profile configured -> boto3 does its own resolution (AWS_PROFILE/default).
+    seen.clear()
+    sm_lib.SageMakerLauncher()._get_session()
+    assert seen == {}
+
+
 def test_submit_dry_run_no_sdk(monkeypatch):
     # Guarantee the SDK is never imported on the dry-run path.
     import builtins
@@ -853,11 +996,16 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
     submitted = []
 
     class _FakeLauncher:
-        def __init__(self, region=None, default_role="", sagemaker_session=None):
+        def __init__(self, region=None, default_role="", sagemaker_session=None,
+                     profile=None):
             self.role = default_role
 
         def _get_session(self):
             return _FakeSession(s3_store)
+
+        def caller_identity(self):
+            # Same account as the fallback role -> the preflight lets it through.
+            return {"Account": "0", "Arn": "arn:aws:iam::0:user/tester"}
 
         def resolve_role(self, role=""):
             return role or self.role or "arn:aws:iam::0:role/fallback"

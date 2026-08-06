@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterator, List, Optional, Set
 
 import labram.utils as utils
-from labram.aws.sagemaker import SageMakerJobSpec, SageMakerLauncher
+from labram.aws.sagemaker import SageMakerJobSpec, SageMakerLauncher, role_account
 from labram.configs.defaults import SAGEMAKER_INPUT_MODES
 from labram.configs.run_configs import (
     FinetuneRunConfig,
@@ -634,6 +634,37 @@ def _add_git_info_member(tar: tarfile.TarFile, info: Dict[str, Any]) -> None:
     tar.addfile(entry, io.BytesIO(payload))
 
 
+def cross_account_role_error(role: str, identity: Dict[str, str],
+                             profile: str = '') -> Optional[str]:
+    """Message describing a cross-account execution role, or ``None`` if fine.
+
+    ``CreateTrainingJob`` refuses to pass a ``RoleArn`` from an account other
+    than the caller's ("Cross-account pass role is not allowed") — no trust
+    policy can grant it. AWS only says so after the submission has already
+    uploaded the code, config and weights, and names neither account, so check
+    it up front. Pure, so the wording is unit-testable without AWS.
+
+    Returns ``None`` when the accounts match or either is unknown (an
+    unparseable role, or STS unreachable) — never block a submission on a check
+    that could not be made.
+    """
+    want = role_account(role)
+    have = identity.get('Account', '')
+    if not want or not have or want == have:
+        return None
+    where = f"profile {profile!r}" if profile else "your current credentials"
+    return (
+        f"Cross-account SageMaker execution role.\n"
+        f"  role    {role}\n"
+        f"          -> account {want}\n"
+        f"  caller  {identity.get('Arn', '<unknown>')}\n"
+        f"          -> account {have} (from {where})\n"
+        f"CreateTrainingJob cannot pass a role across accounts. Either submit "
+        f"with credentials in {want} (e.g. AWS_PROFILE=<profile> ... or "
+        f"--set sagemaker.profile=<profile>), or pass a sagemaker.role from "
+        f"{have}.")
+
+
 def _reraise_kms_access_denied(exc: Exception) -> None:
     """If ``exc`` is an S3/KMS ``AccessDenied`` on ``kms:GenerateDataKey``, raise a
     ``RuntimeError`` with an actionable message; otherwise return so the caller
@@ -771,10 +802,26 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
     # packaged, so clearml.enabled runs can log from inside SageMaker.
     forward_clearml_env(config)
 
-    launcher = SageMakerLauncher(region=sm.region or None, default_role=sm.role)
+    launcher = SageMakerLauncher(region=sm.region or None, default_role=sm.role,
+                                 profile=sm.profile or None)
     # Fail fast with an actionable message if no usable execution role.
     role = launcher.resolve_role(sm.role)
     logger.info("SageMaker execution role: %s", role)
+    # Which credentials are we actually submitting with? Logged unconditionally
+    # because everything below (bucket names, the role) is account-scoped, and
+    # checked here so a cross-account role fails before any upload rather than
+    # after the code/config/weights have gone to the wrong account's bucket.
+    identity = launcher.caller_identity()
+    if identity:
+        logger.info("AWS caller identity: %s (account %s%s)",
+                    identity.get('Arn', '<unknown>'), identity.get('Account', '?'),
+                    f", profile {sm.profile}" if sm.profile else '')
+    else:
+        logger.warning("Could not read the AWS caller identity (sts:GetCallerIdentity); "
+                       "skipping the cross-account role check.")
+    mismatch = cross_account_role_error(role, identity, sm.profile)
+    if mismatch:
+        raise SystemExit(mismatch)
 
     # Record what code this run *is*: the container has no .git, so this is the
     # only way branch/commit/uncommitted changes reach the ClearML experiment.

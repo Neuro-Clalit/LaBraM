@@ -26,6 +26,7 @@ from labram.configs.defaults import (
     DEFAULT_SAGEMAKER_MAX_WAIT_SEC,
     DEFAULT_SAGEMAKER_OUTPUT_KMS_KEY,
     DEFAULT_SAGEMAKER_OUTPUT_PATH,
+    DEFAULT_SAGEMAKER_PROFILE,
     DEFAULT_SAGEMAKER_PY_VERSION,
     DEFAULT_SAGEMAKER_REGION,
     DEFAULT_SAGEMAKER_ROLE,
@@ -61,6 +62,11 @@ class SageMakerConfig(ConfigBase):
         job_name_prefix: Prefix for generated job names; the fold number is
             appended for CV (``<prefix>-fold-<k>``).
         region: AWS region; empty -> boto3 default.
+        profile: AWS credential profile to submit from; empty -> boto3's own
+            resolution (``AWS_PROFILE``, then ``default``). ``CreateTrainingJob``
+            refuses to pass a ``role`` from another account, so the profile and
+            ``role`` must name the same account — pinning the profile here keeps
+            that pairing in the config instead of depending on shell state.
         output_path / code_location: S3 prefixes for model artifacts and the
             packaged source.
         output_kms_key: KMS key for the S3 objects this submission writes — the
@@ -108,6 +114,7 @@ class SageMakerConfig(ConfigBase):
     source_dir: str = DEFAULT_SAGEMAKER_SOURCE_DIR
     job_name_prefix: str = DEFAULT_SAGEMAKER_JOB_NAME_PREFIX
     region: str = DEFAULT_SAGEMAKER_REGION
+    profile: str = DEFAULT_SAGEMAKER_PROFILE
     output_path: str = DEFAULT_SAGEMAKER_OUTPUT_PATH
     code_location: str = DEFAULT_SAGEMAKER_CODE_LOCATION
     output_kms_key: str = DEFAULT_SAGEMAKER_OUTPUT_KMS_KEY

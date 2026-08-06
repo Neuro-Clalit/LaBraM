@@ -249,6 +249,7 @@ DEFAULT_SAGEMAKER_ENTRY_POINT: str = 'labram/runs/sagemaker_entry.py'
 DEFAULT_SAGEMAKER_SOURCE_DIR: str = ''          # '' -> repo root (packaged & uploaded by the SDK)
 DEFAULT_SAGEMAKER_JOB_NAME_PREFIX: str = 'labram-finetune'
 DEFAULT_SAGEMAKER_REGION: str = ''              # '' -> boto3 default region
+DEFAULT_SAGEMAKER_PROFILE: str = ''             # '' -> boto3 default credential resolution
 DEFAULT_SAGEMAKER_OUTPUT_PATH: str = ''         # S3 prefix for model artifacts
 DEFAULT_SAGEMAKER_CODE_LOCATION: str = ''       # S3 prefix for the packaged source
 # KMS key for the S3 objects this submission writes (model output + the code /

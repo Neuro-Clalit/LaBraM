@@ -162,6 +162,7 @@
         "source_dir": "",
         "job_name_prefix": "labram-finetune",
         "region": "",
+        "profile": "",
         "output_path": "",
         "code_location": "",
         "output_kms_key": "",

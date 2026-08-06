@@ -111,14 +111,26 @@ def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
     return kwargs
 
 
+def role_account(role_arn: str) -> str:
+    """The AWS account id embedded in an IAM role ARN; ``''`` if unparseable.
+
+    ``arn:aws:iam::123456789012:role/Name`` -> ``'123456789012'``.
+    """
+    parts = role_arn.split(':')
+    if len(parts) >= 6 and parts[0] == 'arn' and parts[2] == 'iam':
+        return parts[4]
+    return ''
+
+
 class SageMakerLauncher:
     """Builds and submits SageMaker PyTorch estimators from :class:`SageMakerJobSpec`."""
 
     def __init__(self, region: Optional[str] = None, sagemaker_session: Any = None,
-                 default_role: str = ""):
+                 default_role: str = "", profile: Optional[str] = None):
         self._region = region or None
         self._session = sagemaker_session
         self._default_role = default_role
+        self._profile = profile or None
 
     # -- lazy SDK access ---------------------------------------------------
 
@@ -135,9 +147,30 @@ class SageMakerLauncher:
                 "`pip install -r requirements-sagemaker.txt`, or preview the plan "
                 "with --dry_run, which needs neither the SDK nor AWS credentials."
             ) from exc
-        boto_session = boto3.Session(region_name=self._region) if self._region else boto3.Session()
+        # An explicit profile pins which account the job is submitted from; empty
+        # leaves boto3 to its own resolution (AWS_PROFILE / 'default' / instance role).
+        kwargs = {}
+        if self._profile:
+            kwargs['profile_name'] = self._profile
+        if self._region:
+            kwargs['region_name'] = self._region
+        boto_session = boto3.Session(**kwargs)
         self._session = sagemaker.Session(boto_session=boto_session)
         return self._session
+
+    def caller_identity(self) -> Dict[str, str]:
+        """``sts:GetCallerIdentity`` for the submitting credentials.
+
+        Returns ``{'Account': ..., 'Arn': ..., 'UserId': ...}``, or ``{}`` when
+        STS cannot be reached. Never raises: this is used for a *diagnostic*
+        preflight, and a credential problem should surface on the real API call
+        with its own error rather than here.
+        """
+        try:
+            boto_session = self._get_session().boto_session
+            return dict(boto_session.client('sts').get_caller_identity())
+        except Exception:  # pragma: no cover - depends on live credentials
+            return {}
 
     def resolve_role(self, role: str = "") -> str:
         role = role or self._default_role

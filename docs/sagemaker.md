@@ -100,6 +100,7 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 | `entry_point` / `source_dir` | `labram/runs/sagemaker_entry.py` / repo root | Training script and packaged code. |
 | `job_name_prefix` | `labram-finetune` | Prefix; the fold number is appended for CV. |
 | `region` | `''` | AWS region; `''` → boto3 default. |
+| `profile` | `''` | AWS credential profile to submit from; `''` → boto3's own resolution (`AWS_PROFILE`, then `default`). Must name the same account as `role` — see [Cross-account role](#cross-account-role). |
 | `output_path` / `code_location` | `''` | S3 prefixes for model artifacts / packaged source. |
 | `output_kms_key` | `''` | KMS key for the S3 objects the submission writes (model output + the code/config/weight uploads). `''` → plain uploads and the SDK/account default for the job output (see [KMS-encrypted buckets](#kms-encrypted-buckets--mfa-enforced-accounts)). |
 | `config_channel` | `''` | Pre-uploaded config S3 uri; `''` → the CLI uploads it. |
@@ -231,6 +232,46 @@ and to hand the execution role to SageMaker.
    ```
    Confirm the plan first with `--dry_run` (needs no AWS calls). The launcher
    logs the resolved role and training image before it submits.
+
+### Cross-account role
+
+The execution role must live in the **same AWS account as the credentials you
+submit with**. `CreateTrainingJob` refuses otherwise:
+
+```
+ClientError (ValidationException) … CreateTrainingJob: RoleArn: Cross-account
+pass role is not allowed.
+```
+
+No trust policy can grant this — it is a hard SageMaker restriction, not a
+permission you are missing. The usual cause is a shell whose `AWS_PROFILE` is
+unset (so boto3 silently uses `default`) while `sagemaker.role` names a second
+account. Before uploading anything, the CLI now logs the caller identity and
+fails with both accounts spelled out:
+
+```
+[INFO] SageMaker execution role: arn:aws:iam::574441342949:role/SageMakerExecutionRole
+[INFO] AWS caller identity: arn:aws:iam::660185423351:user/leon (account 660185423351)
+Cross-account SageMaker execution role.
+  role    arn:aws:iam::574441342949:role/SageMakerExecutionRole
+          -> account 574441342949
+  caller  arn:aws:iam::660185423351:user/leon
+          -> account 660185423351 (from your current credentials)
+```
+
+Fix it by submitting from the role's account, either per-shell or pinned in the
+config so it cannot drift:
+
+```bash
+AWS_PROFILE=neuro python -m labram.runs.submit_sagemaker --config … 
+# or, travelling with the config:
+python -m labram.runs.submit_sagemaker --config … --set sagemaker.profile=neuro
+```
+
+`sagemaker.profile` is passed to `boto3.Session(profile_name=…)`, so it also
+determines which account's default bucket (`sagemaker-<region>-<account>`)
+receives the config, code and weight uploads. If STS cannot be reached the check
+is skipped rather than blocking the submission.
 
 ### KMS-encrypted buckets / MFA-enforced accounts
 
