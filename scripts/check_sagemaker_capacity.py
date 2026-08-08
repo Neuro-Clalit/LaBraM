@@ -55,10 +55,11 @@ def make_session(profile: str, region: str):
 # ---------------------------------------------------------------- 1) quotas
 
 
-def training_quotas(session, types: List[str]) -> Dict[str, Dict[str, Optional[float]]]:
-    """{ml_type: {'on_demand': value|None, 'spot': value|None}} from Service
-    Quotas. Applied values first, falling back to AWS defaults. None -> the
-    quota was not found under either name."""
+def training_quotas(session, types: List[str]) -> Dict[str, Dict[str, Optional[Dict]]]:
+    """{ml_type: {'on_demand': quota|None, 'spot': quota|None}} from Service
+    Quotas, where each quota is ``{'value', 'code', 'adjustable'}``. Applied
+    values first, falling back to AWS defaults. The code is what a
+    ``request-service-quota-increase`` call needs."""
     sq = session.client('service-quotas')
     wanted = {t: {'on_demand': f'{t} for training job usage',
                   'spot': f'{t} for spot training job usage'} for t in types}
@@ -72,7 +73,9 @@ def training_quotas(session, types: List[str]) -> Dict[str, Dict[str, Optional[f
                 for t, names in wanted.items():
                     for kind, qname in names.items():
                         if name == qname and out[t][kind] is None:
-                            out[t][kind] = q.get('Value')
+                            out[t][kind] = {'value': q.get('Value'),
+                                            'code': q.get('QuotaCode', ''),
+                                            'adjustable': q.get('Adjustable', False)}
 
     scan('list_service_quotas')                    # account-specific overrides
     if any(v is None for d in out.values() for v in d.values()):
@@ -161,12 +164,17 @@ def main() -> int:
     print(f"Account {ident['Account']} ({ident['Arn']}), region {session.region_name}, "
           f"profile {profile or '<default chain>'}")
 
-    print(f"\n{RULE}\n1) SageMaker training quotas (0 = type not enabled for this account)\n{RULE}")
+    print(f"\n{RULE}\n1) SageMaker training quotas — max CONCURRENT instances this account may\n"
+          f"   use per type (0 = blocked outright; 1 = one job at a time is fine)\n{RULE}")
     quotas = training_quotas(session, types)
     for t in types:
         q = quotas[t]
-        fmt = lambda v: '?' if v is None else int(v)
+        fmt = lambda v: '?' if v is None else f"{int(v['value'])} [{v['code']}]"
         print(f"  {t:<16} on-demand: {fmt(q['on_demand'])}   spot: {fmt(q['spot'])}")
+    print("\n  To raise one (needed only for quota 0, parallel jobs, or instance_count>1):\n"
+          f"    aws service-quotas request-service-quota-increase \\\n"
+          f"        --service-code sagemaker --quota-code <code-above> --desired-value <N> \\\n"
+          f"        --profile {profile or 'default'} --region {session.region_name}")
 
     ec2_types = [ec2_equivalent(t) for t in types]
     print(f"\n{RULE}\n2) Spot placement score, {session.region_name} "

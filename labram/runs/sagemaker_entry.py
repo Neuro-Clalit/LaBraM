@@ -38,7 +38,7 @@ def find_config_path(explicit: Optional[str]) -> Optional[str]:
 
     Raises when the channel is mounted but holds no config, rather than returning
     a path that does not exist — the downstream loader only reports
-    ``Non valid path: <path>``, which says nothing about *why* the channel is
+    ``Not a valid path: <path>``, which says nothing about *why* the channel is
     empty (the usual cause is a ``FastFile``/``Pipe`` channel whose S3 uri is a
     single object instead of a prefix, which mounts as an empty directory).
     """
