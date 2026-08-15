@@ -139,7 +139,8 @@
         "log_data_split": true,
         "relative_loss_components": true,
         "relative_step_axis": true,
-        "relative_step_scale": 1000
+        "relative_step_scale": 1000,
+        "precise_cuda_timing": false
     },
     "labram_plus": {
         "py/object": "labram.configs.labram_plus_config.LaBraMPlusConfig",

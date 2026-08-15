@@ -172,7 +172,9 @@ class TestTrainOneEpochSmoke:
 
     def test_returns_expected_keys(self, trained):
         _, stats, _ = trained
-        for k in ('mlm_acc', 'mlm_acc_sym', 'loss_rec', 'loss', 'lr', 'min_lr'):
+        for k in ('mlm_acc', 'mlm_acc_sym', 'loss_rec', 'loss', 'lr', 'min_lr',
+                  'data_time_sec', 'step_time_sec', 'host_compute_time_sec',
+                  'samples_processed'):
             assert k in stats, f"missing key {k} in {list(stats)}"
 
     def test_loss_finite_and_positive(self, trained):

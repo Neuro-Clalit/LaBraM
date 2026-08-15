@@ -145,6 +145,7 @@ DEFAULT_LOG_DATA_SPLIT: bool = True
 DEFAULT_RELATIVE_LOSS_COMPONENTS: bool = True
 DEFAULT_RELATIVE_STEP_AXIS: bool = True
 DEFAULT_RELATIVE_STEP_SCALE: int = 1000   # progress 0..1 -> 0..scale (per-mille)
+DEFAULT_PRECISE_CUDA_TIMING: bool = False
 
 # ---------- ClearML experiment tracking (labram/utils/logging.ClearMLLogger) ----------
 DEFAULT_CLEARML_ENABLED: bool = False

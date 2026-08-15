@@ -15,7 +15,7 @@ from einops import rearrange
 
 import labram.utils as utils
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import TrainerConfig
+from labram.configs.train_config import LoggingConfig, TrainerConfig
 from labram.optim_factory import apply_lr_wd_schedule, log_lr_wd_grad_metrics
 
 logger = utils.get_logger(__name__)
@@ -53,6 +53,7 @@ def train_one_epoch(
     lr_schedule_values: Optional[Sequence[float]] = None,
     wd_schedule_values: Optional[Sequence[float]] = None,
     ch_names_list: Optional[List[List[str]]] = None,
+    logging_cfg: Optional[LoggingConfig] = None,
 ) -> Dict[str, float]:
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -69,11 +70,14 @@ def train_one_epoch(
     clip_grad = optim_cfg.clip_grad
 
     step_loader = 0
+    step_timer = utils.StepTimer(
+        device, precise_cuda=bool(getattr(logging_cfg, 'precise_cuda_timing', False)))
     for data_loader, ch_names in zip(data_loader_list, ch_names_list):
         if len(data_loader) == 0:
             continue
         channel_indices = utils.get_channel_indices(ch_names)
         for step, (batch) in enumerate(metric_logger.log_every(data_loader, print_freq * grad_accum, header)):
+            data_time = step_timer.start_step()
             global_step = start_steps + step + step_loader
             apply_lr_wd_schedule(optimizer, global_step, lr_schedule_values, wd_schedule_values)
 
@@ -112,9 +116,6 @@ def train_one_epoch(
             if (step + 1) % grad_accum == 0:
                 optimizer.zero_grad()
 
-            if device.type == 'cuda':
-                torch.cuda.synchronize()
-
             mlm_acc = (x_rec.max(-1)[1] == labels).float().mean().item()
             mlm_acc_sym = (x_rec_sym.max(-1)[1] == labels_sym).float().mean().item()
             metric_logger.update(mlm_acc=mlm_acc, mlm_acc_sym=mlm_acc_sym,
@@ -126,8 +127,12 @@ def train_one_epoch(
                                   loss_rec=loss_rec.item() / 2, head="loss")
 
             log_lr_wd_grad_metrics(metric_logger, optimizer, grad_norm, log_writer)
+            step_timing = step_timer.end_step(data_time, batch.shape[0])
+            step_timing.update(step_timer.collect_ready_gpu_times())
+            metric_logger.update(**step_timing)
 
             if log_writer is not None:
+                log_writer.update(**step_timing, head="timing")
                 log_writer.update(loss=loss_value, head="loss")
                 # loss_scale (AMP) can reach ~65536 — its own plot keeps it off
                 # the small-valued "opt" (lr/wd) axis.
@@ -138,9 +143,12 @@ def train_one_epoch(
                 lr_scheduler.step_update(start_steps + step + step_loader)
         step_loader += step
 
+    metric_logger.update(**step_timer.finish())
     metric_logger.synchronize_between_processes()
     logger.info("Averaged stats: %s", metric_logger)
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    stats['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
+    return stats
 
 
 def train_loop(
@@ -176,12 +184,14 @@ def train_loop(
     start_time = time.time()
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
+        epoch_timer = utils.PhaseTimer(device)
         if config.distributed.distributed:
             for dl in data_loader_list:
                 dl.sampler.set_epoch(epoch)
         if log_writer is not None:
             log_writer.set_step(epoch * num_training_steps_per_epoch)
 
+        train_timer = utils.PhaseTimer(device)
         train_stats = train_one_epoch(
             model, vqnsp, data_loader_list, optimizer, device, epoch, loss_scaler,
             trainer_cfg=config.trainer,
@@ -192,17 +202,31 @@ def train_loop(
             lr_schedule_values=lr_schedule_values,
             wd_schedule_values=wd_schedule_values,
             ch_names_list=train_ch_names_list,
+            logging_cfg=config.logging,
         )
+        train_timing = utils.timing_stats(
+            'train', train_timer.elapsed(), int(train_stats.get('samples_processed', 0)))
 
+        checkpoint_timer = utils.PhaseTimer(device)
         if config.output.output_dir and not config.output.save_only_final_model:
             utils.save_model(
                 output_cfg=config.output, trainer_cfg=config.trainer,
                 model=model, model_without_ddp=model_without_ddp,
                 optimizer=optimizer, loss_scaler=loss_scaler, epoch=epoch,
             )
+        checkpoint_timing = utils.timing_stats('checkpoint', checkpoint_timer.elapsed())
+        epoch_timing = {
+            **train_timing,
+            **checkpoint_timing,
+            **utils.timing_stats('epoch', epoch_timer.elapsed()),
+            **utils.timing_stats('run_elapsed', time.time() - start_time),
+        }
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                     'epoch': epoch, 'n_parameters': n_parameters}
+                     'epoch': epoch, 'n_parameters': n_parameters, **epoch_timing}
+
+        utils.log_timing_stats(log_writer, {k: v for k, v in log_stats.items()
+                                             if k.endswith('_time_sec') or k.endswith('_samples_per_sec')}, epoch)
 
         if log_writer is not None and config.output.output_dir and utils.is_main_process():
             log_writer.flush()
