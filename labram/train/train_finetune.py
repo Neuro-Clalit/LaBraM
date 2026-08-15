@@ -120,7 +120,10 @@ def train_one_epoch(
     else:
         optimizer.zero_grad()
 
+    step_timer = utils.StepTimer(
+        device, precise_cuda=bool(getattr(logging_cfg, 'precise_cuda_timing', False)))
     for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+        data_time = step_timer.start_step()
         step = data_iter_step // update_freq
         if step >= num_training_steps_per_epoch:
             continue
@@ -183,9 +186,6 @@ def train_one_epoch(
                 create_graph=is_second_order, model_ema=model_ema, model=model)
             loss_scale_value = loss_scaler.state_dict().get("scale", 1.0)
 
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-
         # ``step_scores`` are what a detailed epoch-level report is built from:
         # probabilities for classification, raw scalar predictions for regression.
         step_target = targets.detach().float().cpu()
@@ -229,8 +229,12 @@ def train_one_epoch(
             metric_logger.update(**component_grad_values)
 
         log_lr_wd_grad_metrics(metric_logger, optimizer, grad_norm, log_writer)
+        step_timing = step_timer.end_step(data_time, samples.shape[0])
+        step_timing.update(step_timer.collect_ready_gpu_times())
+        metric_logger.update(**step_timing)
 
         if log_writer is not None:
+            log_writer.update(**step_timing, head="timing")
             log_writer.update(loss=loss_value, head="loss")
             if is_regression:
                 # MAE is in years (O(10)), so it would flatten the O(1) loss
@@ -252,10 +256,12 @@ def train_one_epoch(
                 log_writer.update(**{name: value}, head="grad")
             log_writer.set_step()
 
+    metric_logger.update(**step_timer.finish())
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     logger.info("Averaged stats: %s", metric_logger)
     stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    stats['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
 
     # Epoch-level detailed train metrics (F1 / sensitivity / specificity /
     # confusion matrix / ROC-PR) over all accumulated train predictions.
@@ -291,6 +297,7 @@ def evaluate(
     task: str = TASK_CLASSIFICATION,
     target_stats: Optional[Tuple[float, float]] = None,
     loss_cfg: Optional[LossConfig] = None,
+    logging_cfg: Optional[LoggingConfig] = None,
 ) -> Dict[str, float]:
     """Evaluate a split.
 
@@ -341,7 +348,10 @@ def evaluate(
     pred = []
     true = []
     groups: List = []
+    step_timer = utils.StepTimer(
+        device, precise_cuda=bool(getattr(logging_cfg, 'precise_cuda_timing', False)))
     for step, batch in enumerate(metric_logger.log_every(data_loader, 10, header)):
+        data_time = step_timer.start_step()
         eeg_batch = batch[0]
         # A 3-element batch carries a per-window case id for aggregation.
         target = batch[1] if len(batch) >= 3 else batch[-1]
@@ -375,6 +385,9 @@ def evaluate(
             groups.extend(list(group_batch))
 
         metric_logger.update(loss=loss.item())
+        metric_logger.update(**step_timer.end_step(data_time, eeg_batch.shape[0]))
+        metric_logger.update(**step_timer.collect_ready_gpu_times())
+    metric_logger.update(**step_timer.finish())
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     logger.info('* loss {losses.global_avg:.3f}'.format(losses=metric_logger.loss))
@@ -405,6 +418,7 @@ def evaluate(
     window_ret, window_report = _metrics_and_report(
         pred, true, metrics, is_binary, nb_classes, detailed, task)
     window_ret['loss'] = loss_avg
+    window_ret['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
 
     if agg_mode != 'none' and groups:
         # Pool the windows of each EEG case (recording/subject) into a single
@@ -431,6 +445,11 @@ def evaluate(
     else:
         ret = window_ret
         primary_report = window_report
+
+    ret.update({key: meter.global_avg for key, meter in metric_logger.meters.items()
+                if key in ('data_time_sec', 'step_time_sec', 'host_compute_time_sec',
+                           'gpu_compute_time_sec')})
+    ret['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
 
     if primary_report is not None and log_writer is not None and head is not None:
         _log_detailed_report(log_writer, primary_report, head, epoch, eval_cfg)
@@ -619,11 +638,13 @@ def train_loop(
     best_test_stats: dict = {}
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
+        epoch_timer = utils.PhaseTimer(device)
         if config.distributed.distributed:
             loaders.train.sampler.set_epoch(epoch)
         if log_writer is not None:
             log_writer.set_step(epoch * num_training_steps_per_epoch * config.trainer.update_freq)
 
+        train_timer = utils.PhaseTimer(device)
         train_stats = train_one_epoch(
             model, criterion, loaders.train, optimizer,
             device, epoch, loss_scaler,
@@ -643,9 +664,12 @@ def train_loop(
             target_stats=target_stats,
             logging_cfg=config.logging,
         )
+        train_timing = utils.timing_stats(
+            'train', train_timer.elapsed(), int(train_stats.get('samples_processed', 0)))
 
         # Periodic/rolling per-epoch checkpoints are skipped when only the final
         # model is wanted (see the post-loop save below).
+        checkpoint_timer = utils.PhaseTimer(device)
         if config.output.output_dir and config.output.save_ckpt and not config.output.save_only_final_model:
             utils.save_model(
                 output_cfg=config.output, trainer_cfg=config.trainer,
@@ -653,22 +677,30 @@ def train_loop(
                 optimizer=optimizer, loss_scaler=loss_scaler,
                 epoch=epoch, model_ema=model_ema,
                 enable_deepspeed=enable_deepspeed)
+        checkpoint_timing = utils.timing_stats('checkpoint', checkpoint_timer.elapsed())
 
         if loaders.val is not None:
+            validation_timer = utils.PhaseTimer(device)
             val_stats = evaluate(loaders.val, model, device, header='Val:',
                                  ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                                  nb_classes=nb_classes, eval_cfg=config.evaluation,
                                  log_writer=log_writer, head='val', epoch=epoch,
                                  task=task, target_stats=target_stats,
-                                 loss_cfg=config.loss)
+                                 loss_cfg=config.loss, logging_cfg=config.logging)
+            validation_timing = utils.timing_stats(
+                'validation', validation_timer.elapsed(),
+                int(val_stats.get('samples_processed', 0)))
             unit = '' if is_regression else '%'
             logger.info(f"Val EEG {select_metric}: {val_stats[select_metric]:.2f}{unit}")
+            test_timer = utils.PhaseTimer(device)
             test_stats = evaluate(loaders.test, model, device, header='Test:',
                                   ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                                   nb_classes=nb_classes, eval_cfg=config.evaluation,
                                   log_writer=log_writer, head='test', epoch=epoch,
                                   task=task, target_stats=target_stats,
-                                  loss_cfg=config.loss)
+                                  loss_cfg=config.loss, logging_cfg=config.logging)
+            test_timing = utils.timing_stats(
+                'test', test_timer.elapsed(), int(test_stats.get('samples_processed', 0)))
             logger.info(f"Test EEG {select_metric}: {test_stats[select_metric]:.2f}{unit}")
 
             if better(val_stats[select_metric], best_val):
@@ -693,10 +725,21 @@ def train_loop(
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'val_{k}': v for k, v in val_stats.items()},
                          **{f'test_{k}': v for k, v in test_stats.items()},
-                         'epoch': epoch, 'n_parameters': n_parameters}
+                         'epoch': epoch, 'n_parameters': n_parameters,
+                         **train_timing, **checkpoint_timing,
+                         **validation_timing, **test_timing}
         else:
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                         'epoch': epoch, 'n_parameters': n_parameters}
+                         'epoch': epoch, 'n_parameters': n_parameters,
+                         **train_timing, **checkpoint_timing}
+
+        epoch_timing = {
+            **utils.timing_stats('epoch', epoch_timer.elapsed()),
+            **utils.timing_stats('run_elapsed', time.time() - start_time),
+        }
+        log_stats.update(epoch_timing)
+        utils.log_timing_stats(log_writer, {k: v for k, v in log_stats.items()
+                                             if k.endswith('_time_sec') or k.endswith('_samples_per_sec')}, epoch)
 
         if log_writer is not None and config.output.output_dir and utils.is_main_process():
             log_writer.flush()

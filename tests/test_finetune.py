@@ -132,6 +132,9 @@ class TestTrainOneEpoch:
         assert "loss" in stats
         assert "class_acc" in stats
         assert "grad_norm" in stats
+        for key in ("data_time_sec", "step_time_sec", "host_compute_time_sec",
+                    "samples_processed"):
+            assert key in stats
         assert stats["loss"] > 0
 
     def test_multiclass_returns_expected_keys(self):
@@ -205,6 +208,9 @@ class TestEvaluate:
 
         assert "loss" in result
         assert "accuracy" in result
+        for key in ("data_time_sec", "step_time_sec", "host_compute_time_sec",
+                    "samples_processed"):
+            assert key in result
         assert 0.0 <= result["accuracy"] <= 1.0
 
     def test_multiclass_returns_loss_and_accuracy(self):

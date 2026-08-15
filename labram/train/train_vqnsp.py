@@ -88,9 +88,12 @@ def train_one_epoch(
             pass
 
     step_loader = 0
+    step_timer = utils.StepTimer(
+        device, precise_cuda=bool(getattr(logging_cfg, 'precise_cuda_timing', False)))
     for data_loader, ch_names in zip(data_loader_list, ch_names_list):
         channel_indices = utils.get_channel_indices(ch_names)
         for step, (batch) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+            data_time = step_timer.start_step()
             global_step = start_steps + step + step_loader
             apply_lr_wd_schedule(optimizer, global_step, lr_schedule_values)
 
@@ -111,16 +114,17 @@ def train_one_epoch(
                                     parameters=model.parameters(), create_graph=is_second_order)
             loss_scale_value = loss_scaler.state_dict().get("scale", 1.0)
 
-            if device.type == 'cuda':
-                torch.cuda.synchronize()
-
             metric_logger.update(loss=loss_value)
             filtered_loss_dict = {k.split('/')[-1]: v for k, v in loss_dict.items() if k not in ['total_loss']}
             metric_logger.update(**filtered_loss_dict)
 
             log_lr_wd_grad_metrics(metric_logger, optimizer, grad_norm, log_writer)
+            step_timing = step_timer.end_step(data_time, batch.shape[0])
+            step_timing.update(step_timer.collect_ready_gpu_times())
+            metric_logger.update(**step_timing)
 
             if log_writer is not None:
+                log_writer.update(**step_timing, head="timing")
                 log_writer.update(**_writer_loss_values(filtered_loss_dict, logging_cfg),
                                   head="train/loss")
                 # loss_scale (AMP) can reach ~65536 — its own plot keeps it off
@@ -132,6 +136,7 @@ def train_one_epoch(
                 lr_scheduler.step_update(start_steps + step + step_loader)
         step_loader += step
 
+    metric_logger.update(**step_timer.finish())
     metric_logger.synchronize_between_processes()
     logger.info("Averaged stats: %s", metric_logger)
 
@@ -140,8 +145,11 @@ def train_one_epoch(
         train_stat = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
         train_stat['unused_code'] = zero_cnt
         logger.info("Unused code in codebook: %s", zero_cnt)
+        train_stat['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
         return train_stat
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    train_stat = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    train_stat['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
+    return train_stat
 
 
 @torch.no_grad()
@@ -152,6 +160,7 @@ def evaluate(
     log_writer: Optional[Any] = None,
     epoch: Optional[int] = None,
     ch_names_list: Optional[List[List[str]]] = None,
+    logging_cfg: Optional[LoggingConfig] = None,
 ) -> Dict[str, float]:
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Validation:'
@@ -165,15 +174,21 @@ def evaluate(
         except AttributeError:
             pass
 
+    step_timer = utils.StepTimer(
+        device, precise_cuda=bool(getattr(logging_cfg, 'precise_cuda_timing', False)))
     for data_loader, ch_names in zip(data_loader_list, ch_names_list):
         channel_indices = utils.get_channel_indices(ch_names)
         for step, (batch) in enumerate(metric_logger.log_every(data_loader, 10, header)):
+            data_time = step_timer.start_step()
             eeg_batch = batch.float().to(device, non_blocking=True) / 100
             loss, loss_dict = model(eeg_batch, channel_indices=channel_indices)
             metric_logger.update(loss=loss.item())
             filtered_loss_dict = {k.split('/')[-1]: v for k, v in loss_dict.items() if k not in ['total_loss']}
             metric_logger.update(**filtered_loss_dict)
+            metric_logger.update(**step_timer.end_step(data_time, batch.shape[0]))
+            metric_logger.update(**step_timer.collect_ready_gpu_times())
 
+    metric_logger.update(**step_timer.finish())
     metric_logger.synchronize_between_processes()
     logger.info("Averaged stats: %s", metric_logger)
 
@@ -182,8 +197,11 @@ def evaluate(
         test_stat = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
         test_stat['unused_code'] = zero_cnt
         logger.info("Unused code in codebook: %s", zero_cnt)
+        test_stat['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
         return test_stat
-    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    test_stat = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    test_stat['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
+    return test_stat
 
 
 @torch.no_grad()
@@ -241,12 +259,14 @@ def train_loop(
     start_time = time.time()
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
+        epoch_timer = utils.PhaseTimer(device)
         if config.distributed.distributed:
             for dl in data_loader_train_list:
                 dl.sampler.set_epoch(epoch)
         if log_writer is not None:
             log_writer.set_step(epoch * num_training_steps_per_epoch)
 
+        train_timer = utils.PhaseTimer(device)
         train_stats = train_one_epoch(
             model, data_loader_train_list, optimizer, device, epoch, loss_scaler,
             optim_cfg=config.optimizer,
@@ -257,19 +277,28 @@ def train_loop(
             ch_names_list=train_ch_names_list,
             logging_cfg=config.logging,
         )
+        train_timing = utils.timing_stats(
+            'train', train_timer.elapsed(), int(train_stats.get('samples_processed', 0)))
 
+        checkpoint_timer = utils.PhaseTimer(device)
         if config.output.output_dir and not config.output.save_only_final_model:
             utils.save_model(
                 output_cfg=config.output, trainer_cfg=config.trainer,
                 model=model, model_without_ddp=model_without_ddp,
                 optimizer=optimizer, loss_scaler=loss_scaler, epoch=epoch,
             )
+        checkpoint_timing = utils.timing_stats('checkpoint', checkpoint_timer.elapsed())
 
         if data_loader_val_list is not None:
+            validation_timer = utils.PhaseTimer(device)
             test_stats = evaluate(
                 data_loader_val_list, model, device, log_writer, epoch,
                 ch_names_list=val_ch_names_list,
+                logging_cfg=config.logging,
             )
+            validation_timing = utils.timing_stats(
+                'validation', validation_timer.elapsed(),
+                int(test_stats.get('samples_processed', 0)))
             logger.info(f"Validation loss: {test_stats['loss']:.4f}")
             if log_writer is not None:
                 log_writer.update(**_writer_loss_values(test_stats, config.logging),
@@ -277,10 +306,20 @@ def train_loop(
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'test_{k}': v for k, v in test_stats.items()},
-                         'epoch': epoch, 'n_parameters': n_learnable_parameters}
+                         'epoch': epoch, 'n_parameters': n_learnable_parameters,
+                         **train_timing, **checkpoint_timing, **validation_timing}
         else:
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                         'epoch': epoch, 'n_parameters': n_learnable_parameters}
+                         'epoch': epoch, 'n_parameters': n_learnable_parameters,
+                         **train_timing, **checkpoint_timing}
+
+        epoch_timing = {
+            **utils.timing_stats('epoch', epoch_timer.elapsed()),
+            **utils.timing_stats('run_elapsed', time.time() - start_time),
+        }
+        log_stats.update(epoch_timing)
+        utils.log_timing_stats(log_writer, {k: v for k, v in log_stats.items()
+                                             if k.endswith('_time_sec') or k.endswith('_samples_per_sec')}, epoch)
 
         if log_writer is not None and config.output.output_dir and utils.is_main_process():
             log_writer.flush()
