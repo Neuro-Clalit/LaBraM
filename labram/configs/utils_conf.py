@@ -54,13 +54,52 @@ def _coerce_override(s: str):
     return s
 
 
+def _join_spaced_overrides(items: List[str]) -> List[str]:
+    """Re-join overrides the shell split on spaces around the ``=``.
+
+    ``--set a.b = 1`` reaches us as three argv tokens (``'a.b'``, ``'='``,
+    ``'1'``) rather than one; a stray backslash-space before a key (``\\ a.b``)
+    leaves the space inside the token. Both are natural to type across a
+    multi-line command, so stitch them back into ``key=value`` here.
+
+    A trailing ``=`` only swallows the next token when that token is not itself
+    an override -- otherwise ``--set output.output_dir= output.log_dir=`` (two
+    keys set to the empty string) would merge into one.
+    """
+    merged: List[str] = []
+    i, n = 0, len(items)
+    while i < n:
+        tok = items[i].strip()
+        i += 1
+        if not tok:
+            continue
+        if '=' not in tok:
+            # 'key' '=' 'value' or 'key' '=value'
+            nxt = items[i].strip() if i < n else ''
+            if not nxt.startswith('='):
+                raise ValueError(
+                    f'Override must be key=value: {tok!r}. Quote values that '
+                    'contain spaces, e.g. --set clearml.task_name="my run".')
+            tok += nxt
+            i += 1
+        if tok.endswith('=') and i < n:
+            # 'key=' 'value' -- but leave a genuinely empty value alone.
+            nxt = items[i].strip()
+            if '=' not in nxt:
+                tok += nxt
+                i += 1
+        merged.append(tok)
+    return merged
+
+
 def parse_overrides(items: List[str]) -> dict:
     """Parse ``--set key.sub=value`` strings into a dict for
     :meth:`ConfigBase.update`."""
     out: dict = {}
-    for raw in items:
-        if '=' not in raw:
-            raise ValueError(f'Override must be key=value: {raw!r}')
+    for raw in _join_spaced_overrides(items):
         key, value = raw.split('=', 1)
-        out[key.strip()] = _coerce_override(value.strip())
+        key = key.strip()
+        if not key:
+            raise ValueError(f'Override has an empty key: {raw!r}')
+        out[key] = _coerce_override(value.strip())
     return out

@@ -175,7 +175,7 @@ class FileSystem(CloudPath):
                       must_exist: bool = True) -> RT:
         #  host_methods = {self.LOCAL_HOST: fun_local, self.S3_HOST: fun_s3}
         if not self.exists(path) and must_exist:
-            raise RuntimeError(f'Non valid  path: {path}')
+            raise RuntimeError(f'Not a valid path (does not exist): {path}')
 
         if set(host_methods.keys()) != set(self.HOSTS):
             raise RuntimeError(f'Missmatch in host_methods: {host_methods} and available: {self.HOSTS}')

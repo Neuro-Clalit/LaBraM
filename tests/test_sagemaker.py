@@ -5,6 +5,7 @@ AWS (a fake launcher simulates the container by running the real entry point).""
 import os
 import pickle
 import shutil
+import sys
 import tarfile
 from pathlib import Path
 
@@ -37,12 +38,13 @@ def test_estimator_kwargs_image_uri_wins():
 
 
 def test_estimator_kwargs_spot_sets_max_wait():
-    spec = SageMakerJobSpec(entry_point='e.py', use_spot=True, max_run_sec=100, max_wait_sec=0)
+    spec = SageMakerJobSpec(entry_point='e.py', use_spot=True, max_run_sec=100, max_wait_min=0)
     kw = estimator_kwargs(spec)
     assert kw['use_spot_instances'] is True
     assert kw['max_wait'] == 100  # falls back to max_run when unset
-    spec2 = SageMakerJobSpec(entry_point='e.py', use_spot=True, max_run_sec=100, max_wait_sec=200)
-    assert estimator_kwargs(spec2)['max_wait'] == 200
+    spec2 = SageMakerJobSpec(entry_point='e.py', use_spot=True, max_run_sec=100,
+                             max_wait_min=1.5)
+    assert estimator_kwargs(spec2)['max_wait'] == 90
 
 
 def test_estimator_kwargs_tags_formatted():
@@ -148,6 +150,29 @@ def test_spot_max_wait_follows_the_24h_cap():
     assert kw['max_wait'] == 86400
 
 
+def test_spot_fallback_config_flows_to_the_submission_path():
+    c = FinetuneRunConfig()
+    c.sagemaker.use_spot = True
+    c.sagemaker.max_wait_min = 1.5
+    c.sagemaker.on_demand_fallback = True
+    plan = sub.plan_jobs(c, 's3://b/run.yaml')[0]
+    assert estimator_kwargs(plan.spec)['max_wait'] == 90
+    assert c.sagemaker.on_demand_fallback is True
+
+
+def test_spot_wait_accepts_whole_minutes_and_rejects_less_than_runtime():
+    c = FinetuneRunConfig.load_config(
+        None, **{'sagemaker.use_spot': True, 'sagemaker.max_wait_min': 90})
+    assert isinstance(c.sagemaker.max_wait_min, int)
+    with pytest.raises(ValueError, match='at least 1440'):
+        sub.validate_spot_settings(c)
+
+
+def test_is_spot_wait_expired_handles_sdk_exception_text():
+    assert sub.is_spot_wait_expired(RuntimeError('MaxWaitTimeExceeded: no capacity'))
+    assert not sub.is_spot_wait_expired(RuntimeError('CapacityError'))
+
+
 def test_stream_logs_default_and_flow():
     c = FinetuneRunConfig()
     assert c.sagemaker.stream_logs is True
@@ -158,11 +183,15 @@ def test_submit_detach_does_not_wait_or_stream(tmp_path, monkeypatch):
     calls = []
 
     class _L:
-        def __init__(self, region=None, default_role='', sagemaker_session=None):
+        def __init__(self, region=None, default_role='', sagemaker_session=None,
+                     profile=None):
             pass
 
         def _get_session(self):
             return _FakeSession(tmp_path)
+
+        def caller_identity(self):
+            return {}
 
         def resolve_role(self, role=''):
             return role or 'arn:aws:iam::0:role/r'
@@ -225,14 +254,19 @@ def test_submitted_banner_says_the_job_survives_a_local_interrupt():
     assert 'this command is done' in detached.lower()
 
 
-def test_interrupted_banner_lists_still_running_jobs():
+def test_interrupted_banner_lists_still_running_jobs(monkeypatch):
     c = _s3_config()
+    c.clearml.enabled = True
+    c.clearml.task_name = 'brain-age'
     plan = sub.plan_jobs(c, 's3://b/run.yaml')[0]
     plan.submitted_name = 'labram-abnormal-ts'
-    text = sub.interrupted_banner([plan], 'us-east-1')
+    monkeypatch.setattr(sub, 'clearml_task_urls',
+                        lambda config: ['https://app.clear.ml/projects/p/experiments/t/output/log'])
+    text = sub.interrupted_banner([plan], 'us-east-1', c)
     assert 'STILL RUNNING' in text
     assert 'labram-abnormal-ts' in text
     assert 'stop-training-job' in text
+    assert 'https://app.clear.ml/projects/p/experiments/t/output/log' in text
 
 
 def test_console_url():
@@ -715,6 +749,212 @@ def test_reraise_kms_access_denied_ignores_other_errors():
         Exception("AccessDenied on s3:PutObject")) is None  # S3-only, not KMS
 
 
+# ------------------------------------------------------- cross-account preflight
+
+
+def test_role_account_parses_the_arn():
+    from labram.aws.sagemaker import role_account
+    assert role_account('arn:aws:iam::574441342949:role/SageMakerExecutionRole') \
+        == '574441342949'
+    assert role_account('arn:aws-us-gov:iam::123456789012:role/x') == '123456789012'
+
+
+def test_role_account_of_a_non_arn_is_empty():
+    from labram.aws.sagemaker import role_account
+    assert role_account('') == ''
+    assert role_account('SageMakerExecutionRole') == ''
+    assert role_account('arn:aws:s3:::bucket/key') == ''
+
+
+def test_cross_account_role_error_names_both_accounts():
+    msg = sub.cross_account_role_error(
+        'arn:aws:iam::574441342949:role/SM',
+        {'Account': '660185423351', 'Arn': 'arn:aws:iam::660185423351:user/leon'})
+    assert msg is not None
+    assert '574441342949' in msg and '660185423351' in msg
+    assert 'user/leon' in msg
+    assert 'sagemaker.profile' in msg          # points at the fix
+
+
+def test_cross_account_role_error_mentions_the_configured_profile():
+    msg = sub.cross_account_role_error(
+        'arn:aws:iam::111:role/SM', {'Account': '222', 'Arn': 'a'}, profile='neuro')
+    assert "profile 'neuro'" in msg
+
+
+def test_same_account_role_passes():
+    assert sub.cross_account_role_error(
+        'arn:aws:iam::111:role/SM',
+        {'Account': '111', 'Arn': 'arn:aws:iam::111:user/x'}) is None
+
+
+def test_unknown_identity_or_role_never_blocks():
+    # STS unreachable, or a role name the account cannot be read from: the check
+    # cannot be made, so it must not stand in the way of a submission.
+    assert sub.cross_account_role_error('arn:aws:iam::111:role/SM', {}) is None
+    assert sub.cross_account_role_error('SomeRoleName', {'Account': '111'}) is None
+
+
+def test_submit_aborts_on_cross_account_role_before_uploading(tmp_path, monkeypatch):
+    """The preflight must fire before any S3 upload — otherwise the code, config
+    and weights land in the *caller's* bucket for a job that can never start."""
+    session = _RecordingSession()
+
+    class _L:
+        def __init__(self, region=None, default_role='', sagemaker_session=None,
+                     profile=None):
+            pass
+
+        def _get_session(self):
+            return session
+
+        def caller_identity(self):
+            return {'Account': '660185423351',
+                    'Arn': 'arn:aws:iam::660185423351:user/leon'}
+
+        def resolve_role(self, role=''):
+            return role
+
+        def submit(self, spec, **kwargs):  # pragma: no cover - must not be reached
+            raise AssertionError("submit() must not be called")
+
+    monkeypatch.setattr(sub, 'SageMakerLauncher', _L)
+    c = _s3_config()
+    c.sagemaker.role = 'arn:aws:iam::574441342949:role/SageMakerExecutionRole'
+
+    with pytest.raises(SystemExit) as excinfo:
+        sub.submit(c, dry_run=False, phase='finetune')
+    assert 'Cross-account' in str(excinfo.value)
+    assert session.calls == []      # nothing was uploaded
+
+
+def test_profile_flows_from_config_to_the_launcher(tmp_path, monkeypatch):
+    seen = {}
+
+    class _L:
+        def __init__(self, region=None, default_role='', sagemaker_session=None,
+                     profile=None):
+            seen['profile'] = profile
+            seen['role'] = default_role
+
+        def _get_session(self):
+            return _FakeSession(tmp_path)
+
+        def caller_identity(self):
+            return {}
+
+        def resolve_role(self, role=''):
+            return role or 'arn:aws:iam::0:role/r'
+
+        def resolve_image_uri(self, spec):
+            return 'img'
+
+        def submit(self, spec, wait=False, job_name=None, stream_logs=True,
+                   on_submitted=None):
+            return 'job'
+
+    monkeypatch.setattr(sub, 'SageMakerLauncher', _L)
+    c = _s3_config()
+    c.sagemaker.profile = 'neuro'
+    sub.submit(c, dry_run=False, phase='finetune')
+    assert seen['profile'] == 'neuro'
+
+
+def test_discover_aws_profile_walks_up_from_a_subdirectory(tmp_path):
+    (tmp_path / '.aws-profile').write_text('neuro\n')
+    deep = tmp_path / 'labram' / 'runs'
+    deep.mkdir(parents=True)
+    profile, source = sub.discover_aws_profile(str(deep))
+    assert profile == 'neuro'
+    assert source == str(tmp_path / '.aws-profile')
+
+
+def test_discover_aws_profile_without_a_file(tmp_path):
+    assert sub.discover_aws_profile(str(tmp_path)) == ('', '')
+
+
+def test_discover_aws_profile_ignores_a_blank_file(tmp_path):
+    (tmp_path / '.aws-profile').write_text('  \n')
+    assert sub.discover_aws_profile(str(tmp_path)) == ('', '')
+
+
+def test_discover_aws_profile_takes_the_nearest_file(tmp_path):
+    (tmp_path / '.aws-profile').write_text('outer')
+    inner = tmp_path / 'inner'
+    inner.mkdir()
+    (inner / '.aws-profile').write_text('inner')
+    assert sub.discover_aws_profile(str(inner))[0] == 'inner'
+
+
+def test_resolve_aws_profile_prefers_the_explicit_config(tmp_path, monkeypatch):
+    (tmp_path / '.aws-profile').write_text('from-file')
+    monkeypatch.setattr(sub, 'repo_root', lambda: str(tmp_path))
+    c = FinetuneRunConfig()
+    assert sub.resolve_aws_profile(c) == 'from-file'
+    c.sagemaker.profile = 'from-config'
+    assert sub.resolve_aws_profile(c) == 'from-config'
+
+
+def test_submit_uses_the_discovered_profile(tmp_path, monkeypatch):
+    """No sagemaker.profile set: the checkout's .aws-profile decides which
+    account submits, so an IDE/cron run lands in the same account as a shell."""
+    (tmp_path / '.aws-profile').write_text('neuro\n')
+    monkeypatch.setattr(sub, 'repo_root', lambda: str(tmp_path))
+    seen = {}
+
+    class _L:
+        def __init__(self, region=None, default_role='', sagemaker_session=None,
+                     profile=None):
+            seen['profile'] = profile
+
+        def _get_session(self):
+            return _FakeSession(tmp_path)
+
+        def caller_identity(self):
+            return {}
+
+        def resolve_role(self, role=''):
+            return role or 'arn:aws:iam::0:role/r'
+
+        def resolve_image_uri(self, spec):
+            return 'img'
+
+        def submit(self, spec, wait=False, job_name=None, stream_logs=True,
+                   on_submitted=None):
+            return 'job'
+
+    monkeypatch.setattr(sub, 'SageMakerLauncher', _L)
+    sub.submit(_s3_config(), dry_run=False, phase='finetune')
+    assert seen['profile'] == 'neuro'
+
+
+def test_launcher_passes_the_profile_to_boto3(monkeypatch):
+    from labram.aws import sagemaker as sm_lib
+    seen = {}
+
+    class _FakeBoto3:
+        @staticmethod
+        def Session(**kwargs):
+            seen.update(kwargs)
+            return 'boto-session'
+
+    class _FakeSdk:
+        @staticmethod
+        def Session(boto_session=None):
+            return f'sm-session({boto_session})'
+
+    monkeypatch.setitem(sys.modules, 'boto3', _FakeBoto3)
+    monkeypatch.setitem(sys.modules, 'sagemaker', _FakeSdk)
+    assert sm_lib.SageMakerLauncher(region='us-east-1', profile='neuro')._get_session() \
+        == 'sm-session(boto-session)'
+    assert seen == {'profile_name': 'neuro', 'region_name': 'us-east-1'}
+
+    # No profile configured -> boto3 does its own resolution (AWS_PROFILE/default).
+    seen.clear()
+    sm_lib.SageMakerLauncher()._get_session()
+    assert seen == {}
+
+
 def test_submit_dry_run_no_sdk(monkeypatch):
     # Guarantee the SDK is never imported on the dry-run path.
     import builtins
@@ -853,11 +1093,16 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
     submitted = []
 
     class _FakeLauncher:
-        def __init__(self, region=None, default_role="", sagemaker_session=None):
+        def __init__(self, region=None, default_role="", sagemaker_session=None,
+                     profile=None):
             self.role = default_role
 
         def _get_session(self):
             return _FakeSession(s3_store)
+
+        def caller_identity(self):
+            # Same account as the fallback role -> the preflight lets it through.
+            return {"Account": "0", "Arn": "arn:aws:iam::0:user/tester"}
 
         def resolve_role(self, role=""):
             return role or self.role or "arn:aws:iam::0:role/fallback"

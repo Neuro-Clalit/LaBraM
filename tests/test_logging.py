@@ -250,6 +250,9 @@ class _FakeTask:
     def connect_configuration(self, *args, **kwargs):  # pragma: no cover - unused here
         pass
 
+    def connect(self, *args, **kwargs):  # pragma: no cover - unused here
+        pass
+
 
 @pytest.mark.skipif(
     not clearml_available,
@@ -323,3 +326,48 @@ class TestInitClearMLTaskDebug:
         task = common.init_clearml_task(
             self._cfg(), types.SimpleNamespace(debug=True), global_rank=1)
         assert task is None
+
+
+@pytest.mark.skipif(
+    not clearml_available,
+    reason="clearml is not installed/configured; ClearML tests skipped",
+)
+class TestInitClearMLTaskSageMakerTag:
+    """A run whose config enables SageMaker submission is tagged 'sagemaker' in
+    ClearML, so managed-training runs are filterable apart from local ones."""
+
+    def _run_config(self, sagemaker_enabled):
+        from labram.configs.run_configs import FinetuneRunConfig
+        config = FinetuneRunConfig()
+        config.clearml.enabled = True
+        config.clearml.tags = ['brain_age']
+        config.sagemaker.enabled = sagemaker_enabled
+        return config
+
+    def _init(self, monkeypatch, config):
+        import clearml
+        from labram.runs import common
+        monkeypatch.setattr(clearml, "Task", _FakeTask, raising=False)
+        return common.init_clearml_task(config.clearml, config, global_rank=0)
+
+    def test_sagemaker_enabled_adds_tag(self, monkeypatch):
+        task = self._init(monkeypatch, self._run_config(True))
+        assert 'sagemaker' in task.tags
+        # Tags from the config are preserved alongside it.
+        assert 'brain_age' in task.tags
+
+    def test_sagemaker_disabled_has_no_tag(self, monkeypatch):
+        task = self._init(monkeypatch, self._run_config(False))
+        assert 'sagemaker' not in task.tags
+        assert 'brain_age' in task.tags
+
+    def test_tag_not_duplicated_when_already_configured(self, monkeypatch):
+        config = self._run_config(True)
+        config.clearml.tags = ['sagemaker']
+        task = self._init(monkeypatch, config)
+        assert task.tags.count('sagemaker') == 1
+
+    def test_clearml_disabled_returns_none(self, monkeypatch):
+        config = self._run_config(True)
+        config.clearml.enabled = False
+        assert self._init(monkeypatch, config) is None

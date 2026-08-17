@@ -194,7 +194,11 @@ def log_cv_summary(summary: Dict[str, Any], config: Any, base_dir: str) -> Optio
         logger.warning("Could not init ClearML cv_summary task: %s", exc)
         return None
 
-    task.add_tags(['cross-validation', 'cv-summary', experiment])
+    from labram.runs.common import SAGEMAKER_TAG, _sagemaker_enabled
+    tags = ['cross-validation', 'cv-summary', experiment]
+    if _sagemaker_enabled(config):
+        tags.append(SAGEMAKER_TAG)
+    task.add_tags(tags)
     clearml_logger = task.get_logger()
     for split in ('val', 'test'):
         for key, st in (summary.get(split) or {}).items():

@@ -18,3 +18,4 @@ dist/
 .pytest_cache/
 .air/
 .claude/settings.local.json
+.aws-profile

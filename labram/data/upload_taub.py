@@ -123,6 +123,33 @@ def remote_hashes(ssh_cmd: list[str], host: str, remote_dir: str) -> dict[str, s
     return out
 
 
+def remote_disk_space(ssh_cmd: list[str], host: str, remote_dir: str) -> tuple[int, int]:
+    """Return (available_bytes, total_bytes) for the remote directory's filesystem."""
+    rd = shlex.quote(remote_dir)
+    script = f"df -B1 {rd} 2>/dev/null | tail -1"
+    res = subprocess.run(ssh_cmd + [host, script],
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        return 0, 0
+    parts = res.stdout.split()
+    if len(parts) >= 4:
+        try:
+            total = int(parts[1])
+            available = int(parts[3])
+            return available, total
+        except (ValueError, IndexError):
+            pass
+    return 0, 0
+
+
+def format_bytes(b: int) -> str:
+    """Format bytes as human-readable (B, KB, MB, GB, TB)."""
+    for unit, factor in [("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("KB", 1e3)]:
+        if b >= factor:
+            return f"{b / factor:.1f} {unit}"
+    return f"{b} B"
+
+
 def upload_chunk(chunk: list[str], local_dir: Path, host: str, remote_dir: str,
                  listfile: str, ssh_cmd: list[str], dry_run: bool) -> tuple[int, str]:
     """Upload a chunk of files. Returns (returncode, chunk_info)."""
@@ -206,8 +233,28 @@ def main() -> int:
         print("✓ Everything is already uploaded and checksum-verified.")
         return 0
 
+    # 3b) check disk space
+    upload_size = sum(
+        (local_dir / rel).stat().st_size
+        for rel in todo
+    )
+    avail, total = remote_disk_space(ssh_cmd, args.host, args.remote)
+    if avail > 0:
+        print(f"Remote disk space: {format_bytes(avail)} available of "
+              f"{format_bytes(total)} total")
+        print(f"Upload size: {format_bytes(upload_size)}")
+        if upload_size > avail:
+            ratio = 100 * upload_size / avail if avail > 0 else 999
+            print(f"\n✗ ERROR: not enough disk space! "
+                  f"Need {format_bytes(upload_size)}, "
+                  f"but only {format_bytes(avail)} available "
+                  f"({ratio:.0f}% would exceed available)",
+                  file=sys.stderr)
+            return 2
+        print()
+
     if args.dry_run:
-        print(f"would upload {len(todo)} file(s)")
+        print(f"would upload {len(todo)} file(s) ({format_bytes(upload_size)})")
         return 0
 
     # 4) transfer files in parallel chunks

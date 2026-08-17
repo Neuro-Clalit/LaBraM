@@ -70,7 +70,7 @@ class SageMakerJobSpec:
     volume_size_gb: int = 100
     max_run_sec: int = 24 * 60 * 60      # SageMaker stops the job at this cap
     use_spot: bool = False
-    max_wait_sec: int = 0
+    max_wait_min: float = 0.0
     framework_version: str = "2.4.1"
     py_version: str = "py311"
     image_uri: str = ""
@@ -92,7 +92,8 @@ def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
 
     An explicit ``image_uri`` takes precedence over the managed-DLC
     ``framework_version``/``py_version`` selectors (the SDK rejects both at once).
-    Managed spot training sets ``max_wait`` (falling back to ``max_run_sec``).
+    Managed spot training sets ``max_wait`` in seconds from ``max_wait_min``
+    (falling back to ``max_run_sec``).
     An empty ``input_mode`` is omitted so the SDK applies its own default.
     """
     kwargs: Dict[str, Any] = {
@@ -126,18 +127,31 @@ def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
         kwargs["tags"] = [{"Key": k, "Value": v} for k, v in spec.tags.items()]
     if spec.use_spot:
         kwargs["use_spot_instances"] = True
-        kwargs["max_wait"] = spec.max_wait_sec or spec.max_run_sec
+        kwargs["max_wait"] = (int(spec.max_wait_min * 60)
+                              if spec.max_wait_min > 0 else spec.max_run_sec)
     return kwargs
+
+
+def role_account(role_arn: str) -> str:
+    """The AWS account id embedded in an IAM role ARN; ``''`` if unparseable.
+
+    ``arn:aws:iam::123456789012:role/Name`` -> ``'123456789012'``.
+    """
+    parts = role_arn.split(':')
+    if len(parts) >= 6 and parts[0] == 'arn' and parts[2] == 'iam':
+        return parts[4]
+    return ''
 
 
 class SageMakerLauncher:
     """Builds and submits SageMaker PyTorch estimators from :class:`SageMakerJobSpec`."""
 
     def __init__(self, region: Optional[str] = None, sagemaker_session: Any = None,
-                 default_role: str = ""):
+                 default_role: str = "", profile: Optional[str] = None):
         self._region = region or None
         self._session = sagemaker_session
         self._default_role = default_role
+        self._profile = profile or None
 
     # -- lazy SDK access ---------------------------------------------------
 
@@ -154,9 +168,30 @@ class SageMakerLauncher:
                 "`pip install -r requirements-sagemaker.txt`, or preview the plan "
                 "with --dry_run, which needs neither the SDK nor AWS credentials."
             ) from exc
-        boto_session = boto3.Session(region_name=self._region) if self._region else boto3.Session()
+        # An explicit profile pins which account the job is submitted from; empty
+        # leaves boto3 to its own resolution (AWS_PROFILE / 'default' / instance role).
+        kwargs = {}
+        if self._profile:
+            kwargs['profile_name'] = self._profile
+        if self._region:
+            kwargs['region_name'] = self._region
+        boto_session = boto3.Session(**kwargs)
         self._session = sagemaker.Session(boto_session=boto_session)
         return self._session
+
+    def caller_identity(self) -> Dict[str, str]:
+        """``sts:GetCallerIdentity`` for the submitting credentials.
+
+        Returns ``{'Account': ..., 'Arn': ..., 'UserId': ...}``, or ``{}`` when
+        STS cannot be reached. Never raises: this is used for a *diagnostic*
+        preflight, and a credential problem should surface on the real API call
+        with its own error rather than here.
+        """
+        try:
+            boto_session = self._get_session().boto_session
+            return dict(boto_session.client('sts').get_caller_identity())
+        except Exception:  # pragma: no cover - depends on live credentials
+            return {}
 
     def resolve_role(self, role: str = "") -> str:
         role = role or self._default_role

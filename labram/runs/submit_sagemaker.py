@@ -21,12 +21,12 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Set
+from dataclasses import dataclass, field, replace
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 import labram.utils as utils
-from labram.aws.sagemaker import SageMakerJobSpec, SageMakerLauncher
+from labram.aws.sagemaker import SageMakerJobSpec, SageMakerLauncher, role_account
 from labram.configs.defaults import SAGEMAKER_INPUT_MODES
 from labram.configs.run_configs import (
     FinetuneRunConfig,
@@ -34,6 +34,7 @@ from labram.configs.run_configs import (
     RunConfig,
     VQNSPRunConfig,
 )
+from labram.runs.common import SAGEMAKER_TAG
 from labram.configs.utils_conf import add_override_arg, parse_overrides
 
 logger = utils.get_logger(__name__)
@@ -310,6 +311,53 @@ def repo_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+AWS_PROFILE_FILE = '.aws-profile'
+
+
+def discover_aws_profile(start: str) -> Tuple[str, str]:
+    """Find the AWS profile a directory belongs to: ``(profile, source_path)``.
+
+    Walks up from ``start`` for an :data:`AWS_PROFILE_FILE` holding a profile
+    name — the same convention as the shell hook that exports ``AWS_PROFILE``
+    per repository, so a checkout wired to one account keeps submitting to it.
+    Reading it here (rather than relying on the exported variable) also covers
+    the contexts where that hook never runs — IDE run configurations, cron,
+    non-interactive shells — and, unlike ``AWS_PROFILE``, a profile passed
+    explicitly to boto3 is not overridden by ambient ``AWS_ACCESS_KEY_ID``
+    credentials from a different account.
+
+    Returns ``('', '')`` when there is no such file, it is empty, or it cannot
+    be read.
+    """
+    path = os.path.abspath(start)
+    while True:
+        candidate = os.path.join(path, AWS_PROFILE_FILE)
+        if os.path.isfile(candidate):
+            try:
+                with open(candidate) as fh:
+                    profile = fh.read().strip()
+            except OSError:
+                return '', ''
+            return (profile, candidate) if profile else ('', '')
+        parent = os.path.dirname(path)
+        if parent == path:            # reached the filesystem root
+            return '', ''
+        path = parent
+
+
+def resolve_aws_profile(config: RunConfig) -> str:
+    """The AWS profile to submit with: ``sagemaker.profile`` if set, else the
+    one the checkout is wired to. Logs a discovered profile — picking an account
+    out of a file must never be silent."""
+    if config.sagemaker.profile:
+        return config.sagemaker.profile
+    profile, source = discover_aws_profile(repo_root())
+    if profile:
+        logger.info("Using AWS profile %r from %s (set sagemaker.profile to override).",
+                    profile, source)
+    return profile
+
+
 def git_tracked_files(root: str) -> Optional[List[str]]:
     """Repo-relative paths of the git-tracked files, or None outside a checkout."""
     try:
@@ -460,6 +508,29 @@ def forward_clearml_env(config: RunConfig) -> Dict[str, str]:
     return forwarded
 
 
+def clearml_task_urls(config: RunConfig) -> List[str]:
+    """Best-effort URLs for this SageMaker run's already-created ClearML tasks.
+
+    A ClearML task is created inside the training container, so it does not
+    exist at SageMaker submission time. On an interrupted local wait it normally
+    does exist; query by the configured (optionally timestamp-suffixed) name and
+    SageMaker tag rather than guessing a web URL from a project name.
+    """
+    if not config.clearml.enabled or not config.clearml.task_name:
+        return []
+    try:
+        from clearml import Task
+        task_name = re.escape(config.clearml.task_name)
+        tasks = Task.get_tasks(
+            project_name=config.clearml.project_name or 'LaBraM',
+            task_name=rf'^{task_name}(?:_.*)?$', tags=[SAGEMAKER_TAG]) or []
+        return [url for task in tasks
+                if (url := task.get_output_log_web_page())]
+    except Exception as exc:  # ClearML must never prevent an interrupt report.
+        logger.debug('Could not resolve ClearML task URL(s): %s', exc)
+        return []
+
+
 # ------------------------------------------------------------------ naming
 
 
@@ -499,6 +570,28 @@ def validate_input_mode(input_mode: str) -> str:
             f"sagemaker.input_mode={input_mode!r} is not one of "
             f"{list(SAGEMAKER_INPUT_MODES)}.")
     return input_mode
+
+
+def validate_spot_settings(config: RunConfig) -> None:
+    """Check managed-spot limits before staging or uploading any job inputs."""
+    sm = config.sagemaker
+    if not sm.use_spot:
+        return
+    if sm.max_wait_min < 0:
+        raise ValueError('sagemaker.max_wait_min must be non-negative.')
+    if sm.max_wait_min <= 0:
+        return
+    max_wait_sec = int(sm.max_wait_min * 60)
+    if max_wait_sec < sm.max_run_sec:
+        min_minutes = sm.max_run_sec / 60
+        raise ValueError(
+            'Invalid managed-spot time limits: AWS requires MaxWaitTimeInSeconds '
+            'to be greater than or equal to MaxRuntimeInSeconds. '
+            f'sagemaker.max_wait_min={sm.max_wait_min} is {max_wait_sec}s, but '
+            f'sagemaker.max_run_sec={sm.max_run_sec}s. Set '
+            f'sagemaker.max_wait_min to at least {min_minutes:g}; for a 24-hour '
+            'run plus up to 90 minutes of capacity wait, use 1530. '
+            'Alternatively lower sagemaker.max_run_sec to fit the total window.')
 
 
 # Channels whose S3 uri addresses one object rather than a prefix. The config is
@@ -549,7 +642,7 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
         volume_size_gb=sm.volume_size_gb,
         max_run_sec=sm.max_run_sec,
         use_spot=sm.use_spot,
-        max_wait_sec=sm.max_wait_sec,
+        max_wait_min=sm.max_wait_min,
         framework_version=sm.framework_version,
         py_version=sm.py_version,
         image_uri=sm.image_uri,
@@ -720,6 +813,37 @@ def _add_git_info_member(tar: tarfile.TarFile, info: Dict[str, Any]) -> None:
     tar.addfile(entry, io.BytesIO(payload))
 
 
+def cross_account_role_error(role: str, identity: Dict[str, str],
+                             profile: str = '') -> Optional[str]:
+    """Message describing a cross-account execution role, or ``None`` if fine.
+
+    ``CreateTrainingJob`` refuses to pass a ``RoleArn`` from an account other
+    than the caller's ("Cross-account pass role is not allowed") — no trust
+    policy can grant it. AWS only says so after the submission has already
+    uploaded the code, config and weights, and names neither account, so check
+    it up front. Pure, so the wording is unit-testable without AWS.
+
+    Returns ``None`` when the accounts match or either is unknown (an
+    unparseable role, or STS unreachable) — never block a submission on a check
+    that could not be made.
+    """
+    want = role_account(role)
+    have = identity.get('Account', '')
+    if not want or not have or want == have:
+        return None
+    where = f"profile {profile!r}" if profile else "your current credentials"
+    return (
+        f"Cross-account SageMaker execution role.\n"
+        f"  role    {role}\n"
+        f"          -> account {want}\n"
+        f"  caller  {identity.get('Arn', '<unknown>')}\n"
+        f"          -> account {have} (from {where})\n"
+        f"CreateTrainingJob cannot pass a role across accounts. Either submit "
+        f"with credentials in {want} (e.g. AWS_PROFILE=<profile> ... or "
+        f"--set sagemaker.profile=<profile>), or pass a sagemaker.role from "
+        f"{have}.")
+
+
 def _reraise_kms_access_denied(exc: Exception) -> None:
     """If ``exc`` is an S3/KMS ``AccessDenied`` on ``kms:GenerateDataKey``, raise a
     ``RuntimeError`` with an actionable message; otherwise return so the caller
@@ -768,7 +892,7 @@ def submitted_banner(plan: JobPlan, config: RunConfig, region: str,
     a dropped SSH session looks like a lost run.
     """
     sm = config.sagemaker
-    spot = ' (spot)' if sm.use_spot else ''
+    spot = ' (spot)' if plan.spec.use_spot else ''
     lines = [
         '', _RULE,
         '  SAGEMAKER TRAINING JOB SUBMITTED — NOW RUNNING ON AWS',
@@ -811,7 +935,27 @@ def submitted_banner(plan: JobPlan, config: RunConfig, region: str,
     return '\n'.join(lines)
 
 
-def interrupted_banner(plans: List[JobPlan], region: str) -> str:
+def is_spot_wait_expired(exc: BaseException) -> bool:
+    """Whether a waited managed-spot job ended before it got capacity.
+
+    The SageMaker SDK raises different exception classes across versions, but
+    all preserve AWS's stable ``MaxWaitTimeExceeded`` status/reason text.
+    """
+    seen = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if 'MaxWaitTimeExceeded' in str(current):
+            return True
+        response = getattr(current, 'response', None)
+        if isinstance(response, dict) and 'MaxWaitTimeExceeded' in str(response):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def interrupted_banner(plans: List[JobPlan], region: str,
+                       config: Optional[RunConfig] = None) -> str:
     """Shown when the user interrupts a wait: the jobs are still running."""
     names = [p.submitted_name or p.job_name for p in plans if p.submitted_name]
     lines = ['', _RULE,
@@ -824,6 +968,11 @@ def interrupted_banner(plans: List[JobPlan], region: str) -> str:
         url = console_url(name, region)
         if url:
             lines.append(f"      {url}")
+    if config is not None:
+        clearml_urls = clearml_task_urls(config)
+        if clearml_urls:
+            lines.append('  ClearML task(s):')
+            lines.extend(f'      {url}' for url in clearml_urls)
     lines += [_THIN,
               '  To actually stop a job:',
               '      aws sagemaker stop-training-job --training-job-name <name>',
@@ -838,6 +987,7 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
     what the tests exercise."""
     sm = config.sagemaker
     validate_input_mode(sm.input_mode)
+    validate_spot_settings(config)
     # Turn the data/checkpoint paths into input channels + rewrite the config to
     # the in-container mounts (done before upload so the job sees local paths).
     staged = stage_s3_inputs(config, phase)
@@ -858,10 +1008,27 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
     # packaged, so clearml.enabled runs can log from inside SageMaker.
     forward_clearml_env(config)
 
-    launcher = SageMakerLauncher(region=sm.region or None, default_role=sm.role)
+    profile = resolve_aws_profile(config)
+    launcher = SageMakerLauncher(region=sm.region or None, default_role=sm.role,
+                                 profile=profile or None)
     # Fail fast with an actionable message if no usable execution role.
     role = launcher.resolve_role(sm.role)
     logger.info("SageMaker execution role: %s", role)
+    # Which credentials are we actually submitting with? Logged unconditionally
+    # because everything below (bucket names, the role) is account-scoped, and
+    # checked here so a cross-account role fails before any upload rather than
+    # after the code/config/weights have gone to the wrong account's bucket.
+    identity = launcher.caller_identity()
+    if identity:
+        logger.info("AWS caller identity: %s (account %s%s)",
+                    identity.get('Arn', '<unknown>'), identity.get('Account', '?'),
+                    f", profile {profile}" if profile else '')
+    else:
+        logger.warning("Could not read the AWS caller identity (sts:GetCallerIdentity); "
+                       "skipping the cross-account role check.")
+    mismatch = cross_account_role_error(role, identity, profile)
+    if mismatch:
+        raise SystemExit(mismatch)
 
     check_s3_reachability(launcher, staged)
 
@@ -905,13 +1072,20 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
             except Exception as exc:  # pragma: no cover - depends on SDK/region
                 logger.warning("Could not resolve training image URI: %s", exc)
         region = sm.region or getattr(launcher._get_session(), 'boto_region_name', '')
+        # Detecting MaxWaitTimeExceeded requires waiting for each spot job.  A
+        # fallback therefore deliberately serializes CV jobs rather than leaving
+        # a failed spot request undiscovered in the background.
+        fallback = sm.use_spot and sm.on_demand_fallback and not detach
+        if sm.use_spot and sm.on_demand_fallback and detach:
+            logger.warning("sagemaker.on_demand_fallback is ignored with --detach; "
+                           "the submitter cannot observe MaxWaitTimeExceeded.")
         # --detach: create the job(s) and return, streaming nothing.
         stream_logs = sm.stream_logs and not detach
         for p in plans:
             logger.info("Submitting SageMaker job %s (fold=%s)", p.job_name, p.fold)
             # Only the final job blocks when wait is requested, so earlier folds are
             # dispatched without waiting on each other.
-            wait = sm.wait and (p is plans[-1]) and not detach
+            wait = (fallback or (sm.wait and (p is plans[-1]))) and not detach
 
             def announce(name: str, plan: JobPlan = p, waiting: bool = wait) -> None:
                 # Runs the moment the job exists, before any log streaming, so the
@@ -923,8 +1097,17 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
             try:
                 launcher.submit(p.spec, wait=wait, stream_logs=stream_logs,
                                 on_submitted=announce)
+            except Exception as exc:
+                if not fallback or not is_spot_wait_expired(exc):
+                    raise
+                logger.warning("Spot capacity wait expired for %s; resubmitting "
+                               "the identical job on-demand.",
+                               p.submitted_name or p.job_name)
+                p.spec = replace(p.spec, use_spot=False, max_wait_min=0.0)
+                launcher.submit(p.spec, wait=sm.wait and (p is plans[-1]),
+                                stream_logs=stream_logs, on_submitted=announce)
             except KeyboardInterrupt:
-                logger.warning(interrupted_banner(plans, region))
+                logger.warning(interrupted_banner(plans, region, config))
                 raise SystemExit(130) from None
     except Exception as exc:
         _reraise_kms_access_denied(exc)  # raises a clearer error, or returns

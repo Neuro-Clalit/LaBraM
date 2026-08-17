@@ -28,6 +28,9 @@ from labram.configs.train_config import ClearMLConfig, DistributedConfig, Output
 
 logger = utils.get_logger(__name__)
 
+# ClearML tag applied to runs whose config has SageMaker submission enabled.
+SAGEMAKER_TAG = 'sagemaker'
+
 
 def setup_environment(config, init_cudnn_benchmark: bool = True) -> Tuple[torch.device, int, int]:
     """Initialize distributed, resolve device, seed, and cudnn flags.
@@ -169,6 +172,15 @@ def _debug_output_uri(clearml_cfg: ClearMLConfig, project_name: str) -> Optional
     return base.rstrip('/') + f'/{project_name}/debug'
 
 
+def _sagemaker_enabled(run_config: Any) -> bool:
+    """True when the run's config opts into SageMaker (``sagemaker.enabled``).
+
+    Tolerates configs/namespaces without a ``sagemaker`` section (tests, legacy
+    callers), which read as not enabled.
+    """
+    return bool(getattr(getattr(run_config, 'sagemaker', None), 'enabled', False))
+
+
 def init_clearml_task(
     clearml_cfg: ClearMLConfig,
     run_config: Any,
@@ -211,6 +223,10 @@ def init_clearml_task(
         if 'debug' not in tags:
             tags.append('debug')
         output_uri = _debug_output_uri(clearml_cfg, project_name)
+    # Runs whose config has SageMaker submission enabled are tagged 'sagemaker'
+    # so managed-training runs are filterable apart from local ones in ClearML.
+    if _sagemaker_enabled(run_config) and SAGEMAKER_TAG not in tags:
+        tags.append(SAGEMAKER_TAG)
 
     task = Task.init(
         project_name=project_name,

@@ -238,7 +238,9 @@ DEFAULT_SAGEMAKER_VOLUME_SIZE_GB: int = 100
 # (--set sagemaker.max_run_sec=...) for long pre-training runs.
 DEFAULT_SAGEMAKER_MAX_RUN_SEC: int = 24 * 60 * 60   # 24 hours
 DEFAULT_SAGEMAKER_USE_SPOT: bool = False
-DEFAULT_SAGEMAKER_MAX_WAIT_SEC: int = 0         # 0 -> falls back to max_run_sec when spot is on
+DEFAULT_SAGEMAKER_MAX_WAIT_MIN: float = 0.0     # minutes; 0 -> falls back to max_run_sec when spot is on
+# Resubmit as on-demand if a spot job's wait window expires without capacity.
+DEFAULT_SAGEMAKER_ON_DEMAND_FALLBACK: bool = False
 # Managed PyTorch Deep Learning Container selector. 2.4.0 + py311 is a published
 # SageMaker training DLC (CUDA 12.4, compatible with g5/A10G); the SDK resolves
 # the GPU image for the chosen instance type. requirements.txt does NOT pin torch,
@@ -250,6 +252,7 @@ DEFAULT_SAGEMAKER_ENTRY_POINT: str = 'labram/runs/sagemaker_entry.py'
 DEFAULT_SAGEMAKER_SOURCE_DIR: str = ''          # '' -> repo root (packaged & uploaded by the SDK)
 DEFAULT_SAGEMAKER_JOB_NAME_PREFIX: str = 'labram-finetune'
 DEFAULT_SAGEMAKER_REGION: str = ''              # '' -> boto3 default region
+DEFAULT_SAGEMAKER_PROFILE: str = ''             # '' -> boto3 default credential resolution
 DEFAULT_SAGEMAKER_OUTPUT_PATH: str = ''         # S3 prefix for model artifacts
 DEFAULT_SAGEMAKER_CODE_LOCATION: str = ''       # S3 prefix for the packaged source
 # KMS key for the S3 objects this submission writes (model output + the code /
