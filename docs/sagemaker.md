@@ -369,7 +369,7 @@ Fix it by submitting from the role's account, either per-shell or pinned in the
 config so it cannot drift:
 
 ```bash
-AWS_PROFILE=neuro python -m labram.runs.submit_sagemaker --config … 
+AWS_PROFILE=neuro python -m labram.runs.submit_sagemaker --config …
 # or, travelling with the config:
 python -m labram.runs.submit_sagemaker --config … --set sagemaker.profile=neuro
 ```
