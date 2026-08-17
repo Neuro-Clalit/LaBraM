@@ -38,12 +38,13 @@ def test_estimator_kwargs_image_uri_wins():
 
 
 def test_estimator_kwargs_spot_sets_max_wait():
-    spec = SageMakerJobSpec(entry_point='e.py', use_spot=True, max_run_sec=100, max_wait_sec=0)
+    spec = SageMakerJobSpec(entry_point='e.py', use_spot=True, max_run_sec=100, max_wait_min=0)
     kw = estimator_kwargs(spec)
     assert kw['use_spot_instances'] is True
     assert kw['max_wait'] == 100  # falls back to max_run when unset
-    spec2 = SageMakerJobSpec(entry_point='e.py', use_spot=True, max_run_sec=100, max_wait_sec=200)
-    assert estimator_kwargs(spec2)['max_wait'] == 200
+    spec2 = SageMakerJobSpec(entry_point='e.py', use_spot=True, max_run_sec=100,
+                             max_wait_min=1.5)
+    assert estimator_kwargs(spec2)['max_wait'] == 90
 
 
 def test_estimator_kwargs_tags_formatted():
@@ -149,6 +150,29 @@ def test_spot_max_wait_follows_the_24h_cap():
     assert kw['max_wait'] == 86400
 
 
+def test_spot_fallback_config_flows_to_the_submission_path():
+    c = FinetuneRunConfig()
+    c.sagemaker.use_spot = True
+    c.sagemaker.max_wait_min = 1.5
+    c.sagemaker.on_demand_fallback = True
+    plan = sub.plan_jobs(c, 's3://b/run.yaml')[0]
+    assert estimator_kwargs(plan.spec)['max_wait'] == 90
+    assert c.sagemaker.on_demand_fallback is True
+
+
+def test_spot_wait_accepts_whole_minutes_and_rejects_less_than_runtime():
+    c = FinetuneRunConfig.load_config(
+        None, **{'sagemaker.use_spot': True, 'sagemaker.max_wait_min': 90})
+    assert isinstance(c.sagemaker.max_wait_min, int)
+    with pytest.raises(ValueError, match='at least 1440'):
+        sub.validate_spot_settings(c)
+
+
+def test_is_spot_wait_expired_handles_sdk_exception_text():
+    assert sub.is_spot_wait_expired(RuntimeError('MaxWaitTimeExceeded: no capacity'))
+    assert not sub.is_spot_wait_expired(RuntimeError('CapacityError'))
+
+
 def test_stream_logs_default_and_flow():
     c = FinetuneRunConfig()
     assert c.sagemaker.stream_logs is True
@@ -230,14 +254,19 @@ def test_submitted_banner_says_the_job_survives_a_local_interrupt():
     assert 'this command is done' in detached.lower()
 
 
-def test_interrupted_banner_lists_still_running_jobs():
+def test_interrupted_banner_lists_still_running_jobs(monkeypatch):
     c = _s3_config()
+    c.clearml.enabled = True
+    c.clearml.task_name = 'brain-age'
     plan = sub.plan_jobs(c, 's3://b/run.yaml')[0]
     plan.submitted_name = 'labram-abnormal-ts'
-    text = sub.interrupted_banner([plan], 'us-east-1')
+    monkeypatch.setattr(sub, 'clearml_task_urls',
+                        lambda config: ['https://app.clear.ml/projects/p/experiments/t/output/log'])
+    text = sub.interrupted_banner([plan], 'us-east-1', c)
     assert 'STILL RUNNING' in text
     assert 'labram-abnormal-ts' in text
     assert 'stop-training-job' in text
+    assert 'https://app.clear.ml/projects/p/experiments/t/output/log' in text
 
 
 def test_console_url():

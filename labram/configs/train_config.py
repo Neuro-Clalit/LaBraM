@@ -38,6 +38,7 @@ from labram.configs.defaults import (
     DEFAULT_RELATIVE_LOSS_COMPONENTS,
     DEFAULT_RELATIVE_STEP_AXIS,
     DEFAULT_RELATIVE_STEP_SCALE,
+    DEFAULT_PRECISE_CUDA_TIMING,
     DEFAULT_RESUME,
     DEFAULT_SAVE_CKPT,
     DEFAULT_SAVE_ONLY_FINAL_MODEL,
@@ -135,6 +136,9 @@ class LoggingConfig(ConfigBase):
     relative_step_axis: bool = DEFAULT_RELATIVE_STEP_AXIS
     # Number of x-axis units the full run spans when relative_step_axis is on.
     relative_step_scale: int = DEFAULT_RELATIVE_STEP_SCALE
+    # CUDA events provide exact kernel timings but add profiling work. They are
+    # off by default; ordinary timing never synchronizes after every batch.
+    precise_cuda_timing: bool = DEFAULT_PRECISE_CUDA_TIMING
 
 
 @dataclass

@@ -145,6 +145,7 @@ DEFAULT_LOG_DATA_SPLIT: bool = True
 DEFAULT_RELATIVE_LOSS_COMPONENTS: bool = True
 DEFAULT_RELATIVE_STEP_AXIS: bool = True
 DEFAULT_RELATIVE_STEP_SCALE: int = 1000   # progress 0..1 -> 0..scale (per-mille)
+DEFAULT_PRECISE_CUDA_TIMING: bool = False
 
 # ---------- ClearML experiment tracking (labram/utils/logging.ClearMLLogger) ----------
 DEFAULT_CLEARML_ENABLED: bool = False
@@ -237,7 +238,9 @@ DEFAULT_SAGEMAKER_VOLUME_SIZE_GB: int = 100
 # (--set sagemaker.max_run_sec=...) for long pre-training runs.
 DEFAULT_SAGEMAKER_MAX_RUN_SEC: int = 24 * 60 * 60   # 24 hours
 DEFAULT_SAGEMAKER_USE_SPOT: bool = False
-DEFAULT_SAGEMAKER_MAX_WAIT_SEC: int = 0         # 0 -> falls back to max_run_sec when spot is on
+DEFAULT_SAGEMAKER_MAX_WAIT_MIN: float = 0.0     # minutes; 0 -> falls back to max_run_sec when spot is on
+# Resubmit as on-demand if a spot job's wait window expires without capacity.
+DEFAULT_SAGEMAKER_ON_DEMAND_FALLBACK: bool = False
 # Managed PyTorch Deep Learning Container selector. 2.4.0 + py311 is a published
 # SageMaker training DLC (CUDA 12.4, compatible with g5/A10G); the SDK resolves
 # the GPU image for the chosen instance type. requirements.txt does NOT pin torch,

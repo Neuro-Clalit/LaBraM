@@ -47,7 +47,8 @@ python -m labram.runs.submit_sagemaker \
   --set sagemaker.enabled=true \
         sagemaker.role=arn:aws:iam::<account-id>:role/SageMakerExecutionRole \
         sagemaker.instance_type=ml.g5.xlarge \
-        sagemaker.input_mode=FastFile sagemaker.use_spot=true sagemaker.wait=true \
+        sagemaker.input_mode=FastFile sagemaker.use_spot=true \
+        sagemaker.max_wait_min=1500 sagemaker.wait=true \
         sagemaker.job_name_prefix=labram-abnormal \
         data.dataset=TUAB \
         data.data_path=s3://<bucket>/TUH_Abnormal/v3.0.0/edf/processed/ \
@@ -94,7 +95,8 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 | `instance_type` / `instance_count` | `ml.g5.2xlarge` / `1` | Compute per job (matches a g5.2xl EC2 box; use `ml.g5.xlarge` for the cheaper single-GPU option). |
 | `volume_size_gb` | `100` | EBS volume per instance. |
 | `max_run_sec` | `86400` (24h) | Hard wall-clock cap per job — SageMaker **stops** the job at the cap, bounding what one submission can cost. Raise it explicitly for long pre-training runs. |
-| `use_spot` / `max_wait_sec` | `false` / `0` | Managed spot training (`0` → reuse `max_run_sec`). |
+| `use_spot` / `max_wait_min` | `false` / `0.0` | Managed spot training. `max_wait_min` is a whole or fractional number of minutes (`90` and `90.0` are both valid; `1.5` = 90 seconds) and covers queue time **and** run time; `0` → reuse `max_run_sec`. |
+| `on_demand_fallback` | `false` | When a spot job ends with `MaxWaitTimeExceeded`, resubmit it on-demand. The submitter stays attached to observe the result; this option is ignored with `--detach`. |
 | `framework_version` / `py_version` | `2.4.0` / `py311` | Managed PyTorch DLC selectors (2.4.0 is a published DLC; 2.4.1 is not). |
 | `image_uri` | `''` | Explicit training image (overrides the managed DLC). |
 | `entry_point` / `source_dir` | `labram/runs/sagemaker_entry.py` / repo root | Training script and packaged code. |
@@ -112,6 +114,110 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 
 Unknown `--set` keys are rejected, so a typo in one of these names fails the
 submission instead of being silently dropped.
+
+## On-demand vs. spot training
+
+The hardware is identical; the purchase contract is not.
+
+| | On-demand | Managed spot |
+|---|---|---|
+| Allocation | A dedicated instance from AWS's regular pool. | AWS spare capacity. |
+| Start | Usually immediate (an on-demand job can acquire hardware in seconds). | Only when capacity exists. A low placement score (for example `1/10` for `g5.2xlarge`) means it may wait for hours or never start. |
+| During training | The instance remains yours until the job ends. | AWS can interrupt it with two minutes' notice. Persist checkpoints frequently so training can resume from the latest checkpoint. |
+| `ml.g5.2xlarge`, `us-east-1` | About `$1.52/hr`. | Usually about 60–70% cheaper (roughly `$0.45–0.60/hr`); time spent waiting is free. |
+
+Use on-demand when a prompt start or uninterrupted run matters:
+
+```bash
+python -m labram.runs.submit_sagemaker --phase finetune \
+  --config labram/configs/defaults/finetune_tuab.json \
+  --set sagemaker.enabled=true sagemaker.role=arn:aws:iam::<account-id>:role/SageMakerExecutionRole \
+        sagemaker.instance_type=ml.g5.2xlarge sagemaker.use_spot=false
+```
+
+For spot, choose a window that includes both the maximum training duration and
+the queue delay you are willing to tolerate. This example permits a 24-hour run
+plus six hours of capacity wait (`1800` minutes):
+
+```bash
+python -m labram.runs.submit_sagemaker --phase finetune \
+  --config labram/configs/defaults/finetune_tuab.json \
+  --set sagemaker.enabled=true sagemaker.role=arn:aws:iam::<account-id>:role/SageMakerExecutionRole \
+        sagemaker.instance_type=ml.g5.2xlarge sagemaker.use_spot=true \
+        sagemaker.max_wait_min=1800 sagemaker.on_demand_fallback=true
+```
+
+With `on_demand_fallback=true`, a `MaxWaitTimeExceeded` spot result submits the
+same job again on-demand. It cannot work with `--detach`, because the local
+submitter must wait long enough to observe the spot result. This fallback only
+handles failure to obtain spot capacity; it does not turn an in-progress spot
+job into on-demand after an interruption.
+
+SageMaker rejects a positive `max_wait_min` that is shorter than
+`max_run_sec`: it is the **total** spot-job window, not a separate queue-only
+timeout. With the default 24-hour `max_run_sec=86400`, the minimum is `1440`.
+For a 24-hour run plus up to 90 minutes for capacity, use
+`sagemaker.max_wait_min=1530`. The submitter checks this before it uploads code
+or creates a job and reports the required value.
+
+When splitting a command across lines, the `\` must be the final character on
+the line. For example:
+
+```bash
+python -m labram.runs.submit_sagemaker \
+  --config labram/configs/defaults/finetune_tuab_age.json \
+  --set sagemaker.enabled=true \
+        sagemaker.role=arn:aws:iam::574441342949:role/SageMakerExecutionRole \
+        sagemaker.instance_type=ml.g5.2xlarge \
+        sagemaker.input_mode=FastFile sagemaker.use_spot=true \
+        sagemaker.max_wait_min=1530 sagemaker.on_demand_fallback=true \
+        sagemaker.job_name_prefix=labram-brain-age sagemaker.wait=true \
+        data.data_path=s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed/ \
+        output.output_dir= output.log_dir= \
+        clearml.enabled=true clearml.project_name=eeg/brain_age \
+        clearml.task_name=finetune_tuab_age
+```
+
+### Check capacity and quotas before waiting
+
+`scripts/check_sagemaker_capacity.py` is read-only: it reports SageMaker
+on-demand/spot quotas, EC2's 1–10 spot placement score, available AZ offerings,
+and recent training-job outcomes. It cannot reserve capacity, but it is the
+best preflight signal before submitting a spot job.
+
+```bash
+python scripts/check_sagemaker_capacity.py \
+  --types ml.g5.2xlarge,ml.g6.2xlarge --profile neuro --region us-east-1
+```
+
+If the report shows a quota of zero (or you need parallel jobs), request an
+increase using the quota code printed by the script:
+
+```bash
+aws service-quotas request-service-quota-increase \
+  --service-code sagemaker --quota-code <code-reported-by-script> \
+  --desired-value <concurrent-instances> --profile neuro --region us-east-1
+```
+
+To inspect the same quotas directly with the AWS CLI (without running the
+helper), list all SageMaker quotas or filter for a specific training instance
+type. The matching on-demand and spot rows include the `QuotaCode` needed for a
+request:
+
+```bash
+aws service-quotas list-service-quotas \
+  --service-code sagemaker --region us-east-1 --profile neuro \
+  --query "Quotas[?contains(QuotaName, 'ml.g5.2xlarge')].[QuotaName,Value,QuotaCode,Adjustable]" \
+  --output table
+```
+
+The AWS console's SageMaker quota page is also available at
+`https://console.aws.amazon.com/servicequotas/home/services/sagemaker/quotas`
+(select the same region). To open it from macOS:
+
+```bash
+open 'https://console.aws.amazon.com/servicequotas/home/services/sagemaker/quotas?region=us-east-1'
+```
 
 ### `input_mode`: use `FastFile` for the TUH corpora
 
@@ -474,7 +580,7 @@ firehose, keep `wait=true` and set `--set sagemaker.stream_logs=false`.
 `max_run_sec` defaults to **24h** and SageMaker *stops* the job when it is reached,
 so a hung or diverging run cannot burn a GPU for days. Long pre-training needs it
 raised explicitly (`--set sagemaker.max_run_sec=345600` for 4 days). With
-`use_spot`, `max_wait_sec=0` reuses the same value.
+`use_spot`, `max_wait_min=0` reuses the same value.
 
 ## ClearML logging from SageMaker
 

@@ -8,7 +8,7 @@ in-container training itself, so it is off by default.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, Union
 
 from labram.configs.base_configs import ConfigBase
 from labram.configs.defaults import (
@@ -23,7 +23,8 @@ from labram.configs.defaults import (
     DEFAULT_SAGEMAKER_INSTANCE_TYPE,
     DEFAULT_SAGEMAKER_JOB_NAME_PREFIX,
     DEFAULT_SAGEMAKER_MAX_RUN_SEC,
-    DEFAULT_SAGEMAKER_MAX_WAIT_SEC,
+    DEFAULT_SAGEMAKER_MAX_WAIT_MIN,
+    DEFAULT_SAGEMAKER_ON_DEMAND_FALLBACK,
     DEFAULT_SAGEMAKER_OUTPUT_KMS_KEY,
     DEFAULT_SAGEMAKER_OUTPUT_PATH,
     DEFAULT_SAGEMAKER_PROFILE,
@@ -51,8 +52,15 @@ class SageMakerConfig(ConfigBase):
         max_run_sec: Hard wall-clock cap per training job — SageMaker stops the
             job when it is reached, bounding the cost of one submission (default
             24h; raise it for long pre-training runs).
-        use_spot / max_wait_sec: Managed spot training and its max wait (0 ->
-            reuse ``max_run_sec`` when spot is enabled).
+        use_spot / max_wait_min: Managed spot training and its max wait in
+            *minutes* (a whole or fractional number; ``1.5`` = 90s). The wait covers queueing for spot
+            capacity *plus* the run itself, so give it ``max_run_sec/60`` plus
+            the queue time you will tolerate; ``0`` -> reuse ``max_run_sec``
+            (no extra queue headroom). Waiting for spot capacity is not billed.
+        on_demand_fallback: When a spot job's wait window expires without
+            capacity (``MaxWaitTimeExceeded``), resubmit the same job on-demand
+            automatically. Forces the submitter to stay attached to watch the
+            outcome, so it is ignored (with a warning) under ``--detach``.
         framework_version / py_version: Managed PyTorch DLC selectors.
         image_uri: Explicit training image; empty -> managed DLC for
             ``framework_version``.
@@ -106,7 +114,10 @@ class SageMakerConfig(ConfigBase):
     volume_size_gb: int = DEFAULT_SAGEMAKER_VOLUME_SIZE_GB
     max_run_sec: int = DEFAULT_SAGEMAKER_MAX_RUN_SEC
     use_spot: bool = DEFAULT_SAGEMAKER_USE_SPOT
-    max_wait_sec: int = DEFAULT_SAGEMAKER_MAX_WAIT_SEC
+    # Accept both ``90`` and ``90.0`` for convenient CLI use while retaining
+    # fractional-minute support (``1.5`` = 90 seconds).
+    max_wait_min: Union[int, float] = DEFAULT_SAGEMAKER_MAX_WAIT_MIN
+    on_demand_fallback: bool = DEFAULT_SAGEMAKER_ON_DEMAND_FALLBACK
     framework_version: str = DEFAULT_SAGEMAKER_FRAMEWORK_VERSION
     py_version: str = DEFAULT_SAGEMAKER_PY_VERSION
     image_uri: str = DEFAULT_SAGEMAKER_IMAGE_URI

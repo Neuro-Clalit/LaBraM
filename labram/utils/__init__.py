@@ -78,6 +78,7 @@ from labram.utils.training import (
     get_grad_norm,
     get_grad_norm_,
 )
+from labram.utils.timing import PhaseTimer, StepTimer, log_timing_stats, timing_stats
 
 
 __all__ = [
@@ -135,4 +136,8 @@ __all__ = [
     'save_on_master',
     'setup_for_distributed',
     'standard_1020',
+    'PhaseTimer',
+    'StepTimer',
+    'log_timing_stats',
+    'timing_stats',
 ]

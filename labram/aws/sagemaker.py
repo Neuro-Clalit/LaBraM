@@ -51,7 +51,7 @@ class SageMakerJobSpec:
     volume_size_gb: int = 100
     max_run_sec: int = 24 * 60 * 60      # SageMaker stops the job at this cap
     use_spot: bool = False
-    max_wait_sec: int = 0
+    max_wait_min: float = 0.0
     framework_version: str = "2.4.1"
     py_version: str = "py311"
     image_uri: str = ""
@@ -73,7 +73,8 @@ def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
 
     An explicit ``image_uri`` takes precedence over the managed-DLC
     ``framework_version``/``py_version`` selectors (the SDK rejects both at once).
-    Managed spot training sets ``max_wait`` (falling back to ``max_run_sec``).
+    Managed spot training sets ``max_wait`` in seconds from ``max_wait_min``
+    (falling back to ``max_run_sec``).
     An empty ``input_mode`` is omitted so the SDK applies its own default.
     """
     kwargs: Dict[str, Any] = {
@@ -107,7 +108,8 @@ def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
         kwargs["tags"] = [{"Key": k, "Value": v} for k, v in spec.tags.items()]
     if spec.use_spot:
         kwargs["use_spot_instances"] = True
-        kwargs["max_wait"] = spec.max_wait_sec or spec.max_run_sec
+        kwargs["max_wait"] = (int(spec.max_wait_min * 60)
+                              if spec.max_wait_min > 0 else spec.max_run_sec)
     return kwargs
 
 

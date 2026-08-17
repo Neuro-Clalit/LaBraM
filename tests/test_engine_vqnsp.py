@@ -125,7 +125,9 @@ class TestTrainOneEpoch:
         _, stats, _, _ = trained
         # Engine logs loss, the per-key VQNSP loss_dict (quant/rec/rec_angle),
         # then the codebook-usage accounting at the end.
-        for k in ('loss', 'lr', 'min_lr', 'grad_norm', 'unused_code'):
+        for k in ('loss', 'lr', 'min_lr', 'grad_norm', 'unused_code',
+                  'data_time_sec', 'step_time_sec', 'host_compute_time_sec',
+                  'samples_processed'):
             assert k in stats, f"missing key {k} in {sorted(stats)}"
 
     def test_codebook_cluster_size_advances(self, trained):
@@ -163,6 +165,9 @@ class TestEvaluate:
             ch_names_list=[_ch_names()],
         )
         assert 'loss' in stats
+        for key in ('data_time_sec', 'step_time_sec', 'host_compute_time_sec',
+                    'samples_processed'):
+            assert key in stats
         assert stats['loss'] > 0
         # unused_code is the count of zero-EMA entries; for a freshly-built
         # VQNSP with kmeans_init=False the count starts at the codebook size.
@@ -186,5 +191,4 @@ class TestEvaluate:
         # parameters should be byte-identical afterwards.
         for n, p in model.encoder.named_parameters():
             assert torch.equal(before[n], p.detach()), f"encoder.{n} changed during evaluate()"
-
 

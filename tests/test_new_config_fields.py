@@ -55,6 +55,7 @@ def test_logging_and_output_defaults():
     assert lg.log_model_graph is True
     assert lg.model_graph_format == "svg"
     assert lg.log_data_split is True
+    assert lg.precise_cuda_timing is False
     from labram.configs.train_config import OutputConfig
     assert OutputConfig().save_only_final_model is False
 
@@ -97,6 +98,7 @@ def test_finetune_json_round_trip_preserves_new_fields(tmp_path):
     cfg.shutdown.stop_instance_on_finish = True
     cfg.evaluation.agg_windows = "mean"
     cfg.clearml.upload_model_artifact = False
+    cfg.logging.precise_cuda_timing = True
     path = str(tmp_path / "cfg.json")
     cfg.save_to(path)
 
@@ -106,6 +108,7 @@ def test_finetune_json_round_trip_preserves_new_fields(tmp_path):
     assert loaded.shutdown.stop_instance_on_finish is True
     assert loaded.evaluation.agg_windows == "mean"
     assert loaded.clearml.upload_model_artifact is False
+    assert loaded.logging.precise_cuda_timing is True
 
 
 @pytest.mark.parametrize("path,cls", [

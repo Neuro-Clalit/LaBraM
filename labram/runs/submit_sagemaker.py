@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 import labram.utils as utils
@@ -33,6 +33,7 @@ from labram.configs.run_configs import (
     RunConfig,
     VQNSPRunConfig,
 )
+from labram.runs.common import SAGEMAKER_TAG
 from labram.configs.utils_conf import add_override_arg, parse_overrides
 
 logger = utils.get_logger(__name__)
@@ -421,6 +422,29 @@ def forward_clearml_env(config: RunConfig) -> Dict[str, str]:
     return forwarded
 
 
+def clearml_task_urls(config: RunConfig) -> List[str]:
+    """Best-effort URLs for this SageMaker run's already-created ClearML tasks.
+
+    A ClearML task is created inside the training container, so it does not
+    exist at SageMaker submission time. On an interrupted local wait it normally
+    does exist; query by the configured (optionally timestamp-suffixed) name and
+    SageMaker tag rather than guessing a web URL from a project name.
+    """
+    if not config.clearml.enabled or not config.clearml.task_name:
+        return []
+    try:
+        from clearml import Task
+        task_name = re.escape(config.clearml.task_name)
+        tasks = Task.get_tasks(
+            project_name=config.clearml.project_name or 'LaBraM',
+            task_name=rf'^{task_name}(?:_.*)?$', tags=[SAGEMAKER_TAG]) or []
+        return [url for task in tasks
+                if (url := task.get_output_log_web_page())]
+    except Exception as exc:  # ClearML must never prevent an interrupt report.
+        logger.debug('Could not resolve ClearML task URL(s): %s', exc)
+        return []
+
+
 # ------------------------------------------------------------------ naming
 
 
@@ -460,6 +484,28 @@ def validate_input_mode(input_mode: str) -> str:
             f"sagemaker.input_mode={input_mode!r} is not one of "
             f"{list(SAGEMAKER_INPUT_MODES)}.")
     return input_mode
+
+
+def validate_spot_settings(config: RunConfig) -> None:
+    """Check managed-spot limits before staging or uploading any job inputs."""
+    sm = config.sagemaker
+    if not sm.use_spot:
+        return
+    if sm.max_wait_min < 0:
+        raise ValueError('sagemaker.max_wait_min must be non-negative.')
+    if sm.max_wait_min <= 0:
+        return
+    max_wait_sec = int(sm.max_wait_min * 60)
+    if max_wait_sec < sm.max_run_sec:
+        min_minutes = sm.max_run_sec / 60
+        raise ValueError(
+            'Invalid managed-spot time limits: AWS requires MaxWaitTimeInSeconds '
+            'to be greater than or equal to MaxRuntimeInSeconds. '
+            f'sagemaker.max_wait_min={sm.max_wait_min} is {max_wait_sec}s, but '
+            f'sagemaker.max_run_sec={sm.max_run_sec}s. Set '
+            f'sagemaker.max_wait_min to at least {min_minutes:g}; for a 24-hour '
+            'run plus up to 90 minutes of capacity wait, use 1530. '
+            'Alternatively lower sagemaker.max_run_sec to fit the total window.')
 
 
 # Channels whose S3 uri addresses one object rather than a prefix. The config is
@@ -510,7 +556,7 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
         volume_size_gb=sm.volume_size_gb,
         max_run_sec=sm.max_run_sec,
         use_spot=sm.use_spot,
-        max_wait_sec=sm.max_wait_sec,
+        max_wait_min=sm.max_wait_min,
         framework_version=sm.framework_version,
         py_version=sm.py_version,
         image_uri=sm.image_uri,
@@ -760,7 +806,7 @@ def submitted_banner(plan: JobPlan, config: RunConfig, region: str,
     a dropped SSH session looks like a lost run.
     """
     sm = config.sagemaker
-    spot = ' (spot)' if sm.use_spot else ''
+    spot = ' (spot)' if plan.spec.use_spot else ''
     lines = [
         '', _RULE,
         '  SAGEMAKER TRAINING JOB SUBMITTED — NOW RUNNING ON AWS',
@@ -803,7 +849,27 @@ def submitted_banner(plan: JobPlan, config: RunConfig, region: str,
     return '\n'.join(lines)
 
 
-def interrupted_banner(plans: List[JobPlan], region: str) -> str:
+def is_spot_wait_expired(exc: BaseException) -> bool:
+    """Whether a waited managed-spot job ended before it got capacity.
+
+    The SageMaker SDK raises different exception classes across versions, but
+    all preserve AWS's stable ``MaxWaitTimeExceeded`` status/reason text.
+    """
+    seen = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if 'MaxWaitTimeExceeded' in str(current):
+            return True
+        response = getattr(current, 'response', None)
+        if isinstance(response, dict) and 'MaxWaitTimeExceeded' in str(response):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def interrupted_banner(plans: List[JobPlan], region: str,
+                       config: Optional[RunConfig] = None) -> str:
     """Shown when the user interrupts a wait: the jobs are still running."""
     names = [p.submitted_name or p.job_name for p in plans if p.submitted_name]
     lines = ['', _RULE,
@@ -816,6 +882,11 @@ def interrupted_banner(plans: List[JobPlan], region: str) -> str:
         url = console_url(name, region)
         if url:
             lines.append(f"      {url}")
+    if config is not None:
+        clearml_urls = clearml_task_urls(config)
+        if clearml_urls:
+            lines.append('  ClearML task(s):')
+            lines.extend(f'      {url}' for url in clearml_urls)
     lines += [_THIN,
               '  To actually stop a job:',
               '      aws sagemaker stop-training-job --training-job-name <name>',
@@ -830,6 +901,7 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
     what the tests exercise."""
     sm = config.sagemaker
     validate_input_mode(sm.input_mode)
+    validate_spot_settings(config)
     # Turn the data/checkpoint paths into input channels + rewrite the config to
     # the in-container mounts (done before upload so the job sees local paths).
     staged = stage_s3_inputs(config, phase)
@@ -911,13 +983,20 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
             except Exception as exc:  # pragma: no cover - depends on SDK/region
                 logger.warning("Could not resolve training image URI: %s", exc)
         region = sm.region or getattr(launcher._get_session(), 'boto_region_name', '')
+        # Detecting MaxWaitTimeExceeded requires waiting for each spot job.  A
+        # fallback therefore deliberately serializes CV jobs rather than leaving
+        # a failed spot request undiscovered in the background.
+        fallback = sm.use_spot and sm.on_demand_fallback and not detach
+        if sm.use_spot and sm.on_demand_fallback and detach:
+            logger.warning("sagemaker.on_demand_fallback is ignored with --detach; "
+                           "the submitter cannot observe MaxWaitTimeExceeded.")
         # --detach: create the job(s) and return, streaming nothing.
         stream_logs = sm.stream_logs and not detach
         for p in plans:
             logger.info("Submitting SageMaker job %s (fold=%s)", p.job_name, p.fold)
             # Only the final job blocks when wait is requested, so earlier folds are
             # dispatched without waiting on each other.
-            wait = sm.wait and (p is plans[-1]) and not detach
+            wait = (fallback or (sm.wait and (p is plans[-1]))) and not detach
 
             def announce(name: str, plan: JobPlan = p, waiting: bool = wait) -> None:
                 # Runs the moment the job exists, before any log streaming, so the
@@ -929,8 +1008,17 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
             try:
                 launcher.submit(p.spec, wait=wait, stream_logs=stream_logs,
                                 on_submitted=announce)
+            except Exception as exc:
+                if not fallback or not is_spot_wait_expired(exc):
+                    raise
+                logger.warning("Spot capacity wait expired for %s; resubmitting "
+                               "the identical job on-demand.",
+                               p.submitted_name or p.job_name)
+                p.spec = replace(p.spec, use_spot=False, max_wait_min=0.0)
+                launcher.submit(p.spec, wait=sm.wait and (p is plans[-1]),
+                                stream_logs=stream_logs, on_submitted=announce)
             except KeyboardInterrupt:
-                logger.warning(interrupted_banner(plans, region))
+                logger.warning(interrupted_banner(plans, region, config))
                 raise SystemExit(130) from None
     except Exception as exc:
         _reraise_kms_access_denied(exc)  # raises a clearer error, or returns

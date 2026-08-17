@@ -152,7 +152,8 @@
         "log_data_split": true,
         "relative_loss_components": true,
         "relative_step_axis": true,
-        "relative_step_scale": 1000
+        "relative_step_scale": 1000,
+        "precise_cuda_timing": false
     },
     "shutdown": {
         "py/object": "labram.configs.train_config.ShutdownConfig",
@@ -220,7 +221,8 @@
         "volume_size_gb": 100,
         "max_run_sec": 86400,
         "use_spot": false,
-        "max_wait_sec": 0,
+        "max_wait_min": 0.0,
+        "on_demand_fallback": false,
         "framework_version": "2.4.0",
         "py_version": "py311",
         "image_uri": "",
