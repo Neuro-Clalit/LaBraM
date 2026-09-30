@@ -24,13 +24,23 @@ the pure `ExperimentSnapshot`, so they are fully testable and reusable offline.
 # Write snapshot.json + report.md for a task into ./analysis/
 python -m labram.eval.clearml_report --task-id <TASK_ID> --output-dir ./analysis/
 
+# --task-id also accepts a ClearML web-UI URL pasted from the browser
+python -m labram.eval.clearml_report \
+  --task-id "https://app.clear.ml/projects/*/tasks/<TASK_ID>/scalars" --print
+
 # Or resolve by project + task name, and print the report to stdout
 python -m labram.eval.clearml_report \
   --project-name "LaBraM/finetune" --task-name "tuab-base" --print
+
+# Re-analyse a saved snapshot with no ClearML server or credentials (e.g. one
+# fetched on another machine and copied over)
+python -m labram.eval.clearml_report --snapshot ./analysis/snapshot.json --print
 ```
 
 The written **`report.md`** leads with the insights (each with a
-recommendation and supporting evidence), followed by a metric summary table,
+recommendation and supporting evidence), followed by a **selected-epoch** table
+(every val/test metric, case-level and per-window, at the best-val epoch that
+`checkpoint-best.pth` holds), a metric summary table,
 the hyperparameters, the artifact/model list, and the console tail. Point Claude
 at that file (or the raw `snapshot.json`) to reason about what to fix next.
 
@@ -96,6 +106,30 @@ series moved to their own plots.)
 | `grad-instability` | grad-norm peak > 20× the median | warning |
 | `amp-loss-scale` | AMP loss scale dropped > 1000× | warning |
 | `class-imbalance` | accuracy exceeds balanced accuracy by > 0.10 | warning |
+| `val-test-gap` | at the best-val epoch, test trails val by > 0.05 (rate) or > 15 % (MAE) | warning / info |
+
+Epochs in messages are real epoch indices: on the relative step axis
+(`logging.relative_step_axis`, the default) the x value is converted back using
+the run's recorded `trainer.epochs` and `logging.relative_step_scale`.
+
+### Regression runs (EEG brain age)
+
+A run is treated as regression when its recorded `model.task` is `regression`
+(or, lacking hyperparameters, when it logged a `val_err/mae` series). Model
+selection is then **MAE, lower is better** — so `checkpoint-selection`,
+`plateau` and `val-test-gap` rank by `val_err/mae`, and `generalization-gap`
+compares per-window train MAE with per-window val MAE (`val_window_err/mae`)
+instead of accuracies. Additional checks read the case-level val metrics at the
+best-val epoch (see [`docs/age_regression.md`](age_regression.md) for the
+metrics):
+
+| Category | Trigger | Severity |
+| -------- | ------- | -------- |
+| `mean-collapse` | best val MAE ≥ 90 % of the mean-predictor MAE, `sqrt(2/π)·target_std` | critical |
+| `calibration` | a linear recalibration `y' = a + b·ŷ` would cut val RMSE by ≥ 5 % (best linear RMSE is `target_std·sqrt(1 − r²)`); reports whether predictions are compressed (true-on-predicted slope `b > 1`), over-dispersed (`b < 1`) or offset | warning (≥ 10 %) / info |
+| `age-bias` | `age_bias_slope` < −0.2; says whether it is the `r² − 1` expected for the correlation or extra compression | warning (< −0.5) / info |
+| `age-benchmark` | best val MAE vs the ~7–8 y of published EEG brain-age models (age runs only: `TUAB_AGE` dataset or an `age` tag) | warning (> 10 y) / info |
+| `loss-config` | Huber with `huber_delta ≥ 1`: in z-score units that is ≈ one age std, i.e. MSE for almost every error | info |
 
 These are deliberately simple, explainable heuristics meant to *flag where to
 look*, not to replace judgement — each insight ships with the concrete evidence

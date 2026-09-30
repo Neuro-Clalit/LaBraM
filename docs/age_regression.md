@@ -380,6 +380,15 @@ python -m labram.runs.finetune_cv \
   --set data.data_path="$TUAB" cross_validation.enabled=true
 ```
 
+Diagnose a finished run from its ClearML experiment (mean-collapse, calibration
+headroom, age-bias slope, benchmark gap, loss setting; see
+[`docs/clearml_local_analysis.md`](clearml_local_analysis.md)):
+
+```bash
+python -m labram.eval.clearml_report --task-id <TASK_ID or ClearML URL> \
+  --output-dir ./analysis/age/
+```
+
 ## Scaling to TUEG
 
 The parser is corpus-agnostic — nothing in it is TUAB-specific. TUEG v2.0.2

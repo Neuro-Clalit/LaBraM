@@ -301,6 +301,13 @@ def analyze_experiment(snapshot: ExperimentSnapshot) -> List[Insight]:
     insights += _check_grad_instability(snapshot)
     insights += _check_loss_scale(snapshot)
     insights += _check_class_imbalance(snapshot)
+    insights += _check_val_test_gap(snapshot)
+    if _is_regression(snapshot):
+        insights += _check_mean_collapse(snapshot)
+        insights += _check_calibration(snapshot)
+        insights += _check_age_bias(snapshot)
+        insights += _check_age_benchmark(snapshot)
+        insights += _check_regression_loss(snapshot)
     insights.sort(key=lambda i: _SEVERITY_ORDER.get(i.severity, 99))
     return insights
 
@@ -316,6 +323,106 @@ def _epoch_metric(snapshot: ExperimentSnapshot, split: str) -> Optional[ScalarSe
         if s is not None and s.finite():
             return s
     return None
+
+
+# -- task / hyperparameter helpers -------------------------------------------
+
+def _hparam(snapshot: ExperimentSnapshot, name: str) -> Any:
+    """Hyperparameter whose flattened key is ``name`` or ends in ``/name``.
+
+    The trainer connects its config under a ``config/`` section
+    (``config/loss/huber_delta``), so match on the key's tail."""
+    target = name.lower()
+    for key, value in snapshot.hyperparameters.items():
+        k = key.lower()
+        if k == target or k.endswith('/' + target):
+            return value
+    return None
+
+
+def _hparam_float(snapshot: ExperimentSnapshot, name: str) -> Optional[float]:
+    try:
+        value = float(_hparam(snapshot, name))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _hparam_bool(snapshot: ExperimentSnapshot, name: str) -> Optional[bool]:
+    # ClearML hands hyperparameters back as strings.
+    value = _hparam(snapshot, name)
+    if isinstance(value, bool) or value is None:
+        return value
+    return {'true': True, '1': True, 'false': False, '0': False}.get(
+        str(value).strip().lower())
+
+
+def _is_regression(snapshot: ExperimentSnapshot) -> bool:
+    """Scalar-target run (e.g. EEG brain age)? Trust the recorded
+    ``model.task``; fall back to the ``{split}_err`` plot regression runs log."""
+    task = _hparam(snapshot, 'model/task')
+    if task is not None and str(task).strip():
+        return str(task).strip().lower() == 'regression'
+    return snapshot.get('val_err/mae', 'test_err/mae', 'train_err/mae') is not None
+
+
+def _is_age_task(snapshot: ExperimentSnapshot) -> bool:
+    dataset = str(_hparam(snapshot, 'data/dataset') or '').lower()
+    return 'age' in dataset or any('age' in t.lower() for t in snapshot.tags)
+
+
+def _headline(snapshot: ExperimentSnapshot,
+              split: str) -> Optional[Tuple[ScalarSeries, str]]:
+    """The metric model selection ranks ``split`` by, with its direction:
+    MAE (``'min'``) for regression, a classification rate (``'max'``) otherwise."""
+    if _is_regression(snapshot):
+        s = snapshot.get(f'{split}_err/mae')
+        return (s, 'min') if s is not None and s.finite() else None
+    s = _epoch_metric(snapshot, split)
+    return (s, 'max') if s is not None else None
+
+
+def _best_val_point(snapshot: ExperimentSnapshot) -> Optional[Tuple[float, float]]:
+    """``(x, value)`` of the best validation headline metric -- the epoch
+    ``checkpoint-best.pth`` was saved at."""
+    head = _headline(snapshot, 'val')
+    return head[0].best(head[1]) if head is not None else None
+
+
+def _value_at(series: Optional[ScalarSeries], x: float) -> Optional[float]:
+    """Value a series logged at x-coordinate ``x`` (val/test/window metrics of
+    one epoch share the same x), or ``None``."""
+    if series is None:
+        return None
+    for it, v in series.finite():
+        if abs(it - x) < 1e-9:
+            return v
+    return None
+
+
+def _at(snapshot: ExperimentSnapshot, key: str, x: float) -> Optional[float]:
+    return _value_at(snapshot.get(key), x)
+
+
+def _epoch_of(snapshot: ExperimentSnapshot, x: float) -> float:
+    """Epoch index of an epoch-level point's x-coordinate.
+
+    On the relative step axis (``logging.relative_step_axis``, the default)
+    epoch ``e`` of ``E`` is logged at ``round((e + 1) / E * scale)``, so invert
+    that; on the absolute axis ``x`` already is the epoch."""
+    if not _hparam_bool(snapshot, 'logging/relative_step_axis'):
+        return x
+    epochs = _hparam_float(snapshot, 'trainer/epochs')
+    scale = _hparam_float(snapshot, 'logging/relative_step_scale') or 1000.0
+    if not epochs or scale <= 0:
+        return x
+    return float(round(x * epochs / scale) - 1)
+
+
+def _mean_predictor_mae(target_std: float) -> float:
+    """MAE of always predicting the mean of a Gaussian target: sqrt(2/pi)*sigma.
+    The floor any regressor has to beat to have learned anything."""
+    return math.sqrt(2.0 / math.pi) * target_std
 
 
 def _check_run_status(snapshot: ExperimentSnapshot) -> List[Insight]:
@@ -358,17 +465,20 @@ def _check_overfitting(snapshot: ExperimentSnapshot) -> List[Insight]:
             final_val = finite[-1][1]
             # Validation loss climbed meaningfully after its minimum.
             if min_val > 0 and (final_val - min_val) / abs(min_val) > 0.10:
+                best_epoch = _epoch_of(snapshot, best[0])
                 out.append(Insight(
                     severity='warning', category='overfitting',
                     message=(f"Validation loss rose {100*(final_val-min_val)/abs(min_val):.0f}% "
-                             f"from its minimum {min_val:.4f} (epoch {best[0]:.0f}) "
+                             f"from its minimum {min_val:.4f} (epoch {best_epoch:.0f}) "
                              f"to {final_val:.4f} at the end."),
                     recommendation="Overfitting after the best epoch. Add "
                                    "regularisation (drop_path/weight_decay), stop "
                                    "earlier, or use checkpoint-best rather than the "
                                    "final weights.",
-                    evidence={'best_epoch': best[0], 'min_val_loss': min_val,
+                    evidence={'best_epoch': best_epoch, 'min_val_loss': min_val,
                               'final_val_loss': final_val}))
+    if _is_regression(snapshot):
+        return out + _regression_gap(snapshot)
     # Train/val accuracy gap.
     train_acc = _epoch_metric(snapshot, 'train')
     val_acc = _epoch_metric(snapshot, 'val')
@@ -387,28 +497,56 @@ def _check_overfitting(snapshot: ExperimentSnapshot) -> List[Insight]:
     return out
 
 
-def _check_best_vs_final(snapshot: ExperimentSnapshot) -> List[Insight]:
-    val_metric = _epoch_metric(snapshot, 'val')
-    if val_metric is None:
+def _regression_gap(snapshot: ExperimentSnapshot) -> List[Insight]:
+    """Train-vs-val error gap for a scalar target. Compared per window: the
+    train MAE is per-window, while ``val_err`` is pooled per recording."""
+    train = snapshot.get('train_err/mae')
+    val = snapshot.get('val_window_err/mae', 'val_err/mae')
+    if train is None or val is None or train.last is None or val.last is None:
         return []
+    if train.last <= 0 or val.last / train.last <= 1.3:
+        return []
+    ratio = val.last / train.last
+    return [Insight(
+        severity='warning', category='generalization-gap',
+        message=(f"Validation MAE {val.last:.2f} is {ratio:.1f}x the train MAE "
+                 f"{train.last:.2f} ({val.key} vs {train.key})."),
+        recommendation="The model fits the training subjects far better than "
+                       "unseen ones. Raise drop_path / weight_decay, lower "
+                       "layer_decay so early layers stay closer to pre-training, "
+                       "or stop earlier; more subjects (e.g. TUEG ages) help more "
+                       "than more epochs.",
+        evidence={'train_mae': train.last, 'val_mae': val.last, 'ratio': ratio})]
+
+
+def _check_best_vs_final(snapshot: ExperimentSnapshot) -> List[Insight]:
+    head = _headline(snapshot, 'val')
+    if head is None:
+        return []
+    val_metric, mode = head
     finite = val_metric.finite()
     if len(finite) < 3:
         return []
-    best = val_metric.best('max')
-    last_epoch = finite[-1][0]
+    best = val_metric.best(mode)
+    last_x, last_value = finite[-1]
     if best is None:
         return []
-    # Best is well before the end and final is clearly worse than best.
-    if best[0] < last_epoch and (best[1] - finite[-1][1]) > 0.01:
+    # Best is well before the end and final is clearly worse than best: an
+    # absolute 0.01 on a rate, 2% relative on an error in target units.
+    worse_by = last_value - best[1] if mode == 'min' else best[1] - last_value
+    tolerance = 0.02 * abs(best[1]) if mode == 'min' else 0.01
+    if best[0] < last_x and worse_by > tolerance:
+        best_epoch = _epoch_of(snapshot, best[0])
+        last_epoch = _epoch_of(snapshot, last_x)
         return [Insight(
             severity='info', category='checkpoint-selection',
             message=(f"Best val {val_metric.series} {best[1]:.3f} was at epoch "
-                     f"{best[0]:.0f}, not the final epoch {last_epoch:.0f} "
-                     f"({finite[-1][1]:.3f})."),
+                     f"{best_epoch:.0f}, not the final epoch {last_epoch:.0f} "
+                     f"({last_value:.3f})."),
             recommendation="Evaluate/deploy checkpoint-best.pth, and consider "
                            "shortening training to around the best epoch.",
-            evidence={'best_epoch': best[0], 'best_value': best[1],
-                      'final_value': finite[-1][1]})]
+            evidence={'best_epoch': best_epoch, 'best_value': best[1],
+                      'final_value': last_value})]
     return []
 
 
@@ -445,9 +583,10 @@ def _check_undertraining(snapshot: ExperimentSnapshot) -> List[Insight]:
 
 
 def _check_plateau(snapshot: ExperimentSnapshot) -> List[Insight]:
-    val_metric = _epoch_metric(snapshot, 'val')
-    if val_metric is None:
+    head = _headline(snapshot, 'val')
+    if head is None:
         return []
+    val_metric = head[0]
     finite = val_metric.finite()
     if len(finite) < 8:
         return []
@@ -566,6 +705,256 @@ def _check_class_imbalance(snapshot: ExperimentSnapshot) -> List[Insight]:
     return []
 
 
+def _check_val_test_gap(snapshot: ExperimentSnapshot) -> List[Insight]:
+    """Test headline metric at the selected (best-val) epoch vs its val value."""
+    head = _headline(snapshot, 'val')
+    best = _best_val_point(snapshot)
+    if head is None or best is None:
+        return []
+    series, mode = head
+    x, val_value = best
+    test_value = _at(snapshot, 'test' + series.key[len('val'):], x)
+    if test_value is None:
+        return []
+    epoch = _epoch_of(snapshot, x)
+    evidence = {'epoch': epoch, 'val': val_value, 'test': test_value}
+    select_elsewhere = ("Select with cross-validation (docs/cross_validation.md) "
+                        "or a val split drawn like test, and compare the val/test "
+                        "cohorts before trusting val-based model selection.")
+    if mode == 'max':
+        if val_value - test_value <= 0.05:
+            return []
+        return [Insight(
+            severity='warning', category='val-test-gap',
+            message=(f"At the selected epoch {epoch:.0f}, test {series.series} "
+                     f"{test_value:.3f} is {val_value - test_value:.3f} below val "
+                     f"{val_value:.3f}."),
+            recommendation="Val does not represent test. " + select_elsewhere,
+            evidence=evidence)]
+    if val_value <= 0 or (test_value - val_value) / val_value <= 0.15:
+        return []
+    # Raw MAE is not comparable across splits whose ages spread differently:
+    # compare each against its own mean-predictor floor ("skill").
+    val_std = _at(snapshot, 'val_err/target_std', x)
+    test_std = _at(snapshot, 'test_err/target_std', x)
+    rel = 100 * (test_value - val_value) / val_value
+    if val_std and test_std:
+        val_skill = 1 - val_value / _mean_predictor_mae(val_std)
+        test_skill = 1 - test_value / _mean_predictor_mae(test_std)
+        evidence.update(val_target_std=val_std, test_target_std=test_std,
+                        val_skill=val_skill, test_skill=test_skill)
+        if val_skill - test_skill < 0.05:
+            return [Insight(
+                severity='info', category='val-test-gap',
+                message=(f"Test MAE {test_value:.2f} is {rel:.0f}% above val "
+                         f"{val_value:.2f} at the selected epoch {epoch:.0f}, but "
+                         f"test ages are more spread (std {test_std:.1f} vs "
+                         f"{val_std:.1f}); skill over the mean predictor is "
+                         f"similar (val {val_skill:.2f}, test {test_skill:.2f})."),
+                recommendation="Test is a harder cohort, not a generalisation "
+                               "failure. Compare splits on skill "
+                               "(1 - MAE / mean-predictor MAE), R² or r, not raw MAE.",
+                evidence=evidence)]
+    return [Insight(
+        severity='warning', category='val-test-gap',
+        message=(f"Test MAE {test_value:.2f} is {rel:.0f}% above val "
+                 f"{val_value:.2f} at the selected epoch {epoch:.0f}."),
+        recommendation="The model generalises worse to the test cohort than val "
+                       "suggests (TUAB's eval set is a separate cohort). "
+                       + select_elsewhere,
+        evidence=evidence)]
+
+
+# -- regression (EEG brain age) ------------------------------------------------
+# All read the case-level (recording-pooled) val metrics at the best-val epoch,
+# i.e. the model checkpoint-best.pth holds.
+
+# Upper end of published EEG brain-age MAE (7-8 years; docs/age_regression.md).
+_AGE_MAE_BENCHMARK = 8.0
+
+
+def _check_mean_collapse(snapshot: ExperimentSnapshot) -> List[Insight]:
+    best = _best_val_point(snapshot)
+    if best is None:
+        return []
+    x, mae = best
+    target_std = _at(snapshot, 'val_err/target_std', x)
+    if not target_std or target_std <= 0:
+        return []
+    floor = _mean_predictor_mae(target_std)
+    if mae < 0.9 * floor:
+        return []
+    pred_std = _at(snapshot, 'val_err/pred_std', x)
+    spread = (f"; predictions spread only {pred_std:.1f} vs the true "
+              f"{target_std:.1f}" if pred_std is not None else '')
+    return [Insight(
+        severity='critical', category='mean-collapse',
+        message=(f"Best val MAE {mae:.2f} is within 10% of the {floor:.2f} MAE of "
+                 f"always predicting the mean (target std {target_std:.1f})"
+                 f"{spread}."),
+        recommendation="The model has learned little beyond the cohort mean. "
+                       "Check the target plumbing first (labels joined, "
+                       "target_stats z-scoring and de-normalisation), that the "
+                       "pre-trained encoder weights loaded, and that the LR is "
+                       "not ~0.",
+        evidence={'best_val_mae': mae, 'mean_predictor_mae': floor,
+                  'pred_std': pred_std, 'target_std': target_std})]
+
+
+def _check_calibration(snapshot: ExperimentSnapshot) -> List[Insight]:
+    """Error a linear recalibration ``y' = a + b * y_hat`` would remove.
+
+    The best linear map of the predictions reaches RMSE ``std_y * sqrt(1 - r²)``
+    (population stds, like the logged RMSE), so the gap to the observed RMSE is
+    free error. Its slope ``b = r * std_y / std_pred`` says whether predictions
+    are compressed (b > 1) or over-dispersed (b < 1); the mean offset is the
+    intercept's share."""
+    best = _best_val_point(snapshot)
+    if best is None:
+        return []
+    x = best[0]
+    r = _at(snapshot, 'val/pearson_r', x)
+    rmse = _at(snapshot, 'val_err/rmse', x)
+    pred_std = _at(snapshot, 'val_err/pred_std', x)
+    target_std = _at(snapshot, 'val_err/target_std', x)
+    pred_mean = _at(snapshot, 'val_err/pred_mean', x)
+    target_mean = _at(snapshot, 'val_err/target_mean', x)
+    if None in (r, rmse, pred_std, target_std, pred_mean, target_mean):
+        return []
+    if rmse <= 0 or pred_std <= 0 or target_std <= 0:
+        return []
+    r = max(-1.0, min(1.0, r))
+    rmse_linear = target_std * math.sqrt(1 - r * r)
+    headroom = 1 - rmse_linear / rmse
+    if headroom < 0.05:
+        return []
+    slope = r * target_std / pred_std
+    offset = pred_mean - target_mean
+    defects = []
+    if slope > 1.1:
+        defects.append(f"compressed toward the mean (true-on-predicted slope "
+                       f"{slope:.2f} > 1)")
+    elif slope < 0.9:
+        defects.append(f"over-dispersed (true-on-predicted slope {slope:.2f} < 1)")
+    if abs(offset) > 0.1 * target_std:
+        defects.append(f"offset by {offset:+.1f} on average")
+    what = ' and '.join(defects) or 'miscalibrated'
+    return [Insight(
+        severity='warning' if headroom >= 0.10 else 'info',
+        category='calibration',
+        message=(f"Val predictions at the best epoch are {what}. A linear "
+                 f"recalibration would cut val RMSE from {rmse:.2f} to "
+                 f"≈{rmse_linear:.2f} ({100 * headroom:.0f}%)."),
+        recommendation="Fit y' = a + b·ŷ on the val predictions and apply it "
+                       "unchanged to test (the ≈ figure is in-sample on val; never "
+                       "fit on test). Compression usually means under-fitting -- "
+                       "the head starts at init_scale=0.001 and grows its output "
+                       "scale slowly -- so also try more epochs or a higher LR.",
+        evidence={'pearson_r': r, 'rmse': rmse, 'rmse_recalibrated': rmse_linear,
+                  'slope_true_on_pred': slope, 'mean_offset': offset})]
+
+
+def _check_age_bias(snapshot: ExperimentSnapshot) -> List[Insight]:
+    """Brain-age regression to the mean: slope of residual on true age."""
+    best = _best_val_point(snapshot)
+    if best is None:
+        return []
+    x, mae = best
+    beta = _at(snapshot, 'val/age_bias_slope', x)
+    if beta is None or beta >= -0.2:
+        return []
+    r = _at(snapshot, 'val/pearson_r', x)
+    target_std = _at(snapshot, 'val_err/target_std', x)
+    mae_corrected = _at(snapshot, 'val_err/mae_corrected', x)
+    message = (f"Residuals regress to the mean: age-bias slope β={beta:.2f} "
+               f"(0 unbiased, -1 predicting the mean)")
+    if target_std:
+        message += (f", so a subject {target_std:.0f} y above the mean age is "
+                    f"predicted ≈{abs(beta) * target_std:.0f} y too young (and "
+                    f"one below, too old)")
+    message += '.'
+    if r is not None:
+        # For predictions calibrated in the least-squares sense beta = r² - 1.
+        expected = r * r - 1
+        if beta < expected - 0.05:
+            message += (f" That is below the r²-1={expected:.2f} a calibrated "
+                        f"model with r={r:.2f} shows: the predictions are "
+                        f"compressed beyond what the correlation explains "
+                        f"(see calibration).")
+        else:
+            message += (f" That matches r²-1={expected:.2f} for r={r:.2f}: it is "
+                        f"the expected consequence of the correlation, and only a "
+                        f"higher r removes it.")
+    corrected = (f" (val {mae_corrected:.2f} vs raw {mae:.2f})"
+                 if mae_corrected is not None else '')
+    return [Insight(
+        severity='warning' if beta < -0.5 else 'info', category='age-bias',
+        message=message,
+        recommendation=(f"Report mae_corrected{corrected} only as a diagnostic: it "
+                        "uses the true age, so no model reaches it at inference. "
+                        "Before using brain-age deltas as a biomarker, apply the "
+                        "β-correction fitted on val. To shrink β itself, raise r "
+                        "(more training subjects, a stronger encoder)."),
+        evidence={'age_bias_slope': beta, 'pearson_r': r,
+                  'mae': mae, 'mae_corrected': mae_corrected})]
+
+
+def _check_age_benchmark(snapshot: ExperimentSnapshot) -> List[Insight]:
+    if not _is_age_task(snapshot):
+        return []
+    best = _best_val_point(snapshot)
+    if best is None:
+        return []
+    x, mae = best
+    epoch = _epoch_of(snapshot, x)
+    test_mae = _at(snapshot, 'test_err/mae', x)
+    window_mae = _at(snapshot, 'val_window_err/mae', x)
+    where = f"epoch {epoch:.0f}" + (f"; test {test_mae:.2f}" if test_mae is not None else '')
+    pooling = (f" Pooling windows per recording takes val MAE from "
+               f"{window_mae:.2f} to {mae:.2f}." if window_mae is not None else '')
+    evidence = {'best_val_mae': mae, 'test_mae': test_mae,
+                'val_window_mae': window_mae, 'benchmark_mae': _AGE_MAE_BENCHMARK}
+    if mae <= _AGE_MAE_BENCHMARK:
+        return [Insight(
+            severity='info', category='age-benchmark',
+            message=(f"Best val MAE {mae:.2f} y ({where}) is within the ~7-8 y of "
+                     f"published EEG brain-age models.{pooling}"),
+            recommendation="Confirm on test and across CV folds before claiming it.",
+            evidence=evidence)]
+    return [Insight(
+        severity='warning' if mae > 1.25 * _AGE_MAE_BENCHMARK else 'info',
+        category='age-benchmark',
+        message=(f"Best val MAE {mae:.2f} y ({where}) is "
+                 f"{mae - _AGE_MAE_BENCHMARK:.1f} y above the ~7-8 y of published "
+                 f"EEG brain-age models.{pooling}"),
+        recommendation="Work the calibration / age-bias / loss insights first, "
+                       "then add subjects: TUEG carries ~10x TUAB's age labels "
+                       "(docs/age_regression.md). Compare recipes by CV, not a "
+                       "single val split.",
+        evidence=evidence)]
+
+
+def _check_regression_loss(snapshot: ExperimentSnapshot) -> List[Insight]:
+    """Huber on a z-scored target with delta >= 1 is MSE in practice."""
+    loss = str(_hparam(snapshot, 'loss/regression_loss') or '').strip().lower()
+    delta = _hparam_float(snapshot, 'loss/huber_delta')
+    if loss != 'huber' or delta is None or delta < 1.0:
+        return []
+    best = _best_val_point(snapshot)
+    target_std = _at(snapshot, 'val_err/target_std', best[0]) if best else None
+    years = f" (≈{delta * target_std:.0f} y of error)" if target_std else ''
+    return [Insight(
+        severity='info', category='loss-config',
+        message=(f"Huber delta={delta:g} is in z-score units{years}, so the loss is "
+                 f"quadratic for almost every error: its robustness never engages, "
+                 f"and the run fits the conditional mean while model selection "
+                 f"ranks by MAE (a median criterion)."),
+        recommendation="Try loss.huber_delta≈0.25-0.5 or loss.regression_loss=l1 so "
+                       "the objective matches MAE selection; compare on val MAE "
+                       "and age_bias_slope.",
+        evidence={'regression_loss': loss, 'huber_delta': delta})]
+
+
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
@@ -576,6 +965,44 @@ def _fmt(v: Optional[float]) -> str:
     if isinstance(v, float):
         return f"{v:.4g}"
     return str(v)
+
+
+_SELECTED_EPOCH_COLUMNS = (
+    ('val', ('val', 'val_err')),
+    ('test', ('test', 'test_err')),
+    ('val window', ('val_window', 'val_window_err')),
+    ('test window', ('test_window', 'test_window_err')),
+)
+
+
+def _selected_epoch_lines(snapshot: ExperimentSnapshot) -> List[str]:
+    """Every val/test metric at the best-val epoch (the one checkpoint-best.pth
+    holds), side by side -- the numbers the run should be judged on."""
+    head = _headline(snapshot, 'val')
+    best = _best_val_point(snapshot)
+    if head is None or best is None:
+        return []
+    series, mode = head
+    x = best[0]
+    rows: Dict[str, Dict[str, float]] = {}
+    for column, titles in _SELECTED_EPOCH_COLUMNS:
+        for s in snapshot.scalars.values():
+            value = _value_at(s, x) if s.title in titles else None
+            if value is not None:
+                rows.setdefault(s.series, {})[column] = value
+    columns = [c for c, _ in _SELECTED_EPOCH_COLUMNS
+               if any(c in row for row in rows.values())]
+    direction = 'lower' if mode == 'min' else 'higher'
+    lines = ['## Selected epoch', '',
+             f"Best val `{series.series}` ({direction} is better): "
+             f"{best[1]:.4g} at epoch {_epoch_of(snapshot, x):.0f}.", '',
+             '| Metric | ' + ' | '.join(columns) + ' |',
+             '| ------ | ' + ' | '.join('-' * len(c) for c in columns) + ' |']
+    for name in sorted(rows, key=lambda n: (n != series.series, n)):
+        cells = [_fmt(rows[name].get(c)) for c in columns]
+        lines.append(f"| {name} | " + ' | '.join(cells) + ' |')
+    lines.append('')
+    return lines
 
 
 def render_report(snapshot: ExperimentSnapshot,
@@ -619,6 +1046,8 @@ def render_report(snapshot: ExperimentSnapshot,
                 lines.append('')
                 lines.append(f"_Evidence: {ev}_")
             lines.append('')
+
+    lines.extend(_selected_epoch_lines(snapshot))
 
     # Scalar summary.
     if snapshot.scalars:
