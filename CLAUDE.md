@@ -55,8 +55,8 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.vqnsp \
 # headers (MNE cannot see it -- the DOB is anonymized), joined onto the existing
 # window pickles by filename. Two read-only prep steps, then a normal fine-tune.
 # See docs/age_regression.md.
-python dataset_maker/make_TUAB_age.py scan  --root /data/TUAB/edf   # age_metadata.json
-python dataset_maker/make_TUAB_age.py split --root /data/TUAB/edf   # age_split.json
+python -m dataset_maker.make_TUAB_age scan  --root /data/TUAB/edf   # age_metadata.json
+python -m dataset_maker.make_TUAB_age split --root /data/TUAB/edf   # age_split.json
 OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_finetune \
   --config labram/configs/defaults/finetune_tuab_age.json \
   --set data.data_path=/data/TUAB/edf \
@@ -157,7 +157,14 @@ the metrics (`utils/regression_metrics.py` — MAE/RMSE/R²/r plus the `age_bias
 `mae_corrected` brain-age diagnostics), and lower-is-better model selection on MAE. Targets are
 z-scored by the loader using train-split stats and de-normalized before metrics, so errors read
 in years. Split by subject, aggregate by recording — age is a property of the session, not the
-subject. See `docs/age_regression.md`.
+subject. `data.case_filter` (normal/abnormal/all), `data.trim_start_sec`/`trim_end_sec`,
+`data.window_sec` (10–60 s; consecutive 10 s pickles concatenated, the 16-row time
+embedding interpolated to fit) and `data.eval_minutes` (val/test budget per recording)
+are applied by `data/window_selection.py` in `run_finetune.main`. The age config is
+scenario D of the Oct-2026 ablation (60 s trims, 5-minute eval, CAR-only `labram_plus`,
+15 epochs at lr 1e-4; val 7.77 / test 8.30 case MAE), documented with LaTeX in
+`docs/age_training_scenario_D.md` (+ PDF via `scripts/md_to_pdf.py`, needs matplotlib +
+reportlab). See `docs/age_regression.md`.
 
 **LaBraM++ mode** (opt-in, `labram_plus.enabled`, arXiv:2505.16724): a bundle of three signal-processing/loss improvements over the original LaBraM, off by default so existing checkpoints/configs are unaffected. (1) Per-patch **Common Average Reference** and (2) per-patch **z-scoring** are applied to model inputs; (3) the VQNSP tokenizer's phase reconstruction uses a **sin/cos circular loss** (`‖sin φ̂ − sin φ‖² + ‖cos φ̂ − cos φ‖²`) instead of the raw-angle MSE, removing the ±π wrap-around discontinuity. The single switch is `LaBraMPlusConfig` (`labram/configs/labram_plus_config.py`) on every `RunConfig` as `config.labram_plus`; preprocessing is model-owned (applied in `NeuralTransformer._embed_inputs`, `NeuralTransformerForMaskedEEGModeling.forward_features`, and `VQNSP._preprocess`) so it stays consistent across training and evaluation and never double-applies. Config files: `configs/defaults/{vqnsp,pretrain_,finetune_tuab_}labram_plus_plus.json`. See `docs/labram_plus_plus.md`.
 
@@ -165,7 +172,7 @@ subject. See `docs/age_regression.md`.
 
 **Channel handling**: 62-channel standard 10-20 layout is defined in `data/eeg_constants.py::standard_1020`. `get_channel_indices()` maps each dataset's channel names to this standard order. Fine-tuning setup (`runs/finetune_setup.py`) reorders loaded checkpoint weights to match the target dataset channel order — this is critical for transfer learning.
 
-**Distributed training**: DDP initialized in `runs/common.py::setup_environment()`. All metric logging is gated on `utils.is_main_process()`. `--auto_resume` resumes from the latest checkpoint automatically.
+**Distributed training**: DDP initialized in `runs/common.py::setup_environment()`. All metric logging is gated on `utils.is_main_process()`. Every run starts fresh: `output.auto_resume` is off by default and `output.append_timestamp` (on) suffixes `output_dir`/`log_dir` with one run timestamp (`<dir>_YYYYmmdd_HHMMSS_fff`, broadcast from rank 0; pin it with `$LABRAM_RUN_STAMP`), so no run reuses another's directory or checkpoint. It is applied in `runs/common.py::setup_environment` (which also writes `run_config.yaml`), skipped when resuming, and cleared in the saved config — to resume, rerun with `--config <run dir>/run_config.yaml --set output.auto_resume=true`, which continues after the saved epoch. A CV study stamps its base folder once, never the folds; a single-fold job stays unstamped (unless `$LABRAM_RUN_STAMP` is pinned) so separate fold jobs share one base; SageMaker containers skip it.
 
 **LR scheduling**: Cosine annealing with warmup (`utils/training.py`). Fine-tuning uses layer-wise LR decay via `optim_factory.py::LayerDecayValueAssigner` (timm-style per-parameter group scaling, controlled by `--layer_decay`).
 

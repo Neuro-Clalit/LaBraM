@@ -6,20 +6,27 @@
 # ---------------------------------------------------------
 
 import warnings
+from typing import Optional
 
 from timm.models import create_model
 
 from labram.configs.loss_config import LossConfig
 from labram.configs.run_configs import FinetuneRunConfig
 from labram.models.codebook_classifier import CodebookRegularizedClassifier
-from labram.models.vqnsp import load_vqnsp_weights
+from labram.models.vqnsp import load_vqnsp_weights, vqnsp_codebook_shape
 from labram.optim_factory import get_num_layer_for_vit
 
 
-def loss_config_from_codebook_reg(cr, label_smoothing: float, phase_loss: str = "angle") -> LossConfig:
+def loss_config_from_codebook_reg(cr, label_smoothing: float, phase_loss: str = "angle",
+                                  base: Optional[LossConfig] = None) -> LossConfig:
     """Map a CodebookRegConfig (+ label smoothing) into a LossConfig the
     criterion consumes. ``phase_loss`` selects the spectral phase objective
-    ('sincos' under LaBraM++, otherwise 'angle')."""
+    ('sincos' under LaBraM++, otherwise 'angle'). ``base`` is the run's
+    ``loss`` section: the downstream criterion (``regression_loss`` /
+    ``huber_delta``) and the spectral loss options (``freq_fraction`` /
+    ``use_smooth_l1``) come from it, so they are not silently reset to their
+    defaults on the codebook path."""
+    base = base or LossConfig()
     return LossConfig(
         classification_label_smoothing=label_smoothing,
         classifier_weight=cr.classifier_weight,
@@ -27,6 +34,10 @@ def loss_config_from_codebook_reg(cr, label_smoothing: float, phase_loss: str = 
         phase_weight=cr.phase_weight,
         embedding_weight=cr.embedding_weight,
         phase_loss=phase_loss,
+        regression_loss=base.regression_loss,
+        huber_delta=base.huber_delta,
+        freq_fraction=base.freq_fraction,
+        use_smooth_l1=base.use_smooth_l1,
     )
 
 
@@ -95,14 +106,19 @@ def build_codebook_classifier(config: FinetuneRunConfig) -> CodebookRegularizedC
         init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
     )
 
-    tokenizer = create_model(cr.tokenizer_model, pretrained=False)
     if cr.tokenizer_weight:
+        # Size the codebook from the checkpoint: it need not match the factory
+        # default (the released vqnsp.pth is 8192 x 64, the default 32-dim).
+        n_codes, code_dim = vqnsp_codebook_shape(cr.tokenizer_weight)
+        tokenizer = create_model(cr.tokenizer_model, pretrained=False,
+                                 num_codebook_tokens=n_codes, quantizer_dim=code_dim)
         load_vqnsp_weights(tokenizer, cr.tokenizer_weight)
     else:
         warnings.warn(
             "codebook_reg.enabled but tokenizer_weight is empty: the quantizer/"
             "decoder start from random init, so the reconstruction/quantization "
             "losses are not meaningful regularizers until trained.")
+        tokenizer = create_model(cr.tokenizer_model, pretrained=False)
 
     if encoder.embed_dim != tokenizer.encoder.embed_dim:
         raise ValueError(

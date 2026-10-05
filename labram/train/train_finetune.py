@@ -57,6 +57,19 @@ def train_class_batch(
     return loss, outputs, None
 
 
+_LOSS_TERM_NAMES = {
+    'HuberLoss': 'huber', 'MSELoss': 'mse', 'L1Loss': 'l1',
+    'BCEWithLogitsLoss': 'bce', 'CrossEntropyLoss': 'ce',
+    'LabelSmoothingCrossEntropy': 'ce', 'SoftTargetCrossEntropy': 'ce',
+}
+
+
+def _loss_term_name(criterion: torch.nn.Module) -> str:
+    """Short series name for a single-term criterion (``HuberLoss`` -> ``huber``)."""
+    name = type(criterion).__name__
+    return _LOSS_TERM_NAMES.get(name, name.lower())
+
+
 def get_loss_scale_for_deepspeed(model: torch.nn.Module) -> float:
     optimizer = model.optimizer
     return optimizer.loss_scale if hasattr(optimizer, "loss_scale") else optimizer.cur_scale
@@ -85,20 +98,28 @@ def train_one_epoch(
     task: str = TASK_CLASSIFICATION,
     target_stats: Optional[Tuple[float, float]] = None,
     logging_cfg: Optional[LoggingConfig] = None,
+    metrics: Optional[List[str]] = None,
 ) -> Dict[str, float]:
     update_freq = trainer_cfg.update_freq
     if nb_classes is None:
         nb_classes = 1 if is_binary else 2
     is_regression = task == TASK_REGRESSION
+    if metrics is None:
+        metrics = ['mae'] if is_regression else []
     # A regression target is a single float per window, so it is shaped like a
     # binary target (B, 1) -- but it must never be passed through a sigmoid or
     # scored as a probability.
     scalar_target = is_binary or is_regression
     detailed = eval_cfg is not None and eval_cfg.detailed_metrics
+    agg_mode = eval_cfg.agg_windows if eval_cfg is not None else 'none'
+    # Predictions are kept for the epoch-level report: the detailed one, and/or
+    # the per-case pooling when the train loader yields case ids.
+    collect_preds = detailed or agg_mode != 'none'
     log_grad_components = eval_cfg is not None and eval_cfg.log_grad_components
     grad_freq = eval_cfg.log_grad_freq if eval_cfg is not None else 0
     train_pred: List[torch.Tensor] = []
     train_true: List[torch.Tensor] = []
+    train_groups: List = []
     # None => no gradient clipping. (Previously `clip_grad or 0`, which passed 0
     # to the scaler and clipped grad-norm to zero — i.e. zeroed all gradients —
     # whenever clip_grad was unset.)
@@ -122,8 +143,11 @@ def train_one_epoch(
 
     step_timer = utils.StepTimer(
         device, precise_cuda=bool(getattr(logging_cfg, 'precise_cuda_timing', False)))
-    for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, batch in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         data_time = step_timer.start_step()
+        # A 3-element batch carries a per-window case id for case-level metrics.
+        samples, targets = batch[0], batch[1]
+        group_batch = batch[2] if len(batch) >= 3 else None
         step = data_iter_step // update_freq
         if step >= num_training_steps_per_epoch:
             continue
@@ -206,10 +230,12 @@ def train_one_epoch(
             step_scores = output.detach().float().cpu()
             step_metric = (output.max(-1)[-1] == targets.squeeze()).float().mean()
 
-        # Accumulate predictions for the epoch-level detailed train report.
-        if detailed:
+        # Accumulate predictions for the epoch-level train report.
+        if collect_preds:
             train_pred.append(step_scores)
             train_true.append(step_target)
+            if group_batch is not None:
+                train_groups.extend(list(group_batch))
 
         metric_logger.update(loss=loss_value)
         # Keep the meter name stable across tasks so the existing logging and
@@ -224,6 +250,13 @@ def train_one_epoch(
             component_values = {f'{name}_loss': float(v.detach().mean())
                                 for name, v in breakdown.components.items()}
             metric_logger.update(**component_values)
+        # Every loss term in absolute units, for the ``loss_terms`` plot: the
+        # (unweighted) components plus their weighted total, or the single
+        # criterion term (e.g. ``huber_loss``) on the plain path.
+        if component_values is not None:
+            loss_terms = {**component_values, 'total_loss': loss_value}
+        else:
+            loss_terms = {f'{_loss_term_name(criterion)}_loss': loss_value}
 
         if component_grad_values is not None:
             metric_logger.update(**component_grad_values)
@@ -236,10 +269,12 @@ def train_one_epoch(
         if log_writer is not None:
             log_writer.update(**step_timing, head="timing")
             log_writer.update(loss=loss_value, head="loss")
+            log_writer.update(**loss_terms, head="loss_terms")
             if is_regression:
-                # MAE is in years (O(10)), so it would flatten the O(1) loss
-                # curve if it shared the "loss" plot.
-                log_writer.update(mae=step_metric, head="err")
+                # Running per-batch window MAE, in years (O(10)) so it would
+                # flatten the O(1) loss curve if it shared the "loss" plot. The
+                # epoch-level per-case MAE of every split goes on "err".
+                log_writer.update(mae=step_metric, head="train_step")
             else:
                 log_writer.update(class_acc=step_metric, head="loss")
             # The AMP loss scale can reach ~65536; on its own "scale" plot so it
@@ -263,19 +298,27 @@ def train_one_epoch(
     stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     stats['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
 
-    # Epoch-level detailed train metrics (F1 / sensitivity / specificity /
-    # confusion matrix / ROC-PR) over all accumulated train predictions.
-    if detailed and train_pred:
+    # Epoch-level train metrics over all accumulated train predictions, pooled
+    # per case exactly like val/test when the loader yields case ids: case-level
+    # keys are primary and the per-window ones are mirrored under ``window_*``.
+    # These are the predictions made *during* the epoch (train mode, weights
+    # still moving), not a separate eval pass -- and under DDP each rank pools
+    # only its own shard of windows.
+    if collect_preds and train_pred:
         p = torch.cat(train_pred, dim=0).numpy()
         t = torch.cat(train_true, dim=0).numpy()
         if is_regression:
-            report = utils.regression_report(
-                utils.denormalize(p, target_stats), utils.denormalize(t, target_stats))
-        else:
-            report = utils.classification_report(p, t, is_binary, nb_classes, 0.5)
-        stats.update(report.scalars)
+            p = utils.denormalize(p, target_stats)
+            t = utils.denormalize(t, target_stats)
+        ret, report, window_ret, _, aggregated = _window_and_case_metrics(
+            p, t, train_groups, agg_mode, metrics, is_binary, nb_classes, detailed, task)
+        if aggregated:
+            ret.update({f'window_{k}': v for k, v in window_ret.items()})
+        stats.update(ret)
         if log_writer is not None:
-            _log_eval_stats(log_writer, report.scalars, head="train", epoch=epoch)
+            _log_eval_stats(log_writer, ret, head="train", epoch=epoch)
+            if aggregated:
+                _log_eval_stats(log_writer, window_ret, head="train_window", epoch=epoch)
             _log_detailed_report(log_writer, report, "train", epoch, eval_cfg)
     return stats
 
@@ -414,27 +457,18 @@ def evaluate(
     detailed = eval_cfg is None or eval_cfg.detailed_metrics
     loss_avg = metric_logger.loss.global_avg
 
-    # Per-window ("per-crop") metrics: one prediction per ~10 s EEG window.
-    window_ret, window_report = _metrics_and_report(
-        pred, true, metrics, is_binary, nb_classes, detailed, task)
+    # Per-window ("per-crop") metrics: one prediction per ~10 s EEG window, plus
+    # case-level ones when the windows carry case ids. Case-level metrics are the
+    # primary set (a clinical decision is per EEG case, not per crop); the
+    # per-window metrics are retained under ``window_*`` keys.
+    ret, primary_report, window_ret, window_report, aggregated = _window_and_case_metrics(
+        pred, true, groups, agg_mode, metrics, is_binary, nb_classes, detailed, task)
     window_ret['loss'] = loss_avg
     window_ret['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
 
-    if agg_mode != 'none' and groups:
-        # Pool the windows of each EEG case (recording/subject) into a single
-        # prediction per case, then compute metrics at the case level *in
-        # addition to* the per-window metrics above. Case-level metrics are the
-        # primary set (a clinical decision is per EEG case, not per crop); the
-        # per-window metrics are retained under ``window_*`` keys.
-        case_pred, case_true = utils.aggregate_windows(
-            pred, true, groups, agg_mode, is_binary, is_regression=is_regression)
-        logger.info("Aggregated %d windows into %d cases (mode=%s)",
-                    len(groups), len(case_true), agg_mode)
-        ret, case_report = _metrics_and_report(
-            case_pred, case_true, metrics, is_binary, nb_classes, detailed, task)
+    if aggregated:
         ret['loss'] = loss_avg
         ret.update({f'window_{k}': v for k, v in window_ret.items()})
-        primary_report = case_report
         # Case-level scalars are logged by the caller (train_loop) under ``head``;
         # log the per-window scalars + detailed report here under ``{head}_window``.
         if log_writer is not None and head is not None:
@@ -442,9 +476,6 @@ def evaluate(
             if window_report is not None:
                 _log_detailed_report(
                     log_writer, window_report, f"{head}_window", epoch, eval_cfg)
-    else:
-        ret = window_ret
-        primary_report = window_report
 
     ret.update({key: meter.global_avg for key, meter in metric_logger.meters.items()
                 if key in ('data_time_sec', 'step_time_sec', 'host_compute_time_sec',
@@ -472,6 +503,37 @@ def _loader_dataset_len(data_loader: Any) -> Optional[int]:
         return len(dataset) if dataset is not None else None
     except TypeError:  # iterable-style dataset with no __len__
         return None
+
+
+def _window_and_case_metrics(
+    pred: Any,
+    true: Any,
+    groups: Sequence,
+    agg_mode: str,
+    metrics: List[str],
+    is_binary: bool,
+    nb_classes: int,
+    detailed: bool,
+    task: str = TASK_CLASSIFICATION,
+) -> Tuple[Dict[str, float], Optional[Any], Dict[str, float], Optional[Any], bool]:
+    """Per-window metrics, plus per-case ones when the windows carry case ids.
+
+    With ``agg_mode != 'none'`` and ``groups`` given, the windows of each case
+    (recording/subject) are pooled into one prediction per case. Returns
+    ``(primary, primary_report, window, window_report, aggregated)``: the primary
+    set is case-level when aggregated, else it is the window-level dict itself.
+    """
+    window_ret, window_report = _metrics_and_report(
+        pred, true, metrics, is_binary, nb_classes, detailed, task)
+    if agg_mode == 'none' or not groups:
+        return window_ret, window_report, window_ret, window_report, False
+    case_pred, case_true = utils.aggregate_windows(
+        pred, true, groups, agg_mode, is_binary, is_regression=task == TASK_REGRESSION)
+    logger.info("Aggregated %d windows into %d cases (mode=%s)",
+                len(groups), len(case_true), agg_mode)
+    ret, case_report = _metrics_and_report(
+        case_pred, case_true, metrics, is_binary, nb_classes, detailed, task)
+    return ret, case_report, window_ret, window_report, True
 
 
 def _metrics_and_report(
@@ -546,6 +608,17 @@ def _log_eval_stats(log_writer, stats, head, epoch):
             log_writer.update(**{key: value}, head=f"{head}_err", step=step)
 
 
+def _log_split_errors(log_writer, epoch, train_stats, val_stats=None, test_stats=None):
+    """Log each split's MAE as one series of a shared ``err`` plot, so the
+    train/val/test error curves overlay directly."""
+    if log_writer is None:
+        return
+    errors = {split: stats.get('mae') for split, stats in
+              (('train', train_stats), ('val', val_stats), ('test', test_stats))
+              if stats is not None}
+    log_writer.update(head='err', step=_epoch_axis_step(log_writer, epoch), **errors)
+
+
 def _log_detailed_report(log_writer, report, head, step, eval_cfg):
     """Push a report's figures to the writer(s): a confusion matrix and ROC/PR
     curves for classification, a predicted-vs-true scatter for regression.
@@ -599,7 +672,8 @@ def train_loop(
 
     Returns a summary of the best-epoch metrics (selected by validation
     accuracy): ``max_accuracy`` (val), ``max_accuracy_test``, ``best_epoch`` and
-    the full ``best_val_stats`` / ``best_test_stats`` dicts. Callers that don't
+    the full ``best_{train,val,test}_stats`` dicts, plus ``last_epoch`` and the
+    ``last_{train,val,test}_stats`` of the final epoch. Callers that don't
     need it (the plain fine-tune runner) simply ignore the return value; the
     cross-validation runner uses it to aggregate metrics across folds.
     """
@@ -636,6 +710,11 @@ def train_loop(
     best_epoch = -1
     best_val_stats: dict = {}
     best_test_stats: dict = {}
+    best_train_stats: dict = {}
+    last_epoch = -1
+    last_train_stats: dict = {}
+    last_val_stats: dict = {}
+    last_test_stats: dict = {}
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
         epoch_timer = utils.PhaseTimer(device)
@@ -663,6 +742,7 @@ def train_loop(
             task=task,
             target_stats=target_stats,
             logging_cfg=config.logging,
+            metrics=metrics,
         )
         train_timing = utils.timing_stats(
             'train', train_timer.elapsed(), int(train_stats.get('samples_processed', 0)))
@@ -716,11 +796,13 @@ def train_loop(
                 best_epoch = epoch
                 best_val_stats = dict(val_stats)
                 best_test_stats = dict(test_stats)
+                best_train_stats = dict(train_stats)
             logger.info(f'Best {select_metric} val: {best_val:.2f}{unit}, '
                         f'test: {best_test:.2f}{unit}')
 
             _log_eval_stats(log_writer, val_stats, head="val", epoch=epoch)
             _log_eval_stats(log_writer, test_stats, head="test", epoch=epoch)
+            last_val_stats, last_test_stats = dict(val_stats), dict(test_stats)
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'val_{k}': v for k, v in val_stats.items()},
@@ -732,6 +814,14 @@ def train_loop(
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch, 'n_parameters': n_parameters,
                          **train_timing, **checkpoint_timing}
+
+        last_epoch, last_train_stats = epoch, dict(train_stats)
+        if is_regression:
+            # One "err" plot comparing the splits: per-case MAE (windows pooled
+            # by ``evaluation.agg_windows``) when case ids are available.
+            _log_split_errors(log_writer, epoch, train_stats,
+                              last_val_stats if loaders.val is not None else None,
+                              last_test_stats if loaders.val is not None else None)
 
         epoch_timing = {
             **utils.timing_stats('epoch', epoch_timer.elapsed()),
@@ -778,4 +868,10 @@ def train_loop(
         "best_epoch": best_epoch,
         "best_val_stats": best_val_stats,
         "best_test_stats": best_test_stats,
+        "best_train_stats": best_train_stats,
+        # The final epoch's metrics, for the best-vs-last summary tables.
+        "last_epoch": last_epoch,
+        "last_train_stats": last_train_stats,
+        "last_val_stats": last_val_stats,
+        "last_test_stats": last_test_stats,
     }

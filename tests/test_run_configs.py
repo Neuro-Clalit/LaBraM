@@ -94,7 +94,8 @@ class TestPretrainDefaults:
         cfg = PretrainRunConfig()
         assert cfg.output.output_dir == ''
         assert cfg.output.resume == ''
-        assert cfg.output.auto_resume is True
+        assert cfg.output.auto_resume is False
+        assert cfg.output.append_timestamp is True
         assert cfg.output.save_ckpt_freq == defaults.DEFAULT_PRETRAIN_SAVE_CKPT_FREQ == 20
 
 

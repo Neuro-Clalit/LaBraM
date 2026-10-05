@@ -88,6 +88,9 @@ def build_config(cli: argparse.Namespace):
         config.output.output_dir = os.path.join(model_dir, cli.phase)
     if not config.output.log_dir:
         config.output.log_dir = os.path.join(config.output.output_dir, 'tensorboard')
+    # Each job runs in a fresh container and its uploaded model dir keeps a
+    # fixed layout, so the per-run timestamp suffix is not wanted here.
+    config.output.append_timestamp = False
 
     # Cross-validation applies to fine-tuning only.
     if cli.phase == 'finetune':

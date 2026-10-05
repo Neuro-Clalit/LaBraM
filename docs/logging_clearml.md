@@ -93,6 +93,10 @@ per-component gradient norms (`grad_norm_‹name›_rel`) logged when
 which is comparable across loss weights, datasets and runs, where the raw
 magnitudes are not.
 
+Fine-tuning additionally logs every loss term in **absolute** units on a
+`loss_terms` plot (the unweighted components plus `total_loss`, or the single
+criterion term such as `huber_loss`), independent of this option.
+
 The **aggregate** loss (`loss`, VQNSP's `total_loss`) keeps its absolute value —
 it is the quantity being minimized — as do non-loss counters such as VQNSP's
 `unused_code`. Pre-training reports a single total loss and so has no component
@@ -145,6 +149,12 @@ glance. The same flat dict is also `connect`-ed to the task as a `final_metrics`
 config section, so the values appear as **sortable columns in the experiments
 table** and in the hyperparameter comparison.
 
+Alongside them, `runs/common.py::log_summary_tables` reports one **table per
+split** (`summary` / `train`, `val`, `test` under PLOTS; a markdown table in
+TensorBoard's TEXT tab; and the console) with a `best` row (the epoch selected on
+validation) and a `last` row (the final epoch), numbers formatted to two
+decimals — the best-vs-last comparison within a single run.
+
 This is handled by `runs/common.py::log_summary_metrics` (called from
 `run_finetune.main`), so every fine-tune — including each cross-validation fold —
 gets a comparable final-metrics table. (A CV study additionally logs a
@@ -172,7 +182,7 @@ section (`labram.configs.train_config.ClearMLConfig`):
 | `enabled`                 | `false`   | Master switch for ClearML tracking.                            |
 | `project_name`            | `LaBraM`  | ClearML project the task is filed under.                       |
 | `task_name`               | `""`      | Task name; empty ⇒ derived from `output_dir` (or model name).  |
-| `append_timestamp`        | `true`    | Append a millisecond timestamp (`YYYYmmdd_HHMMSS_fff`) to the task name so each run is uniquely identifiable. |
+| `append_timestamp`        | `true`    | Append a millisecond timestamp (`YYYYmmdd_HHMMSS_fff`) to the task name so each run is uniquely identifiable. It reuses the run's output-dir stamp (`output.append_timestamp`), so the task and its directory share one name. |
 | `tags`                    | `[]`      | Tags added to the task. Two more are added automatically: `debug` for debug runs, and `sagemaker` when `sagemaker.enabled` is also set. |
 | `output_uri`              | `""`      | Artifact upload target; empty ⇒ ClearML default.               |
 | `offline`                 | `false`   | Run without a server, storing results locally.                 |

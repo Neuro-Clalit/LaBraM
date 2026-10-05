@@ -111,6 +111,11 @@ class FinetuneModelConfig(ConfigBase):
     # (mean, std) the dataset used to z-score a regression target, so evaluation
     # can report metrics in the target's original units.
     target_stats: Optional[Tuple[float, float]] = None
+    # Parameter-name prefixes left trainable; everything else is frozen after
+    # the checkpoint loads. Empty = train everything. ["head"] is a pure
+    # regression/classification-head probe; ["head", "fc_norm", "blocks.11"]
+    # also adapts the last block.
+    trainable_prefixes: List[str] = field(default_factory=list)
     codebook_reg: CodebookRegConfig = field(default_factory=CodebookRegConfig)
 
     def validate(self) -> None:
@@ -166,6 +171,7 @@ class TransformerArchConfig(ConfigBase):
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM
+    max_time_patches: int = conf_consts.DEFAULT_ARCH_MAX_TIME_PATCHES
     # LaBraM++ input preprocessing (CAR + z-scoring); disabled by default so the
     # backbone reproduces the original LaBraM behaviour.
     labram_plus: LaBraMPlusConfig = field(default_factory=LaBraMPlusConfig)

@@ -5,7 +5,8 @@
         "output_dir": "./checkpoints/finetune_tuab_base/",
         "log_dir": "./log/finetune_tuab_base",
         "resume": "",
-        "auto_resume": true,
+        "auto_resume": false,
+        "append_timestamp": true,
         "save_ckpt": true,
         "save_ckpt_freq": 5,
         "save_only_final_model": false
@@ -77,7 +78,12 @@
         "robust_test": "",
         "split_json": "",
         "dataset": "TUAB",
-        "data_path": "./datasets/TUAB"
+        "data_path": "./datasets/TUAB",
+        "case_filter": "all",
+        "trim_start_sec": 0.0,
+        "trim_end_sec": 0.0,
+        "window_sec": 10,
+        "eval_minutes": 0.0
     },
     "clearml": {
         "py/object": "labram.configs.train_config.ClearMLConfig",
@@ -109,6 +115,7 @@
         "nb_classes": 0,
         "task": "classification",
         "target_stats": null,
+        "trainable_prefixes": [],
         "codebook_reg": {
             "py/object": "labram.configs.model_config.CodebookRegConfig",
             "enabled": false,

@@ -174,6 +174,39 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
     return DataLoaders(train=train_loader, val=val_loader, test=test_loader)
 
 
+def freeze_except(model: torch.nn.Module, prefixes) -> int:
+    """Freeze every parameter whose name does not start with one of
+    ``prefixes``; returns the number of parameters left trainable. Raises when
+    no parameter matches, which would otherwise train nothing."""
+    prefixes = tuple(prefixes)
+    trainable = 0
+    for name, param in model.named_parameters():
+        keep = name.startswith(prefixes)
+        param.requires_grad_(keep)
+        trainable += param.numel() if keep else 0
+    if trainable == 0:
+        raise ValueError(f"model.trainable_prefixes={list(prefixes)} matches no parameter")
+    return trainable
+
+
+def required_time_patches(data_cfg) -> int:
+    """Time-embedding rows a fine-tune model needs: one per 1 s patch of the
+    ``data.window_sec`` input, and never fewer than the pretrained 16."""
+    return max(16, int(getattr(data_cfg, 'window_sec', 10) or 10))
+
+
+def resize_time_embed(time_embed: torch.Tensor, n_patches: int) -> torch.Tensor:
+    """Linearly interpolate a ``(1, T, D)`` time embedding to ``n_patches`` rows
+    (the usual ViT position-embedding resize), so a 16-patch pretrained
+    embedding can drive a longer input."""
+    if time_embed.shape[1] == n_patches:
+        return time_embed
+    resized = torch.nn.functional.interpolate(
+        time_embed.transpose(1, 2).float(), size=n_patches,
+        mode='linear', align_corners=True)
+    return resized.transpose(1, 2).to(time_embed.dtype)
+
+
 def load_finetune_checkpoint(model: torch.nn.Module, ckpt_cfg) -> None:
     """Load weights from ckpt_cfg.finetune into model.
 
@@ -216,5 +249,13 @@ def load_finetune_checkpoint(model: torch.nn.Module, ckpt_cfg) -> None:
     for key in list(checkpoint_model.keys()):
         if "relative_position_index" in key:
             checkpoint_model.pop(key)
+
+    if 'time_embed' in checkpoint_model and 'time_embed' in state_dict:
+        n_patches = state_dict['time_embed'].shape[1]
+        if checkpoint_model['time_embed'].shape[1] != n_patches:
+            logger.info("Resizing time_embed %d -> %d patches",
+                        checkpoint_model['time_embed'].shape[1], n_patches)
+            checkpoint_model['time_embed'] = resize_time_embed(
+                checkpoint_model['time_embed'], n_patches)
 
     utils.load_state_dict(model, checkpoint_model, prefix=ckpt_cfg.model_prefix)

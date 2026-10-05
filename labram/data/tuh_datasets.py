@@ -72,6 +72,10 @@ class TUHLoader(torch.utils.data.Dataset):
         self._recording_sep = recording_sep
         self.return_id = return_id
         self.group_by = group_by
+        # Consecutive windows concatenated into one sample, starting at each
+        # listed file (set by labram.data.window_selection for inputs longer
+        # than one pickle).
+        self.windows_per_item = 1
 
     def __len__(self) -> int:
         return len(self.files)
@@ -90,14 +94,25 @@ class TUHLoader(torch.utils.data.Dataset):
             return base.split("_")[0]
         return base.rsplit(self._recording_sep, 1)[0]
 
+    def _window_files(self, filename: str) -> list:
+        """``filename`` plus the ``windows_per_item - 1`` windows after it."""
+        if self.windows_per_item <= 1:
+            return [filename]
+        directory, base = os.path.split(filename)
+        stem, index = base[:-4].rsplit(self._recording_sep, 1)
+        return [os.path.join(directory, f"{stem}{self._recording_sep}{int(index) + j}.pkl")
+                for j in range(self.windows_per_item)]
+
     def _load(self, index):
         filename = self.files[index]
-        path = os.path.join(self.root, filename)
-        with open(path, "rb") as fh:
-            sample = pickle.load(fh)
-        X = sample[self._signal_key]
+        samples = []
+        for name in self._window_files(filename):
+            with open(os.path.join(self.root, name), "rb") as fh:
+                samples.append(pickle.load(fh))
+        sample = samples[0]
+        X = np.concatenate([s[self._signal_key] for s in samples], axis=-1)
         if self.sampling_rate != self.default_rate:
-            X = resample(X, self._duration_sec * self.sampling_rate, axis=-1)
+            X = resample(X, self._duration_sec * len(samples) * self.sampling_rate, axis=-1)
         Y = self._label_fn(sample, filename)
         if self.return_id:
             return torch.FloatTensor(X), Y, self.group_id(filename)

@@ -218,6 +218,21 @@ class TestSetupHelpers:
         assert lc.phase_weight == 0.25 and lc.embedding_weight == 3.0
         assert lc.classification_label_smoothing == 0.1
 
+    def test_loss_config_keeps_the_runs_loss_settings(self):
+        """loss.freq_fraction / huber_delta / regression_loss must reach the
+        codebook criterion instead of being reset to their defaults."""
+        base = LossConfig(freq_fraction=0.5, huber_delta=2.0, regression_loss="l1",
+                          use_smooth_l1=True)
+        lc = loss_config_from_codebook_reg(CodebookRegConfig(), 0.0, base=base)
+        assert (lc.freq_fraction, lc.huber_delta, lc.regression_loss, lc.use_smooth_l1) == \
+            (0.5, 2.0, "l1", True)
+
+    def test_freq_fraction_halves_the_spectral_target(self):
+        from labram.losses.spectral import SpectralReconstructionLoss
+        amp, phase = SpectralReconstructionLoss(LossConfig(freq_fraction=0.5)).spectrum_targets(
+            torch.randn(2, 3, 4, 200))
+        assert amp.shape[-1] == phase.shape[-1] == 100
+
     def test_assigner_component_scales(self):
         cr = CodebookRegConfig(encoder=ComponentTrainConfig(lr_scale=0.1),
                                decoder=ComponentTrainConfig(trainable=True, lr_scale=0.2))
@@ -391,3 +406,16 @@ class TestTrainableLogging:
         assert "Trainable parameters:" in text
         assert "[frozen]" in text
         assert "encoder.blocks.0" in text
+
+
+def test_tokenizer_is_sized_from_its_checkpoint(tmp_path):
+    """The released vqnsp.pth has a 64-dim codebook while the factory default is
+    32-dim; the codebook classifier must build the tokenizer to match."""
+    from timm.models import create_model
+    import labram.models.registry  # noqa: F401  (registers the VQNSP factories)
+    from labram.models.vqnsp import vqnsp_codebook_shape
+    tok = create_model("vqnsp_encoder_base_decoder_3x200x12", num_codebook_tokens=16,
+                       quantizer_dim=64, quantize_kmeans_init=False)
+    path = tmp_path / "vqnsp.pth"
+    torch.save({"model": tok.state_dict()}, path)
+    assert vqnsp_codebook_shape(str(path)) == (16, 64)

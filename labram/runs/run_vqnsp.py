@@ -5,7 +5,6 @@
 # ---------------------------------------------------------
 
 import argparse
-from pathlib import Path
 
 from timm.models import create_model
 
@@ -162,8 +161,4 @@ def build_config(cli: argparse.Namespace) -> VQNSPRunConfig:
 if __name__ == '__main__':
     cli = parse_cli()
     config = build_config(cli)
-    if config.output.output_dir:
-        out_dir = Path(config.output.output_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        config.save_to(str(out_dir / 'run_config.yaml'))
     main(config)

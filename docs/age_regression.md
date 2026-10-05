@@ -340,9 +340,80 @@ The grouping is sound for a trained model, with **two ranges worth flagging**:
 
 Everything else sits correctly in its band: the four rate metrics are genuinely in
 $[-1,1]$ for a trained model, and the eight error-plot series are all in year (or
-year-derived) units. The per-step training curve is consistent — it logs running
-MAE under `head="err"` (`train_finetune.py:238`), computed in years via
-`denormalize` before the meter update (`train_finetune.py:196`).
+year-derived) units. The per-step training curve is consistent — it logs the
+running per-batch window MAE under `head="train_step"`, computed in years via
+`denormalize` before the meter update.
+
+### The `err` plot and per-case train metrics
+
+`err` holds one series per split — `train`, `val`, `test` — each the epoch's
+**per-case** MAE: the window predictions of a recording are pooled by
+`evaluation.agg_windows` (`mean` by default) before scoring, so the three curves
+compare like with like. Train gets case ids exactly like val/test
+(`enable_window_ids` runs on all three splits), and `train_one_epoch` pools the
+predictions it made *during* the epoch — train mode, weights still moving —
+rather than running a separate eval pass. So `train` is a running estimate, and
+under DDP each rank pools only its own shard of windows. The per-window train
+metrics are mirrored under `train_window` / `train_window_err`, as for val/test.
+
+Each loss term is logged in absolute units on `loss_terms` every step: the
+criterion's single term (e.g. `huber_loss`) on the plain path, or the unweighted
+components plus `total_loss` with the codebook-regularized criterion.
+
+At the end of training, `runs/common.py::log_summary_tables` reports one table per
+split (`summary` / `train|val|test` under ClearML PLOTS, a markdown table in
+TensorBoard's TEXT tab, and the console): a `best` row (the epoch selected on val
+MAE) and a `last` row (the final epoch), with every metric formatted to two
+decimals.
+
+## Recording and window selection
+
+Five `data.*` options pick which windows each split uses
+(`labram/data/window_selection.py`). They are applied once, in
+`run_finetune.main`, after the bundle is built (or a recorded split / CV fold is
+applied). The defaults keep everything; `finetune_tuab_age.json` trims a minute
+at each end and evaluates on 5 minutes per recording.
+
+| Option | Default (age config) | Effect |
+|---|---|---|
+| `case_filter` | `all` | `normal` / `abnormal` / `all`: TUAB cases used for train **and** eval |
+| `trim_start_sec` / `trim_end_sec` | `0` (`60` / `60`) | Drop the first/last seconds of every recording, rounded up to whole 10 s windows |
+| `window_sec` | `10` | Model input length: `window_sec/10` consecutive pickles concatenated (multiple of 10, 10–60) |
+| `eval_minutes` | `0` (`5`) | Val/test use only the first N minutes after the trimmed start (`0` = whole recording); train always uses everything |
+
+**How samples are chosen.** Window `i` of a recording covers `[10i, 10i+10)` s.
+Sample starts lie on a fixed grid per recording, every `window_sec` seconds from
+the trimmed start. A sample is kept when all its windows exist on disk and end
+before the trimmed end (and, for val/test, within the `eval_minutes` budget).
+Recording length is read from the window directories, not the split's file list,
+so the selection is idempotent: re-applying it to a reused `data_split.json` or a
+CV fold changes nothing. Recordings too short for one sample after trimming drop
+out, and the run logs per-split sample/recording counts.
+
+**Labels.** `case_filter` reads TUAB's normal/abnormal label from the metadata
+sidecar, derived from the EDF folder (`.../train/abnormal/...`). Sidecars written
+before the `label` field existed must be regenerated with `scan`; the loader raises
+rather than silently dropping every recording. A filtered run recomputes the age
+z-scoring stats from the selected train samples (normal-only TUAB train is
+younger: mean 43.7 vs 48.9). `case_filter` is rejected for classification, where
+it would leave a single class.
+
+**Longer inputs.** The pretrained time embedding has 16 rows (1 per 1 s patch).
+For `window_sec > 16` the model is built with `max_time_patches = window_sec`, and
+`load_finetune_checkpoint` linearly interpolates the pretrained embedding to that
+length. Attention cost grows with the square of the token count (23 channels ×
+seconds). Measured peak memory on an A10G (23 GB) for one AMP train step:
+
+| `window_sec` | batch 8 | 16 | 32 | 64 |
+|---|---|---|---|---|
+| 10 | 0.6 GB | 1.1 | 2.2 | 4.3 |
+| 30 | 3.5 | 7.0 | 13.9 | OOM |
+| 60 | 12.7 | OOM | OOM | OOM |
+
+So keep the effective batch at 64 with `trainer.update_freq`: for example
+`trainer.batch_size=8 trainer.update_freq=8` at 60 s. Longer inputs are not
+supported with `model.codebook_reg` (the grafted VQNSP decoder has a fixed 16-row
+time embedding).
 
 ## Usage
 
@@ -354,13 +425,13 @@ Extract the demographics (prints a summary to cross-check against the corpus
 AAREADME):
 
 ```bash
-python dataset_maker/make_TUAB_age.py scan --root "$TUAB"
+python -m dataset_maker.make_TUAB_age scan --root "$TUAB"
 ```
 
 Build the subject-disjoint split:
 
 ```bash
-python dataset_maker/make_TUAB_age.py split --root "$TUAB"
+python -m dataset_maker.make_TUAB_age split --root "$TUAB"
 ```
 
 Fine-tune:
@@ -369,6 +440,16 @@ Fine-tune:
 OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_finetune \
   --config labram/configs/defaults/finetune_tuab_age.json \
   --set data.data_path="$TUAB" \
+        finetune_checkpoint.finetune=./checkpoints/labram-base.pth
+```
+
+Normal-only, 60 s inputs, 5-minute evaluation:
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_finetune \
+  --config labram/configs/defaults/finetune_tuab_age.json \
+  --set data.data_path="$TUAB" data.case_filter=normal data.window_sec=60 \
+        trainer.batch_size=8 trainer.update_freq=8 \
         finetune_checkpoint.finetune=./checkpoints/labram-base.pth
 ```
 
@@ -396,12 +477,22 @@ TUEG's older recordings are less uniformly populated than TUAB's. You will also
 need window pickles for it (`dataset_maker/make_h5dataset_for_pretrain.py` or a
 TUAB-style preprocessing pass), since the join is by recording stem.
 
+## Next steps
+
+The default config (`finetune_tuab_age.json`) is scenario D of the October 2026
+ablation: common average reference on the input, 15 epochs at lr 1e-4. Its full
+technical description (loss, feature building, optimization, evaluation) is in
+[`age_training_scenario_D.md`](age_training_scenario_D.md) (PDF:
+`age_training_scenario_D.pdf`, rebuilt with `scripts/md_to_pdf.py`). The ranked
+improvement plan is in [`brain_age_improvement_plan.md`](brain_age_improvement_plan.md).
+
 ## Files
 
 | Path | Role |
 |---|---|
 | `labram/data/tuh_metadata.py` | EDF-header parser, sidecar I/O, age lookup |
 | `labram/data/age_splits.py` | subject-disjoint split + leakage assertions |
+| `labram/data/window_selection.py` | case filter, trimming, multi-window samples, eval budget |
 | `labram/data/tuh_datasets.py` | `TUABAgeLoader`, `prepare_TUAB_age_dataset` |
 | `labram/data/bundles.py` | `TUAB_AGE` bundle, `task` / `target_stats` |
 | `labram/losses/regression.py` | criterion selection + `build_downstream_criterion` |

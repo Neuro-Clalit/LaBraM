@@ -177,7 +177,11 @@ def auto_load_model(output_cfg, trainer_cfg, model, model_without_ddp, optimizer
             if 'optimizer' in checkpoint and 'epoch' in checkpoint:
                 optimizer.load_state_dict(checkpoint['optimizer'])
                 print(f"Resume checkpoint at epoch {checkpoint['epoch']}")
-                trainer_cfg.start_epoch = 1
+                # Continue after the saved epoch, so the LR/WD schedules pick up
+                # where they stopped. Named checkpoints ('best'/'final') carry no
+                # epoch number; the configured start_epoch stands for those.
+                if isinstance(checkpoint['epoch'], int):
+                    trainer_cfg.start_epoch = checkpoint['epoch'] + 1
                 if model_ema_enabled and model_ema is not None:
                     _load_checkpoint_for_ema(model_ema, checkpoint['model_ema'])
                 if 'scaler' in checkpoint:

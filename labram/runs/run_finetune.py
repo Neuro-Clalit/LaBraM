@@ -7,7 +7,6 @@
 import argparse
 import numpy as np
 import torch
-from pathlib import Path
 
 from timm.models import create_model
 from timm.utils import ModelEma
@@ -16,6 +15,7 @@ import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
 from labram.data import get_dataset_bundle
+from labram.data.window_selection import WindowSelection, apply_window_selection
 from labram.losses import CodebookRegularizedCriterion, LossConfig, build_downstream_criterion
 from labram.configs.run_configs import FinetuneRunConfig
 from labram.configs.utils_conf import add_override_arg, parse_overrides
@@ -24,8 +24,8 @@ from labram.runs.codebook_setup import (
     CodebookRegLayerAssigner, build_codebook_classifier, loss_config_from_codebook_reg,
 )
 from labram.runs.finetune_setup import (
-    build_dataloaders, build_samplers, enable_window_ids, load_finetune_checkpoint,
-    subset_for_debug,
+    build_dataloaders, build_samplers, enable_window_ids, freeze_except,
+    load_finetune_checkpoint, required_time_patches, subset_for_debug,
 )
 from labram.optim_factory import (
     LayerDecayValueAssigner, create_optimizer, get_parameter_groups,
@@ -45,7 +45,12 @@ def parse_cli() -> argparse.Namespace:
 
 
 def get_model(config: FinetuneRunConfig):
+    time_patches = required_time_patches(config.data)
     if config.model.codebook_reg.enabled:
+        if time_patches > 16:
+            raise ValueError(
+                "data.window_sec > 16 is not supported with model.codebook_reg: the "
+                "grafted VQNSP decoder has a fixed 16-patch time embedding")
         return build_codebook_classifier(config)
     m = config.model
     return create_model(
@@ -55,7 +60,7 @@ def get_model(config: FinetuneRunConfig):
         use_mean_pooling=m.use_mean_pooling, init_scale=m.init_scale,
         use_rel_pos_bias=m.rel_pos_bias, use_abs_pos_emb=m.abs_pos_emb,
         init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
-        labram_plus=config.labram_plus,
+        labram_plus=config.labram_plus, max_time_patches=time_patches,
     )
 
 
@@ -94,6 +99,9 @@ def main(config: FinetuneRunConfig, bundle=None):
             from labram.data.data_split_reuse import apply_data_split, load_data_split_json
             logger.info("Reusing recorded data split from %s", config.data.split_json)
             bundle = apply_data_split(bundle, load_data_split_json(config.data.split_json))
+    # Case filter / start-end trimming / longer inputs / per-recording eval
+    # budget. Idempotent, so it is safe on a reused split or a CV fold bundle.
+    bundle = apply_window_selection(bundle, WindowSelection.from_data_config(config.data))
     # The bundle is the source of truth for the head size and the task: a scalar
     # regression head and a binary classifier both have nb_classes == 1, so the
     # task must travel with it.
@@ -113,14 +121,15 @@ def main(config: FinetuneRunConfig, bundle=None):
     if config.trainer.disable_eval_during_finetuning:
         dataset_val = dataset_test = None
 
-    # Per-case window aggregation needs each eval dataset to surface a per-window
-    # case id (recording/subject). Enable it for val *and* test whenever an
-    # aggregation mode is configured — both during training (so per-epoch eval
-    # reports case-level metrics alongside per-window ones) and in eval-only mode.
+    # Per-case window aggregation needs each dataset to surface a per-window case
+    # id (recording/subject). Enable it for train, val *and* test whenever an
+    # aggregation mode is configured — so every split reports case-level metrics
+    # alongside per-window ones (train pools the predictions made during the
+    # epoch), both during training and in eval-only mode.
     if config.evaluation.agg_windows != 'none':
-        for eval_ds in (dataset_val, dataset_test):
-            if eval_ds is not None:
-                enable_window_ids(eval_ds, config.evaluation.agg_case_by)
+        for split_ds in (dataset_train, dataset_val, dataset_test):
+            if split_ds is not None:
+                enable_window_ids(split_ds, config.evaluation.agg_case_by)
 
     num_tasks, global_rank = utils.get_world_size(), utils.get_rank()
     sampler_train, sampler_val, sampler_test = build_samplers(
@@ -160,6 +169,8 @@ def main(config: FinetuneRunConfig, bundle=None):
         load_finetune_checkpoint(model.encoder, config.finetune_checkpoint)
     else:
         load_finetune_checkpoint(model, config.finetune_checkpoint)
+    if config.model.trainable_prefixes:
+        freeze_except(model, config.model.trainable_prefixes)
     model.to(device)
 
     model_ema = None
@@ -229,7 +240,7 @@ def main(config: FinetuneRunConfig, bundle=None):
     if config.model.codebook_reg.enabled:
         loss_cfg = loss_config_from_codebook_reg(
             config.model.codebook_reg, config.optimizer.smoothing,
-            phase_loss=config.labram_plus.resolved_phase_loss)
+            phase_loss=config.labram_plus.resolved_phase_loss, base=config.loss)
         criterion = CodebookRegularizedCriterion(
             build_downstream_criterion(task, nb_classes, loss_cfg), loss_cfg)
     else:
@@ -292,6 +303,8 @@ def main(config: FinetuneRunConfig, bundle=None):
     # Persist the best-epoch metrics as ClearML single values (comparable in
     # compare mode) + a final_metrics config section before finishing.
     runner_common.log_summary_metrics(log_writer, summary, config)
+    # Best-vs-last epoch tables, one per split (train / val / test).
+    runner_common.log_summary_tables(log_writer, summary)
 
     runner_common.finalize_run(config, log_writer)
     return summary
@@ -305,8 +318,4 @@ def build_config(cli: argparse.Namespace) -> FinetuneRunConfig:
 if __name__ == '__main__':
     cli = parse_cli()
     config = build_config(cli)
-    if config.output.output_dir:
-        out_dir = Path(config.output.output_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        config.save_to(str(out_dir / 'run_config.yaml'))
     main(config)

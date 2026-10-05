@@ -386,6 +386,14 @@ def _confusion_matrix_markdown(matrix: Any, labels: Optional[List[Any]] = None) 
     return "\n".join([header, sep] + body)
 
 
+def _markdown_table(rows) -> str:
+    """Render string rows (header first) as a markdown table."""
+    lines = ["| " + " | ".join(str(c) for c in rows[0]) + " |",
+             "| --- " * len(rows[0]) + "|"]
+    lines += ["| " + " | ".join(str(c) for c in row) + " |" for row in rows[1:]]
+    return "\n".join(lines)
+
+
 class TensorboardLogger(_RelativeStepMixin):
     def __init__(self, log_dir):
         self.writer = SummaryWriter(log_dir=log_dir)
@@ -428,6 +436,14 @@ class TensorboardLogger(_RelativeStepMixin):
         if isinstance(value, torch.Tensor):
             value = value.item()
         self.writer.add_scalar(f"summary/{name}", float(value), 0)
+
+    def report_table(self, title, series, rows, step=None):
+        """TensorBoard has no table widget -- log ``rows`` (header first) as a
+        markdown table in the TEXT tab."""
+        if not rows:
+            return
+        self.writer.add_text(f"{title}/{series}", _markdown_table(rows),
+                             0 if step is None else step)
 
     def flush(self):
         self.writer.flush()
@@ -523,6 +539,15 @@ class ClearMLLogger(_RelativeStepMixin):
             value = value.item()
         self._logger.report_single_value(name=name, value=float(value))
 
+    def report_table(self, title, series, rows, step=None):
+        """Log ``rows`` (a list of rows, header first) as a native ClearML table
+        under PLOTS."""
+        if self._logger is None or not rows:
+            return
+        self._logger.report_table(title=title, series=series,
+                                  iteration=0 if step is None else step,
+                                  table_plot=[list(r) for r in rows])
+
     def flush(self):
         if self._logger is not None:
             self._logger.flush()
@@ -586,6 +611,11 @@ class MultiWriter(_RelativeStepMixin):
         for w in self.writers:
             if hasattr(w, 'report_single_value'):
                 w.report_single_value(name, value)
+
+    def report_table(self, title, series, rows, step=None):
+        for w in self.writers:
+            if hasattr(w, 'report_table'):
+                w.report_table(title, series, rows, step=step)
 
     def flush(self):
         for w in self.writers:
