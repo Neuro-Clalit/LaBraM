@@ -117,7 +117,8 @@ def main():
                                      device, args.batch_size, args.data_format)
         for split, cohorts in results[name]["splits"].items():
             print(f"{name:14s} {split:4s} " + "  ".join(
-                f"{c}: n={v['n']} MAE={v['mae']:.2f} R2={v['r2']:.2f}" for c, v in cohorts.items()))
+                f"{c}: n={v['n']} MAE={v['mae']:.2f} R2={v['r2']:.2f}" for c, v in cohorts.items()
+                if c != "predictions"))
     if args.out:
         with open(args.out, "w") as fh:
             json.dump(results, fh, indent=2)
