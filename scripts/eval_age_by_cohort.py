@@ -66,12 +66,14 @@ def _per_recording(pred, true, recs, target_stats):
     return ids, np.array([sums[r][0] / sums[r][1] for r in ids]), np.array([sums[r][2] for r in ids])
 
 
-def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size):
+def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None):
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
+    if data_format:
+        cfg.data.data_format = data_format
     if cfg.model.codebook_reg.enabled:
         cfg.model.codebook_reg.tokenizer_weight = "./checkpoints/vqnsp.pth"
-    bundle = get_dataset_bundle(cfg.data.dataset, data_path)
+    bundle = get_dataset_bundle(cfg.data.dataset, data_path, data_format=cfg.data.data_format)
     bundle = apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
     model = get_model(cfg)
@@ -91,6 +93,7 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size):
                            ("abnormal", cohort == "abnormal")):
             m = utils.regression_metrics_fn(p[mask], t[mask], METRICS)
             out[name] = {"n": int(mask.sum()), **{k: float(v) for k, v in m.items()}}
+        out["predictions"] = {r: float(v) for r, v in zip(ids, p)}
         result["splits"][split] = out
     return result
 
@@ -102,6 +105,8 @@ def main():
     ap.add_argument("--checkpoint", default="checkpoint-best.pth")
     ap.add_argument("--splits", nargs="+", default=["val", "test"])
     ap.add_argument("--batch-size", type=int, default=128)
+    ap.add_argument("--data-format", choices=["pickle", "npy"], default=None,
+                    help="override the run's data.data_format (e.g. to compare formats)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -109,7 +114,7 @@ def main():
     for item in args.run:
         name, run_dir = item.split("=", 1)
         results[name] = evaluate_run(run_dir, args.data_path, args.checkpoint, args.splits,
-                                     device, args.batch_size)
+                                     device, args.batch_size, args.data_format)
         for split, cohorts in results[name]["splits"].items():
             print(f"{name:14s} {split:4s} " + "  ".join(
                 f"{c}: n={v['n']} MAE={v['mae']:.2f} R2={v['r2']:.2f}" for c, v in cohorts.items()))

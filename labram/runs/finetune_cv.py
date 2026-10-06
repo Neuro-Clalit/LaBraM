@@ -199,7 +199,8 @@ def run_cross_validation(config: FinetuneRunConfig) -> Dict:
     config.cross_validation.validate()
     stamp_cv_base_dir(config)
 
-    base_bundle = get_dataset_bundle(config.data.dataset, config.data.data_path)
+    base_bundle = get_dataset_bundle(config.data.dataset, config.data.data_path,
+                                     data_format=config.data.data_format)
     folds = prepare_folds(config, base_bundle)
 
     overlap = subject_overlap(folds)

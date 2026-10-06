@@ -35,7 +35,17 @@
 set -euo pipefail
 
 ROLE="${ROLE:-arn:aws:iam::574441342949:role/SageMakerExecutionRole}"
-DATA="${DATA:-s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed/}"
+# DATA_FORMAT=npy reads the per-recording float32 files (processed_npy/, ~75 GB,
+# 2,990 objects) and copies them to the instance before training (File mode);
+# pickle streams the 409k window pickles with FastFile, as the first ablations did.
+DATA_FORMAT="${DATA_FORMAT:-pickle}"
+if [[ "${DATA_FORMAT}" == "npy" ]]; then
+  DATA="${DATA:-s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed_npy/}"
+  INPUT_MODE="${INPUT_MODE:-File}"
+else
+  DATA="${DATA:-s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed/}"
+  INPUT_MODE="${INPUT_MODE:-FastFile}"
+fi
 INSTANCE_TYPE="${INSTANCE_TYPE:-ml.g5.2xlarge}"
 USE_SPOT="${USE_SPOT:-false}"
 MAX_WAIT_MIN="${MAX_WAIT_MIN:-0}"                 # spot only: total window, >= max run
@@ -59,7 +69,8 @@ common_sets() {  # common_sets <experiment>
 sagemaker.enabled=true
 sagemaker.role=${ROLE}
 sagemaker.instance_type=${INSTANCE_TYPE}
-sagemaker.input_mode=FastFile
+sagemaker.input_mode=${INPUT_MODE}
+data.data_format=${DATA_FORMAT}
 sagemaker.use_spot=${USE_SPOT}
 sagemaker.max_wait_min=${MAX_WAIT_MIN}
 sagemaker.job_name_prefix=labram-age-$(echo "$1" | tr '[:upper:]' '[:lower:]')

@@ -83,7 +83,9 @@
         "trim_start_sec": 60.0,
         "trim_end_sec": 60.0,
         "window_sec": 10,
-        "eval_minutes": 5.0
+        "eval_minutes": 5.0,
+        "data_format": "pickle",
+        "random_crop": false
     },
     "clearml": {
         "py/object": "labram.configs.train_config.ClearMLConfig",
