@@ -169,10 +169,10 @@ python -m labram.runs.submit_sagemaker \
   --set sagemaker.enabled=true \
         sagemaker.role=arn:aws:iam::574441342949:role/SageMakerExecutionRole \
         sagemaker.instance_type=ml.g5.2xlarge \
-        sagemaker.input_mode=FastFile sagemaker.use_spot=true \
+        sagemaker.input_mode=File sagemaker.use_spot=true \
         sagemaker.max_wait_min=1530 sagemaker.on_demand_fallback=true \
         sagemaker.job_name_prefix=labram-brain-age sagemaker.wait=true \
-        data.data_path=s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed/ \
+        data.data_path=s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed_npy/ \
         output.output_dir= output.log_dir= \
         clearml.enabled=true clearml.project_name=eeg/brain_age \
         clearml.task_name=finetune_tuab_age

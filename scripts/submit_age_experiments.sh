@@ -35,10 +35,11 @@
 set -euo pipefail
 
 ROLE="${ROLE:-arn:aws:iam::574441342949:role/SageMakerExecutionRole}"
-# DATA_FORMAT=npy reads the per-recording float32 files (processed_npy/, ~75 GB,
-# 2,990 objects) and copies them to the instance before training (File mode);
-# pickle streams the 409k window pickles with FastFile, as the first ablations did.
-DATA_FORMAT="${DATA_FORMAT:-pickle}"
+# DATA_FORMAT=npy (default) reads the per-recording float32 files (processed_npy/,
+# ~75 GB, 2,990 objects) and copies them to the instance before training (File
+# mode): same samples, ~2.9x faster than pickle on scenario D. DATA_FORMAT=pickle
+# streams the 409k window pickles with FastFile, as the first ablations did.
+DATA_FORMAT="${DATA_FORMAT:-npy}"
 if [[ "${DATA_FORMAT}" == "npy" ]]; then
   DATA="${DATA:-s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed_npy/}"
   INPUT_MODE="${INPUT_MODE:-File}"

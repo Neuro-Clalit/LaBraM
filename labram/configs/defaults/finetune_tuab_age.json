@@ -84,7 +84,7 @@
         "trim_end_sec": 60.0,
         "window_sec": 10,
         "eval_minutes": 5.0,
-        "data_format": "pickle",
+        "data_format": "npy",
         "random_crop": false
     },
     "clearml": {
@@ -229,7 +229,7 @@
         "role": "",
         "instance_type": "ml.g5.2xlarge",
         "instance_count": 1,
-        "volume_size_gb": 100,
+        "volume_size_gb": 150,
         "max_run_sec": 86400,
         "use_spot": false,
         "max_wait_min": 0.0,

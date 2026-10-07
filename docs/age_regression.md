@@ -436,8 +436,10 @@ edf/processed_npy/
 the loader already applied to every pickle, so the model sees bit-identical
 input (verified on 1,000 sampled windows).
 
-Select it with `data.data_format=npy` (default `pickle`); `data.data_path` may
-point at `edf/` or straight at `processed_npy/`. Items keep the pickle names, so
+`finetune_tuab_age.json` reads this format by default (`data.data_format=npy`;
+the class default, and every other config, stays `pickle`). Pass
+`data.data_format=pickle` to read the window pickles instead. `data.data_path`
+may point at `edf/` or straight at `processed_npy/`. Items keep the pickle names, so
 window selection, cross-validation and split reuse work unchanged.
 `data.random_crop=true` (npy only, training only) moves each training sample to
 a random start within half a sample length of its grid position, inside the
@@ -453,9 +455,13 @@ python -m dataset_maker.make_TUAB_npy merge \
   --sidecar-dir /path/to/edf/processed --expect 2990                # manifest
 ```
 
-On SageMaker use File mode with it (`scripts/submit_age_experiments.sh` does so
-for `DATA_FORMAT=npy`): the 75 GB copy happens once per job, after which every
-epoch reads local disk instead of streaming ~108 GB from S3.
+On SageMaker the age config uses File mode (`sagemaker.input_mode=File`,
+`sagemaker.volume_size_gb=150`), and `scripts/submit_age_experiments.sh`
+defaults to `DATA_FORMAT=npy`: the 75 GB copy happens once per job (about
+4.5 extra minutes of staging), after which every epoch reads local disk instead
+of streaming the pickles from S3. On scenario D (`ml.g5.2xlarge`) this cut the
+15-epoch training loop from 9:47 to 3:20 (12.5 instead of ~35 minutes per
+epoch) with identical metrics, per-epoch curves and data split.
 
 ## Usage
 
