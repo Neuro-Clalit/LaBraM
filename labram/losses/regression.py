@@ -13,6 +13,16 @@ from labram.losses.classification import build_classification_criterion
 REGRESSION_LOSSES = ("mse", "l1", "huber")
 
 
+def downstream_term_name(task: str) -> str:
+    """Name of the downstream loss term in logs: ``regression`` or ``classifier``.
+
+    Used on the plain and the codebook-regularized path alike, so a run's
+    ``regression_loss`` series compares directly across both; which criterion
+    it is (Huber, L1, ...) is in the run config.
+    """
+    return "regression" if task == "regression" else "classifier"
+
+
 def build_regression_criterion(cfg: Optional[LossConfig] = None) -> nn.Module:
     """Select the downstream regression criterion.
 

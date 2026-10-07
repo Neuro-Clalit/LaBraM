@@ -43,7 +43,7 @@ from labram.optim_factory import (
     optimizer_update,
     summarize_trainable_parameters,
 )
-from labram.train.train_finetune import train_one_epoch
+from labram.train.train_finetune import evaluate, train_one_epoch
 from labram.utils import NativeScalerWithGradNormCount
 
 
@@ -310,6 +310,32 @@ class TestTrainOneEpoch:
         assert math.isfinite(stats['loss'])
         for key in ('classifier_loss', 'magnitude_loss', 'phase_loss', 'quantize_loss'):
             assert key in stats, f"missing {key} in {sorted(stats)}"
+
+
+class TestEvaluateLossTerms:
+    """Val/test are scored with the training criterion: same weighted total,
+    plus each unweighted term, named like the train-side terms."""
+
+    def _eval(self, criterion):
+        torch.manual_seed(0)
+        model = _tiny_classifier(num_classes=1)
+        x, y = torch.randn(4, 4, 400) * 0.1, torch.randn(4)
+        loader = torch.utils.data.DataLoader(_DS(x, y), batch_size=2)
+        return evaluate(loader, model, torch.device('cpu'), ch_names=['FP1', 'FP2', 'F3', 'F4'],
+                        metrics=['mae'], is_binary=False, task='regression',
+                        criterion=criterion)
+
+    def test_regularized_criterion_reports_every_term(self):
+        crit = CodebookRegularizedCriterion(nn.HuberLoss(), LossConfig(), term_name='regression')
+        stats = self._eval(crit)
+        for key in ('regression_loss', 'magnitude_loss', 'phase_loss', 'quantize_loss'):
+            assert math.isfinite(stats[key]), key
+        assert stats['loss'] > stats['regression_loss']  # the weighted total
+
+    def test_without_the_criterion_only_the_downstream_loss(self):
+        stats = self._eval(None)
+        assert not [k for k in stats if k.endswith('_loss')]
+        assert math.isfinite(stats['loss'])
 
 
 # ---------------------------------------------------------------------------

@@ -593,7 +593,8 @@ def flatten_summary_metrics(summary: Any) -> dict:
         flat['best_epoch'] = summary['best_epoch']
     for key, prefix in (('best_val_stats', 'val'), ('best_test_stats', 'test')):
         for k, v in (summary.get(key) or {}).items():
-            if _is_num(v):
+            # MSE is left out: RMSE reports the same error in the target's units.
+            if _is_num(v) and k not in ('mse', 'window_mse'):
                 flat[f'{prefix}_{k}'] = v
     # Eval-only runs return their metrics at the top level: accuracy/balanced
     # accuracy for classification, the regression metrics for a scalar target.
@@ -645,6 +646,8 @@ SUMMARY_TABLE_SPLITS = ('train', 'val', 'test')
 SUMMARY_TABLE_METRICS = (
     'loss',
     'mae', 'mae_corrected', 'rmse', 'r2', 'pearson_r', 'spearman_r', 'age_bias_slope',
+    # Median-pooled case metrics (the primary ones above use evaluation.agg_windows).
+    'case_median_mae', 'case_median_rmse', 'case_median_r2',
     'pred_mean', 'pred_std', 'target_mean', 'target_std',
     'accuracy', 'balanced_accuracy', 'roc_auc', 'pr_auc', 'f1', 'f1_weighted',
     'precision', 'recall', 'sensitivity', 'specificity', 'cohen_kappa',

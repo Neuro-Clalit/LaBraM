@@ -293,78 +293,53 @@ are what get logged too. Model selection uses `best_metric_for`
 (`regression_metrics.py:162`): the first `LOWER_IS_BETTER` metric — MAE —
 minimized, versus accuracy-maximized for classification.
 
-## Validity of the metrics' active range in the logging
+## Logged plots
 
-To keep a large-magnitude series from flattening a small one on a shared axis,
-`_log_eval_stats` (`labram/train/train_finetune.py:517`) routes each scalar to one
-of three plots by its expected range:
+A regression run logs its epoch-level scalars **per metric**, with one series
+per split (`train`, `val`, `test`) and the epoch on the x-axis
+(`train_finetune.py::_log_regression_epoch`). The classification plots, one per
+split (`val`, `val_err`, `val_window`, …), are not used for regression.
 
-| plot (`head` suffix) | key set (`train_finetune.py`) | intended range | regression members |
-|---|---|---|---|
-| `{head}` | `_LOGGED_EVAL_RATE_KEYS` (`:485`) | $\sim[-1,1]$ + `loss` ($O(1)$) | `r2`, `pearson_r`, `spearman_r`, `age_bias_slope` |
-| `{head}_err` | `_LOGGED_EVAL_ERROR_KEYS` (`:493`) | target units (years, $O(10)$) | `mae`, `rmse`, `mse`, `mae_corrected`, `pred_mean`, `pred_std`, `target_mean`, `target_std` |
-| `{head}_cm` | `_LOGGED_EVAL_COUNT_KEYS` (`:500`) | integer counts | classification only |
+| plot | series | content |
+|---|---|---|
+| `mae_case_mean`, `rmse_case_mean`, `r2_case_mean` | `train` / `val` / `test` | windows of a recording pooled by their **mean** prediction |
+| `mae_case_median`, `rmse_case_median`, `r2_case_median` | `train` / `val` / `test` | windows pooled by their **median** prediction |
+| `mae_window`, `rmse_window`, `r2_window` | `train` / `val` / `test` | one prediction per window, no pooling |
+| `loss_epoch` | `train` / `val` / `test` | the split's total loss (the weighted total on the codebook path) |
+| `loss_terms` | `train_*` per step; `val_*`, `test_*` per epoch | every loss term in absolute units (below) |
+| `pearson_r`, `age_bias_slope`, `mae_corrected` | `train` / `val` / `test` | case-level diagnostics |
+| `prediction_stats` | `{split}_pred_mean`, `_pred_std`, `_target_mean`, `_target_std` | spots collapse to the mean |
+| `train_step` | `mae` | running per-batch window MAE, in years |
 
-Every one of the 12 `REGRESSION_METRIC_NAMES` lands in exactly one group, so
-nothing is dropped. Checking each against its **actual** range:
+Notes:
 
-| metric | theoretical range | typical (TUAB age) | plot | on-scale? |
-|---|---|---|---|---|
-| `pearson_r`, `spearman_r` | $[-1,1]$ | 0.4–0.8 | rate | ✓ |
-| `age_bias_slope` | $[-1,0]$ typ. ($-1$=mean-collapse) | $-0.7\ldots-0.2$ | rate | ✓ |
-| `r2` | $(-\infty,\,1]$ | 0–0.6 | rate | ⚠ unbounded below |
-| `mae`, `rmse`, `mae_corrected` | $[0,\infty)$, years | 7–18 | err | ✓ |
-| `pred_mean`, `target_mean` | $\sim[1,89]$ years | ≈ 49 | err | ✓ |
-| `pred_std`, `target_std` | $[0,\infty)$, years | ≈ 15–18 | err | ✓ |
-| `mse` | $[0,\infty)$, years² | 80–350 | err | ⚠ one order above the others |
-| `loss` (z-score Huber) | $[0,\infty)$, $O(1)$ | 0.1–0.5 | rate | ✓ |
-
-The grouping is sound for a trained model, with **two ranges worth flagging**:
-
-1. **`mse` shares `{head}_err` with the year-scale series.** MSE is in years²
-   ($\approx\text{RMSE}^2$, so $O(10^2)$), an order of magnitude above `mae` /
-   `rmse` / `mae_corrected` and the year-scale location/scale stats ($O(10)$). On a
-   shared linear axis it visually dominates and squashes them. MSE is not in the
-   default/bundle metric list, but `detailed_metrics=true` computes and logs it,
-   and it is monotone-redundant with RMSE anyway — so either drop it from the error
-   plot or give it its own `head`. This is a plot-readability issue, not a
-   correctness bug.
-
-2. **`r2` on the rate plot is unbounded below.** `pearson_r`, `spearman_r` and
-   `age_bias_slope` are all bounded to $\sim[-1,1]$, but $R^2\to$ large-negative
-   when the model does worse than predicting the mean (early or divergent epochs).
-   A single very-negative $R^2$ auto-scales the shared axis and flattens its
-   bounded companions for that plot. For a converged model $R^2\in[0,1]$ and there
-   is no problem — the risk is transient, and `_sanitize` only guards `NaN`/`inf`,
-   not large finite magnitudes.
-
-Everything else sits correctly in its band: the four rate metrics are genuinely in
-$[-1,1]$ for a trained model, and the eight error-plot series are all in year (or
-year-derived) units. The per-step training curve is consistent — it logs the
-running per-batch window MAE under `head="train_step"`, computed in years via
-`denormalize` before the meter update.
-
-### The `err` plot and per-case train metrics
-
-`err` holds one series per split — `train`, `val`, `test` — each the epoch's
-**per-case** MAE: the window predictions of a recording are pooled by
-`evaluation.agg_windows` (`mean` by default) before scoring, so the three curves
-compare like with like. Train gets case ids exactly like val/test
-(`enable_window_ids` runs on all three splits), and `train_one_epoch` pools the
-predictions it made *during* the epoch — train mode, weights still moving —
-rather than running a separate eval pass. So `train` is a running estimate, and
-under DDP each rank pools only its own shard of windows. The per-window train
-metrics are mirrored under `train_window` / `train_window_err`, as for val/test.
-
-Each loss term is logged in absolute units on `loss_terms` every step: the
-criterion's single term (e.g. `huber_loss`) on the plain path, or the unweighted
-components plus `total_loss` with the codebook-regularized criterion.
+- **RMSE, not MSE.** MSE (years², about 10× the other errors) is computed but
+  not plotted or reported as a summary value; RMSE gives the same information
+  in years.
+- **Mean and median pooling** are both computed every epoch
+  (`case_mean_*` / `case_median_*` keys in the stats and `log.txt`).
+  `evaluation.agg_windows` still decides the primary `mae` used for model
+  selection.
+- **Train metrics** pool the predictions made *during* the epoch (train mode,
+  weights still moving), not a separate eval pass, so `train` is a running
+  estimate. Under DDP each rank pools only its own shard of windows.
+- **Loss terms use one name per term on both paths.** The downstream term is
+  `regression_loss` (`classifier_loss` for classification) whether the
+  criterion is the plain Huber/L1/MSE or the codebook-regularized one. Which
+  criterion it is lives in the config (`loss.regression_loss`).
+  The codebook path adds the unweighted `magnitude_loss`, `phase_loss`,
+  `quantize_loss` and their weighted `total_loss`. Val/test are scored with
+  the training criterion (`evaluate(..., criterion=)`, decoder included), so
+  their `total_loss` and `loss` match the train definition. The val/test
+  points sit at the end of each epoch on the per-step axis.
+- **`r2` is unbounded below.** Early or divergent epochs can show a large
+  negative R², which stretches that plot's axis for a while.
 
 At the end of training, `runs/common.py::log_summary_tables` reports one table per
 split (`summary` / `train|val|test` under ClearML PLOTS, a markdown table in
 TensorBoard's TEXT tab, and the console): a `best` row (the epoch selected on val
 MAE) and a `last` row (the final epoch), with every metric formatted to two
-decimals.
+decimals, including the median-pooled `case_median_*` columns.
 
 ## Recording and window selection
 

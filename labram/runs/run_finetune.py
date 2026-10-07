@@ -17,6 +17,7 @@ import labram.utils as utils
 from labram.data import get_dataset_bundle
 from labram.data.window_selection import WindowSelection, apply_window_selection
 from labram.losses import CodebookRegularizedCriterion, LossConfig, build_downstream_criterion
+from labram.losses.regression import downstream_term_name
 from labram.configs.run_configs import FinetuneRunConfig
 from labram.configs.utils_conf import add_override_arg, parse_overrides
 from labram.train.train_finetune import evaluate, train_loop
@@ -242,7 +243,8 @@ def main(config: FinetuneRunConfig, bundle=None):
             config.model.codebook_reg, config.optimizer.smoothing,
             phase_loss=config.labram_plus.resolved_phase_loss, base=config.loss)
         criterion = CodebookRegularizedCriterion(
-            build_downstream_criterion(task, nb_classes, loss_cfg), loss_cfg)
+            build_downstream_criterion(task, nb_classes, loss_cfg), loss_cfg,
+            term_name=downstream_term_name(task))
     else:
         # Dispatched on the task, not on nb_classes: a scalar regression head is
         # also nb_classes == 1, and cross-entropy on a raw age is meaningless

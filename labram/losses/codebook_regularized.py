@@ -1,7 +1,7 @@
 # --------------------------------------------------------
 # Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
-# Composite criterion for codebook-regularized fine-tuning: classification loss
-# + spectral reconstruction (amplitude/phase) + quantization commitment loss.
+# Composite criterion for codebook-regularized fine-tuning: downstream
+# (classification or regression) loss + spectral reconstruction (amplitude/phase) + quantization commitment loss.
 # ---------------------------------------------------------
 
 from typing import Optional
@@ -14,31 +14,35 @@ from labram.losses.spectral import SpectralReconstructionLoss
 
 
 class CodebookRegularizedCriterion(nn.Module):
-    """Combine a classification loss with VQNSP regularization losses.
+    """Combine a downstream loss with VQNSP regularization losses.
 
     The model produces a :class:`~labram.models.outputs.PredictorOutput`; this
     module owns *all* loss math and weighting. The weighted total is
 
-        ``classifier_weight * L_cls
+        ``classifier_weight * L_downstream
           + amplitude_weight * L_magnitude
           + phase_weight     * L_phase
           + embedding_weight * L_quantize``
 
     The reconstruction and quantization terms are only added when present on the
-    output (so a classification-only forward yields just the classifier term).
+    output (so a classification-only forward yields just the downstream term).
+    ``term_name`` names the downstream component (``classifier``, or
+    ``regression`` for a scalar target -- see
+    :func:`~labram.losses.regression.downstream_term_name`).
     """
 
     def __init__(self, classification_criterion: Optional[nn.Module] = None,
-                 cfg: Optional[LossConfig] = None):
+                 cfg: Optional[LossConfig] = None, term_name: str = 'classifier'):
         super().__init__()
         self.cfg = cfg or LossConfig()
         self.classification_criterion = classification_criterion or nn.CrossEntropyLoss()
+        self.term_name = term_name
         self.spectral = SpectralReconstructionLoss(self.cfg)
 
     def forward(self, output, target) -> LossBreakdown:
         cfg = self.cfg
         cls_loss = self.classification_criterion(output.logits, target)
-        components = {'classifier': cls_loss}
+        components = {self.term_name: cls_loss}
         total = cfg.classifier_weight * cls_loss
 
         if output.recon_magnitude is not None and output.x_patched is not None:

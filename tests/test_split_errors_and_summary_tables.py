@@ -1,5 +1,6 @@
-"""Per-case train metrics, the shared ``err`` plot, per-term loss logging and the
-best-vs-last summary tables."""
+"""Per-case train metrics, the per-metric regression epoch plots, per-term loss
+logging and the best-vs-last summary tables."""
+import re
 from collections import defaultdict
 
 import pytest
@@ -9,7 +10,9 @@ from torch.utils.data import DataLoader
 
 from labram.configs.train_config import EvaluationConfig
 from labram.runs.common import build_summary_tables, log_summary_tables
-from labram.train.train_finetune import _log_split_errors, _loss_term_name, train_one_epoch
+from labram.losses import CodebookRegularizedCriterion
+from labram.losses.regression import downstream_term_name
+from labram.train.train_finetune import _log_regression_epoch, train_one_epoch
 from labram.utils.logging import MultiWriter, TensorboardLogger
 from test_finetune import N_CHANNELS, T_PATCH, _make_epoch_args, _make_model
 
@@ -61,17 +64,17 @@ class TestTrainCaseMetrics:
         stats = _train_with_case_ids(_RecordingWriter())
         assert {"mae", "window_mae"} <= set(stats)
 
-    def test_case_and_window_series_go_to_their_own_plots(self):
-        writer = _RecordingWriter()
-        _train_with_case_ids(writer)
-        assert "mae" in writer.scalars["train_err"]
-        assert "mae" in writer.scalars["train_window_err"]
+    def test_mean_and_median_case_pooling_are_both_reported(self):
+        stats = _train_with_case_ids(_RecordingWriter())
+        for mode in ("mean", "median"):
+            assert {f"case_{mode}_{m}" for m in ("mae", "rmse", "r2")} <= set(stats)
+        assert stats["case_mean_mae"] == pytest.approx(stats["mae"])
 
-    def test_running_mae_moves_off_the_err_plot(self):
+    def test_regression_train_scalars_leave_the_per_split_plots(self):
         writer = _RecordingWriter()
         _train_with_case_ids(writer)
         assert "mae" in writer.scalars["train_step"]
-        assert "err" not in writer.scalars
+        assert not {"train", "train_err", "train_window", "train_window_err"} & set(writer.scalars)
 
     def test_two_tuple_batches_still_train(self):
         model = _make_model(num_classes=1)
@@ -85,23 +88,72 @@ class TestTrainCaseMetrics:
 
 
 class TestLossTerms:
-    def test_single_criterion_logs_its_named_term(self):
+    def test_single_criterion_logs_the_task_term(self):
         writer = _RecordingWriter()
         _train_with_case_ids(writer)
-        assert set(writer.scalars["loss_terms"]) == {"huber_loss"}
+        assert set(writer.scalars["loss_terms"]) == {"train_regression_loss"}
 
-    @pytest.mark.parametrize("criterion, name", [
-        (nn.HuberLoss(), "huber"), (nn.MSELoss(), "mse"), (nn.L1Loss(), "l1"),
-        (nn.BCEWithLogitsLoss(), "bce"), (nn.CrossEntropyLoss(), "ce"),
-    ])
-    def test_term_names(self, criterion, name):
-        assert _loss_term_name(criterion) == name
+    @pytest.mark.parametrize("task, name", [("regression", "regression"),
+                                            ("classification", "classifier")])
+    def test_term_names(self, task, name):
+        assert downstream_term_name(task) == name
+
+    def test_codebook_criterion_uses_the_same_term_name(self):
+        crit = CodebookRegularizedCriterion(nn.HuberLoss(), term_name="regression")
+        assert crit.term_name == "regression"
 
 
-def test_split_errors_share_one_plot():
-    writer = _RecordingWriter()
-    _log_split_errors(writer, 3, {"mae": 0.4}, {"mae": 9.3}, {"mae": 10.9})
-    assert writer.scalars["err"] == {"train": 0.4, "val": 9.3, "test": 10.9}
+def _epoch_stats(mae, loss, **extra):
+    return {"loss": loss, "mae": mae, "case_mean_mae": mae, "case_median_mae": mae - 0.5,
+            "window_mae": mae + 1, "rmse": mae + 2, "case_mean_rmse": mae + 2,
+            "case_median_rmse": mae + 1.5, "window_rmse": mae + 3,
+            "r2": 0.6, "case_mean_r2": 0.6, "case_median_r2": 0.62, "window_r2": 0.5,
+            "mse": 99.0, "window_mse": 99.0, **extra}
+
+
+class TestRegressionEpochPlots:
+    def _log(self, **val_extra):
+        writer = _RecordingWriter()
+        _log_regression_epoch(writer, 3, {
+            "train": _epoch_stats(1.0, 0.1),
+            "val": _epoch_stats(9.0, 0.4, **val_extra),
+            "test": _epoch_stats(10.0, 0.5),
+        })
+        return writer.scalars
+
+    def test_one_plot_per_metric_and_pooling_with_split_series(self):
+        scalars = self._log()
+        for metric in ("mae", "rmse", "r2"):
+            for agg in ("case_mean", "case_median", "window"):
+                assert set(scalars[f"{metric}_{agg}"]) == {"train", "val", "test"}
+        assert scalars["mae_case_mean"] == {"train": 1.0, "val": 9.0, "test": 10.0}
+        assert scalars["mae_case_median"]["val"] == 8.5
+        assert scalars["mae_window"]["test"] == 11.0
+
+    def test_total_loss_per_split(self):
+        assert self._log()["loss_epoch"] == {"train": 0.1, "val": 0.4, "test": 0.5}
+
+    def test_mse_is_not_plotted(self):
+        names = [n for title, plot in self._log().items() for n in (title, *plot)]
+        assert not [n for n in names if re.search(r"(^|_)mse", n)]
+
+    def test_val_and_test_loss_terms_join_the_loss_terms_plot(self):
+        terms = self._log()["loss_terms"]
+        assert terms == {"val_regression_loss": 0.4, "test_regression_loss": 0.5}
+
+    def test_regularized_terms_come_with_their_total(self):
+        terms = self._log(regression_loss=0.3, magnitude_loss=0.2,
+                          window_loss=0.4)["loss_terms"]
+        assert terms["val_regression_loss"] == 0.3
+        assert terms["val_magnitude_loss"] == 0.2
+        assert terms["val_total_loss"] == 0.4
+        assert "val_window_loss" not in terms
+
+    def test_window_level_runs_plot_their_primary_metrics_as_window(self):
+        writer = _RecordingWriter()
+        _log_regression_epoch(writer, 0, {"train": {"loss": 0.2, "mae": 3.0}, "val": None})
+        assert writer.scalars["mae_window"] == {"train": 3.0}
+        assert "mae_case_mean" not in writer.scalars
 
 
 def _summary():
@@ -140,9 +192,9 @@ class TestSummaryTables:
     def test_loss_terms_follow_the_total_loss(self):
         summary = {"best_epoch": 0, "last_epoch": 0,
                    "best_train_stats": {"loss": 1.0, "mae": 2.0, "phase_loss": 0.1,
-                                        "classifier_loss": 0.5}}
+                                        "regression_loss": 0.5}}
         header = build_summary_tables(summary)["train"][0]
-        assert header == ["", "epoch", "loss", "classifier_loss", "phase_loss", "mae"]
+        assert header == ["", "epoch", "loss", "phase_loss", "regression_loss", "mae"]
 
     def test_missing_splits_and_bad_input_are_skipped(self):
         assert set(build_summary_tables({"best_epoch": 1, "last_epoch": 1,
