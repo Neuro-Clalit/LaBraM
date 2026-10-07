@@ -251,6 +251,7 @@
         },
         "input_mode": "File",
         "environment": {},
+        "clearml_secret": "labram/clearml",
         "hyperparameters": {},
         "tags": {},
         "wait": false,

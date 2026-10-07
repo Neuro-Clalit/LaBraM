@@ -14,6 +14,7 @@ from timm.utils import ModelEma
 import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
+from labram.utils.secrets import redacted_copy
 from labram.data import get_dataset_bundle
 from labram.data.window_selection import (
     WindowSelection, apply_window_selection, enable_random_crop,
@@ -92,7 +93,7 @@ def main(config: FinetuneRunConfig, bundle=None):
         if config.output.output_dir:
             config.output.log_dir = config.output.log_dir or config.output.output_dir
 
-    logger.info("%s", config)
+    logger.info("%s", redacted_copy(config))
 
     if bundle is None:
         bundle = get_dataset_bundle(config.data.dataset, config.data.data_path,

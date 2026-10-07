@@ -24,6 +24,7 @@ import torch.backends.cudnn as cudnn
 import torch.utils.data
 
 import labram.utils as utils
+from labram.utils.secrets import redacted_copy
 from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import ClearMLConfig, DistributedConfig, OutputConfig, TrainerConfig
 
@@ -217,7 +218,7 @@ def prepare_output_dir(config: Any) -> None:
     if output_cfg.output_dir and utils.is_main_process():
         os.makedirs(output_cfg.output_dir, exist_ok=True)
         if hasattr(config, 'save_to'):
-            config.save_to(os.path.join(output_cfg.output_dir, 'run_config.yaml'))
+            redacted_copy(config).save_to(os.path.join(output_cfg.output_dir, 'run_config.yaml'))
 
 
 def _clearml_default_output_uri() -> Optional[str]:
@@ -243,6 +244,18 @@ def _debug_output_uri(clearml_cfg: ClearMLConfig, project_name: str) -> Optional
     if not base:
         return None
     return base.rstrip('/') + f'/{project_name}/debug'
+
+
+def _scrub_task_entry_point(task: Any, run_config: Any) -> None:
+    from labram.utils.secrets import redact_text, secret_values
+    try:
+        entry = getattr(getattr(task.data, 'script', None), 'entry_point', '') or ''
+        clean = redact_text(entry, secret_values(run_config) if run_config is not None else ())
+        if clean != entry:
+            task.set_script(entry_point=clean)
+            logger.info("Masked credentials in the ClearML task's recorded command line")
+    except Exception as exc:  # pragma: no cover - never fail a run on tracking
+        logger.warning("Could not scrub the ClearML entry point: %s", exc)
 
 
 def _sagemaker_enabled(run_config: Any) -> bool:
@@ -321,16 +334,19 @@ def init_clearml_task(
     # auto-detect the code state. When the submitter shipped its git metadata,
     # replay it so branch/commit/uncommitted-diff still reach the experiment.
     utils.apply_git_info_to_task(task)
+    # ClearML records the full command line as the script entry point; mask any
+    # credential passed there (e.g. a --set sagemaker.environment override).
+    _scrub_task_entry_point(task, run_config)
     if run_config is not None and hasattr(run_config, 'as_dict'):
         try:
-            task.connect_configuration(run_config.as_dict(), name='run_config')
+            task.connect_configuration(redacted_copy(run_config).as_dict(), name='run_config')
         except Exception as exc:  # pragma: no cover - defensive: never fail a run on tracking
             logger.warning("ClearML connect_configuration failed: %s", exc)
         # Also connect the config as flat dotted-key hyperparameters so it shows
         # as a searchable/sortable table in the ClearML experiment (not just a
         # JSON blob under Configuration).
         try:
-            task.connect(flatten_config(run_config.as_dict()), name='config')
+            task.connect(flatten_config(redacted_copy(run_config).as_dict()), name='config')
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("ClearML connect (hyperparameters) failed: %s", exc)
     task_url = _clearml_task_url(task)
