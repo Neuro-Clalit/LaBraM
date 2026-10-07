@@ -236,7 +236,11 @@ class NeuralTransformer(NeuralTransformerBase):
         self.time_window = config.eeg_window_size // config.patch_size
 
         self.fc_norm = norm_layer(config.embed_dim) if config.use_mean_pooling else None
-        self.head = nn.Linear(config.embed_dim, config.num_classes) if config.num_classes > 0 else nn.Identity()
+        # Optional [mean patch token, cls token] head input (mean pooling only).
+        self.cls_norm = norm_layer(config.embed_dim) if (
+            config.use_mean_pooling and config.concat_cls_token) else None
+        self.num_features = config.embed_dim * (2 if self.cls_norm is not None else 1)
+        self.head = nn.Linear(self.num_features, config.num_classes) if config.num_classes > 0 else nn.Identity()
 
         if isinstance(self.head, nn.Linear):
             trunc_normal_(self.head.weight, std=.02)
@@ -252,7 +256,7 @@ class NeuralTransformer(NeuralTransformerBase):
 
     def reset_classifier(self, num_classes, global_pool=''):
         self.num_classes = num_classes
-        self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+        self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
 
     def forward_features(self, x, channel_indices=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
         x = self._embed_inputs(x, channel_indices=channel_indices)
@@ -267,8 +271,10 @@ class NeuralTransformer(NeuralTransformerBase):
             t = x[:, 1:, :]
             if return_patch_tokens:
                 return self.fc_norm(t)
-            else:
-                return self.fc_norm(t.mean(1))
+            pooled = self.fc_norm(t.mean(1))
+            if self.cls_norm is not None:
+                return torch.cat((pooled, self.cls_norm(x[:, 0])), dim=-1)
+            return pooled
         else:
             if return_all_tokens:
                 return x

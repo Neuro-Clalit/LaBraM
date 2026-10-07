@@ -101,6 +101,9 @@ class FinetuneModelConfig(ConfigBase):
     attn_drop_rate: float = conf_consts.DEFAULT_ATTN_DROP_RATE
     drop_path: float = conf_consts.DEFAULT_DROP_PATH
     use_mean_pooling: bool = conf_consts.DEFAULT_FINETUNE_USE_MEAN_POOLING
+    # With mean pooling, also feed the (separately normalized) class token to
+    # the head: features = [mean patch token, cls token], width 2 * embed_dim.
+    concat_cls_token: bool = conf_consts.DEFAULT_FINETUNE_CONCAT_CLS_TOKEN
     init_scale: float = conf_consts.DEFAULT_FINETUNE_INIT_SCALE
     nb_classes: int = conf_consts.DEFAULT_FINETUNE_NB_CLASSES
     # "classification" or "regression". Both use nb_classes == 1 for a single
@@ -122,6 +125,8 @@ class FinetuneModelConfig(ConfigBase):
         if self.task not in ("classification", "regression"):
             raise ValueError(
                 f"model.task must be 'classification' or 'regression', got {self.task!r}")
+        if self.concat_cls_token and not self.use_mean_pooling:
+            raise ValueError("model.concat_cls_token requires model.use_mean_pooling")
 
     @property
     def is_regression(self) -> bool:
@@ -168,6 +173,7 @@ class TransformerArchConfig(ConfigBase):
     use_rel_pos_bias: bool = conf_consts.DEFAULT_ARCH_USE_REL_POS_BIAS
     use_shared_rel_pos_bias: bool = conf_consts.DEFAULT_ARCH_USE_SHARED_REL_POS_BIAS
     use_mean_pooling: bool = conf_consts.DEFAULT_ARCH_USE_MEAN_POOLING
+    concat_cls_token: bool = conf_consts.DEFAULT_ARCH_CONCAT_CLS_TOKEN
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM
