@@ -14,8 +14,11 @@ from timm.utils import ModelEma
 import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
+from labram.utils.secrets import redacted_copy
 from labram.data import get_dataset_bundle
-from labram.data.window_selection import WindowSelection, apply_window_selection
+from labram.data.window_selection import (
+    WindowSelection, apply_window_selection, enable_random_crop,
+)
 from labram.losses import CodebookRegularizedCriterion, LossConfig, build_downstream_criterion
 from labram.losses.regression import downstream_term_name
 from labram.configs.run_configs import FinetuneRunConfig
@@ -91,10 +94,11 @@ def main(config: FinetuneRunConfig, bundle=None):
         if config.output.output_dir:
             config.output.log_dir = config.output.log_dir or config.output.output_dir
 
-    logger.info("%s", config)
+    logger.info("%s", redacted_copy(config))
 
     if bundle is None:
-        bundle = get_dataset_bundle(config.data.dataset, config.data.data_path)
+        bundle = get_dataset_bundle(config.data.dataset, config.data.data_path,
+                                    data_format=config.data.data_format)
         # Optionally pin the train/val/test split to a recorded data_split.json
         # (local or s3://) so several models train on an identical split.
         if config.data.split_json:
@@ -104,6 +108,8 @@ def main(config: FinetuneRunConfig, bundle=None):
     # Case filter / start-end trimming / longer inputs / per-recording eval
     # budget. Idempotent, so it is safe on a reused split or a CV fold bundle.
     bundle = apply_window_selection(bundle, WindowSelection.from_data_config(config.data))
+    if config.data.random_crop:
+        enable_random_crop(bundle.train)
     # The bundle is the source of truth for the head size and the task: a scalar
     # regression head and a binary classifier both have nb_classes == 1, so the
     # task must travel with it.
@@ -321,4 +327,5 @@ def build_config(cli: argparse.Namespace) -> FinetuneRunConfig:
 if __name__ == '__main__':
     cli = parse_cli()
     config = build_config(cli)
-    main(config)
+    from labram.utils.exit_guard import run_and_exit
+    run_and_exit(main, config)

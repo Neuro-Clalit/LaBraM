@@ -156,7 +156,7 @@ def _split_summary(dataset, split_by: str) -> Dict[str, Any]:
 # Loader attributes that must survive a positional loader rebuild
 # (``type(src)(root, files, sampling_rate)`` cannot pass keyword arguments).
 # Shared with labram.data.data_split_reuse, which rebuilds loaders the same way.
-CARRIED_SOURCE_ATTRS = ("target_stats", "windows_per_item")
+CARRIED_SOURCE_ATTRS = ("target_stats", "windows_per_item", "random_crop", "sample_bounds")
 
 
 def _build_split_dataset(folds: GroupedFolds, groups: List[str]):

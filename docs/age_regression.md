@@ -390,6 +390,54 @@ So keep the effective batch at 64 with `trainer.update_freq`: for example
 supported with `model.codebook_reg` (the grafted VQNSP decoder has a fixed 16-row
 time embedding).
 
+## Per-recording npy format
+
+The window pickles (409,083 files, float64, 150.6 GB) are slow to stream and
+large to copy. `dataset_maker/make_TUAB_npy.py` repacks them, unchanged in
+content, into one float32 file per recording next to `processed/`:
+
+```
+edf/processed_npy/
+├── recordings/<stem>.npy   # float32 [T, 23], time-major, 200 Hz, µV; T = n_windows · 2000
+├── manifest.json           # format, channels, provenance; per recording: source split,
+│                           # n_windows, n_samples, sha256, age, sex, normal/abnormal label
+├── age_metadata.json       # labelled sidecar (copied)
+└── age_split.json          # the same subject-disjoint split (copied)
+```
+
+2,990 files, about 75 GB. Window `k` of a recording is the contiguous slice
+`[2000k, 2000k + 2000)`, so any crop is one read of a memory-mapped file
+(`np.load(path, mmap_mode="r")[s:s+L]`). The float64 → float32 cast is the one
+the loader already applied to every pickle, so the model sees bit-identical
+input (verified on 1,000 sampled windows).
+
+`finetune_tuab_age.json` reads this format by default (`data.data_format=npy`;
+the class default, and every other config, stays `pickle`). Pass
+`data.data_format=pickle` to read the window pickles instead. `data.data_path`
+may point at `edf/` or straight at `processed_npy/`. Items keep the pickle names, so
+window selection, cross-validation and split reuse work unchanged.
+`data.random_crop=true` (npy only, training only) moves each training sample to
+a random start within half a sample length of its grid position, inside the
+trimmed range, redrawn every epoch; evaluation always uses the fixed grid.
+
+Building it (on-demand CPU processing jobs reading the pickles from S3 and
+writing the npy files back; re-runs skip finished recordings):
+
+```bash
+python scripts/submit_tuab_npy_conversion.py --instances 4          # convert
+python -m dataset_maker.make_TUAB_npy merge \
+  --dst s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed_npy \
+  --sidecar-dir /path/to/edf/processed --expect 2990                # manifest
+```
+
+On SageMaker the age config uses File mode (`sagemaker.input_mode=File`,
+`sagemaker.volume_size_gb=150`), and `scripts/submit_age_experiments.sh`
+defaults to `DATA_FORMAT=npy`: the 75 GB copy happens once per job (about
+4.5 extra minutes of staging), after which every epoch reads local disk instead
+of streaming the pickles from S3. On scenario D (`ml.g5.2xlarge`) this cut the
+15-epoch training loop from 9:47 to 3:20 (12.5 instead of ~35 minutes per
+epoch) with identical metrics, per-epoch curves and data split.
+
 ## Usage
 
 ```bash

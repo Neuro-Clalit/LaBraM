@@ -104,8 +104,26 @@ def build_config(cli: argparse.Namespace):
     return config
 
 
+def load_clearml_credentials() -> None:
+    """Export the ClearML credentials from the Secrets Manager secret named by
+    ``$LABRAM_CLEARML_SECRET`` (set by the submitter) before any ClearML use.
+    Fails the job with a clear message rather than running without tracking."""
+    from labram.utils.secrets import CLEARML_SECRET_ENV, load_clearml_secret_into_env
+    name = os.environ.get(CLEARML_SECRET_ENV)
+    if not name:
+        return
+    try:
+        loaded = load_clearml_secret_into_env(name)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not read ClearML credentials from Secrets Manager secret {name!r}: {exc}. "
+            f"The execution role needs secretsmanager:GetSecretValue on it.") from exc
+    print(f"Loaded ClearML credentials from secret {name!r}: {sorted(loaded)}", flush=True)
+
+
 def main(argv: Optional[List[str]] = None) -> None:
     cli = parse_cli(argv)
+    load_clearml_credentials()
     config = build_config(cli)
     if cli.phase == 'vqnsp':
         from labram.runs.run_vqnsp import main as vqnsp_main
@@ -122,4 +140,5 @@ def main(argv: Optional[List[str]] = None) -> None:
 
 
 if __name__ == '__main__':
-    main()
+    from labram.utils.exit_guard import run_and_exit
+    run_and_exit(main)

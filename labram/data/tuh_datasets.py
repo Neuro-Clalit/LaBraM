@@ -3,9 +3,11 @@
 # TUH-EEG (TUAB / TUEV) torch.utils.data.Dataset wrappers and split assembly.
 # ---------------------------------------------------------
 
+import json
 import logging
 import os
 import pickle
+from collections import OrderedDict
 from typing import Callable
 
 import numpy as np
@@ -229,7 +231,104 @@ class TUABAgeLoader(TUHLoader):
         return [self.age_lookup[recording_stem(f)] for f in self.files]
 
 
-def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True):
+NPY_MANIFEST = "manifest.json"
+WINDOW_SAMPLES = 2000   # one 10 s window at 200 Hz
+
+
+class TUABAgeNpyLoader(TUABAgeLoader):
+    """:class:`TUABAgeLoader` over the per-recording float32 ``.npy`` format
+    (``dataset_maker/make_TUAB_npy.py``).
+
+    Items keep the pickle loader's names (``<split>/<stem>_<k>.pkl``), so the
+    age split, window selection, cross-validation and split reuse work
+    unchanged; only the read differs: window ``k`` is the contiguous slice
+    ``[2000 k, 2000 k + L)`` of a memory-mapped ``recordings/<stem>.npy``
+    (``[T, 23]``), bit-identical to the pickle cast to float32.
+
+    ``random_crop`` (training only) moves each sample to a uniformly random
+    start within half a sample length of its grid position, kept inside
+    ``sample_bounds[stem]`` (the trimmed range set by window selection), so
+    every epoch sees different crops of the same recordings.
+    """
+
+    MMAP_CACHE = 256   # open memory maps per process (each holds a file descriptor)
+
+    def __init__(self, root, files, sampling_rate=200, *, age_lookup=None,
+                 target_stats=None):
+        super().__init__(root, files, sampling_rate, age_lookup=age_lookup,
+                         target_stats=target_stats)
+        self.random_crop = False
+        self.sample_bounds = {}
+        self._mmaps = OrderedDict()
+        self._manifest = None
+
+    def manifest(self):
+        if self._manifest is None:
+            with open(os.path.join(self.root, NPY_MANIFEST)) as fh:
+                self._manifest = json.load(fh)
+        return self._manifest
+
+    def _n_samples(self, stem):
+        if not hasattr(self, "_lengths"):
+            self._lengths = {r["stem"]: r["n_samples"] for r in self.manifest()["recordings"]}
+        return self._lengths[stem]
+
+    def window_inventory(self):
+        """``(n_windows by (dir, stem), available window names)`` from the
+        manifest, so window selection never lists 409k names on disk."""
+        n_windows, available = {}, set()
+        for row in self.manifest()["recordings"]:
+            n_windows[(row["source_split"], row["stem"])] = row["n_windows"]
+            available.update(f"{row['source_split']}/{row['stem']}_{k}.pkl"
+                             for k in range(row["n_windows"]))
+        return n_windows, available
+
+    def _recording(self, stem):
+        rec = self._mmaps.pop(stem, None)
+        if rec is None:
+            rec = np.load(os.path.join(self.root, "recordings", f"{stem}.npy"), mmap_mode="r")
+            if len(self._mmaps) >= self.MMAP_CACHE:
+                self._mmaps.popitem(last=False)
+        self._mmaps[stem] = rec
+        return rec
+
+    def __getstate__(self):
+        # DataLoader workers each open their own memory maps.
+        state = dict(self.__dict__)
+        state["_mmaps"] = OrderedDict()
+        return state
+
+    def _load(self, index):
+        filename = self.files[index]
+        stem, k = os.path.basename(filename)[:-4].rsplit(self._recording_sep, 1)
+        length = WINDOW_SAMPLES * self.windows_per_item
+        start = int(k) * WINDOW_SAMPLES
+        if self.random_crop:
+            lo, hi = self.sample_bounds.get(stem) or (0, self._n_samples(stem))
+            lo, hi = max(lo, start - length // 2), min(hi - length, start + length // 2)
+            if hi > lo:
+                start = int(torch.randint(lo, hi + 1, (1,)))
+        X = np.ascontiguousarray(self._recording(stem)[start:start + length].T)
+        if X.shape[-1] != length:
+            raise ValueError(f"{filename}: crop [{start}, {start + length}) is out of range")
+        if self.sampling_rate != self.default_rate:
+            X = resample(X, self._duration_sec * self.windows_per_item * self.sampling_rate,
+                         axis=-1)
+        Y = self._label_fn(None, filename)
+        if self.return_id:
+            return torch.from_numpy(X), Y, self.group_id(filename)
+        return torch.from_numpy(X), Y
+
+
+def _age_data_dir(root, data_format):
+    """The window directory for a format: ``<root>/processed[_npy]`` when it
+    exists, else ``root`` itself (a data_path pointing straight at it)."""
+    sub = "processed_npy" if data_format == "npy" else "processed"
+    return os.path.join(root, sub) if os.path.isdir(os.path.join(root, sub)) else root
+
+
+def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True,
+                             data_format: str = "pickle"):
     """Build subject-disjoint TUAB age-regression splits.
 
     Reuses the window pickles produced by ``dataset_maker/make_TUAB.py`` -- only
@@ -239,8 +338,14 @@ def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True):
     Returns ``(train, test, val, target_stats)``; the tuple order matches
     :func:`prepare_TUAB_dataset`.
     """
-    processed = os.path.join(root, "processed") if os.path.isdir(
-        os.path.join(root, "processed")) else root
+    if data_format not in ("pickle", "npy"):
+        raise ValueError(f"data.data_format must be 'pickle' or 'npy', got {data_format!r}")
+    processed = _age_data_dir(root, data_format)
+    if data_format == "npy" and not os.path.isfile(os.path.join(processed, NPY_MANIFEST)):
+        raise FileNotFoundError(
+            f"No {NPY_MANIFEST} under {processed}; build it with "
+            f"dataset_maker/make_TUAB_npy.py convert + merge")
+    loader_cls = TUABAgeNpyLoader if data_format == "npy" else TUABAgeLoader
     ages = load_age_lookup_for(processed)
 
     split_path = find_age_split(processed)
@@ -252,7 +357,7 @@ def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True):
         split = build_age_split(processed, ages)
 
     def loader(name, stats):
-        return TUABAgeLoader(
+        return loader_cls(
             processed, split.files[name], age_lookup=ages, target_stats=stats)
 
     train_ages = [ages[recording_stem(f)] for f in split.files["train"]]

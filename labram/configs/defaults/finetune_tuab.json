@@ -83,7 +83,9 @@
         "trim_start_sec": 0.0,
         "trim_end_sec": 0.0,
         "window_sec": 10,
-        "eval_minutes": 0.0
+        "eval_minutes": 0.0,
+        "data_format": "pickle",
+        "random_crop": false
     },
     "clearml": {
         "py/object": "labram.configs.train_config.ClearMLConfig",
@@ -249,6 +251,7 @@
         },
         "input_mode": "File",
         "environment": {},
+        "clearml_secret": "labram/clearml",
         "hyperparameters": {},
         "tags": {},
         "wait": false,

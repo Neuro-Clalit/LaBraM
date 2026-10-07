@@ -50,3 +50,11 @@ class DataConfig(ConfigBase):
     # Evaluate (val/test) on only the first N minutes of each recording, after
     # trimming. 0 keeps the whole recording. Training always uses everything.
     eval_minutes: Union[int, float] = 0.0
+    # Storage format of the TUAB windows: "pickle" (one file per 10 s window,
+    # processed/) or "npy" (one float32 file per recording, processed_npy/,
+    # built by dataset_maker/make_TUAB_npy.py). Same samples either way.
+    data_format: str = "pickle"
+    # npy only: move each training sample to a random start within half a
+    # sample length of its grid position (inside the trimmed range), redrawn
+    # every epoch. Evaluation always uses the fixed grid.
+    random_crop: bool = False

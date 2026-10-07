@@ -166,7 +166,16 @@ def _select_leaf(leaf, selection: WindowSelection, is_eval: bool, split: str) ->
     sep = getattr(leaf, "_recording_sep", "_")
     labels = (load_label_lookup_for(leaf.root)
               if selection.case_filter != "all" else None)
-    n_windows, available = scan_recordings(leaf.root, leaf.files, sep)
+    if hasattr(leaf, "window_inventory"):          # npy: counts come from the manifest
+        n_windows, available = leaf.window_inventory()
+    else:
+        n_windows, available = scan_recordings(leaf.root, leaf.files, sep)
+    if hasattr(leaf, "sample_bounds"):             # where random crops may start/end
+        step = PICKLE_WINDOW_SEC * 200
+        leaf.sample_bounds = {
+            stem: (selection.trim_start_windows * step,
+                   (n - selection.trim_end_windows) * step)
+            for (_, stem), n in n_windows.items()}
     before_files = leaf.files
     leaf.files = select_files(before_files, selection, n_windows=n_windows,
                               available=available, labels=labels,
@@ -198,6 +207,15 @@ def _apply_to_dataset(dataset, selection: WindowSelection, is_eval: bool, split:
             f"{type(dataset).__name__} (and apply it before any Subset wrapping)")
     _select_leaf(dataset, selection, is_eval, split)
     return dataset
+
+
+def enable_random_crop(dataset) -> None:
+    """Turn on random crops for every leaf of a (training) dataset."""
+    leaves = _leaves(dataset)
+    if not leaves or not all(hasattr(leaf, "random_crop") for leaf in leaves):
+        raise ValueError("data.random_crop needs the npy data format (data.data_format=npy)")
+    for leaf in leaves:
+        leaf.random_crop = True
 
 
 def _leaves(dataset) -> list:

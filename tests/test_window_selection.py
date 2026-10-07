@@ -257,3 +257,12 @@ def test_age_default_config_is_scenario_d():
     assert not cfg.labram_plus.z_score_patches
     assert (cfg.data.trim_start_sec, cfg.data.trim_end_sec, cfg.data.eval_minutes) == (60, 60, 5)
     assert cfg.loss.regression_loss == "huber" and cfg.model.trainable_prefixes == []
+
+
+def test_age_default_config_reads_npy_in_sagemaker_file_mode():
+    """The age config defaults to the per-recording npy format, copied to the
+    SageMaker instance (File mode) with room for the ~75 GB dataset."""
+    from labram.configs.run_configs import FinetuneRunConfig
+    cfg = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_age.json")
+    assert cfg.data.data_format == "npy" and not cfg.data.random_crop
+    assert cfg.sagemaker.input_mode == "File" and cfg.sagemaker.volume_size_gb >= 150

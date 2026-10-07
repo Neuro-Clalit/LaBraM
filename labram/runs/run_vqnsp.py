@@ -11,6 +11,7 @@ from timm.models import create_model
 import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
+from labram.utils.secrets import redacted_copy
 from labram.configs.run_configs import VQNSPRunConfig
 from labram.configs.utils_conf import add_override_arg, parse_overrides
 from labram.configs.defaults import DEFAULT_EVAL_BATCH_SCALE
@@ -56,7 +57,7 @@ def _log_model_param_counts(model):
 
 def main(config: VQNSPRunConfig):
     device, num_tasks, global_rank = runner_common.setup_environment(config)
-    logger.info("%s", config)
+    logger.info("%s", redacted_copy(config))
 
     model = get_model(config)
 
@@ -161,4 +162,5 @@ def build_config(cli: argparse.Namespace) -> VQNSPRunConfig:
 if __name__ == '__main__':
     cli = parse_cli()
     config = build_config(cli)
-    main(config)
+    from labram.utils.exit_guard import run_and_exit
+    run_and_exit(main, config)

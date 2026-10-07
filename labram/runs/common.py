@@ -24,6 +24,7 @@ import torch.backends.cudnn as cudnn
 import torch.utils.data
 
 import labram.utils as utils
+from labram.utils.secrets import redacted_copy
 from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import ClearMLConfig, DistributedConfig, OutputConfig, TrainerConfig
 
@@ -217,7 +218,7 @@ def prepare_output_dir(config: Any) -> None:
     if output_cfg.output_dir and utils.is_main_process():
         os.makedirs(output_cfg.output_dir, exist_ok=True)
         if hasattr(config, 'save_to'):
-            config.save_to(os.path.join(output_cfg.output_dir, 'run_config.yaml'))
+            redacted_copy(config).save_to(os.path.join(output_cfg.output_dir, 'run_config.yaml'))
 
 
 def _clearml_default_output_uri() -> Optional[str]:
@@ -243,6 +244,29 @@ def _debug_output_uri(clearml_cfg: ClearMLConfig, project_name: str) -> Optional
     if not base:
         return None
     return base.rstrip('/') + f'/{project_name}/debug'
+
+
+def clearml_frameworks(enabled: bool):
+    """ClearML framework auto-binding for ``clearml.auto_connect_frameworks``.
+
+    Everything stays connected except PyTorch model I/O: that hook uploads every
+    ``torch.save`` (each epoch's rolling checkpoint, then the final one) on top of
+    the explicit best-checkpoint upload in :func:`finalize_run`, and those
+    concurrent end-of-run uploads are what left finished runs hanging at exit.
+    """
+    return {"pytorch": False} if enabled else False
+
+
+def _scrub_task_entry_point(task: Any, run_config: Any) -> None:
+    from labram.utils.secrets import redact_text, secret_values
+    try:
+        entry = getattr(getattr(task.data, 'script', None), 'entry_point', '') or ''
+        clean = redact_text(entry, secret_values(run_config) if run_config is not None else ())
+        if clean != entry:
+            task.set_script(entry_point=clean)
+            logger.info("Masked credentials in the ClearML task's recorded command line")
+    except Exception as exc:  # pragma: no cover - never fail a run on tracking
+        logger.warning("Could not scrub the ClearML entry point: %s", exc)
 
 
 def _sagemaker_enabled(run_config: Any) -> bool:
@@ -313,7 +337,7 @@ def init_clearml_task(
         task_name=task_name,
         output_uri=output_uri,
         continue_last_task=clearml_cfg.continue_last_task,
-        auto_connect_frameworks=clearml_cfg.auto_connect_frameworks,
+        auto_connect_frameworks=clearml_frameworks(clearml_cfg.auto_connect_frameworks),
     )
     if tags:
         task.add_tags(tags)
@@ -321,16 +345,19 @@ def init_clearml_task(
     # auto-detect the code state. When the submitter shipped its git metadata,
     # replay it so branch/commit/uncommitted-diff still reach the experiment.
     utils.apply_git_info_to_task(task)
+    # ClearML records the full command line as the script entry point; mask any
+    # credential passed there (e.g. a --set sagemaker.environment override).
+    _scrub_task_entry_point(task, run_config)
     if run_config is not None and hasattr(run_config, 'as_dict'):
         try:
-            task.connect_configuration(run_config.as_dict(), name='run_config')
+            task.connect_configuration(redacted_copy(run_config).as_dict(), name='run_config')
         except Exception as exc:  # pragma: no cover - defensive: never fail a run on tracking
             logger.warning("ClearML connect_configuration failed: %s", exc)
         # Also connect the config as flat dotted-key hyperparameters so it shows
         # as a searchable/sortable table in the ClearML experiment (not just a
         # JSON blob under Configuration).
         try:
-            task.connect(flatten_config(run_config.as_dict()), name='config')
+            task.connect(flatten_config(redacted_copy(run_config).as_dict()), name='config')
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("ClearML connect (hyperparameters) failed: %s", exc)
     task_url = _clearml_task_url(task)
@@ -666,8 +693,10 @@ def _summary_table_columns(keys: set) -> List[str]:
     # pooling, so they are not repeated in the window_* columns.
     window = [f'window_{m}' for m in metrics
               if f'window_{m}' in keys and not m.startswith(('pred_', 'target_'))]
+    cohorts = [f'{c}_{m}' for c in ('normal', 'abnormal')
+               for m in ('mae', 'rmse', 'r2', 'pearson_r', 'n_cases') if f'{c}_{m}' in keys]
     return (['loss'] if 'loss' in keys else []) + terms \
-        + [m for m in metrics if m in keys] + window
+        + [m for m in metrics if m in keys] + window + cohorts
 
 
 def build_summary_tables(summary: Any, decimals: int = 2) -> dict:
@@ -743,6 +772,9 @@ def log_cv_split_artifact(output_cfg: OutputConfig, log_writer: Any = None,
     return path
 
 
+CLEARML_FINALIZE_TIMEOUT_SEC = 600
+
+
 def finalize_run(config: Any, log_writer: Any = None) -> None:
     """Post-training hook (rank 0): publish the model + optionally stop the box.
 
@@ -785,14 +817,14 @@ def finalize_run(config: Any, log_writer: Any = None) -> None:
         if task_url:
             logger.info("ClearML results: %s", task_url)
 
-    # If we're about to stop the machine, finish the ClearML task first so its
-    # final state and pending uploads are persisted before the box is killed —
-    # otherwise the abrupt stop can leave the task stuck "running" or lose the
-    # last metrics/artifacts.
+    # Always finish the ClearML task here, with a time limit: flush pending
+    # uploads, mark it Completed and close it. Left to ClearML's exit handlers,
+    # a stuck upload kept finished runs (and SageMaker jobs) alive for hours;
+    # an instance about to be stopped also needs its final state persisted.
     shutdown_cfg = getattr(config, 'shutdown', None)
-    will_stop = shutdown_cfg is not None and getattr(shutdown_cfg, 'stop_instance_on_finish', False)
-    if will_stop and clearml_on:
-        finalize_clearml_task(get_clearml_task(log_writer))
+    if clearml_on:
+        finalize_clearml_task(get_clearml_task(log_writer),
+                              timeout_sec=CLEARML_FINALIZE_TIMEOUT_SEC)
 
     try:
         maybe_stop_instance(shutdown_cfg)
