@@ -1,0 +1,280 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  cost-guard - stop idle / long-running EC2, alert on GPU job fan-out, cap active
+  SageMaker/Batch jobs, daily budget-leak report, monthly/daily budgets and cost
+  anomaly alerts. See infra/cost_guard/README.md.
+
+Parameters:
+  AlertEmail:
+    Type: String
+  DryRun:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+  IdleHours: {Type: Number, Default: 4}
+  IdleCpuPct: {Type: Number, Default: 1}
+  IdleGpuPct: {Type: Number, Default: 5}
+  NotifyRuntimeHours: {Type: Number, Default: 36}
+  MaxRuntimeHours: {Type: Number, Default: 72}
+  WarnBeforeStopHours: {Type: Number, Default: 6}
+  GpuJobAlert: {Type: Number, Default: 16}
+  MaxActiveJobs: {Type: Number, Default: 128}
+  S3TotalAlertGb: {Type: Number, Default: 400}
+  S3DailyGrowthAlertGb: {Type: Number, Default: 25}
+  MonthlyBudgetUsd: {Type: Number, Default: 70}
+  DailyBudgetUsd: {Type: Number, Default: 40}
+  AnomalyImpactUsd: {Type: Number, Default: 10}
+
+Resources:
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: cost-guard-alerts
+      DisplayName: AWS cost guard
+
+  AlertSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cost-guard-lambda
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: cost-guard
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Read
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeAddresses
+                  - ec2:DescribeNatGateways
+                  - ec2:DescribeSnapshots
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:ListMetrics
+                  - sagemaker:List*
+                  - sagemaker:DescribeTrainingJob
+                  - sagemaker:DescribeProcessingJob
+                  - batch:DescribeJobQueues
+                  - batch:ListJobs
+                  - batch:DescribeJobs
+                  - s3:ListAllMyBuckets
+                  - s3:GetLifecycleConfiguration
+                Resource: "*"
+              - Sid: Act
+                Effect: Allow
+                Action:
+                  - ec2:StopInstances
+                  - ec2:CreateTags
+                  - sagemaker:StopTrainingJob
+                  - sagemaker:StopProcessingJob
+                  - batch:TerminateJob
+                Resource: "*"
+              - Sid: Notify
+                Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref AlertTopic
+              - Sid: State
+                Effect: Allow
+                Action: [ssm:GetParameter, ssm:PutParameter]
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cost-guard/*
+
+  FunctionLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/cost-guard
+      RetentionInDays: 30
+
+  Function:
+    Type: AWS::Lambda::Function
+    DependsOn: FunctionLogs
+    Properties:
+      FunctionName: cost-guard
+      Runtime: python3.12
+      Handler: cost_guard.handler
+      Code: src/
+      Role: !GetAtt FunctionRole.Arn
+      Timeout: 300
+      MemorySize: 256
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          TOPIC_ARN: !Ref AlertTopic
+          DRY_RUN: !Ref DryRun
+          IDLE_HOURS: !Ref IdleHours
+          IDLE_CPU_PCT: !Ref IdleCpuPct
+          IDLE_GPU_PCT: !Ref IdleGpuPct
+          NOTIFY_RUNTIME_HOURS: !Ref NotifyRuntimeHours
+          MAX_RUNTIME_HOURS: !Ref MaxRuntimeHours
+          WARN_BEFORE_STOP_HOURS: !Ref WarnBeforeStopHours
+          GPU_JOB_ALERT: !Ref GpuJobAlert
+          MAX_ACTIVE_JOBS: !Ref MaxActiveJobs
+          S3_TOTAL_ALERT_GB: !Ref S3TotalAlertGb
+          S3_DAILY_GROWTH_ALERT_GB: !Ref S3DailyGrowthAlertGb
+
+  PeriodicRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: cost-guard-periodic
+      ScheduleExpression: rate(15 minutes)
+      Targets:
+        - {Id: fn, Arn: !GetAtt Function.Arn, Input: '{"mode": "periodic"}'}
+
+  HygieneRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: cost-guard-daily-hygiene
+      ScheduleExpression: cron(0 6 * * ? *)
+      Targets:
+        - {Id: fn, Arn: !GetAtt Function.Arn, Input: '{"mode": "hygiene"}'}
+
+  # React to new submissions within seconds so the job cap is enforced before
+  # a large fan-out accrues cost (the 15-minute sweep is the backstop).
+  JobSubmittedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: cost-guard-job-submitted
+      EventPattern:
+        source: [aws.sagemaker, aws.batch]
+        detail-type:
+          - SageMaker Training Job State Change
+          - SageMaker Processing Job State Change
+          - Batch Job State Change
+        detail:
+          $or:
+            - TrainingJobStatus: [InProgress]
+            - ProcessingJobStatus: [InProgress]
+            - status: [SUBMITTED, RUNNABLE]
+      Targets:
+        - {Id: fn, Arn: !GetAtt Function.Arn, Input: '{"mode": "jobs"}'}
+
+  PeriodicPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt PeriodicRule.Arn
+
+  HygienePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt HygieneRule.Arn
+
+  JobSubmittedPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt JobSubmittedRule.Arn
+
+  # A guard that fails silently is worse than none.
+  FunctionErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: cost-guard-lambda-errors
+      AlarmDescription: The cost-guard Lambda is failing; auto-stop rules are not being applied.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref Function}]
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  # Instance profile for the CloudWatch agent so GPU utilisation reaches the idle rule.
+  MetricsInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cost-guard-ec2-metrics
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+
+  MetricsInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: cost-guard-ec2-metrics
+      Roles: [!Ref MetricsInstanceRole]
+
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: cost-guard-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: {Amount: !Ref MonthlyBudgetUsd, Unit: USD}
+      NotificationsWithSubscribers:
+        - Notification: {NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 50}
+          Subscribers: [{SubscriptionType: EMAIL, Address: !Ref AlertEmail}]
+        - Notification: {NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80}
+          Subscribers: [{SubscriptionType: EMAIL, Address: !Ref AlertEmail}]
+        - Notification: {NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 100}
+          Subscribers: [{SubscriptionType: EMAIL, Address: !Ref AlertEmail}]
+        - Notification: {NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100}
+          Subscribers: [{SubscriptionType: EMAIL, Address: !Ref AlertEmail}]
+
+  DailyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: cost-guard-daily
+        BudgetType: COST
+        TimeUnit: DAILY
+        BudgetLimit: {Amount: !Ref DailyBudgetUsd, Unit: USD}
+      NotificationsWithSubscribers:
+        - Notification: {NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 100}
+          Subscribers: [{SubscriptionType: EMAIL, Address: !Ref AlertEmail}]
+
+  AnomalyMonitor:
+    Type: AWS::CE::AnomalyMonitor
+    Properties:
+      MonitorName: cost-guard-services
+      MonitorType: DIMENSIONAL
+      MonitorDimension: SERVICE
+
+  AnomalySubscription:
+    Type: AWS::CE::AnomalySubscription
+    Properties:
+      SubscriptionName: cost-guard-anomalies
+      Frequency: DAILY
+      MonitorArnList: [!Ref AnomalyMonitor]
+      Subscribers: [{Type: EMAIL, Address: !Ref AlertEmail}]
+      ThresholdExpression: !Sub >-
+        {"Dimensions": {"Key": "ANOMALY_TOTAL_IMPACT_ABSOLUTE",
+        "MatchOptions": ["GREATER_THAN_OR_EQUAL"], "Values": ["${AnomalyImpactUsd}"]}}
+
+Outputs:
+  AlertTopicArn:
+    Value: !Ref AlertTopic
+  FunctionName:
+    Value: !Ref Function
+  MetricsInstanceProfile:
+    Value: !Ref MetricsInstanceProfile

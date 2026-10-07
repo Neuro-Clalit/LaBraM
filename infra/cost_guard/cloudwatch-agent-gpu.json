@@ -1,0 +1,11 @@
+{
+  "agent": {"metrics_collection_interval": 60, "run_as_user": "root"},
+  "metrics": {
+    "namespace": "CWAgent",
+    "append_dimensions": {"InstanceId": "${aws:InstanceId}"},
+    "aggregation_dimensions": [["InstanceId"]],
+    "metrics_collected": {
+      "nvidia_gpu": {"measurement": ["utilization_gpu"], "metrics_collection_interval": 60}
+    }
+  }
+}
