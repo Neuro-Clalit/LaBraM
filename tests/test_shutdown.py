@@ -106,9 +106,9 @@ def test_finalize_run_closes_clearml_before_ec2_stop(monkeypatch):
     assert order[0] == "flush"
 
 
-def test_finalize_run_no_clearml_finalize_when_not_stopping(monkeypatch):
-    """Without a shutdown, finalize_run must NOT force-close the ClearML task
-    (it closes naturally at process exit)."""
+def test_finalize_run_closes_clearml_task_even_without_stopping(monkeypatch):
+    """finalize_run always flushes and closes the ClearML task (with a time
+    limit): leaving it to ClearML's exit handlers kept finished runs hanging."""
     import labram.runs.common as common
     from labram.utils.logging import ClearMLLogger
 
@@ -128,4 +128,4 @@ def test_finalize_run_no_clearml_finalize_when_not_stopping(monkeypatch):
     config.shutdown.stop_instance_on_finish = False
 
     common.finalize_run(config, ClearMLLogger(task=_Task(), clearml_logger=object()))
-    assert closed["v"] is False
+    assert closed["v"] is True

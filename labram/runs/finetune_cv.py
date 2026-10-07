@@ -251,4 +251,5 @@ def build_config(cli: argparse.Namespace) -> FinetuneRunConfig:
 if __name__ == '__main__':
     cli = parse_cli()
     config = build_config(cli)
-    run_cross_validation(config)
+    from labram.utils.exit_guard import run_and_exit
+    run_and_exit(run_cross_validation, config)

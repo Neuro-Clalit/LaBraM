@@ -246,6 +246,17 @@ def _debug_output_uri(clearml_cfg: ClearMLConfig, project_name: str) -> Optional
     return base.rstrip('/') + f'/{project_name}/debug'
 
 
+def clearml_frameworks(enabled: bool):
+    """ClearML framework auto-binding for ``clearml.auto_connect_frameworks``.
+
+    Everything stays connected except PyTorch model I/O: that hook uploads every
+    ``torch.save`` (each epoch's rolling checkpoint, then the final one) on top of
+    the explicit best-checkpoint upload in :func:`finalize_run`, and those
+    concurrent end-of-run uploads are what left finished runs hanging at exit.
+    """
+    return {"pytorch": False} if enabled else False
+
+
 def _scrub_task_entry_point(task: Any, run_config: Any) -> None:
     from labram.utils.secrets import redact_text, secret_values
     try:
@@ -326,7 +337,7 @@ def init_clearml_task(
         task_name=task_name,
         output_uri=output_uri,
         continue_last_task=clearml_cfg.continue_last_task,
-        auto_connect_frameworks=clearml_cfg.auto_connect_frameworks,
+        auto_connect_frameworks=clearml_frameworks(clearml_cfg.auto_connect_frameworks),
     )
     if tags:
         task.add_tags(tags)
@@ -679,8 +690,10 @@ def _summary_table_columns(keys: set) -> List[str]:
     # pooling, so they are not repeated in the window_* columns.
     window = [f'window_{m}' for m in metrics
               if f'window_{m}' in keys and not m.startswith(('pred_', 'target_'))]
+    cohorts = [f'{c}_{m}' for c in ('normal', 'abnormal')
+               for m in ('mae', 'rmse', 'r2', 'pearson_r', 'n_cases') if f'{c}_{m}' in keys]
     return (['loss'] if 'loss' in keys else []) + terms \
-        + [m for m in metrics if m in keys] + window
+        + [m for m in metrics if m in keys] + window + cohorts
 
 
 def build_summary_tables(summary: Any, decimals: int = 2) -> dict:
@@ -756,6 +769,9 @@ def log_cv_split_artifact(output_cfg: OutputConfig, log_writer: Any = None,
     return path
 
 
+CLEARML_FINALIZE_TIMEOUT_SEC = 600
+
+
 def finalize_run(config: Any, log_writer: Any = None) -> None:
     """Post-training hook (rank 0): publish the model + optionally stop the box.
 
@@ -798,14 +814,14 @@ def finalize_run(config: Any, log_writer: Any = None) -> None:
         if task_url:
             logger.info("ClearML results: %s", task_url)
 
-    # If we're about to stop the machine, finish the ClearML task first so its
-    # final state and pending uploads are persisted before the box is killed —
-    # otherwise the abrupt stop can leave the task stuck "running" or lose the
-    # last metrics/artifacts.
+    # Always finish the ClearML task here, with a time limit: flush pending
+    # uploads, mark it Completed and close it. Left to ClearML's exit handlers,
+    # a stuck upload kept finished runs (and SageMaker jobs) alive for hours;
+    # an instance about to be stopped also needs its final state persisted.
     shutdown_cfg = getattr(config, 'shutdown', None)
-    will_stop = shutdown_cfg is not None and getattr(shutdown_cfg, 'stop_instance_on_finish', False)
-    if will_stop and clearml_on:
-        finalize_clearml_task(get_clearml_task(log_writer))
+    if clearml_on:
+        finalize_clearml_task(get_clearml_task(log_writer),
+                              timeout_sec=CLEARML_FINALIZE_TIMEOUT_SEC)
 
     try:
         maybe_stop_instance(shutdown_cfg)

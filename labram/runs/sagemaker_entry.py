@@ -140,4 +140,5 @@ def main(argv: Optional[List[str]] = None) -> None:
 
 
 if __name__ == '__main__':
-    main()
+    from labram.utils.exit_guard import run_and_exit
+    run_and_exit(main)

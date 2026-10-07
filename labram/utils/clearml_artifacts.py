@@ -70,7 +70,8 @@ def upload_file_artifact(task: Any, name: str, path: str) -> bool:
 
 
 def finalize_clearml_task(task: Any, mark_completed: bool = True,
-                          wait_for_uploads: bool = True) -> bool:
+                          wait_for_uploads: bool = True,
+                          timeout_sec: Optional[float] = None) -> bool:
     """Flush and close a ClearML ``Task`` so its final state and pending uploads
     are persisted *before* the process/machine goes away.
 
@@ -83,6 +84,22 @@ def finalize_clearml_task(task: Any, mark_completed: bool = True,
     """
     if task is None:
         return False
+    if timeout_sec is not None:
+        # ClearML's flush/close can block indefinitely on a stuck upload; give
+        # it a bounded window in a daemon thread and move on if it overruns.
+        import threading
+        result = {}
+        worker = threading.Thread(
+            target=lambda: result.setdefault("ok", finalize_clearml_task(
+                task, mark_completed, wait_for_uploads)),
+            name="clearml-finalize", daemon=True)
+        worker.start()
+        worker.join(timeout_sec)
+        if worker.is_alive():
+            logger.warning("ClearML task finalize did not finish within %.0fs; continuing "
+                           "without waiting (pending uploads may be lost)", timeout_sec)
+            return False
+        return bool(result.get("ok"))
     try:
         task.flush(wait_for_uploads=wait_for_uploads)
     except Exception as exc:  # pragma: no cover - depends on clearml/server

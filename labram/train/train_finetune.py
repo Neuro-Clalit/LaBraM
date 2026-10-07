@@ -11,6 +11,7 @@ import math
 import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+import numpy as np
 import torch
 import torch.utils.data
 from timm.utils import ModelEma
@@ -469,6 +470,9 @@ def evaluate(
     if aggregated:
         ret['loss'] = loss_avg
         ret.update({f'window_{k}': v for k, v in window_ret.items()})
+        if is_regression:
+            ret.update(_cohort_metrics(data_loader, pred, true, groups, agg_mode, metrics,
+                                       is_binary, nb_classes, task, log_writer, head, epoch))
         # Case-level scalars are logged by the caller (train_loop) under ``head``;
         # log the per-window scalars + detailed report here under ``{head}_window``.
         if log_writer is not None and head is not None:
@@ -486,6 +490,50 @@ def evaluate(
         _log_detailed_report(log_writer, primary_report, head, epoch, eval_cfg)
 
     return ret
+
+
+COHORTS = ("normal", "abnormal")
+
+
+def _case_labels(data_loader: Any) -> Optional[Dict[str, str]]:
+    """``{recording: 'normal' | 'abnormal'}`` for the loader's dataset, from the
+    metadata sidecar's TUAB labels; None when unavailable (no labels, non-TUAB)."""
+    from labram.data.tuh_metadata import load_label_lookup_for
+    from labram.data.window_selection import _leaves
+    leaves = _leaves(getattr(data_loader, 'dataset', None))
+    root = getattr(leaves[0], 'root', None) if leaves else None
+    if not root:
+        return None
+    try:
+        return load_label_lookup_for(root)
+    except (OSError, ValueError):
+        return None
+
+
+def _cohort_metrics(data_loader, pred, true, groups, agg_mode, metrics, is_binary,
+                    nb_classes, task, log_writer=None, head=None, epoch=None) -> Dict[str, float]:
+    """Case-level metrics for TUAB's normal and abnormal recordings separately
+    (``normal_mae``, ``abnormal_r2``, ...), logged under ``{head}_normal`` /
+    ``{head}_abnormal``. Empty when the dataset carries no normal/abnormal labels
+    or cases are not recordings."""
+    labels = _case_labels(data_loader)
+    if not labels:
+        return {}
+    case_pred, case_true = utils.aggregate_windows(
+        pred, true, groups, agg_mode, is_binary, is_regression=task == TASK_REGRESSION)
+    cohort = np.array([labels.get(c) for c in dict.fromkeys(groups)])   # first-appearance order
+    out: Dict[str, float] = {}
+    for name in COHORTS:
+        mask = cohort == name
+        if mask.sum() < 2:
+            continue
+        scores, _ = _metrics_and_report(case_pred[mask], case_true[mask], metrics, is_binary,
+                                        nb_classes, False, task)
+        scores['n_cases'] = int(mask.sum())
+        out.update({f'{name}_{k}': v for k, v in scores.items()})
+        if log_writer is not None and head is not None:
+            _log_eval_stats(log_writer, scores, head=f"{head}_{name}", epoch=epoch)
+    return out
 
 
 def _is_sharded_loader(data_loader: Any) -> bool:
