@@ -12,6 +12,12 @@ its dataset index, recording and window number, so any prediction can be traced
 back to the EEG it came from (:func:`load_window`). The remaining functions are
 pure pandas/numpy over those predictions.
 
+Artifact-aware pooling (:func:`window_artifact_features`,
+:func:`artifact_pooled`, :func:`artifact_pooling_sweep`) re-pools cached window
+predictions after dropping or down-weighting windows with high EMG (muscle)
+power, which the model reads as "young". ``scripts/age_artifact_pooling.py``
+runs it over trained runs without re-scoring the model.
+
 Bias-correction conventions (``pred = slope * age + intercept`` fitted on val):
 
 * ``"cole"`` -- ``(pred - intercept) / slope`` (Cole et al. 2018). Uses only the
@@ -37,6 +43,11 @@ AGE_BIN_EDGES = (0, 10, 20, 30, 40, 50, 60, 70, 80, 90)
 BANDS = {"delta": (1.0, 4.0), "theta": (4.0, 8.0), "alpha": (8.0, 13.0),
          "beta": (13.0, 30.0), "gamma": (30.0, 45.0)}
 POSTERIOR = ("O1", "O2", "P3", "P4", "PZ", "T5", "T6")
+# Muscle (EMG) artifact index band. TUAB is 0.1-75 Hz band-passed with a 50 Hz
+# notch (dataset_maker/make_TUAB.py) but recorded on 60 Hz mains, so the band
+# stops below 60 Hz line noise; 30-45 Hz is little affected by beta rhythm.
+EMG_BAND = (30.0, 45.0)
+POOLING_METHODS = ("reject", "weight")
 CORRECTIONS = ("none", "cole", "recalibrate", "age_level")
 _WINDOW_RE = re.compile(r"_(\d+)\.pkl$")
 
@@ -65,22 +76,29 @@ class AgeRun:
         return getattr(self.bundle, name)
 
 
+def load_age_bundle(run_dir: str, data_path: str):
+    """``(run config, window-selected dataset bundle)`` of ``run_dir`` -- the
+    exact samples the run was evaluated on, without building its model."""
+    from labram.data import get_dataset_bundle
+    from labram.data.window_selection import WindowSelection, apply_window_selection
+    from labram.eval.loading import load_run_config
+
+    cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
+    cfg.data.data_path = data_path
+    bundle = get_dataset_bundle(cfg.data.dataset, data_path, data_format=cfg.data.data_format)
+    return cfg, apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
+
+
 def load_age_run(run_dir: str, data_path: str, checkpoint: str = "checkpoint-best.pth",
                  device: Optional[str] = None) -> AgeRun:
     """Rebuild ``run_dir``'s model (EMA weights when the run selected on them)
     and its window-selected train/val/test datasets."""
     import labram.models.registry  # noqa: F401  (registers the timm models)
-    from labram.data import get_dataset_bundle
     from labram.data.tuh_metadata import load_label_lookup_for
-    from labram.data.window_selection import WindowSelection, apply_window_selection
-    from labram.eval.loading import load_run_config
     from labram.losses import build_downstream_criterion, regression_output, soft_label_n_bins
     from labram.runs.run_finetune import get_model
 
-    cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
-    cfg.data.data_path = data_path
-    bundle = get_dataset_bundle(cfg.data.dataset, data_path, data_format=cfg.data.data_format)
-    bundle = apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
+    cfg, bundle = load_age_bundle(run_dir, data_path)
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
     to_scalar = None
     if cfg.loss.regression_loss == "soft_label":
@@ -318,6 +336,103 @@ def recording_spectral_features(dataset, windows: pd.DataFrame, ch_names: Sequen
         row["theta_alpha"] = row["rel_theta"] / max(row["rel_alpha"], 1e-9)
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+# ------------------------------------------------- artifact-aware pooling
+def window_artifact_features(dataset, windows: pd.DataFrame, fs: float = 200.0,
+                             emg_band: Tuple[float, float] = EMG_BAND,
+                             total: Tuple[float, float] = (1.0, 45.0)) -> pd.DataFrame:
+    """Per scored window of ``dataset`` (CAR applied): ``emg`` = relative
+    ``emg_band`` power averaged over channels, ``emg_max`` = its channel maximum
+    (muscle artifact is often focal: temporal/frontal) and ``amp_uv``.
+
+    ``windows`` holds that split's rows of :func:`predict_windows`; the result is
+    keyed by ``split, idx`` for a merge back onto them.
+    """
+    rows = windows[["split", "idx"]].drop_duplicates()
+    emg, emg_max, amp = [], [], []
+    for i in rows["idx"].to_numpy():
+        x = common_average_reference(load_window(dataset, i))
+        rel, _, _ = band_powers(x, fs, bands={"emg": emg_band}, total=total)
+        emg.append(float(rel["emg"].mean()))
+        emg_max.append(float(rel["emg"].max()))
+        amp.append(float(x.std(-1).mean()))
+    return rows.assign(emg=emg, emg_max=emg_max, amp_uv=amp).reset_index(drop=True)
+
+
+def artifact_weights(score, threshold: float, method: str = "reject") -> np.ndarray:
+    """Pooling weight of each window from its artifact ``score``: ``"reject"``
+    drops windows above ``threshold``; ``"weight"`` down-weights them smoothly,
+    ``1 / (1 + (score / threshold) ** 4)`` (0.5 at the threshold)."""
+    score = np.asarray(score, float)
+    if method == "reject":
+        return (score <= threshold).astype(float)
+    if method == "weight":
+        if not np.isfinite(threshold):
+            return np.ones_like(score)
+        return 1.0 / (1.0 + (score / max(threshold, 1e-12)) ** 4)
+    raise ValueError(f"unknown pooling method {method!r} (expected one of {POOLING_METHODS})")
+
+
+def artifact_pooled(windows: pd.DataFrame, score: str = "emg", threshold: float = np.inf,
+                    method: str = "reject", min_keep: int = 1) -> pd.DataFrame:
+    """Per-recording prediction as the artifact-weighted mean of its windows.
+
+    With ``threshold=inf`` this is the plain mean (:func:`per_recording`). Every
+    recording keeps at least its ``min_keep`` cleanest windows at full weight,
+    so one that is artifact throughout is still scored. Adds ``n_kept`` (sum of
+    weights) and ``frac_kept`` per recording.
+    """
+    w = artifact_weights(windows[score], threshold, method)
+    if min_keep > 0:
+        rank = windows.groupby(["split", "recording"], sort=False)[score].rank(method="first")
+        w = np.where(rank.to_numpy() <= min_keep, np.maximum(w, 1.0), w)
+    d = windows.assign(_w=w, _wp=w * windows["pred"].to_numpy(float))
+    g = d.groupby(["split", "recording"], sort=False)
+    rec = g.agg(cohort=("cohort", "first"), age=("age", "first"), _wp=("_wp", "sum"),
+                n_kept=("_w", "sum"), n_windows=("pred", "size")).reset_index()
+    rec["pred"] = rec.pop("_wp") / rec["n_kept"]
+    rec["frac_kept"] = rec["n_kept"] / rec["n_windows"]
+    return add_errors(rec)
+
+
+def artifact_pooling_sweep(windows: pd.DataFrame, score: str = "emg",
+                           quantiles: Sequence[float] = (1.0, 0.99, 0.97, 0.95, 0.9, 0.8, 0.7, 0.5),
+                           methods: Sequence[str] = POOLING_METHODS, ref_split: str = "val",
+                           min_keep: int = 1) -> pd.DataFrame:
+    """Recording-level metrics of :func:`artifact_pooled` over a grid of
+    thresholds, one row per ``method x quantile x split x cohort``.
+
+    Thresholds are quantiles of ``score`` over the ``ref_split`` windows (fixed
+    there, applied unchanged to every split); quantile 1.0 means no rejection,
+    i.e. the plain-mean baseline. Pick the setting on val
+    (:func:`select_pooling`), read its test row.
+    """
+    ref = windows.loc[windows["split"] == ref_split, score]
+    rows = []
+    for method in methods:
+        for q in quantiles:
+            thr = np.inf if q >= 1.0 else float(ref.quantile(q))
+            rec = artifact_pooled(windows, score, thr, method, min_keep)
+            for split, d in rec.groupby("split", sort=False):
+                for cohort, dc in [("all", d)] + list(d.groupby("cohort", sort=True)):
+                    s = regression_summary(dc)
+                    rows.append({"method": method, "quantile": q, "threshold": thr,
+                                 "split": split, "cohort": cohort, "n": s["n"],
+                                 "mae": s["mae"], "rmse": s["rmse"], "mean_err": s["mean_err"],
+                                 "bias_slope": s["bias_slope"],
+                                 "frac_kept": float(dc["frac_kept"].mean())})
+    return pd.DataFrame(rows)
+
+
+def select_pooling(sweep: pd.DataFrame, split: str = "val") -> pd.Series:
+    """The ``method, quantile`` with the lowest ``split`` MAE (cohort ``all``),
+    with that setting's ``mae_<split>`` for every split."""
+    allc = sweep[sweep["cohort"] == "all"]
+    wide = allc.pivot_table(index=["method", "quantile"], columns="split", values="mae")
+    wide.columns = [f"mae_{c}" for c in wide.columns]
+    best = wide[f"mae_{split}"].idxmin()
+    return pd.concat([pd.Series({"method": best[0], "quantile": best[1]}), wide.loc[best]])
 
 
 def read_epoch_log(run_dir: str) -> pd.DataFrame:

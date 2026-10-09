@@ -540,6 +540,32 @@ instead of 29.6). Per-decade MAE improves in the tails and worsens in the dense
 40–59 range, so overall MAE goes up. Use it when age-independent bias matters
 more than the lowest MAE.
 
+## Artifact-aware window pooling
+
+The worst under-predictions are recordings full of muscle (EMG) artifact (65 y
+predicted 40, 78 y predicted 44): high-frequency power reads as "young".
+`scripts/age_artifact_pooling.py` re-pools a trained run's cached window
+predictions after dropping or down-weighting EMG-heavy windows. The model is not
+re-run, so it takes minutes on CPU:
+
+```bash
+python scripts/age_artifact_pooling.py \
+  --data-path /data/datasets/EEG-public/TAUB/TUH_Abnormal/v3.0.0/edf \
+  --run M1=checkpoints/age_M1_... --run M2=path/to/extracted/M2 \
+  --out artifact_pooling.json
+```
+
+| Piece | Choice |
+|---|---|
+| Artifact index | `emg` = relative 30–45 Hz power over 1–45 Hz per window (CAR applied), channel mean; `--score emg_max` uses the channel maximum (focal temporal/frontal EMG). The band stops below 60 Hz: TUAB is notched at 50 Hz but recorded on 60 Hz mains. |
+| Pooling | `reject` drops windows above the threshold; `weight` scales them by `1 / (1 + (emg / thr)^4)`. Every recording keeps its `--min-keep` (1) cleanest windows, so none drops out. |
+| Threshold | Quantiles 0.5–0.99 of `emg` over **val** windows, applied unchanged to test. The setting is selected on val MAE; its test MAE is the estimate to report. Quantile 1.0 is the plain-mean baseline. |
+| Caches | `<run>/analysis/window_predictions.parquet` (from the notebook; `--predict` scores the model when missing) and `<run>/analysis/window_artifacts.parquet` (per-window features). |
+
+The functions (`window_artifact_features`, `artifact_pooled`,
+`artifact_pooling_sweep`, `select_pooling`) live in `labram/eval/age_analysis.py`.
+Results for M1/M2 are pending.
+
 ## Next steps
 
 The default config (`finetune_tuab_age.json`) is scenario D of the October 2026
@@ -559,7 +585,8 @@ improvement plan is in [`brain_age_improvement_plan.md`](brain_age_improvement_p
 | `labram/data/tuh_datasets.py` | `TUABAgeLoader`, `prepare_TUAB_age_dataset` |
 | `labram/data/bundles.py` | `TUAB_AGE` bundle, `task` / `target_stats` |
 | `labram/losses/regression.py` | criterion selection + `build_downstream_criterion`, age-balanced loss |
-| `labram/eval/age_analysis.py` | per-window/recording predictions, error by age, bias correction, spectral features |
+| `labram/eval/age_analysis.py` | per-window/recording predictions, error by age, bias correction, spectral features, artifact-aware pooling |
+| `scripts/age_artifact_pooling.py` | re-score runs with EMG-aware window pooling (threshold chosen on val) |
 | `labram/eval/age_plots.py` | age-scale plots, real-EEG comparisons, `AgeExplorer` (interactive browser) |
 | `notebooks/age_error_analysis.ipynb` | error analysis of the best run, with real EEG of accurate / too-young / too-old recordings |
 | `labram/utils/regression_metrics.py` | MAE/RMSE/R²/r + brain-age diagnostics |

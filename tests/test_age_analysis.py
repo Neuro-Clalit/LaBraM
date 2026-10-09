@@ -5,6 +5,8 @@ import pandas as pd
 import pytest
 
 from labram.eval.age_analysis import (
+    artifact_pooled, artifact_pooling_sweep, artifact_weights, select_pooling,
+    window_artifact_features,
     apply_bias_correction, assign_age_bin, band_powers, error_by_age_bin, fit_bias_correction,
     peak_alpha_frequency, per_recording, pick_examples, regression_summary, summary_table,
     window_number)
@@ -74,6 +76,75 @@ def test_pick_examples():
     ex = pick_examples(rec, n=1)
     assert list(ex["kind"]) == ["best", "over-predicted", "under-predicted"]
     assert ex.iloc[1]["recording"] == "a" and ex.iloc[2]["recording"] == "b"
+
+
+# ------------------------------------------------- artifact-aware pooling
+def _emg_windows():
+    """Recording ``a`` (age 70) has two EMG windows predicted young; ``b`` is clean;
+    ``c`` is artifact throughout."""
+    return pd.DataFrame({
+        "split": ["val"] * 7 + ["test"] * 2, "idx": [0, 1, 2, 3, 4, 5, 6, 0, 1],
+        "recording": ["a", "a", "a", "a", "b", "b", "c", "d", "d"],
+        "cohort": ["normal"] * 9, "age": [70.0] * 4 + [30.0] * 2 + [50.0] + [60.0] * 2,
+        "pred": [68.0, 70.0, 40.0, 42.0, 31.0, 29.0, 45.0, 58.0, 30.0],
+        "emg": [0.01, 0.02, 0.30, 0.40, 0.02, 0.03, 0.50, 0.01, 0.35]})
+
+
+def test_artifact_weights():
+    s = np.array([0.1, 0.2, 0.4])
+    np.testing.assert_array_equal(artifact_weights(s, 0.2, "reject"), [1.0, 1.0, 0.0])
+    np.testing.assert_allclose(artifact_weights(s, 0.2, "weight"), [16 / 17, 0.5, 1 / 17])
+    np.testing.assert_array_equal(artifact_weights(s, np.inf, "weight"), [1.0, 1.0, 1.0])
+    with pytest.raises(ValueError):
+        artifact_weights(s, 0.2, "vote")
+
+
+def test_artifact_pooled_rejects_emg_windows():
+    win = _emg_windows()
+    plain = artifact_pooled(win).set_index("recording")
+    assert plain.loc["a", "pred"] == pytest.approx(55.0)            # plain mean
+    assert plain.loc["a", "pred"] == pytest.approx(
+        per_recording(win).set_index("recording").loc["a", "pred"])
+    rec = artifact_pooled(win, threshold=0.1).set_index("recording")
+    assert rec.loc["a", "pred"] == pytest.approx(69.0)
+    assert rec.loc["a", "frac_kept"] == pytest.approx(0.5)
+    assert rec.loc["c", "pred"] == pytest.approx(45.0)              # min_keep keeps it scored
+    assert rec.loc["c", "n_kept"] == pytest.approx(1.0)
+    assert rec.loc["a", "abs_err"] == pytest.approx(1.0)
+    none = artifact_pooled(win, threshold=0.1, min_keep=0).set_index("recording")
+    assert np.isnan(none.loc["c", "pred"])
+
+
+def test_artifact_pooling_sweep_thresholds_from_val():
+    sw = artifact_pooling_sweep(_emg_windows(), quantiles=(1.0, 0.5), methods=("reject",))
+    allc = sw[sw.cohort == "all"].set_index(["quantile", "split"])
+    assert np.isinf(allc.loc[(1.0, "val"), "threshold"])
+    thr = allc.loc[(0.5, "val"), "threshold"]
+    assert thr == pytest.approx(0.03)                                # median of val emg
+    assert allc.loc[(0.5, "test"), "threshold"] == pytest.approx(thr)
+    assert allc.loc[(0.5, "val"), "mae"] < allc.loc[(1.0, "val"), "mae"]
+    assert allc.loc[(0.5, "test"), "mae"] == pytest.approx(2.0)      # d: 30-y window dropped
+    best = select_pooling(sw)
+    assert best["method"] == "reject" and best["quantile"] == 0.5
+    assert best["mae_test"] == pytest.approx(2.0)
+
+
+def test_window_artifact_features_flags_high_frequency_power():
+    fs, t = 200.0, np.arange(2000) / 200.0
+    rng = np.random.default_rng(0)
+    clean = np.stack([np.sin(2 * np.pi * 10.0 * t + k) for k in range(4)])
+    noisy = clean.copy()
+    noisy[0] += 2.0 * np.sin(2 * np.pi * 38.0 * t)                  # focal EMG-like burst
+    noisy += 0.01 * rng.standard_normal(noisy.shape)
+
+    class _DS:
+        def __getitem__(self, i):
+            return ([clean, noisy][i], 0.0)
+
+    win = pd.DataFrame({"split": ["val", "val"], "idx": [0, 1]})
+    f = window_artifact_features(_DS(), win, fs).set_index("idx")
+    assert f.loc[0, "emg"] < 0.01 and f.loc[1, "emg"] > 0.1
+    assert f.loc[1, "emg_max"] > f.loc[1, "emg"]
 
 
 # ------------------------------------------------------------- age_plots
