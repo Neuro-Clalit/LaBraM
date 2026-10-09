@@ -223,7 +223,7 @@ def test_numbering_helpers():
         assert_max_columns(fig)
     plt.close(fig)
     html = numbered_table(pd.DataFrame({"mae": [1.234]}), "2.1", "summary").to_html()
-    assert "Table 2.1. summary" in html and "1.23" in html
+    assert "1.23" in html and "<caption" not in html      # title is the heading above
 
 
 def test_plot_eeg_clips_to_spacing():

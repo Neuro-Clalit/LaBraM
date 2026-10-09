@@ -35,7 +35,7 @@ own section. Docs without numbered sections use their `##` order (1, 2, …).
 | item | how it is numbered | how the text refers to it |
 |---|---|---|
 | equation | `\tag{2.3}` inside the `$$` block | "Eq. (2.3)" |
-| table | its own **subsection heading** directly above it, one level below the enclosing heading: `### Table 2.1. <short title>`, then the description (columns, units, equations) as text under the heading. In a notebook the heading is a Markdown cell right before the code cell that displays the table (split the code cell so each table has its own cell), and the displayed frame also carries the caption (`numbered_table(df, "2.1", "…")`, a pandas Styler caption) | "Table 2.1" |
+| table | its own **subsection heading** directly above it, one level below the enclosing heading: `### Table 2.1. <short title>`, then the description (columns, units, equations) as text under the heading. In a notebook the heading is a Markdown cell right before the code cell that displays the table (split the code cell so each table has its own cell); the displayed frame has **no** caption inside it (`numbered_table(df, "2.1", "…")` only formats it), so the title is never repeated in the table | "Table 2.1" |
 | figure | `**Figure 3.1.** …` caption in the Markdown, and the same `Figure 3.1` as the figure's suptitle (`figure_caption(fig, "3.1", "…")`) | "Figure 3.1" |
 | subfigure | every panel's title starts with `(a)`, `(b)`, … left-to-right, top-to-bottom (`panel_labels(axes)`) | "Figure 3.1(b)" |
 

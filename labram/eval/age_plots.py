@@ -63,13 +63,14 @@ def figure_caption(fig, number: str, text: str, fontsize: int = 12):
 
 
 def numbered_table(df, number: str, caption: str, precision: int = 2):
-    """A pandas Styler captioned ``Table <number>. <caption>`` (accepts a frame
-    or an existing Styler)."""
-    sty = df if hasattr(df, "set_caption") and not isinstance(df, pd.DataFrame) else (
-        df.style.format(precision=precision, na_rep="–"))
-    return sty.set_caption(f"Table {number}. {caption}").set_table_styles(
-        [{"selector": "caption", "props": "caption-side: top; font-weight: bold; "
-                                          "font-size: 1.05em; text-align: left;"}], overwrite=False)
+    """The table as a formatted pandas Styler (accepts a frame or an existing
+    Styler). No caption is rendered inside the table: its ``Table <number>.
+    <caption>`` title is the Markdown heading directly above the cell, and
+    ``number`` / ``caption`` only document which heading the call belongs to."""
+    del number, caption
+    if hasattr(df, "set_caption") and not isinstance(df, pd.DataFrame):
+        return df
+    return df.style.format(precision=precision, na_rep="–")
 
 
 def assert_max_columns(fig, max_columns: int = MAX_COLUMNS) -> None:
