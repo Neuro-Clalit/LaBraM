@@ -187,6 +187,28 @@ class EvaluationConfig(ConfigBase):
     log_grad_freq: int = DEFAULT_EVAL_LOG_GRAD_FREQ
     agg_windows: str = DEFAULT_EVAL_AGG_WINDOWS
     agg_case_by: str = DEFAULT_EVAL_AGG_CASE_BY
+    # Score val/test (and select the best epoch) with the EMA weights instead
+    # of the raw ones. Requires ``optimizer.model_ema``.
+    use_ema: bool = False
+
+
+@dataclass
+class MixupConfig(ConfigBase):
+    """Mixup for regression fine-tuning (brain age), off by default.
+
+    Each training batch is mixed with a permuted copy of itself,
+    ``x = lam * x_i + (1 - lam) * x_j`` with the targets mixed the same way and
+    ``lam ~ Beta(alpha, alpha)`` drawn once per batch. No window then belongs to
+    a single recording, which is what stops the encoder from learning a
+    recording -> age lookup. ``sigma > 0`` turns it into C-Mixup (Yao et al.
+    2022): partner ``j`` is drawn with probability ``exp(-(y_i - y_j)^2 /
+    (2 sigma^2))``, ``sigma`` in target units (years), so a window is mixed
+    with one of similar age. ``prob`` is the fraction of batches mixed.
+    """
+    enabled: bool = False
+    alpha: float = 0.4
+    prob: float = 1.0
+    sigma: float = 0.0
 
 
 @dataclass

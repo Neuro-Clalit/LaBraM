@@ -131,13 +131,37 @@ run_DX4() { submit DX4 age_DX4_quant labram_plus.enabled=true "${CODEBOOK[@]}" \
                      model.codebook_reg.amplitude_weight=0.0 \
                      model.codebook_reg.embedding_weight=1.0; }
 
+# Short scenario-D single-factor runs (4 epochs, 1 warmup epoch -- E2 showed the
+# best epoch is reached by then). Each changes exactly one knob of D so the
+# collapsed C2/DX3 bundle can be attributed (F), the head init bottleneck tested
+# (G), and the layer-decay direction probed (H).
+SHORT=(labram_plus.enabled=true trainer.epochs=4 optimizer.warmup_epochs=1)
+run_F1() { submit F1 age_F1_short_ld05   "${SHORT[@]}" optimizer.layer_decay=0.5; }
+run_F2() { submit F2 age_F2_short_drop01 "${SHORT[@]}" model.drop=0.1; }
+run_F3() { submit F3 age_F3_short_dp02   "${SHORT[@]}" model.drop_path=0.2; }
+run_F4() { submit F4 age_F4_short_wd01   "${SHORT[@]}" optimizer.weight_decay=0.1; }
+run_G1() { submit G1 age_G1_short_init1  "${SHORT[@]}" model.init_scale=1.0; }
+run_H1() { submit H1 age_H1_short_ld075  "${SHORT[@]}" optimizer.layer_decay=0.75; }
+run_H2() { submit H2 age_H2_short_ld085  "${SHORT[@]}" optimizer.layer_decay=0.85; }
+
+# Anti-memorization runs on the short schedule (M1 = mixup runs locally; see
+# docs/age_regression.md "Anti-memorization options").
+run_M2() { submit M2 age_M2_short_ema      "${SHORT[@]}" optimizer.model_ema=true \
+                     optimizer.model_ema_decay=0.9995 evaluation.use_ema=true; }
+run_M3() { submit M3 age_M3_short_lora16   "${SHORT[@]}" model.lora.enabled=true model.lora.rank=16 \
+                     model.lora.alpha=32.0 optimizer.lr=1e-3 optimizer.layer_decay=1.0; }
+run_M4() { submit M4 age_M4_short_softlabel "${SHORT[@]}" loss.regression_loss=soft_label \
+                     loss.soft_label_sigma=2.5; }
+
+ALL=(A B C C2 D D2 DX1 DX2 DX3 DX4 F1 F2 F3 F4 G1 H1 H2 M2 M3 M4)
 EXPERIMENTS=("$@")
 if [[ ${#EXPERIMENTS[@]} -eq 0 ]]; then
   EXPERIMENTS=(A B C C2 D D2)
 fi
 for exp in "${EXPERIMENTS[@]}"; do
-  case "${exp}" in
-    A|B|C|C2|D|D2|DX1|DX2|DX3|DX4) "run_${exp}" ;;
-    *) echo "Unknown experiment '${exp}' (expected A B C C2 D D2 DX1 DX2 DX3 DX4)" >&2; exit 1 ;;
-  esac
+  if [[ " ${ALL[*]} " == *" ${exp} "* ]]; then
+    "run_${exp}"
+  else
+    echo "Unknown experiment '${exp}' (expected ${ALL[*]})" >&2; exit 1
+  fi
 done

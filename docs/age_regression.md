@@ -500,6 +500,46 @@ TUEG's older recordings are less uniformly populated than TUAB's. You will also
 need window pickles for it (`dataset_maker/make_h5dataset_for_pretrain.py` or a
 TUAB-style preprocessing pass), since the join is by recording stem.
 
+## Anti-memorization options
+
+The fine-tune memorizes recordings (train MAE ≈ 1.3 years by epoch 15 while
+validation is best at epoch 1–3), and the collapsed "strong regularization"
+bundle (C2/DX3) showed that dropout / weight decay / drop-path attack the
+wrong thing (see `brain_age_improvement_plan.md`). Four opt-in options target
+the recording → age lookup directly; all are off by default.
+
+| Option | Config | What it does |
+|---|---|---|
+| **Mixup / C-Mixup** | `mixup.enabled`, `alpha` (0.4), `prob`, `sigma` (years) | Each training batch is blended with a permuted copy (`lam ~ Beta(alpha, alpha)`), inputs and targets alike, so no window maps to one recording. `sigma > 0` draws the partner with probability `exp(-(y_i - y_j)^2 / 2 sigma^2)` (C-Mixup: similar ages). Regression only; mixed batches are excluded from the per-case train report. |
+| **EMA evaluation** | `optimizer.model_ema=true`, `model_ema_decay`, `evaluation.use_ema=true` | Val/test are scored, and the best epoch selected, with the EMA weights (`model_ema` key in the checkpoints; `scripts/eval_age_by_cohort.py` picks it up). Use a decay matched to the run length: 0.9995 ≈ 2,000 steps ≈ half an epoch. |
+| **LoRA** | `model.lora.enabled`, `rank` (16), `alpha` (32), `targets`, `train_prefixes` | Freezes the pretrained weights and trains a rank-`r` update on `qkv`/`proj`/`fc1`/`fc2` of every block plus the head and its norms (~10 % of the parameters at r = 16). Adaptation at every depth, but in a subspace too small to encode thousands of recordings. Use a higher LR (1e-3) and `optimizer.layer_decay=1.0`. Checkpoints keep the base keys and add `lora_A`/`lora_B`. |
+| **Soft labels** | `loss.regression_loss=soft_label`, `soft_label_sigma` (2.5), `_min`, `_max`, `_bin_width` | The head predicts a distribution over 1-year age bins; the target is a Gaussian over the bins and the loss their KL divergence (SFCN, Peng et al. 2021). The scalar prediction is the expectation, so every metric is unchanged. Not supported with `model.codebook_reg`. |
+
+Short-schedule runs of each (4 epochs, 1 warmup epoch) are `M1`–`M4` in
+`scripts/submit_age_experiments.sh` (M1 runs locally).
+
+## Regression to the mean and the age-balanced loss
+
+Predictions shrink toward the train mean (bias slope ≈ −0.4 on val/test, −0.2
+even on train). `notebooks/age_error_analysis.ipynb` (on
+`labram/eval/age_analysis.py` + `labram/eval/age_plots.py`; open it with the
+"LaBraM (.venv)" kernel) shows that the model is already calibrated: regressing age on prediction gives
+slope ≈ 1. No deployable post-hoc correction lowers the MAE. Cole's inversion
+flattens the bias but raises test MAE from 8.45 to 9.94, and the age-level
+correction needs the true age. Moving the tails has to happen in training:
+
+| Option | Config | What it does |
+|---|---|---|
+| **Age-balanced loss** | `loss.balance` (`none` / `sqrt_inverse` / `inverse`), `balance_bin_width` (1 y), `balance_lds_sigma` (2 y), `balance_max_weight` (10) | Weights each window's mse/l1/huber term by the inverse (square root) of the train-window age density, LDS-smoothed (Yang et al. 2021), clipped at 10× the smallest weight and renormalized to mean 1. On TUAB `sqrt_inverse` gives children up to ~7.7×, 75–85 y ~1.2–1.6×, the 40–60 bulk ~0.8×. Train-only: val/test losses stay unweighted. Not with `soft_label` or `model.codebook_reg`. |
+
+Result on the short schedule (4 epochs, no mixup; E2 baseline val 7.68 / test
+8.25): `sqrt_inverse` (B1) val 7.83 / test 8.47, `inverse` (B2) 7.96 / 8.57. The
+bias slope shrinks (val −0.37 → −0.32 / −0.29) and the tails move toward the
+diagonal (test 70–79 predicted 65.4 instead of 61.8 with B2; 10–19 predicted 26.4
+instead of 29.6). Per-decade MAE improves in the tails and worsens in the dense
+40–59 range, so overall MAE goes up. Use it when age-independent bias matters
+more than the lowest MAE.
+
 ## Next steps
 
 The default config (`finetune_tuab_age.json`) is scenario D of the October 2026
@@ -518,7 +558,10 @@ improvement plan is in [`brain_age_improvement_plan.md`](brain_age_improvement_p
 | `labram/data/window_selection.py` | case filter, trimming, multi-window samples, eval budget |
 | `labram/data/tuh_datasets.py` | `TUABAgeLoader`, `prepare_TUAB_age_dataset` |
 | `labram/data/bundles.py` | `TUAB_AGE` bundle, `task` / `target_stats` |
-| `labram/losses/regression.py` | criterion selection + `build_downstream_criterion` |
+| `labram/losses/regression.py` | criterion selection + `build_downstream_criterion`, age-balanced loss |
+| `labram/eval/age_analysis.py` | per-window/recording predictions, error by age, bias correction, spectral features |
+| `labram/eval/age_plots.py` | age-scale plots, real-EEG comparisons, `AgeExplorer` (interactive browser) |
+| `notebooks/age_error_analysis.ipynb` | error analysis of the best run, with real EEG of accurate / too-young / too-old recordings |
 | `labram/utils/regression_metrics.py` | MAE/RMSE/R²/r + brain-age diagnostics |
 | `dataset_maker/make_TUAB_age.py` | `scan` / `split` CLI |
 | `labram/configs/defaults/finetune_tuab_age.json` | ready-to-run config |

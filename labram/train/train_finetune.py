@@ -20,12 +20,14 @@ from einops import rearrange
 import labram.utils as utils
 from labram.configs.loss_config import LossConfig
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import EvaluationConfig, LoggingConfig, TrainerConfig
+from labram.configs.train_config import EvaluationConfig, LoggingConfig, MixupConfig, TrainerConfig
 from labram.data.bundles import CLASSIFICATION as TASK_CLASSIFICATION
 from labram.data.bundles import REGRESSION as TASK_REGRESSION
-from labram.losses import CodebookRegularizedCriterion, build_downstream_criterion
+from labram.losses import (
+    CodebookRegularizedCriterion, build_downstream_criterion, regression_output)
 from labram.losses.regression import downstream_term_name
 from labram.losses.outputs import LossBreakdown
+from labram.train.mixup import mixup_batch
 from labram.models.outputs import PredictorOutput
 from labram.optim_factory import (
     apply_lr_wd_schedule,
@@ -56,7 +58,9 @@ def train_class_batch(
         breakdown = criterion(outputs, target)
         return breakdown.total, outputs.logits, breakdown
     loss = criterion(outputs, target)
-    return loss, outputs, None
+    # A soft-label regression head emits bin logits; the metrics score the
+    # criterion's scalar expectation (a no-op for every other criterion).
+    return loss, regression_output(criterion, outputs), None
 
 
 def get_loss_scale_for_deepspeed(model: torch.nn.Module) -> float:
@@ -88,6 +92,7 @@ def train_one_epoch(
     target_stats: Optional[Tuple[float, float]] = None,
     logging_cfg: Optional[LoggingConfig] = None,
     metrics: Optional[List[str]] = None,
+    mixup_cfg: Optional[MixupConfig] = None,
 ) -> Dict[str, float]:
     update_freq = trainer_cfg.update_freq
     if nb_classes is None:
@@ -113,6 +118,13 @@ def train_one_epoch(
     # to the scaler and clipped grad-norm to zero — i.e. zeroed all gradients —
     # whenever clip_grad was unset.)
     max_norm = optim_cfg.clip_grad
+    use_mixup = mixup_cfg is not None and mixup_cfg.enabled
+    if use_mixup and not is_regression:
+        raise ValueError("mixup is only supported for the regression task")
+    # mixup.sigma is in target units (years); the loop sees z-scored targets.
+    mixup_sigma = mixup_cfg.sigma if use_mixup else 0.0
+    if use_mixup and mixup_sigma > 0 and target_stats is not None:
+        mixup_sigma = mixup_sigma / target_stats[1]
 
     channel_indices = None
     if ch_names is not None:
@@ -151,6 +163,14 @@ def train_one_epoch(
         targets = targets.to(device, non_blocking=True)
         if scalar_target:
             targets = targets.float().unsqueeze(-1)
+
+        # Mixup across recordings: the windows (and targets) of this batch are
+        # blended with a permuted copy, so no sample maps to one recording.
+        # Mixed batches carry no case id, so they stay out of the per-case
+        # train report (their running MAE is scored against the mixed target).
+        mixed = use_mixup and torch.rand(()).item() < mixup_cfg.prob
+        if mixed:
+            samples, targets, _ = mixup_batch(samples, targets, mixup_cfg.alpha, mixup_sigma)
 
         if loss_scaler is None:
             samples = samples.half()
@@ -220,7 +240,7 @@ def train_one_epoch(
             step_metric = (output.max(-1)[-1] == targets.squeeze()).float().mean()
 
         # Accumulate predictions for the epoch-level train report.
-        if collect_preds:
+        if collect_preds and not mixed:
             train_pred.append(step_scores)
             train_true.append(step_target)
             if group_batch is not None:
@@ -389,7 +409,8 @@ def evaluate(
     regularized = isinstance(criterion, CodebookRegularizedCriterion)
     if not regularized:
         criterion = build_downstream_criterion(
-            task, 1 if is_binary else 2, loss_cfg if is_regression else None)
+            task, 1 if is_binary else 2, loss_cfg if is_regression else None,
+            target_stats=target_stats if is_regression else None)
 
     metric_logger = utils.MetricLogger(delimiter="  ")
 
@@ -429,8 +450,9 @@ def evaluate(
                 loss = criterion(output, target)
 
         if is_regression:
-            # A scalar prediction, not a probability: no sigmoid.
-            output = output.float().cpu()
+            # A scalar prediction, not a probability: no sigmoid. (A soft-label
+            # head's bin logits become their expectation here.)
+            output = regression_output(criterion, output).float().cpu()
         elif is_binary:
             output = torch.sigmoid(output).cpu()
         else:
@@ -838,6 +860,16 @@ def train_loop(
     select_metric, select_dir = utils.best_metric_for(task, metrics)
     better = (lambda new, cur: new > cur) if select_dir == 'max' else (lambda new, cur: new < cur)
 
+    # Val/test are scored (and the best epoch selected) with the EMA weights
+    # when asked; the raw model keeps training as usual.
+    eval_model = model
+    if config.evaluation.use_ema:
+        if model_ema is None:
+            raise ValueError("evaluation.use_ema requires optimizer.model_ema")
+        eval_model = model_ema.ema
+        logger.info("Evaluating val/test with the EMA weights (decay=%s)",
+                    config.optimizer.model_ema_decay)
+
     logger.info(f"Start training for {config.trainer.epochs} epochs")
     start_time = time.time()
     best_val = float('-inf') if select_dir == 'max' else float('inf')
@@ -878,6 +910,7 @@ def train_loop(
             target_stats=target_stats,
             logging_cfg=config.logging,
             metrics=metrics,
+            mixup_cfg=getattr(config, 'mixup', None),
         )
         train_timing = utils.timing_stats(
             'train', train_timer.elapsed(), int(train_stats.get('samples_processed', 0)))
@@ -896,7 +929,7 @@ def train_loop(
 
         if loaders.val is not None:
             validation_timer = utils.PhaseTimer(device)
-            val_stats = evaluate(loaders.val, model, device, header='Val:',
+            val_stats = evaluate(loaders.val, eval_model, device, header='Val:',
                                  ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                                  nb_classes=nb_classes, eval_cfg=config.evaluation,
                                  log_writer=log_writer, head='val', epoch=epoch,
@@ -909,7 +942,7 @@ def train_loop(
             unit = '' if is_regression else '%'
             logger.info(f"Val EEG {select_metric}: {val_stats[select_metric]:.2f}{unit}")
             test_timer = utils.PhaseTimer(device)
-            test_stats = evaluate(loaders.test, model, device, header='Test:',
+            test_stats = evaluate(loaders.test, eval_model, device, header='Test:',
                                   ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                                   nb_classes=nb_classes, eval_cfg=config.evaluation,
                                   log_writer=log_writer, head='test', epoch=epoch,

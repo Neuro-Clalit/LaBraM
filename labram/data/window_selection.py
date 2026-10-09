@@ -228,10 +228,15 @@ def _leaves(dataset) -> list:
     return [dataset]
 
 
+def train_window_ages(train) -> List[float]:
+    """Raw age of every sample in ``train`` (``TUABAgeLoader.ages`` leaves)."""
+    return [a for leaf in _leaves(train) if hasattr(leaf, "ages") for a in leaf.ages()]
+
+
 def _train_target_stats(train) -> Optional[Tuple[float, float]]:
     """(mean, sample std) of the train samples' raw targets, when the loaders
     expose them (``TUABAgeLoader.ages``)."""
-    ages = [a for leaf in _leaves(train) if hasattr(leaf, "ages") for a in leaf.ages()]
+    ages = train_window_ages(train)
     if len(ages) < 2:
         return None
     mean = sum(ages) / len(ages)

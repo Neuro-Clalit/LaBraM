@@ -75,8 +75,12 @@ class Attention(nn.Module):
         qkv_bias = None
         if self.q_bias is not None:
             qkv_bias = torch.cat((self.q_bias, torch.zeros_like(self.v_bias, requires_grad=False), self.v_bias))
-        # qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        qkv = F.linear(input=x, weight=self.qkv.weight, bias=qkv_bias)
+        # Call the module (not F.linear on its weight) so a LoRA-wrapped qkv
+        # contributes its low-rank update; qkv is built without a bias, the
+        # (q, 0, v) bias is added here.
+        qkv = self.qkv(x)
+        if qkv_bias is not None:
+            qkv = qkv + qkv_bias
         qkv = qkv.reshape(B, N, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple) (B, H, N, C)
         if self.q_norm is not None:

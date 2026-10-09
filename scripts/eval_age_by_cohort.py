@@ -30,13 +30,14 @@ from labram.data import get_dataset_bundle
 from labram.data.tuh_metadata import load_label_lookup_for
 from labram.data.window_selection import WindowSelection, apply_window_selection
 from labram.eval.loading import load_run_config
+from labram.losses import build_downstream_criterion, regression_output, soft_label_n_bins
 from labram.runs.finetune_setup import enable_window_ids
 from labram.runs.run_finetune import get_model
 
 METRICS = ["mae", "rmse", "r2", "pearson_r"]
 
 
-def _predict(model, dataset, ch_names, device, batch_size):
+def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None):
     enable_window_ids(dataset, "recording")
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False,
                                          num_workers=8, pin_memory=True)
@@ -48,6 +49,8 @@ def _predict(model, dataset, ch_names, device, batch_size):
             with torch.amp.autocast(device.type, enabled=device.type == "cuda"):
                 out = model(x, channel_indices=channel_indices, classify_only=True)
             out = getattr(out, "logits", out)
+            if to_scalar is not None:          # soft-label head: bin logits -> expectation
+                out = to_scalar(out)
             preds.append(out.float().squeeze(-1).cpu())
             targets.append(y.float())
             recs.extend(rec)
@@ -76,16 +79,25 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     bundle = get_dataset_bundle(cfg.data.dataset, data_path, data_format=cfg.data.data_format)
     bundle = apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
+    to_scalar = None
+    if bundle.task == "regression" and cfg.loss.regression_loss == "soft_label":
+        cfg.model.nb_classes = soft_label_n_bins(cfg.loss)
+        crit = build_downstream_criterion("regression", cfg.model.nb_classes, cfg.loss,
+                                          target_stats=bundle.target_stats)
+        to_scalar = lambda out: regression_output(crit, out)   # noqa: E731
     model = get_model(cfg)
     state = torch.load(os.path.join(run_dir, checkpoint), map_location="cpu", weights_only=False)
-    model.load_state_dict(state["model"])
+    # A run that selected its best epoch on the EMA weights is scored with them.
+    key = "model_ema" if (cfg.evaluation.use_ema and "model_ema" in state) else "model"
+    model.load_state_dict(state[key])
     model.to(device).eval()
 
     root = getattr(bundle.test, "root", data_path)
     labels = load_label_lookup_for(root)
     result = {"epoch": state.get("epoch"), "splits": {}}
     for split in splits:
-        pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device, batch_size)
+        pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device,
+                                    batch_size, to_scalar)
         ids, p, t = _per_recording(pred, true, recs, bundle.target_stats)
         cohort = np.array([labels.get(r) for r in ids])   # group ids are recording stems
         out = {}

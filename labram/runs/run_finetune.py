@@ -17,9 +17,11 @@ import labram.utils as utils
 from labram.utils.secrets import redacted_copy
 from labram.data import get_dataset_bundle
 from labram.data.window_selection import (
-    WindowSelection, apply_window_selection, enable_random_crop,
+    WindowSelection, apply_window_selection, enable_random_crop, train_window_ages,
 )
-from labram.losses import CodebookRegularizedCriterion, LossConfig, build_downstream_criterion
+from labram.layers.lora import inject_lora, mark_only_lora_trainable
+from labram.losses import (
+    CodebookRegularizedCriterion, LossConfig, build_downstream_criterion, soft_label_n_bins)
 from labram.losses.regression import downstream_term_name
 from labram.configs.run_configs import FinetuneRunConfig
 from labram.configs.utils_conf import add_override_arg, parse_overrides
@@ -57,7 +59,7 @@ def get_model(config: FinetuneRunConfig):
                 "grafted VQNSP decoder has a fixed 16-patch time embedding")
         return build_codebook_classifier(config)
     m = config.model
-    return create_model(
+    model = create_model(
         m.model, pretrained=False,
         num_classes=m.nb_classes, drop_rate=m.drop,
         drop_path_rate=m.drop_path, attn_drop_rate=m.attn_drop_rate,
@@ -67,6 +69,15 @@ def get_model(config: FinetuneRunConfig):
         init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
         labram_plus=config.labram_plus, max_time_patches=time_patches,
     )
+    if m.lora.enabled:
+        # Injected before the pretrained checkpoint loads: the base weights keep
+        # their keys, the LoRA factors are new (B = 0, so the model is unchanged
+        # until training), and only they + the head remain trainable.
+        n_layers = inject_lora(model, m.lora.targets, m.lora.rank, m.lora.alpha, m.lora.dropout)
+        n_trainable = mark_only_lora_trainable(model, m.lora.train_prefixes)
+        logger.info("LoRA: rank %d (alpha %.1f) on %d linears; %d trainable parameters",
+                    m.lora.rank, m.lora.alpha, n_layers, n_trainable)
+    return model
 
 
 def main(config: FinetuneRunConfig, bundle=None):
@@ -116,6 +127,23 @@ def main(config: FinetuneRunConfig, bundle=None):
     config.model.nb_classes = bundle.nb_classes
     config.model.task = bundle.task
     config.model.target_stats = bundle.target_stats
+    is_regression_task = bundle.task == 'regression'
+    if is_regression_task and config.loss.regression_loss == 'soft_label':
+        # The head predicts a distribution over age bins; the criterion turns
+        # it back into the scalar every metric expects.
+        if config.model.codebook_reg.enabled:
+            raise ValueError("loss.regression_loss=soft_label is not supported with model.codebook_reg")
+        config.model.nb_classes = soft_label_n_bins(config.loss)
+        logger.info("Soft-label regression: %d bins of %.1f years, sigma %.1f years",
+                    config.model.nb_classes, config.loss.soft_label_bin_width,
+                    config.loss.soft_label_sigma)
+    if config.loss.balance != 'none' and (not is_regression_task or config.model.codebook_reg.enabled):
+        raise ValueError("loss.balance applies to the plain regression head only "
+                         "(not classification or model.codebook_reg)")
+    if config.mixup.enabled and not is_regression_task:
+        raise ValueError("mixup is only supported for the regression task")
+    if config.evaluation.use_ema and not config.optimizer.model_ema:
+        raise ValueError("evaluation.use_ema requires optimizer.model_ema=true")
     config.model.validate()
     dataset_train, dataset_val, dataset_test = bundle.train, bundle.val, bundle.test
     ch_names, metrics = bundle.ch_names, bundle.metrics
@@ -260,7 +288,18 @@ def main(config: FinetuneRunConfig, bundle=None):
             task, nb_classes,
             LossConfig(classification_label_smoothing=config.optimizer.smoothing,
                        regression_loss=config.loss.regression_loss,
-                       huber_delta=config.loss.huber_delta))
+                       huber_delta=config.loss.huber_delta,
+                       soft_label_sigma=config.loss.soft_label_sigma,
+                       soft_label_min=config.loss.soft_label_min,
+                       soft_label_max=config.loss.soft_label_max,
+                       soft_label_bin_width=config.loss.soft_label_bin_width,
+                       balance=config.loss.balance,
+                       balance_bin_width=config.loss.balance_bin_width,
+                       balance_lds_sigma=config.loss.balance_lds_sigma,
+                       balance_max_weight=config.loss.balance_max_weight),
+            target_stats=config.model.target_stats,
+            train_targets=train_window_ages(dataset_train)
+            if task == 'regression' and config.loss.balance != 'none' else None)
     logger.info("Downstream criterion (%s): %s", task, criterion)
 
     utils.auto_load_model(

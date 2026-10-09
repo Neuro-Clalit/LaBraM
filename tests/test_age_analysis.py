@@ -1,0 +1,136 @@
+"""Pure helpers of labram.eval.age_analysis (no model, no dataset)."""
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from labram.eval.age_analysis import (
+    apply_bias_correction, assign_age_bin, band_powers, error_by_age_bin, fit_bias_correction,
+    peak_alpha_frequency, per_recording, pick_examples, regression_summary, summary_table,
+    window_number)
+
+
+def _windows():
+    return pd.DataFrame({
+        "split": ["val"] * 5, "idx": range(5),
+        "recording": ["a", "a", "a", "b", "b"], "window": [3, 4, 5, 0, 1],
+        "cohort": ["normal"] * 3 + ["abnormal"] * 2,
+        "age": [30.0] * 3 + [70.0] * 2, "pred": [32.0, 34.0, 36.0, 60.0, 64.0]})
+
+
+def test_window_number():
+    assert window_number("train/aaaaaaaq_s004_t000_10.pkl") == 10
+    assert window_number("weird") == -1
+
+
+def test_per_recording_pools_mean_and_median():
+    rec = per_recording(_windows()).set_index("recording")
+    assert rec.loc["a", "pred"] == pytest.approx(34.0)
+    assert rec.loc["a", "err"] == pytest.approx(4.0)
+    assert rec.loc["b", "abs_err"] == pytest.approx(8.0)
+    assert rec.loc["a", "n_windows"] == 3 and rec.loc["b", "cohort"] == "abnormal"
+
+
+def test_regression_summary_and_table():
+    s = regression_summary(per_recording(_windows()))
+    assert s["mae"] == pytest.approx(6.0) and s["median_ae"] == pytest.approx(6.0)
+    assert s["mean_err"] == pytest.approx(-2.0)
+    t = summary_table({"recording": per_recording(_windows())})
+    assert set(t.index.get_level_values("cohort")) == {"all", "normal", "abnormal"}
+
+
+def test_error_by_age_bin():
+    rec = per_recording(_windows())
+    t = error_by_age_bin(rec)
+    assert list(t.index.astype(str)) == ["30-39", "70-79"]
+    assert t.loc["70-79", "mean_err"] == pytest.approx(-8.0)
+    assert t.loc["70-79", "age_mean"] == pytest.approx(70.0)
+    assert t.loc["70-79", "pred_mean"] == pytest.approx(62.0)
+    assert str(assign_age_bin(pd.Series([0.0]))[0]) == "0-9"
+
+
+def test_bias_corrections_undo_a_linear_shrinkage():
+    age = np.linspace(5, 85, 50)
+    pred = 0.6 * age + 20.0                       # regression to the mean
+    p = fit_bias_correction(pred, age)
+    assert p["slope"] == pytest.approx(0.6) and p["intercept"] == pytest.approx(20.0)
+    np.testing.assert_allclose(apply_bias_correction(pred, p, "cole"), age, atol=1e-8)
+    np.testing.assert_allclose(apply_bias_correction(pred, p, "age_level", age), age, atol=1e-8)
+    np.testing.assert_allclose(apply_bias_correction(pred, p, "recalibrate"), age, atol=1e-8)
+    with pytest.raises(ValueError):
+        apply_bias_correction(pred, p, "age_level")
+
+
+def test_band_powers_find_alpha():
+    fs, t = 200.0, np.arange(2000) / 200.0
+    x = np.sin(2 * np.pi * 10.0 * t)[None] + 0.01 * np.random.default_rng(0).standard_normal((1, 2000))
+    rel, freqs, psd = band_powers(x, fs)
+    assert rel["alpha"][0] > 0.9
+    assert peak_alpha_frequency(freqs, psd[0]) == pytest.approx(10.0)
+
+
+def test_pick_examples():
+    rec = per_recording(_windows())
+    ex = pick_examples(rec, n=1)
+    assert list(ex["kind"]) == ["best", "over-predicted", "under-predicted"]
+    assert ex.iloc[1]["recording"] == "a" and ex.iloc[2]["recording"] == "b"
+
+
+# ------------------------------------------------------------- age_plots
+class _StubRun:
+    ch_names = ["FP1", "O1", "O2", "PZ"]
+
+    def __init__(self, n):
+        rng = np.random.default_rng(0)
+        self._x = rng.standard_normal((n, 4, 2000)) * 10
+
+    def split(self, _name):
+        return [(torch_tensor(x), 0.0) for x in self._x]
+
+
+def torch_tensor(x):
+    import torch
+    return torch.as_tensor(x, dtype=torch.float32)
+
+
+def _explorer():
+    from labram.eval.age_plots import AgeExplorer
+    ages = {"r1": 60.0, "r2": 62.0, "r3": 61.0, "r4": 30.0}
+    preds = {"r1": 61.0, "r2": 45.0, "r3": 75.0, "r4": 33.0}
+    rows = [{"split": "test", "idx": 2 * k + j, "recording": r, "window": j, "cohort": "normal",
+             "age": ages[r], "pred": preds[r] + (j - 0.5)} for k, r in enumerate(ages) for j in (0, 1)]
+    from labram.eval.age_analysis import add_errors
+    win = add_errors(pd.DataFrame(rows))
+    return AgeExplorer(_StubRun(len(rows)), win, per_recording(win))
+
+
+def test_explorer_find_and_pick_at_age():
+    ex = _explorer()
+    assert list(ex.find(age=61, kind="under").recording)[:1] == ["r2"]
+    assert list(ex.find(age=61, kind="over").recording)[:1] == ["r3"]
+    picks = ex.pick_at_age(61)
+    assert {k: v.recording for k, v in picks.items()} == {
+        "accurate": "r1", "under-predicted": "r2", "over-predicted": "r3"}
+
+
+def test_explorer_figures_render():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    ex = _explorer()
+    plt.close(ex.compare_at_age(61, channels=None))
+    plt.close(ex.show("r3", reference=False, channels=["O1", "O2"], seconds=(0, 5)))
+
+
+def test_plot_eeg_clips_to_spacing():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from labram.eval.age_plots import channel_indices, plot_eeg
+    x = np.zeros((2, 2000))
+    x[0, 100] = 1e4                                  # one huge artifact sample
+    fig, ax = plt.subplots()
+    spacing = plot_eeg(ax, x, ["A", "B"], spacing=50.0, clip=1.0)
+    assert spacing == 50.0 and max(line.get_ydata().max() for line in ax.lines[:2]) <= 50.0
+    assert channel_indices(["Fp1", "O1"], ["O1", "XX"]) == [1]
+    plt.close(fig)

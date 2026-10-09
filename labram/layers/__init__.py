@@ -6,6 +6,7 @@
 from labram.layers.attention import Attention
 from labram.layers.drop_path import DropPath
 from labram.layers.feature_embedders import CodeBookBagEmbedder, FeatureEmbedder
+from labram.layers.lora import LoRALinear, inject_lora, mark_only_lora_trainable
 from labram.layers.mlp import Mlp
 from labram.layers.patch_embed import PatchEmbed, TemporalConv
 from labram.layers.transformer_block import Block
@@ -17,7 +18,10 @@ __all__ = [
     'CodeBookBagEmbedder',
     'DropPath',
     'FeatureEmbedder',
+    'LoRALinear',
     'Mlp',
+    'inject_lora',
+    'mark_only_lora_trainable',
     'PatchEmbed',
     'TemporalConv',
 ]

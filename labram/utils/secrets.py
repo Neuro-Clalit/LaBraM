@@ -93,7 +93,16 @@ def redact_text(text: str, values: Iterable[str] = ()) -> str:
 def _client(session=None, region: Optional[str] = None):
     import boto3
     session = session or boto3.Session()
-    return session.client("secretsmanager", region_name=region or session.region_name)
+    return session.client("secretsmanager", region_name=region or _region(session))
+
+
+def _region(session) -> Optional[str]:
+    """The session's region, else the one in ``$TRAINING_JOB_ARN`` -- SageMaker
+    containers set neither AWS_REGION nor a config file, only that ARN."""
+    if session.region_name:
+        return session.region_name
+    parts = os.environ.get("TRAINING_JOB_ARN", "").split(":")
+    return parts[3] if len(parts) > 3 and parts[3] else None
 
 
 def load_clearml_secret_into_env(name: Optional[str] = None, session=None) -> List[str]:

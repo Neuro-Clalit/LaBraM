@@ -132,7 +132,15 @@
         "regression_loss": "huber",
         "huber_delta": 1.0,
         "classifier_weight": 1.0,
-        "phase_loss": "angle"
+        "phase_loss": "angle",
+        "soft_label_sigma": 2.5,
+        "soft_label_min": 1.0,
+        "soft_label_max": 89.0,
+        "soft_label_bin_width": 1.0,
+        "balance": "none",
+        "balance_bin_width": 1.0,
+        "balance_lds_sigma": 2.0,
+        "balance_max_weight": 10.0
     },
     "shutdown": {
         "py/object": "labram.configs.train_config.ShutdownConfig",

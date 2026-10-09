@@ -52,6 +52,23 @@
             "amplitude_weight": 1.0,
             "phase_weight": 0.1,
             "embedding_weight": 1.0
+        },
+        "lora": {
+            "enabled": false,
+            "rank": 16,
+            "alpha": 32.0,
+            "dropout": 0.0,
+            "targets": [
+                "qkv",
+                "proj",
+                "fc1",
+                "fc2"
+            ],
+            "train_prefixes": [
+                "head",
+                "fc_norm",
+                "cls_norm"
+            ]
         }
     },
     "output": {
@@ -183,7 +200,15 @@
         "regression_loss": "huber",
         "huber_delta": 1.0,
         "classifier_weight": 1.0,
-        "phase_loss": "angle"
+        "phase_loss": "angle",
+        "soft_label_sigma": 2.5,
+        "soft_label_min": 1.0,
+        "soft_label_max": 89.0,
+        "soft_label_bin_width": 1.0,
+        "balance": "none",
+        "balance_bin_width": 1.0,
+        "balance_lds_sigma": 2.0,
+        "balance_max_weight": 10.0
     },
     "finetune_checkpoint": {
         "py/object": "labram.configs.model_config.FinetuneCheckpointConfig",
@@ -200,7 +225,8 @@
         "log_grad_components": false,
         "log_grad_freq": 50,
         "agg_windows": "none",
-        "agg_case_by": "recording"
+        "agg_case_by": "recording",
+        "use_ema": false
     },
     "labram_plus": {
         "py/object": "labram.configs.labram_plus_config.LaBraMPlusConfig",
@@ -256,5 +282,11 @@
         "tags": {},
         "wait": false,
         "stream_logs": true
+    },
+    "mixup": {
+        "enabled": false,
+        "alpha": 0.4,
+        "prob": 1.0,
+        "sigma": 0.0
     }
 }
