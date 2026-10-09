@@ -116,7 +116,7 @@ torch>=2.3. Install a compatible DeepSpeed manually only if you need it.
 
 ### Package layout
 
-- `labram/layers/` — Neural-network primitives, one responsibility per module: `drop_path.py`, `mlp.py`, `attention.py`, `patch_embed.py` (PatchEmbed, TemporalConv), `transformer_block.py` (Block); all re-exported from `labram.layers`
+- `labram/layers/` — Neural-network primitives, one responsibility per module: `drop_path.py`, `mlp.py`, `attention.py`, `patch_embed.py` (PatchEmbed, TemporalConv), `transformer_block.py` (Block), `cls_attention_head.py` (CLSAttentionHead, the `model.head_type=attention` head); all re-exported from `labram.layers`
 - `labram/models/` — Config-driven model definitions: `neural_transformer.py` (shared backbone), `masked_eeg.py` (pre-training heads), `vqnsp.py` (tokenizer), `quantizer.py` (VQ with EMA), `components.py` (shared quantize/decode helpers reused by VQNSP and the regularized classifier), `codebook_classifier.py` (`CodebookRegularizedClassifier` for regularized fine-tuning), `outputs.py` (`PredictorOutput`), `registry.py` (all timm `@register_model` factories)
 - `labram/data/` — All data concerns: `eeg_constants.py` (standard 10-20 layout, channel-index helpers), `hdf5_datasets.py` (`SingleShockDataset`/`ShockDataset`), `tuh_datasets.py` (TUAB/TUEV loaders), `bundles.py` (per-task `DatasetBundle`/`get_dataset_bundle`), `preprocess.py`, `pretraining.py` (`build_pretraining_dataset`); public API on `labram.data`
 - `labram/losses/` — Configurable training losses: `config.py` (`LossConfig`), `spectral.py` (`SpectralReconstructionLoss`), `vqnsp.py` (`get_vqnsp_losses`), `classification.py` (`build_classification_criterion`), `codebook_regularized.py` (`CodebookRegularizedCriterion` combining classification + spectral + quantization losses), `outputs.py` (`LossBreakdown`)
@@ -166,7 +166,12 @@ are applied by `data/window_selection.py` in `run_finetune.main`. The age config
 scenario D of the Oct-2026 ablation (60 s trims, 5-minute eval, CAR-only `labram_plus`,
 15 epochs at lr 1e-4; val 7.77 / test 8.30 case MAE), documented with LaTeX in
 `docs/age_training_scenario_D.md` (+ PDF via `scripts/md_to_pdf.py`, needs matplotlib +
-reportlab). See `docs/age_regression.md`.
+reportlab). `model.head_type=attention` swaps the linear head for `CLSAttentionHead`: the
+class token queries all encoder tokens in one small multi-head attention layer, then an MLP
+predicts; `forward_with_attention` returns the class-token attention weights.
+`finetune_tuab_age_attn_head.json` = the best run (M1: D + mixup 0.4, 4 epochs) + `clip_grad`
+1.0 + that head (experiments N1/N2 in `scripts/submit_age_experiments.sh`). See
+`docs/age_regression.md`.
 
 **LaBraM++ mode** (opt-in, `labram_plus.enabled`, arXiv:2505.16724): a bundle of three signal-processing/loss improvements over the original LaBraM, off by default so existing checkpoints/configs are unaffected. (1) Per-patch **Common Average Reference** and (2) per-patch **z-scoring** are applied to model inputs; (3) the VQNSP tokenizer's phase reconstruction uses a **sin/cos circular loss** (`‖sin φ̂ − sin φ‖² + ‖cos φ̂ − cos φ‖²`) instead of the raw-angle MSE, removing the ±π wrap-around discontinuity. The single switch is `LaBraMPlusConfig` (`labram/configs/labram_plus_config.py`) on every `RunConfig` as `config.labram_plus`; preprocessing is model-owned (applied in `NeuralTransformer._embed_inputs`, `NeuralTransformerForMaskedEEGModeling.forward_features`, and `VQNSP._preprocess`) so it stays consistent across training and evaluation and never double-applies. Config files: `configs/defaults/{vqnsp,pretrain_,finetune_tuab_}labram_plus_plus.json`. See `docs/labram_plus_plus.md`.
 

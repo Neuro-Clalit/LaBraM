@@ -110,6 +110,23 @@ class LoRAConfig(ConfigBase):
 
 
 @dataclass
+class AttentionHeadConfig(ConfigBase):
+    """``head_type="attention"``: :class:`labram.layers.CLSAttentionHead`.
+
+    One global multi-head attention layer where the encoder's class token
+    queries all ``1 + N`` encoder tokens (cls + every channel x time patch),
+    residual onto the class token, then ``LayerNorm -> Linear(mlp_hidden_dim) ->
+    GELU -> Dropout(drop) -> Linear(nb_classes)``. ``attn_dim`` is the q/k/v
+    width (``None`` = ``embed_dim``); it must be divisible by ``num_heads``.
+    """
+    num_heads: int = conf_consts.DEFAULT_ATTN_HEAD_NUM_HEADS
+    attn_dim: Optional[int] = None
+    mlp_hidden_dim: int = conf_consts.DEFAULT_ATTN_HEAD_MLP_HIDDEN_DIM
+    drop: float = 0.0
+    attn_drop: float = 0.0
+
+
+@dataclass
 class FinetuneModelConfig(ConfigBase):
     model: str = conf_consts.DEFAULT_FINETUNE_MODEL
     input_size: int = conf_consts.DEFAULT_FINETUNE_INPUT_SIZE
@@ -124,6 +141,11 @@ class FinetuneModelConfig(ConfigBase):
     # With mean pooling, also feed the (separately normalized) class token to
     # the head: features = [mean patch token, cls token], width 2 * embed_dim.
     concat_cls_token: bool = conf_consts.DEFAULT_FINETUNE_CONCAT_CLS_TOKEN
+    # "linear": the pooled feature above -> Linear. "attention": the class token
+    # attends over all encoder tokens, then an MLP predicts (attention_head);
+    # use_mean_pooling is then unused and the pretrained final norm is kept.
+    head_type: str = conf_consts.DEFAULT_FINETUNE_HEAD_TYPE
+    attention_head: AttentionHeadConfig = field(default_factory=AttentionHeadConfig)
     init_scale: float = conf_consts.DEFAULT_FINETUNE_INIT_SCALE
     nb_classes: int = conf_consts.DEFAULT_FINETUNE_NB_CLASSES
     # "classification" or "regression". Both use nb_classes == 1 for a single
@@ -155,6 +177,19 @@ class FinetuneModelConfig(ConfigBase):
                 raise ValueError(f"model.lora.rank must be >= 1, got {self.lora.rank}")
         if self.concat_cls_token and not self.use_mean_pooling:
             raise ValueError("model.concat_cls_token requires model.use_mean_pooling")
+        if self.head_type not in ("linear", "attention"):
+            raise ValueError(
+                f"model.head_type must be 'linear' or 'attention', got {self.head_type!r}")
+        if self.head_type == "attention":
+            if self.concat_cls_token:
+                raise ValueError("model.concat_cls_token is not used with model.head_type=attention")
+            if self.codebook_reg.enabled:
+                raise ValueError("model.head_type=attention is not supported with model.codebook_reg")
+            attn_dim = self.attention_head.attn_dim
+            if attn_dim is not None and attn_dim % self.attention_head.num_heads:
+                raise ValueError(
+                    f"model.attention_head.attn_dim={attn_dim} is not divisible by "
+                    f"num_heads={self.attention_head.num_heads}")
 
     @property
     def is_regression(self) -> bool:
@@ -202,6 +237,8 @@ class TransformerArchConfig(ConfigBase):
     use_shared_rel_pos_bias: bool = conf_consts.DEFAULT_ARCH_USE_SHARED_REL_POS_BIAS
     use_mean_pooling: bool = conf_consts.DEFAULT_ARCH_USE_MEAN_POOLING
     concat_cls_token: bool = conf_consts.DEFAULT_ARCH_CONCAT_CLS_TOKEN
+    head_type: str = conf_consts.DEFAULT_ARCH_HEAD_TYPE
+    attention_head: AttentionHeadConfig = field(default_factory=AttentionHeadConfig)
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM

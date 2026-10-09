@@ -116,6 +116,15 @@
         "drop_path": 0.1,
         "use_mean_pooling": true,
         "concat_cls_token": false,
+        "head_type": "linear",
+        "attention_head": {
+            "py/object": "labram.configs.model_config.AttentionHeadConfig",
+            "num_heads": 4,
+            "attn_dim": null,
+            "mlp_hidden_dim": 256,
+            "drop": 0.0,
+            "attn_drop": 0.0
+        },
         "init_scale": 0.001,
         "nb_classes": 0,
         "task": "regression",

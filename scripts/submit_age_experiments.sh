@@ -14,6 +14,11 @@
 #   DX3 D + layer decay 0.5, drop path 0.2, dropout 0.1, wd 0.1, clip 1.0 (run locally)
 #   DX4 D + quantization (embedding) term (codebook path)
 #
+# Best-run follow-ups (M1 = D + mixup 0.4, 4 epochs: val/test 7.46 / 8.45):
+#   N1  M1 + clip_grad 1.0                         (control for N2)
+#   N2  N1 + CLS-attention head (model.head_type=attention;
+#       = labram/configs/defaults/finetune_tuab_age_attn_head.json)
+#
 # finetune_tuab_age.json now defaults to scenario D (CAR on); the ablations pin
 # labram_plus.enabled=false so A-D2 reproduce as originally run, and D turns it
 # back on.
@@ -153,7 +158,13 @@ run_M3() { submit M3 age_M3_short_lora16   "${SHORT[@]}" model.lora.enabled=true
 run_M4() { submit M4 age_M4_short_softlabel "${SHORT[@]}" loss.regression_loss=soft_label \
                      loss.soft_label_sigma=2.5; }
 
-ALL=(A B C C2 D D2 DX1 DX2 DX3 DX4 F1 F2 F3 F4 G1 H1 H2 M2 M3 M4)
+# Best run so far (M1) + gradient clipping; N2 swaps the linear head for the
+# CLS-attention head, so N2 - N1 is the head's effect alone.
+BEST=("${SHORT[@]}" mixup.enabled=true mixup.alpha=0.4 mixup.sigma=0.0 optimizer.clip_grad=1.0)
+run_N1() { submit N1 age_N1_short_mixup04_clip1          "${BEST[@]}"; }
+run_N2() { submit N2 age_N2_short_mixup04_clip1_attnhead "${BEST[@]}" model.head_type=attention; }
+
+ALL=(A B C C2 D D2 DX1 DX2 DX3 DX4 F1 F2 F3 F4 G1 H1 H2 M2 M3 M4 N1 N2)
 EXPERIMENTS=("$@")
 if [[ ${#EXPERIMENTS[@]} -eq 0 ]]; then
   EXPERIMENTS=(A B C C2 D D2)

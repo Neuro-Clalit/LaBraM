@@ -1059,6 +1059,105 @@ setting, and the best test MAE anywhere on the grid.
 | B1 balance sqrt-inv | 7.83 / 8.47 | reject, q = 1.00 | 7.83 / 8.47 | 8.38 |
 | B2 balance inverse | 7.96 / 8.57 | reject, q = 1.00 | 7.96 / 8.57 | 8.41 |
 
+## CLS-attention prediction head
+
+The default head reads one pooled vector: the mean of the patch tokens,
+optionally concatenated with the class token (`model.concat_cls_token`).
+`model.head_type=attention` (`labram/layers/cls_attention_head.py::CLSAttentionHead`)
+instead lets the class token re-read every channel $\times$ time patch through one
+small global multi-head attention layer before an MLP predicts the age. Table 15.1
+lists the options; Eqs. (15.1)–(15.4) define the computation.
+
+### Table 15.1. Attention-head options
+
+Config keys under `model.` (defaults in parentheses) and what each sets.
+
+| Option | Config | What it does |
+|---|---|---|
+| Head type | `head_type` (`"linear"`) | `"attention"` builds the head in Eqs. (15.1)–(15.4). The encoder keeps its pretrained final `norm` (loaded from `labram-base`) and `fc_norm`/`cls_norm` are not built, so `use_mean_pooling` is unused. Not combinable with `concat_cls_token` or `codebook_reg`. |
+| Heads | `attention_head.num_heads` (4) | $H$ in Eq. (15.1). |
+| Width | `attention_head.attn_dim` (`null` = `embed_dim` = 200) | $d_a$; must be divisible by $H$. |
+| MLP width | `attention_head.mlp_hidden_dim` (256) | $d_h$ in Eq. (15.4). |
+| Dropout | `attention_head.drop` (0.0), `attention_head.attn_drop` (0.0) | dropout after the GELU and on the attention weights. |
+
+With the defaults the head has 212,913 parameters (3.5 % of the 6.0 M model).
+Every parameter is named `head.*`, so layer decay puts it in the top group
+(scale 1, Eq. (12.5)), `trainable_prefixes=["head"]` and LoRA's
+`train_prefixes` keep it trainable, and `init_scale` shrinks its last layer
+$W_2, b_2$ exactly as it shrinks the linear head. A pretrained or fine-tuned
+checkpoint's `head.weight`/`head.bias` is dropped on load
+(`runs/finetune_setup.py::load_finetune_checkpoint`).
+
+**Attention.** Let $t_0\in\mathbb{R}^{D}$ be the encoder's class token and
+$t_1,\dots,t_N$ its patch tokens after the final norm ($D=200$, $N=C\cdot A$ for
+$C$ channels and $A$ one-second patches; patch $i$ is channel $\lfloor (i-1)/A\rfloor$,
+time patch $(i-1)\bmod A$). For head $h=1,\dots,H$, with per-head width
+$d=d_a/H$, the class token is the only query and all $N+1$ tokens are keys and
+values, Eq. (15.1):
+
+$$
+\alpha_{h,j}=\operatorname{softmax}_{j\in\{0,\dots,N\}}
+\Bigl(\frac{(W_q t_0+b_q)_h^{\top}\,(W_k t_j+b_k)_h}{\sqrt d}\Bigr),
+\qquad
+o_h=\sum_{j=0}^{N}\alpha_{h,j}\,(W_v t_j+b_v)_h .
+\tag{15.1}
+$$
+
+$(\cdot)_h$ is the $h$-th $d$-dimensional slice. For a single layer this is
+exactly the class-token row of full self-attention over the $N+1$ tokens: the
+other query rows do not enter the class token's output, so only that row is
+computed ($O(N)$ instead of $O(N^2)$; checked against full attention in
+`tests/test_head_pooling.py`).
+
+**Residual and MLP.** The heads are concatenated, projected back to $D$ and added
+onto the class token, Eq. (15.2); the result is normalized, Eq. (15.3), and
+passed through the MLP, Eq. (15.4):
+
+$$
+c=t_0+W_o\,[o_1;\dots;o_H]+b_o ,
+\tag{15.2}
+$$
+
+$$
+u=\operatorname{LayerNorm}(c),
+\tag{15.3}
+$$
+
+$$
+\hat z=W_2\,\operatorname{dropout}\bigl(\operatorname{GELU}(W_1u+b_1)\bigr)+b_2 ,
+\tag{15.4}
+$$
+
+where $W_1\in\mathbb{R}^{d_h\times D}$ and $W_2\in\mathbb{R}^{K\times d_h}$. $K=1$
+gives the z-scored age prediction $\hat z$ that enters the residual of Eq. (5.3);
+with `loss.regression_loss=soft_label`, $K$ is the number of age bins. Losses and metrics are unchanged.
+
+**Attention weights.** `NeuralTransformer.forward_with_attention(x)` returns the
+prediction together with $\alpha\in\mathbb{R}^{B\times H\times(N+1)}$ from
+Eq. (15.1) (index 0 = attention to the class token itself), so you can see which
+channels and time patches each prediction draws on.
+
+### Table 15.2. Attention-head experiments
+
+`labram/configs/defaults/finetune_tuab_age_attn_head.json` is the best run so far,
+M1 (scenario D + mixup $\alpha=0.4$ on the 4-epoch / 1-warmup schedule, val / test
+7.46 / 8.45 in Table 14.2), plus gradient clipping at total norm 1.0
+(`optimizer.clip_grad=1.0`) and the attention head. In
+`scripts/submit_age_experiments.sh`, N1 is the control, so N2 − N1 is the effect of
+the head alone.
+
+| Exp | Change vs. M1 | Config |
+|---|---|---|
+| N1 | `optimizer.clip_grad=1.0` | `submit_age_experiments.sh N1` |
+| N2 | N1 + `model.head_type=attention` | `finetune_tuab_age_attn_head.json`, or `submit_age_experiments.sh N2` |
+
+```bash
+OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_finetune \
+  --config labram/configs/defaults/finetune_tuab_age_attn_head.json \
+  --set data.data_path="$TUAB" \
+        finetune_checkpoint.finetune=./checkpoints/labram-base.pth
+```
+
 ## Next steps
 
 The default config (`finetune_tuab_age.json`) is scenario D of the October 2026
@@ -1070,9 +1169,9 @@ improvement plan is in [`brain_age_improvement_plan.md`](brain_age_improvement_p
 
 ## Files
 
-Table 16.1 maps each file to its role.
+Table 17.1 maps each file to its role.
 
-### Table 16.1. Files
+### Table 17.1. Files
 
 The files that implement age regression and its analysis.
 
@@ -1091,3 +1190,5 @@ The files that implement age regression and its analysis.
 | `labram/utils/regression_metrics.py` | MAE/RMSE/R²/r + brain-age diagnostics |
 | `dataset_maker/make_TUAB_age.py` | `scan` / `split` CLI |
 | `labram/configs/defaults/finetune_tuab_age.json` | ready-to-run config |
+| `labram/layers/cls_attention_head.py` | `CLSAttentionHead` (`model.head_type=attention`) |
+| `labram/configs/defaults/finetune_tuab_age_attn_head.json` | best run (M1) + `clip_grad` 1.0 + attention head |
