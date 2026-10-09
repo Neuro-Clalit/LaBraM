@@ -37,6 +37,53 @@ KIND_COLORS = {"accurate": "#2ca02c", "under-predicted": "#1f77b4", "over-predic
 BAND_COLORS = {"delta": "#8c564b", "theta": "#e377c2", "alpha": "#2ca02c", "beta": "#17becf"}
 FS = 200.0
 EEG_DPI = 90        # dense EEG traces make large PNGs; this keeps a saved notebook manageable
+MAX_COLUMNS = 2     # house style: at most two subplots side by side
+
+
+# --------------------------------------------- numbering (figures / tables)
+def panel_labels(axes) -> list:
+    """Prefix each axis title with ``(a)``, ``(b)``, ... in reading order
+    (top-to-bottom, left-to-right), so the text can cite ``Figure 3.1(b)``.
+    Returns the axes in that order."""
+    axes = [a for a in np.ravel(np.asarray(axes, dtype=object)) if a is not None]
+    axes.sort(key=lambda a: (-round(a.get_position().y1, 3), round(a.get_position().x0, 3)))
+    for k, a in enumerate(axes):
+        title = a.get_title()
+        a.set_title(f"({chr(ord('a') + k)}) {title}" if title else f"({chr(ord('a') + k)})")
+    return axes
+
+
+def figure_caption(fig, number: str, text: str, fontsize: int = 12):
+    """``Figure <number>. <text>`` as the figure's suptitle."""
+    # Anchored just above the axes (bottom-aligned at y=1): tight_layout ignores
+    # suptitles, and the notebook's tight bbox keeps the overhang in view.
+    fig.suptitle(f"Figure {number}. {text}", fontsize=fontsize, fontweight="bold",
+                 y=1.0, va="bottom")
+    return fig
+
+
+def numbered_table(df, number: str, caption: str, precision: int = 2):
+    """A pandas Styler captioned ``Table <number>. <caption>`` (accepts a frame
+    or an existing Styler)."""
+    sty = df if hasattr(df, "set_caption") and not isinstance(df, pd.DataFrame) else (
+        df.style.format(precision=precision, na_rep="–"))
+    return sty.set_caption(f"Table {number}. {caption}").set_table_styles(
+        [{"selector": "caption", "props": "caption-side: top; font-weight: bold; "
+                                          "font-size: 1.05em; text-align: left;"}], overwrite=False)
+
+
+def assert_max_columns(fig, max_columns: int = MAX_COLUMNS) -> None:
+    """Raise when a row of ``fig`` holds more than ``max_columns`` axes
+    (colorbars excluded)."""
+    rows: Dict[float, int] = {}
+    for a in fig.axes:
+        if getattr(a, "_colorbar", None) is not None or a.get_label() == "<colorbar>":
+            continue
+        y = round(a.get_position().y1, 2)
+        rows[y] = rows.get(y, 0) + 1
+    worst = max(rows.values(), default=0)
+    if worst > max_columns:
+        raise AssertionError(f"figure row holds {worst} axes (max {max_columns})")
 
 
 # ----------------------------------------------------------------- caching
@@ -191,24 +238,24 @@ class AgeExplorer:
     # -- one recording -----------------------------------------------------
     def show(self, recording: str, window: Optional[int] = None, split: Optional[str] = None,
              channels: Optional[Sequence[str]] = None, seconds=(0.0, 10.0), car: bool = True,
-             reference: bool = True, clip: Optional[float] = 1.0):
+             reference: bool = True, clip: Optional[float] = 1.0, number: Optional[str] = None):
         """EEG of one window (default: the most representative one) + the
         prediction of every window across the recording + posterior spectrum
-        against age-matched normal recordings + relative band power."""
+        against age-matched normal recordings + relative band power, as a 2 x 2
+        figure with panels (a)-(d). ``number`` captions it ``Figure <number>``."""
         import matplotlib.pyplot as plt
         r = self.record(recording, split)
         w = self.windows_of(recording, r.split)
         pos = self.representative_window(w) if window is None else int(window)
         pick = w.iloc[pos]
         x = self.signal(r.split, pick.idx, car)
-        fig = plt.figure(figsize=(16, 5.6), dpi=EEG_DPI)
-        gs = fig.add_gridspec(2, 3, width_ratios=[2.2, 1, 1])
-        a = fig.add_subplot(gs[:, 0])
+        fig = plt.figure(figsize=(15, 10), dpi=EEG_DPI)
+        gs = fig.add_gridspec(2, 2, height_ratios=[1.9, 1], width_ratios=[1.5, 1])
+        a = fig.add_subplot(gs[0, 0])
         plot_eeg(a, x, self.ch_names, channels, seconds=seconds, clip=clip,
-                 title=f"{r.split} {r.recording} ({r.cohort}): true age {r.age:.0f}, recording "
-                       f"prediction {r.pred:.1f} | window {int(pick.window)} predicts {pick.pred:.1f}"
+                 title=f"EEG, window {int(pick.window)} (predicts {pick.pred:.1f})"
                        + ("" if car else "  [raw reference]"))
-        b = fig.add_subplot(gs[0, 1:])
+        b = fig.add_subplot(gs[0, 1])
         tm = w.window * 10 / 60
         b.plot(tm, w.pred, "o-", ms=3, label="window prediction")
         b.axhline(r.age, color="g", lw=1.8, label=f"true age {r.age:.0f}")
@@ -216,8 +263,8 @@ class AgeExplorer:
         b.plot([tm.iloc[pos]], [pick.pred], "o", ms=9, mfc="none", mec="k", label="shown window")
         b.set(xlabel="minutes from recording start", ylabel="age (years)", ylim=AGE_LIM,
               title=f"{len(w)} windows: predictions span {w.pred.min():.0f}–{w.pred.max():.0f} y")
-        b.legend(fontsize=7, ncol=4, loc="lower right")
-        c = fig.add_subplot(gs[1, 1])
+        b.legend(fontsize=7, ncol=2, loc="lower right")
+        c = fig.add_subplot(gs[1, 0])
         xs = np.stack([self.signal(r.split, i) for i in w.idx.to_numpy()[:8]])
         freqs, lp = posterior_log_psd(xs, self.ch_names)
         keep = (freqs >= 1) & (freqs <= 30)
@@ -229,11 +276,15 @@ class AgeExplorer:
         c.plot(freqs[keep], lp[keep], color="k", label="this recording")
         c.set(xlabel="Hz", ylabel="log10 µV²/Hz", title="posterior spectrum")
         c.legend(fontsize=6)
-        d = fig.add_subplot(gs[1, 2])
+        d = fig.add_subplot(gs[1, 1])
         rel = band_powers(xs)[0]
         d.bar(list(BAND_COLORS), [rel[n].mean() for n in BAND_COLORS], color=list(BAND_COLORS.values()))
         paf = r.get("paf", np.nan)
         d.set(title=f"relative band power (PAF {paf:.1f} Hz)", ylim=(0, 1))
+        panel_labels([a, b, c, d])
+        figure_caption(fig, number or "–",
+                       f"{r.split} {r.recording} ({r.cohort}): true age {r.age:.0f}, recording "
+                       f"prediction {r.pred:.1f} ({r.err:+.1f} y)", fontsize=11)
         fig.tight_layout()
         return fig
 
@@ -273,10 +324,13 @@ class AgeExplorer:
 
     def compare_at_age(self, age: float, tol: float = 3.0, split: Optional[str] = None,
                        cohort: Optional[str] = None, channels: Optional[Sequence[str]] = STANDARD_19,
-                       seconds=(0.0, 10.0), car: bool = True, clip: Optional[float] = 1.0):
+                       seconds=(0.0, 10.0), car: bool = True, clip: Optional[float] = 1.0,
+                       number: Optional[str] = None):
         """Real EEG of three recordings of about the same true age: predicted
-        accurately, predicted too young, predicted too old. Same µV scale in all
-        three; below, their per-window predictions, spectra and band powers."""
+        accurately, predicted too young, predicted too old, on the same µV scale;
+        then their per-window predictions, spectra and band powers. A 3 x 2
+        figure, panels (a)-(f): (a)-(c) EEG, (d) per-window predictions,
+        (e) posterior spectrum, (f) band power. ``number`` captions it."""
         import matplotlib.pyplot as plt
         picks = self.pick_at_age(age, tol, split, cohort)
         sigs, rows = {}, {}
@@ -286,12 +340,15 @@ class AgeExplorer:
             sigs[kind] = self.signal(r.split, rows[kind][2].idx, car)
         idx = channel_indices(self.ch_names, channels)
         spacing = eeg_scale(*[s[idx] for s in sigs.values()])
-        fig = plt.figure(figsize=(18, 10.5), dpi=EEG_DPI)
-        gs = fig.add_gridspec(2, 3, height_ratios=[2.6, 1])
+        fig = plt.figure(figsize=(15, 17), dpi=EEG_DPI)
+        gs = fig.add_gridspec(3, 2, height_ratios=[2.4, 2.4, 1.3])
+        cells = [gs[0, 0], gs[0, 1], gs[1, 0]]
+        eeg_axes = []
         for k, (kind, (r, w, pick)) in enumerate(rows.items()):
-            a = fig.add_subplot(gs[0, k])
+            a = fig.add_subplot(cells[k])
+            eeg_axes.append(a)
             plot_eeg(a, sigs[kind], self.ch_names, channels, spacing=spacing, seconds=seconds,
-                     color=KIND_COLORS[kind], label_channels=(k == 0), clip=clip)
+                     color=KIND_COLORS[kind], label_channels=(k != 1), clip=clip)
             note = ""
             if kind == "over-predicted" and r.err < 0:
                 note = " (oldest prediction, still below true age)"
@@ -300,14 +357,14 @@ class AgeExplorer:
             a.set_title(f"{kind.upper()}{note}\n{r.split} {r.recording} ({r.cohort})\n"
                         f"true age {r.age:.0f}  →  predicted {r.pred:.1f}  ({r.err:+.1f} y)",
                         fontsize=10, color=KIND_COLORS[kind], fontweight="bold")
-        fig.suptitle(f"Real EEG at true age ≈ {age:.0f}: accurate vs. under- vs. over-predicted "
-                     f"(CAR, same {spacing:.0f} µV scale"
-                     + (f", clipped at ±{clip:g} trace spacing" if clip is not None else "")
-                     + ", window closest to each recording's mean prediction)",
-                     fontsize=12, fontweight="bold")
-        b = fig.add_subplot(gs[1, 0])
-        c = fig.add_subplot(gs[1, 1])
-        d = fig.add_subplot(gs[1, 2])
+        figure_caption(fig, number or "–",
+                       f"Real EEG at true age ≈ {age:.0f}: accurate vs. under- vs. over-predicted\n"
+                       f"(CAR, same {spacing:.0f} µV scale"
+                       + (f", clipped at ±{clip:g} trace spacing" if clip is not None else "")
+                       + ", window closest to each recording's mean prediction)")
+        b = fig.add_subplot(gs[1, 1])
+        c = fig.add_subplot(gs[2, 0])
+        d = fig.add_subplot(gs[2, 1])
         width = 0.27
         for k, (kind, (r, w, _)) in enumerate(rows.items()):
             col = KIND_COLORS[kind]
@@ -329,6 +386,7 @@ class AgeExplorer:
         d.set_xticks(range(4), list(BAND_COLORS))
         d.set(ylim=(0, 1), title="relative band power")
         d.legend(fontsize=7)
+        panel_labels(eeg_axes + [b, c, d])
         fig.tight_layout()
         return fig
 
@@ -379,7 +437,7 @@ class AgeExplorer:
             with out:
                 fig = self.show(rec.value, None if rep.value else window.value, split.value,
                                 channels=CHANNEL_SETS[chans.value], car=car.value,
-                                clip=1.0 if clip.value else None)
+                                clip=1.0 if clip.value else None, number="8.E")
                 plt.show(fig)
 
         for wd in (split, kind, cohort, age):

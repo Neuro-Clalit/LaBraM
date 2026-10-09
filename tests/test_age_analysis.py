@@ -188,9 +188,42 @@ def test_explorer_figures_render():
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from labram.eval.age_plots import assert_max_columns
     ex = _explorer()
-    plt.close(ex.compare_at_age(61, channels=None))
-    plt.close(ex.show("r3", reference=False, channels=["O1", "O2"], seconds=(0, 5)))
+    fig = ex.compare_at_age(61, channels=None, number="8.1")
+    assert_max_columns(fig)
+    titles = sorted(a.get_title() for a in fig.axes)
+    assert [t[:3] for t in titles] == ["(a)", "(b)", "(c)", "(d)", "(e)", "(f)"]
+    assert fig._suptitle.get_text().startswith("Figure 8.1.")
+    plt.close(fig)
+    fig = ex.show("r3", reference=False, channels=["O1", "O2"], seconds=(0, 5), number="8.5")
+    assert_max_columns(fig)
+    assert sorted(a.get_title()[:3] for a in fig.axes) == ["(a)", "(b)", "(c)", "(d)"]
+    plt.close(fig)
+
+
+def test_numbering_helpers():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from labram.eval.age_plots import (
+        assert_max_columns, figure_caption, numbered_table, panel_labels)
+    fig, ax = plt.subplots(2, 2)
+    for a in ax.ravel():
+        a.set_title("t")
+    ordered = panel_labels(ax)
+    assert [a.get_title() for a in ordered] == ["(a) t", "(b) t", "(c) t", "(d) t"]
+    assert ordered[1] is ax[0, 1] and ordered[2] is ax[1, 0]
+    assert_max_columns(fig)
+    figure_caption(fig, "3.1", "x")
+    assert fig._suptitle.get_text() == "Figure 3.1. x"
+    plt.close(fig)
+    fig, _ = plt.subplots(1, 3)
+    with pytest.raises(AssertionError):
+        assert_max_columns(fig)
+    plt.close(fig)
+    html = numbered_table(pd.DataFrame({"mae": [1.234]}), "2.1", "summary").to_html()
+    assert "Table 2.1. summary" in html and "1.23" in html
 
 
 def test_plot_eeg_clips_to_spacing():
