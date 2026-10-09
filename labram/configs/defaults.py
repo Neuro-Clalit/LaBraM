@@ -61,6 +61,7 @@ DEFAULT_FINETUNE_QKV_BIAS: bool = True
 DEFAULT_FINETUNE_REL_POS_BIAS: bool = True
 DEFAULT_FINETUNE_ABS_POS_EMB: bool = False
 DEFAULT_FINETUNE_USE_MEAN_POOLING: bool = True
+DEFAULT_FINETUNE_CONCAT_CLS_TOKEN: bool = False
 DEFAULT_FINETUNE_INIT_SCALE: float = 0.001
 DEFAULT_FINETUNE_MODEL_KEY: str = 'model|module'
 DEFAULT_FINETUNE_MODEL_PREFIX: str = ''
@@ -128,7 +129,11 @@ DEFAULT_SINGLE_SHOCK_STRIDE: int = 1
 DEFAULT_OUTPUT_DIR: str = ''
 DEFAULT_LOG_DIR: str = ''     # '' rather than None so the YAML round-trips through safe_load
 DEFAULT_RESUME: str = ''
-DEFAULT_AUTO_RESUME: bool = True
+# Off: a new run must start from its pretrained weights, never silently pick up
+# a checkpoint an earlier run left in the same output_dir.
+DEFAULT_AUTO_RESUME: bool = False
+# Suffix output_dir/log_dir with the run's timestamp so no two runs share a dir.
+DEFAULT_OUTPUT_APPEND_TIMESTAMP: bool = True
 DEFAULT_SAVE_CKPT: bool = True
 # When True, skip the periodic/rolling per-epoch checkpoints and save only the
 # final trained model (one file at the end of training).
@@ -306,9 +311,13 @@ DEFAULT_ARCH_USE_ABS_POS_EMB: bool = True
 DEFAULT_ARCH_USE_REL_POS_BIAS: bool = False
 DEFAULT_ARCH_USE_SHARED_REL_POS_BIAS: bool = False
 DEFAULT_ARCH_USE_MEAN_POOLING: bool = True
+DEFAULT_ARCH_CONCAT_CLS_TOKEN: bool = False
 DEFAULT_ARCH_INIT_STD: float = 0.02
 DEFAULT_ARCH_INIT_SCALE: float = 0.001
 DEFAULT_ARCH_USE_NORM: bool = True
+# Rows of the learned time embedding = the longest input in 1 s patches. The
+# released LaBraM checkpoints use 16; longer fine-tune windows resize it.
+DEFAULT_ARCH_MAX_TIME_PATCHES: int = 16
 # NeuralTransformerForMEM (pre-train head)
 DEFAULT_ARCH_VOCAB_SIZE: int = DEFAULT_CODEBOOK_SIZE  # 8192
 # VQNSP tokenizer

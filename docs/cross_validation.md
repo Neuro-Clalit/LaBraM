@@ -61,7 +61,13 @@ untouched for a separate final evaluation.
 All folds of a study share a base experiment name (`<name>_cv<K>`, e.g.
 `finetune_tuab_cv5`). Each fold sub-run gets:
 
-- **Output dir** `‹base_dir›/fold_<k>/` (with `log/` inside).
+- **Output dir** `‹base_dir›/fold_<k>/` (with `log/` inside). With
+  `output.append_timestamp` (the default) an in-process study (`fold=-1`) stamps the
+  base folder once, e.g. `finetune_tuab_cv5_20261004_212821_618/fold_<k>/`, so a
+  rerun never mixes its folds into an earlier study's `cv_summary`; pass that
+  folder to `cv_report --base_dir`. A single-fold job (`fold=k`) keeps the plain
+  base so separately launched folds land together — or export one
+  `LABRAM_RUN_STAMP=<stamp>` to all of them to share a stamped base.
 - **ClearML** project sub-folder `‹project›/‹experiment›` and task name
   `fold_<k>`, tagged `cross-validation`, the experiment name, and `fold_<k>` — so
   the folds group together in the ClearML UI under one folder and are trivially

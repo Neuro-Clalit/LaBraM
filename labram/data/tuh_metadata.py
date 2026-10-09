@@ -72,10 +72,26 @@ class RecordingMetadata:
     sex: Optional[str]
     year: Optional[int]
     raw_age: Optional[int]
+    # TUAB's ``normal`` / ``abnormal`` folder the EDF sits in (None when the
+    # path names neither, e.g. a non-TUAB corpus or a pre-label sidecar).
+    label: Optional[str] = None
 
     @property
     def is_redacted(self) -> bool:
         return self.raw_age == REDACTED_AGE
+
+
+CASE_LABELS = ("normal", "abnormal")
+
+
+def label_from_path(path: str) -> Optional[str]:
+    """TUAB's normal/abnormal label from an EDF path's folder names
+    (``.../train/abnormal/01_tcp_ar/x.edf`` -> ``abnormal``)."""
+    parts = os.path.normpath(path).split(os.sep)
+    for label in CASE_LABELS:
+        if label in parts:
+            return label
+    return None
 
 
 def _split_stem(stem: str) -> Tuple[str, Optional[str], Optional[str]]:
@@ -126,6 +142,7 @@ def parse_edf_header_metadata(
         sex=sex_match.group(1) if sex_match else None,
         year=int(year_match.group(1)) if year_match else None,
         raw_age=raw_age,
+        label=label_from_path(path),
     )
 
 
@@ -180,6 +197,7 @@ def summarize_metadata(meta: Dict[str, RecordingMetadata]) -> Dict[str, object]:
         "age_min": min(ages) if ages else None,
         "age_max": max(ages) if ages else None,
         "sex_counts": dict(Counter(m.sex for m in meta.values())),
+        "label_counts": dict(Counter(m.label for m in meta.values())),
         "age_decades": {f"{d}-{d + 10}": decades[d] for d in sorted(decades)},
     }
 
@@ -208,6 +226,11 @@ def load_metadata_sidecar(path: str) -> Dict[str, RecordingMetadata]:
 def age_lookup(meta: Dict[str, RecordingMetadata]) -> Dict[str, float]:
     """``stem -> age in years`` for recordings with a usable age."""
     return {stem: float(m.age) for stem, m in meta.items() if m.age is not None}
+
+
+def label_lookup(meta: Dict[str, RecordingMetadata]) -> Dict[str, str]:
+    """``stem -> 'normal' | 'abnormal'`` for recordings with a known label."""
+    return {stem: m.label for stem, m in meta.items() if m.label is not None}
 
 
 def find_metadata_sidecar(start: str, *, filename: str = SIDECAR_FILENAME) -> Optional[str]:
@@ -246,6 +269,23 @@ def load_age_lookup_for(root: str, *, filename: str = SIDECAR_FILENAME) -> Dict[
             f"  python -m dataset_maker.make_TUAB_age scan --root <corpus edf dir>"
         )
     return age_lookup(load_metadata_sidecar(path))
+
+
+def load_label_lookup_for(root: str, *, filename: str = SIDECAR_FILENAME) -> Dict[str, str]:
+    """Resolve and load the normal/abnormal labels covering *root*.
+
+    Raises when the sidecar predates the ``label`` field, since an empty lookup
+    would otherwise silently filter every recording out."""
+    path = find_metadata_sidecar(root, filename=filename)
+    if path is None:
+        raise FileNotFoundError(f"No {filename} found in {root} or any parent directory.")
+    labels = label_lookup(load_metadata_sidecar(path))
+    if not labels:
+        raise ValueError(
+            f"{path} has no normal/abnormal labels (written before the 'label' field "
+            f"existed). Regenerate it with:\n"
+            f"  python dataset_maker/make_TUAB_age.py scan --root <corpus edf dir>")
+    return labels
 
 
 def recording_stem(filename: str, *, sep: str = "_") -> str:

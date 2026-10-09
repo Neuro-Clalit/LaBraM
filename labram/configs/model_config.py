@@ -90,6 +90,26 @@ class CodebookRegConfig(ConfigBase):
 
 
 @dataclass
+class LoRAConfig(ConfigBase):
+    """Low-rank adaptation of the fine-tune encoder (opt-in).
+
+    The pretrained weights are frozen and every target ``nn.Linear`` in every
+    transformer block gets a trainable rank-``rank`` update ``B A`` scaled by
+    ``alpha / rank`` (``B`` starts at zero, so the model is unchanged at init).
+    Adaptation happens at every depth but in a low-dimensional subspace that
+    cannot encode thousands of recording identities. ``train_prefixes`` are the
+    non-LoRA parameters that stay trainable (the new head and its norms).
+    Incompatible with ``trainable_prefixes`` and ``codebook_reg``.
+    """
+    enabled: bool = False
+    rank: int = 16
+    alpha: float = 32.0
+    dropout: float = 0.0
+    targets: List[str] = field(default_factory=lambda: ["qkv", "proj", "fc1", "fc2"])
+    train_prefixes: List[str] = field(default_factory=lambda: ["head", "fc_norm", "cls_norm"])
+
+
+@dataclass
 class FinetuneModelConfig(ConfigBase):
     model: str = conf_consts.DEFAULT_FINETUNE_MODEL
     input_size: int = conf_consts.DEFAULT_FINETUNE_INPUT_SIZE
@@ -101,6 +121,9 @@ class FinetuneModelConfig(ConfigBase):
     attn_drop_rate: float = conf_consts.DEFAULT_ATTN_DROP_RATE
     drop_path: float = conf_consts.DEFAULT_DROP_PATH
     use_mean_pooling: bool = conf_consts.DEFAULT_FINETUNE_USE_MEAN_POOLING
+    # With mean pooling, also feed the (separately normalized) class token to
+    # the head: features = [mean patch token, cls token], width 2 * embed_dim.
+    concat_cls_token: bool = conf_consts.DEFAULT_FINETUNE_CONCAT_CLS_TOKEN
     init_scale: float = conf_consts.DEFAULT_FINETUNE_INIT_SCALE
     nb_classes: int = conf_consts.DEFAULT_FINETUNE_NB_CLASSES
     # "classification" or "regression". Both use nb_classes == 1 for a single
@@ -111,12 +134,27 @@ class FinetuneModelConfig(ConfigBase):
     # (mean, std) the dataset used to z-score a regression target, so evaluation
     # can report metrics in the target's original units.
     target_stats: Optional[Tuple[float, float]] = None
+    # Parameter-name prefixes left trainable; everything else is frozen after
+    # the checkpoint loads. Empty = train everything. ["head"] is a pure
+    # regression/classification-head probe; ["head", "fc_norm", "blocks.11"]
+    # also adapts the last block.
+    trainable_prefixes: List[str] = field(default_factory=list)
     codebook_reg: CodebookRegConfig = field(default_factory=CodebookRegConfig)
+    lora: LoRAConfig = field(default_factory=LoRAConfig)
 
     def validate(self) -> None:
         if self.task not in ("classification", "regression"):
             raise ValueError(
                 f"model.task must be 'classification' or 'regression', got {self.task!r}")
+        if self.lora.enabled:
+            if self.trainable_prefixes:
+                raise ValueError("model.lora cannot be combined with model.trainable_prefixes")
+            if self.codebook_reg.enabled:
+                raise ValueError("model.lora is not supported with model.codebook_reg")
+            if self.lora.rank < 1:
+                raise ValueError(f"model.lora.rank must be >= 1, got {self.lora.rank}")
+        if self.concat_cls_token and not self.use_mean_pooling:
+            raise ValueError("model.concat_cls_token requires model.use_mean_pooling")
 
     @property
     def is_regression(self) -> bool:
@@ -163,9 +201,11 @@ class TransformerArchConfig(ConfigBase):
     use_rel_pos_bias: bool = conf_consts.DEFAULT_ARCH_USE_REL_POS_BIAS
     use_shared_rel_pos_bias: bool = conf_consts.DEFAULT_ARCH_USE_SHARED_REL_POS_BIAS
     use_mean_pooling: bool = conf_consts.DEFAULT_ARCH_USE_MEAN_POOLING
+    concat_cls_token: bool = conf_consts.DEFAULT_ARCH_CONCAT_CLS_TOKEN
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM
+    max_time_patches: int = conf_consts.DEFAULT_ARCH_MAX_TIME_PATCHES
     # LaBraM++ input preprocessing (CAR + z-scoring); disabled by default so the
     # backbone reproduces the original LaBraM behaviour.
     labram_plus: LaBraMPlusConfig = field(default_factory=LaBraMPlusConfig)

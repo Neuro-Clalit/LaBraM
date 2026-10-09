@@ -5,7 +5,8 @@
         "output_dir": "./checkpoints/labram_base",
         "log_dir": "./log/labram_base",
         "resume": "",
-        "auto_resume": true,
+        "auto_resume": false,
+        "append_timestamp": true,
         "save_ckpt": true,
         "save_ckpt_freq": 5,
         "save_only_final_model": false
@@ -80,7 +81,14 @@
         "robust_test": "",
         "split_json": "",
         "dataset": "",
-        "data_path": ""
+        "data_path": "",
+        "case_filter": "all",
+        "trim_start_sec": 0.0,
+        "trim_end_sec": 0.0,
+        "window_sec": 10,
+        "eval_minutes": 0.0,
+        "data_format": "pickle",
+        "random_crop": false
     },
     "clearml": {
         "py/object": "labram.configs.train_config.ClearMLConfig",
@@ -124,7 +132,15 @@
         "regression_loss": "huber",
         "huber_delta": 1.0,
         "classifier_weight": 1.0,
-        "phase_loss": "angle"
+        "phase_loss": "angle",
+        "soft_label_sigma": 2.5,
+        "soft_label_min": 1.0,
+        "soft_label_max": 89.0,
+        "soft_label_bin_width": 1.0,
+        "balance": "none",
+        "balance_bin_width": 1.0,
+        "balance_lds_sigma": 2.0,
+        "balance_max_weight": 10.0
     },
     "shutdown": {
         "py/object": "labram.configs.train_config.ShutdownConfig",
@@ -179,6 +195,7 @@
         },
         "input_mode": "File",
         "environment": {},
+        "clearml_secret": "labram/clearml",
         "hyperparameters": {},
         "tags": {},
         "wait": false,

@@ -5,6 +5,7 @@
 # ---------------------------------------------------------
 
 from collections import OrderedDict
+from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -184,6 +185,15 @@ def remap_legacy_keys(weights: dict) -> "OrderedDict":
             key = key.replace('quantize.', 'quantizer.', 1)
         renamed[key] = value
     return renamed
+
+
+def vqnsp_codebook_shape(pretrained_weight: str) -> Tuple[int, int]:
+    """``(num_codebook_tokens, quantizer_dim)`` of a VQNSP checkpoint, read from
+    its codebook, so a model can be built to match the weights it will load
+    (the released ``vqnsp.pth`` uses 8192 x 64, the factory default is 32-dim)."""
+    weights = remap_legacy_keys(load_pretrained_weights(pretrained_weight))
+    n_codes, dim = weights["quantizer.embedding.weight"].shape
+    return int(n_codes), int(dim)
 
 
 def load_vqnsp_weights(model: nn.Module, pretrained_weight: str) -> None:

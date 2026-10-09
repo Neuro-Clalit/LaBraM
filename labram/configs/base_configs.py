@@ -110,7 +110,7 @@ class ConfigBase(ABC):
     def load_from(cls, data_obj: DATA_OBJ, raise_exception: bool = True) -> 'ConfigBase':
         if isinstance(data_obj, str):
             data_obj = hyper_utils.from_data_file(data_obj)
-        data_obj = cls._parse_data_obj(data_obj)
+        data_obj = cls._parse_data_obj(data_obj, raise_exception=raise_exception)
         data_obj.validate_type_fields(raise_exception)
         return data_obj
 

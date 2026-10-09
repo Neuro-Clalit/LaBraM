@@ -17,7 +17,7 @@ from timm.models import create_model
 import labram.models.registry  # noqa: F401  (registers timm factories)
 import labram.utils as utils
 from labram.configs.run_configs import FinetuneRunConfig
-from labram.runs.finetune_setup import enable_window_ids
+from labram.runs.finetune_setup import enable_window_ids, required_time_patches
 
 logger = utils.get_logger(__name__)
 
@@ -27,8 +27,12 @@ logger = utils.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 def load_run_config(path: str) -> FinetuneRunConfig:
-    """Load a saved ``FinetuneRunConfig`` (``run_config.yaml`` / ``.json``)."""
-    return FinetuneRunConfig.load_config(path)
+    """Load a saved ``FinetuneRunConfig`` (``run_config.yaml`` / ``.json``).
+
+    Non-strict: a run saved before a config field existed loads with that
+    field's default (with a warning) -- every new field defaults to the old
+    behaviour -- so older experiments stay evaluable."""
+    return FinetuneRunConfig.load_config(path, raise_exception=False)
 
 
 def build_finetune_model(
@@ -52,9 +56,11 @@ def build_finetune_model(
             num_classes=m.nb_classes, drop_rate=m.drop,
             drop_path_rate=m.drop_path, attn_drop_rate=m.attn_drop_rate,
             use_mean_pooling=m.use_mean_pooling, init_scale=m.init_scale,
+            concat_cls_token=m.concat_cls_token,
             use_rel_pos_bias=m.rel_pos_bias, use_abs_pos_emb=m.abs_pos_emb,
             init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
             labram_plus=config.labram_plus,
+            max_time_patches=required_time_patches(config.data),
         )
     if device is not None:
         model.to(device)

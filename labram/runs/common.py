@@ -13,6 +13,7 @@
 import datetime
 import json
 import os
+import re
 import time
 from argparse import Namespace
 from typing import Any, List, Optional, Sequence, Tuple
@@ -23,6 +24,7 @@ import torch.backends.cudnn as cudnn
 import torch.utils.data
 
 import labram.utils as utils
+from labram.utils.secrets import redacted_copy
 from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import ClearMLConfig, DistributedConfig, OutputConfig, TrainerConfig
 
@@ -72,7 +74,14 @@ def setup_environment(config, init_cudnn_benchmark: bool = True) -> Tuple[torch.
     if init_cudnn_benchmark and torch.cuda.is_available():
         cudnn.benchmark = True
 
+    # After distributed init (so every rank agrees on the timestamp) and before
+    # the run log file is opened inside the output dir.
+    prepare_output_dir(config)
     _configure_run_logging(config)
+    output_cfg = getattr(config, 'output', None)
+    if isinstance(output_cfg, OutputConfig) and output_cfg.output_dir:
+        logger.info("Run output_dir: %s (log_dir: %s)",
+                    output_cfg.output_dir, output_cfg.log_dir or '-')
 
     return device, utils.get_world_size(), utils.get_rank()
 
@@ -147,6 +156,71 @@ def _timestamp_ms() -> str:
     return now.strftime('%Y%m%d_%H%M%S') + f'_{now.microsecond // 1000:03d}'
 
 
+# Pins the run timestamp from outside -- e.g. so separately launched CV fold
+# jobs, or the nodes of a multi-node job, share one output directory.
+RUN_STAMP_ENV = 'LABRAM_RUN_STAMP'
+_STAMP_SUFFIX_RE = re.compile(r'_(\d{8}_\d{6}_\d{3})$')
+
+
+def run_stamp() -> str:
+    """The run's timestamp: ``$LABRAM_RUN_STAMP`` when set, else the current
+    time. Under an initialized process group rank 0's value is broadcast, so
+    every rank agrees -- call it on all ranks together in that case."""
+    stamp = os.environ.get(RUN_STAMP_ENV) or _timestamp_ms()
+    if (torch.distributed.is_available() and torch.distributed.is_initialized()
+            and torch.distributed.get_world_size() > 1):
+        box = [stamp]
+        torch.distributed.broadcast_object_list(box, src=0)
+        stamp = box[0]
+    return stamp
+
+
+def _stamped(path: str, stamp: str) -> str:
+    base = path.rstrip('/\\')
+    return base if base.endswith(f'_{stamp}') else f'{base}_{stamp}'
+
+
+def stamp_output_dirs(output_cfg: Any, stamp: Optional[str] = None) -> bool:
+    """Apply ``output.append_timestamp``: suffix ``output_dir`` (and ``log_dir``)
+    with the run stamp so the run cannot reuse an earlier run's directory.
+
+    A ``log_dir`` equal to or inside ``output_dir`` follows it; a separate one is
+    stamped on its own. Skipped when resuming (``auto_resume`` / ``resume``),
+    which needs the existing directory. The flag is then cleared, so the saved
+    ``run_config.yaml`` reloads to the same directory. Returns whether it stamped.
+    """
+    if not getattr(output_cfg, 'append_timestamp', False) or not output_cfg.output_dir:
+        return False
+    output_cfg.append_timestamp = False
+    if output_cfg.auto_resume or output_cfg.resume:
+        logger.info("Not timestamping %s: resuming needs the existing output_dir",
+                    output_cfg.output_dir)
+        return False
+    stamp = stamp or run_stamp()
+    old = os.path.normpath(output_cfg.output_dir)
+    output_cfg.output_dir = _stamped(output_cfg.output_dir, stamp)
+    if output_cfg.log_dir:
+        log_dir = os.path.normpath(output_cfg.log_dir)
+        if log_dir == old or log_dir.startswith(old + os.sep):
+            output_cfg.log_dir = output_cfg.output_dir + log_dir[len(old):]
+        else:
+            output_cfg.log_dir = _stamped(output_cfg.log_dir, stamp)
+    return True
+
+
+def prepare_output_dir(config: Any) -> None:
+    """Timestamp the run's output dirs (see :func:`stamp_output_dirs`), create
+    ``output_dir`` and save the resolved ``run_config.yaml`` into it (rank 0)."""
+    output_cfg = getattr(config, 'output', None)
+    if not isinstance(output_cfg, OutputConfig):
+        return
+    stamp_output_dirs(output_cfg)
+    if output_cfg.output_dir and utils.is_main_process():
+        os.makedirs(output_cfg.output_dir, exist_ok=True)
+        if hasattr(config, 'save_to'):
+            redacted_copy(config).save_to(os.path.join(output_cfg.output_dir, 'run_config.yaml'))
+
+
 def _clearml_default_output_uri() -> Optional[str]:
     """The ``sdk.development.default_output_uri`` from the ClearML config, if set."""
     try:
@@ -170,6 +244,29 @@ def _debug_output_uri(clearml_cfg: ClearMLConfig, project_name: str) -> Optional
     if not base:
         return None
     return base.rstrip('/') + f'/{project_name}/debug'
+
+
+def clearml_frameworks(enabled: bool):
+    """ClearML framework auto-binding for ``clearml.auto_connect_frameworks``.
+
+    Everything stays connected except PyTorch model I/O: that hook uploads every
+    ``torch.save`` (each epoch's rolling checkpoint, then the final one) on top of
+    the explicit best-checkpoint upload in :func:`finalize_run`, and those
+    concurrent end-of-run uploads are what left finished runs hanging at exit.
+    """
+    return {"pytorch": False} if enabled else False
+
+
+def _scrub_task_entry_point(task: Any, run_config: Any) -> None:
+    from labram.utils.secrets import redact_text, secret_values
+    try:
+        entry = getattr(getattr(task.data, 'script', None), 'entry_point', '') or ''
+        clean = redact_text(entry, secret_values(run_config) if run_config is not None else ())
+        if clean != entry:
+            task.set_script(entry_point=clean)
+            logger.info("Masked credentials in the ClearML task's recorded command line")
+    except Exception as exc:  # pragma: no cover - never fail a run on tracking
+        logger.warning("Could not scrub the ClearML entry point: %s", exc)
 
 
 def _sagemaker_enabled(run_config: Any) -> bool:
@@ -211,7 +308,14 @@ def init_clearml_task(
     # Uniquely identify each experiment: append a millisecond-precision timestamp
     # to the task name (e.g. 'finetune_tuab_base_20260718_143025_123').
     if getattr(clearml_cfg, 'append_timestamp', True):
-        task_name = f"{task_name}_{_timestamp_ms()}"
+        # Reuse the stamp already on the output dir so the task and its
+        # directory share one name; a derived name may carry it already.
+        output_cfg = getattr(run_config, 'output', None)
+        match = _STAMP_SUFFIX_RE.search(
+            os.path.normpath(getattr(output_cfg, 'output_dir', '') or ''))
+        stamp = match.group(1) if match else _timestamp_ms()
+        if not task_name.endswith(f'_{stamp}'):
+            task_name = f"{task_name}_{stamp}"
 
     output_uri = clearml_cfg.output_uri or None
     tags = list(clearml_cfg.tags)
@@ -233,7 +337,7 @@ def init_clearml_task(
         task_name=task_name,
         output_uri=output_uri,
         continue_last_task=clearml_cfg.continue_last_task,
-        auto_connect_frameworks=clearml_cfg.auto_connect_frameworks,
+        auto_connect_frameworks=clearml_frameworks(clearml_cfg.auto_connect_frameworks),
     )
     if tags:
         task.add_tags(tags)
@@ -241,16 +345,19 @@ def init_clearml_task(
     # auto-detect the code state. When the submitter shipped its git metadata,
     # replay it so branch/commit/uncommitted-diff still reach the experiment.
     utils.apply_git_info_to_task(task)
+    # ClearML records the full command line as the script entry point; mask any
+    # credential passed there (e.g. a --set sagemaker.environment override).
+    _scrub_task_entry_point(task, run_config)
     if run_config is not None and hasattr(run_config, 'as_dict'):
         try:
-            task.connect_configuration(run_config.as_dict(), name='run_config')
+            task.connect_configuration(redacted_copy(run_config).as_dict(), name='run_config')
         except Exception as exc:  # pragma: no cover - defensive: never fail a run on tracking
             logger.warning("ClearML connect_configuration failed: %s", exc)
         # Also connect the config as flat dotted-key hyperparameters so it shows
         # as a searchable/sortable table in the ClearML experiment (not just a
         # JSON blob under Configuration).
         try:
-            task.connect(flatten_config(run_config.as_dict()), name='config')
+            task.connect(flatten_config(redacted_copy(run_config).as_dict()), name='config')
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("ClearML connect (hyperparameters) failed: %s", exc)
     task_url = _clearml_task_url(task)
@@ -513,7 +620,8 @@ def flatten_summary_metrics(summary: Any) -> dict:
         flat['best_epoch'] = summary['best_epoch']
     for key, prefix in (('best_val_stats', 'val'), ('best_test_stats', 'test')):
         for k, v in (summary.get(key) or {}).items():
-            if _is_num(v):
+            # MSE is left out: RMSE reports the same error in the target's units.
+            if _is_num(v) and k not in ('mse', 'window_mse'):
                 flat[f'{prefix}_{k}'] = v
     # Eval-only runs return their metrics at the top level: accuracy/balanced
     # accuracy for classification, the regression metrics for a scalar target.
@@ -558,6 +666,92 @@ def log_summary_metrics(log_writer: Any, summary: Any, config: Any = None,
     return flat
 
 
+SUMMARY_TABLE_SPLITS = ('train', 'val', 'test')
+# Metric columns of the summary tables, in display order. Loss-term columns
+# (``*_loss``) follow ``loss``, and ``window_*`` variants follow the case-level
+# set. Confusion-matrix counts, timing and optimizer state are left out.
+SUMMARY_TABLE_METRICS = (
+    'loss',
+    'mae', 'mae_corrected', 'rmse', 'r2', 'pearson_r', 'spearman_r', 'age_bias_slope',
+    # Median-pooled case metrics (the primary ones above use evaluation.agg_windows).
+    'case_median_mae', 'case_median_rmse', 'case_median_r2',
+    'pred_mean', 'pred_std', 'target_mean', 'target_std',
+    'accuracy', 'balanced_accuracy', 'roc_auc', 'pr_auc', 'f1', 'f1_weighted',
+    'precision', 'recall', 'sensitivity', 'specificity', 'cohen_kappa',
+)
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, bool)
+
+
+def _summary_table_columns(keys: set) -> List[str]:
+    terms = sorted(k for k in keys
+                   if k.endswith('_loss') and k != 'loss' and not k.startswith('window_'))
+    metrics = SUMMARY_TABLE_METRICS[1:]
+    # The prediction/target mean & std describe the split, not the window
+    # pooling, so they are not repeated in the window_* columns.
+    window = [f'window_{m}' for m in metrics
+              if f'window_{m}' in keys and not m.startswith(('pred_', 'target_'))]
+    cohorts = [f'{c}_{m}' for c in ('normal', 'abnormal')
+               for m in ('mae', 'rmse', 'r2', 'pearson_r', 'n_cases') if f'{c}_{m}' in keys]
+    return (['loss'] if 'loss' in keys else []) + terms \
+        + [m for m in metrics if m in keys] + window + cohorts
+
+
+def build_summary_tables(summary: Any, decimals: int = 2) -> dict:
+    """Best-vs-last epoch tables, one per split, from a ``train_loop`` summary.
+
+    Returns ``{split: rows}`` where ``rows`` is a list of string rows with the
+    header first (``['', 'epoch', <metric>...]``) followed by a ``best`` row (the
+    epoch selected on validation) and a ``last`` row (the final epoch); numbers
+    are formatted with ``decimals`` places. A split with no stats is omitted."""
+    if not isinstance(summary, dict):
+        return {}
+    epochs = (('best', summary.get('best_epoch')), ('last', summary.get('last_epoch')))
+    tables = {}
+    for split in SUMMARY_TABLE_SPLITS:
+        rows = [(label, epoch, summary.get(f'{label}_{split}_stats') or {})
+                for label, epoch in epochs]
+        rows = [r for r in rows if r[2] and _is_number(r[1]) and r[1] >= 0]
+        if not rows:
+            continue
+        columns = _summary_table_columns(
+            {k for _, _, stats in rows for k, v in stats.items() if _is_number(v)})
+        if not columns:
+            continue
+        body = [[label, str(int(epoch))]
+                + [f'{stats[c]:.{decimals}f}' if _is_number(stats.get(c)) else ''
+                   for c in columns]
+                for label, epoch, stats in rows]
+        tables[split] = [['', 'epoch'] + columns] + body
+    return tables
+
+
+def format_text_table(rows: Sequence[Sequence[str]]) -> str:
+    """Render string rows (header first) as an aligned plain-text table."""
+    widths = [max(len(str(row[i])) for row in rows) for i in range(len(rows[0]))]
+    return '\n'.join('  '.join(str(cell).rjust(w) for cell, w in zip(row, widths))
+                     for row in rows)
+
+
+def log_summary_tables(log_writer: Any, summary: Any, title: str = 'summary') -> dict:
+    """Log :func:`build_summary_tables` -- to the console and, as one table per
+    split (``title`` / ``train|val|test``), to the writer(s). Rank-0 only;
+    returns the tables."""
+    if not utils.is_main_process():
+        return {}
+    tables = build_summary_tables(summary)
+    for split, rows in tables.items():
+        logger.info("%s (%s):\n%s", title, split, format_text_table(rows))
+        if log_writer is not None and hasattr(log_writer, 'report_table'):
+            try:
+                log_writer.report_table(title, split, rows)
+            except Exception as exc:  # pragma: no cover - never fail a run on logging
+                logger.warning("report_table(%s/%s) failed: %s", title, split, exc)
+    return tables
+
+
 def log_cv_split_artifact(output_cfg: OutputConfig, log_writer: Any = None,
                           filename: str = 'cv_split.json') -> Optional[str]:
     """Upload the cross-validation fold partition (``cv_split.json``, written to
@@ -576,6 +770,9 @@ def log_cv_split_artifact(output_cfg: OutputConfig, log_writer: Any = None,
     task = get_clearml_task(log_writer)
     upload_file_artifact(task, 'cv_split', path)
     return path
+
+
+CLEARML_FINALIZE_TIMEOUT_SEC = 600
 
 
 def finalize_run(config: Any, log_writer: Any = None) -> None:
@@ -620,14 +817,14 @@ def finalize_run(config: Any, log_writer: Any = None) -> None:
         if task_url:
             logger.info("ClearML results: %s", task_url)
 
-    # If we're about to stop the machine, finish the ClearML task first so its
-    # final state and pending uploads are persisted before the box is killed —
-    # otherwise the abrupt stop can leave the task stuck "running" or lose the
-    # last metrics/artifacts.
+    # Always finish the ClearML task here, with a time limit: flush pending
+    # uploads, mark it Completed and close it. Left to ClearML's exit handlers,
+    # a stuck upload kept finished runs (and SageMaker jobs) alive for hours;
+    # an instance about to be stopped also needs its final state persisted.
     shutdown_cfg = getattr(config, 'shutdown', None)
-    will_stop = shutdown_cfg is not None and getattr(shutdown_cfg, 'stop_instance_on_finish', False)
-    if will_stop and clearml_on:
-        finalize_clearml_task(get_clearml_task(log_writer))
+    if clearml_on:
+        finalize_clearml_task(get_clearml_task(log_writer),
+                              timeout_sec=CLEARML_FINALIZE_TIMEOUT_SEC)
 
     try:
         maybe_stop_instance(shutdown_cfg)

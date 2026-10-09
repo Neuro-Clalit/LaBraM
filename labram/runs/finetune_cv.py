@@ -35,6 +35,7 @@ from labram.data import (
     subject_overlap,
 )
 from labram.data.cross_validation import GroupedFolds
+from labram.runs.common import RUN_STAMP_ENV, run_stamp
 
 logger = utils.get_logger(__name__)
 
@@ -68,6 +69,29 @@ def cv_base_dir(config: FinetuneRunConfig) -> str:
     return cv_experiment_name(config)
 
 
+def stamp_cv_base_dir(config: FinetuneRunConfig) -> None:
+    """Apply ``output.append_timestamp`` to the CV study: suffix the base folder
+    (not each fold) with the run stamp, so a rerun never mixes its folds into an
+    earlier study's ``cv_summary``.
+
+    Left unstamped when resuming, or when this process trains a single fold of a
+    study whose other folds run as separate jobs -- they must share one base
+    folder; pin a common ``$LABRAM_RUN_STAMP`` to stamp those. Also left alone
+    under torchrun without a pinned stamp, since ranks would disagree before the
+    process group exists."""
+    output = config.output
+    if not output.append_timestamp:
+        return
+    output.append_timestamp = False
+    pinned = os.environ.get(RUN_STAMP_ENV)
+    single_fold = config.cross_validation.fold is not None and config.cross_validation.fold >= 0
+    multi_rank = int(os.environ.get('WORLD_SIZE', '1')) > 1
+    if output.auto_resume or output.resume or ((single_fold or multi_rank) and not pinned):
+        logger.info("Not timestamping the CV base dir %s", cv_base_dir(config))
+        return
+    config.cross_validation.base_dir = f"{cv_base_dir(config).rstrip('/')}_{run_stamp()}"
+
+
 def fold_dir_name(k: int) -> str:
     return f"fold_{k}"
 
@@ -88,6 +112,9 @@ def derive_fold_config(config: FinetuneRunConfig, k: int) -> FinetuneRunConfig:
     fold_out = os.path.join(base, fold_dir_name(k))
     fold_config.output.output_dir = fold_out
     fold_config.output.log_dir = os.path.join(fold_out, 'log')
+    # The study's base dir carries the timestamp (see stamp_cv_base_dir); a fold
+    # must stay at <base>/fold_<k> for cross-fold aggregation.
+    fold_config.output.append_timestamp = False
 
     # Group the fold experiments under a common ClearML project sub-folder named
     # after the CV study, with the fold number as the task name.
@@ -170,8 +197,10 @@ def run_cross_validation(config: FinetuneRunConfig) -> Dict:
     and (for an in-process multi-fold run) aggregate metrics across folds."""
     config.cross_validation.enabled = True
     config.cross_validation.validate()
+    stamp_cv_base_dir(config)
 
-    base_bundle = get_dataset_bundle(config.data.dataset, config.data.data_path)
+    base_bundle = get_dataset_bundle(config.data.dataset, config.data.data_path,
+                                     data_format=config.data.data_format)
     folds = prepare_folds(config, base_bundle)
 
     overlap = subject_overlap(folds)
@@ -222,4 +251,5 @@ def build_config(cli: argparse.Namespace) -> FinetuneRunConfig:
 if __name__ == '__main__':
     cli = parse_cli()
     config = build_config(cli)
-    run_cross_validation(config)
+    from labram.utils.exit_guard import run_and_exit
+    run_and_exit(run_cross_validation, config)
