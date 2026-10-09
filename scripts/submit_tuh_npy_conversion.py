@@ -54,7 +54,8 @@ def main():
     args = ap.parse_args()
 
     prefix = CORPORA[args.corpus]
-    edf_root, dst = f"s3://{BUCKET}/{prefix}/edf", f"s3://{BUCKET}/{prefix}/processed_npy"
+    # Scan paths are relative to the corpus root (edf/000/...), as on S3.
+    edf_root, dst = f"s3://{BUCKET}/{prefix}", f"s3://{BUCKET}/{prefix}/processed_npy"
     staging = f"labram/tuh-npy/{args.corpus}"
     inputs_dir = "/opt/ml/processing/src"
     skip = [f"{inputs_dir}/skip_{i}.parquet" for i in range(len(args.skip_stems))]

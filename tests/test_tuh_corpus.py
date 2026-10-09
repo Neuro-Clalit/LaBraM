@@ -159,3 +159,13 @@ def test_leakage_audit_finds_eval_subjects_elsewhere():
     summary = ti.summarize(ti.build_index([tueg, tuab]))
     json.dumps(summary)        # must be JSON-able as is
     assert summary["per_corpus"]["tuab"]["recordings"] == 2
+
+
+def test_chunk_scan_paths_are_relative_to_corpus_root(tmp_path):
+    root = tmp_path / "v2.0.2"
+    write_edf_header(root / "edf/000/aaaaaaaa/s001_2015_12_30/01_tcp_ar/aaaaaaaa_s001_t000.edf", REF)
+    write_edf_header(root / "edf/001/aaaaaaab/s001_2015_12_30/01_tcp_ar/aaaaaaab_s001_t000.edf", REF)
+    out = tmp_path / "000.json"
+    assert dl.scan_chunk(str(root), "edf/000", str(out), "tueg") == 1
+    assert json.loads(out.read_text())[0]["path"] == \
+        "edf/000/aaaaaaaa/s001_2015_12_30/01_tcp_ar/aaaaaaaa_s001_t000.edf"

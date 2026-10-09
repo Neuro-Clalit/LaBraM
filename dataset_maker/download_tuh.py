@@ -199,10 +199,14 @@ def verify_upload(local_dir, bucket, prefix, sample=10, seed=0):
 
 
 # ---------------------------------------------------------------------- steps
-def scan_chunk(local_dir, out_path, corpus_name):
-    """Header-scan every EDF of a chunk into a JSON list of recording rows."""
+def scan_chunk(local_root, rel, out_path, corpus_name):
+    """Header-scan every EDF of a chunk into a JSON list of recording rows.
+
+    Paths in the rows are relative to the corpus root (``edf/000/...``), the
+    same layout as on S3, so the scan doubles as the conversion work list."""
     from labram.data.tuh_metadata import scan_recordings
-    rows = scan_recordings(local_dir, corpus=corpus_name)
+    pattern = f"{rel}/**/*.edf" if rel else "**/*.edf"
+    rows = scan_recordings(local_root, corpus=corpus_name, pattern=pattern)
     tmp = out_path + ".tmp"
     with open(tmp, "w") as fh:
         json.dump(rows, fh)
@@ -222,7 +226,7 @@ def process_chunk(name, corpus, chunk, args, state):
     if chunk != META and not args.no_scan:
         scan_path = os.path.join(args.state_dir, name, "scans", f"{chunk}.json")
         os.makedirs(os.path.dirname(scan_path), exist_ok=True)
-        n = scan_chunk(local_dir, scan_path, name)
+        n = scan_chunk(local_root, rel, scan_path, name)
         state.update(chunk, n_scanned=n)
 
     state.update(chunk, status="uploading")
