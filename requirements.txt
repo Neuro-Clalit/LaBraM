@@ -9,6 +9,7 @@ blobfile
 mypy
 numpy<2
 pandas<2.2.0
+pyarrow
 pytest
 requests
 einops
