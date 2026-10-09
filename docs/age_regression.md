@@ -41,7 +41,9 @@ Usable ages 1–89: **2,978 recordings**, mean 49.1, median 49, std 17.4.
 
 Two `Age:` values are sentinels rather than ages; Table 1.1 lists them.
 
-**Table 1.1.** Sentinel `Age:` values in the TUAB v3.0.0 EDF headers: count of
+#### Table 1.1. Sentinel age values
+
+Sentinel `Age:` values in the TUAB v3.0.0 EDF headers: count of
 recordings and how the loader handles them.
 
 | Value | Count (TUAB) | Meaning | Handling |
@@ -95,7 +97,9 @@ subject**, with a fixed seed, and asserts zero overlap on both save and load —
 a leaking split raises rather than passing silently. TUAB's official eval set
 (`processed/test`) is left untouched. Table 3.1 gives the resulting split sizes.
 
-**Table 3.1.** The subject-disjoint TUAB age split: subjects, recordings and
+### Table 3.1. Subject-disjoint age split
+
+The subject-disjoint TUAB age split: subjects, recordings and
 10 s windows per split, and the age (years) mean ± std.
 
 | split | subjects | recordings | windows | age mean ± std |
@@ -126,7 +130,9 @@ it cannot distinguish the two. `FinetuneModelConfig.task`
 (`"classification"` | `"regression"`, set from `DatasetBundle.task`) is what
 selects every row of Table 4.1:
 
-**Table 4.1.** What `FinetuneModelConfig.task` switches between the
+### Table 4.1. Classification vs. regression path
+
+What `FinetuneModelConfig.task` switches between the
 classification and the regression path.
 
 | | classification | regression |
@@ -419,7 +425,9 @@ Eq. (6.5); `age_bias_slope` Eq. (6.7); `mae_corrected` Eq. (6.8);
 batch, de-normalized by Eq. (6.1); `loss_terms` Eqs. (5.4)–(5.6) and, on the
 codebook path, Eq. (7.3).
 
-**Table 7.1.** Epoch-level plots a regression run logs: plot name, its series and
+### Table 7.1. Epoch-level regression plots
+
+Epoch-level plots a regression run logs: plot name, its series and
 what it shows. Errors in years; one series per split (`train` / `val` / `test`).
 
 | plot | series | content |
@@ -475,7 +483,9 @@ applied). The defaults keep everything; `finetune_tuab_age.json` trims a minute
 at each end and evaluates on 5 minutes per recording. Table 8.1 lists the options;
 Eqs. (8.1)–(8.2) define which samples they keep.
 
-**Table 8.1.** The `data.*` window-selection options: class default, the value in
+### Table 8.1. Window-selection options
+
+The `data.*` window-selection options: class default, the value in
 `finetune_tuab_age.json` (in parentheses where it differs) and their effect.
 
 | Option | Default (age config) | Effect |
@@ -538,7 +548,9 @@ length. Attention cost grows with the square of the token count (23 channels ×
 seconds). Table 8.2 gives the measured peak memory on an A10G (23 GB) for one AMP
 train step.
 
-**Table 8.2.** Peak GPU memory (GB) of one AMP train step on an A10G (23 GB) by
+### Table 8.2. Peak GPU memory by window length and batch size
+
+Peak GPU memory (GB) of one AMP train step on an A10G (23 GB) by
 input length `window_sec` (rows) and per-GPU batch size (columns); OOM = out of
 memory.
 
@@ -686,7 +698,9 @@ wrong thing (see `brain_age_improvement_plan.md`). Four opt-in options target
 the recording → age lookup directly; all are off by default. Table 12.1 lists
 them; Eqs. (12.1)–(12.9) define what each computes.
 
-**Table 12.1.** The anti-memorization options: config keys (defaults in
+### Table 12.1. Anti-memorization options
+
+The anti-memorization options: config keys (defaults in
 parentheses) and what each does.
 
 | Option | Config | What it does |
@@ -857,7 +871,9 @@ $$
 
 Moving the tails has to happen in training, with the option in Table 13.1:
 
-**Table 13.1.** The age-balanced loss option: config keys (defaults in
+### Table 13.1. Age-balanced loss options
+
+The age-balanced loss option: config keys (defaults in
 parentheses) and what it does.
 
 | Option | Config | What it does |
@@ -1006,7 +1022,9 @@ Q_\kappa\bigl(\lbrace q_i : i\in\text{val windows}\rbrace\bigr), & \kappa<1,\\
 \tag{14.5}
 $$
 
-**Table 14.1.** The pooling procedure.
+### Table 14.1. Pooling procedure
+
+The pooling procedure.
 
 | Piece | Choice |
 |---|---|
@@ -1027,7 +1045,9 @@ cleanest 50% of windows) raises val MAE by about 1.1–1.5 y. EMG-heavy recordin
 artifact-laden throughout, so dropping their windows leaves nothing cleaner to average. Robust
 inputs or artifact-aware training are the remaining options; pooling is not.
 
-**Table 14.2.** Artifact-aware pooling per run: baseline (mean pooling) vs. the val-selected
+### Table 14.2. Artifact-aware pooling results
+
+Artifact-aware pooling per run: baseline (mean pooling) vs. the val-selected
 setting, and the best test MAE anywhere on the grid.
 
 | run | baseline val / test | val-selected setting | selected val / test | best test on grid |
@@ -1052,7 +1072,9 @@ improvement plan is in [`brain_age_improvement_plan.md`](brain_age_improvement_p
 
 Table 16.1 maps each file to its role.
 
-**Table 16.1.** The files that implement age regression and its analysis.
+### Table 16.1. Files
+
+The files that implement age regression and its analysis.
 
 | Path | Role |
 |---|---|

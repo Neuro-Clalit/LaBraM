@@ -35,7 +35,7 @@ own section. Docs without numbered sections use their `##` order (1, 2, …).
 | item | how it is numbered | how the text refers to it |
 |---|---|---|
 | equation | `\tag{2.3}` inside the `$$` block | "Eq. (2.3)" |
-| table | caption **above** it: `**Table 2.1.** what it shows.` In a notebook the displayed frame carries the caption itself (`numbered_table(df, "2.1", "…")`, a pandas Styler caption) | "Table 2.1" |
+| table | its own **subsection heading** directly above it, one level below the enclosing heading: `### Table 2.1. <short title>`, then the description (columns, units, equations) as text under the heading. In a notebook the heading is a Markdown cell right before the code cell that displays the table (split the code cell so each table has its own cell), and the displayed frame also carries the caption (`numbered_table(df, "2.1", "…")`, a pandas Styler caption) | "Table 2.1" |
 | figure | `**Figure 3.1.** …` caption in the Markdown, and the same `Figure 3.1` as the figure's suptitle (`figure_caption(fig, "3.1", "…")`) | "Figure 3.1" |
 | subfigure | every panel's title starts with `(a)`, `(b)`, … left-to-right, top-to-bottom (`panel_labels(axes)`) | "Figure 3.1(b)" |
 
@@ -62,7 +62,7 @@ own section. Docs without numbered sections use their `##` order (1, 2, …).
 
 1. Every metric/loss column and axis has a numbered formula above it.
 2. Every equation, table, figure and panel has a number or letter, and the text
-   cites each one.
+   cites each one; every table sits under its own `Table s.k. <title>` heading.
 3. No figure row has more than two axes.
 4. Notebook: *Restart & Run All* succeeds and the saved outputs show the
    numbered captions (`.venv/bin/jupyter nbconvert --to notebook --execute
