@@ -1,0 +1,9 @@
+# Extra requirements for the handcrafted-feature toolkit (labram/features/) and
+# notebooks/eeg_feature_extraction_tuab.ipynb. Install on top of requirements.txt:
+#
+#   pip install -r requirements.txt -r requirements-features.txt
+#
+# Kept out of requirements.txt because training does not need it.
+PyWavelets>=1.4
+# Wavelet scattering (reference implementation; torch backend on CPU).
+kymatio==0.3.0
