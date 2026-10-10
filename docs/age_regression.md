@@ -698,6 +698,10 @@ wrong thing (see `brain_age_improvement_plan.md`). Four opt-in options target
 the recording → age lookup directly; all are off by default. Table 12.1 lists
 them; Eqs. (12.1)–(12.9) define what each computes.
 
+Every anti-overfitting run, with its ClearML link, config diff and
+val/test/cohort results, is listed in
+[`age_overfitting_experiments.md`](age_overfitting_experiments.md).
+
 ### Table 12.1. Anti-memorization options
 
 The anti-memorization options: config keys (defaults in
@@ -937,7 +941,7 @@ $$
 $$
 
 Result on the short schedule (4 epochs, no mixup; E2 baseline val 7.68 / test
-8.25): `sqrt_inverse` (B1) val 7.83 / test 8.47, `inverse` (B2) 7.96 / 8.57. The
+8.25): `sqrt_inverse` (B1) val 7.83 / test 8.48, `inverse` (B2) 7.96 / 8.57. The
 bias slope shrinks (val −0.37 → −0.32 / −0.29) and the tails move toward the
 diagonal (test 70–79 predicted 65.4 instead of 61.8 with B2; 10–19 predicted 26.4
 instead of 29.6). Per-decade MAE (Eq. (6.2) over the items whose true age is in
@@ -1056,7 +1060,7 @@ setting, and the best test MAE anywhere on the grid.
 | M1c C-Mixup | 7.54 / 8.23 | reject, q = 0.95 | 7.53 / 8.27 | 8.21 |
 | M12 mixup + EMA | 7.48 / 8.45 | reject, q = 1.00 | 7.48 / 8.45 | 8.38 |
 | L1 mixup + EMA, 12 ep | 7.51 / 8.47 | reject, q = 1.00 | 7.51 / 8.47 | 8.41 |
-| B1 balance sqrt-inv | 7.83 / 8.47 | reject, q = 1.00 | 7.83 / 8.47 | 8.38 |
+| B1 balance sqrt-inv | 7.83 / 8.48 | reject, q = 1.00 | 7.83 / 8.48 | 8.38 |
 | B2 balance inverse | 7.96 / 8.57 | reject, q = 1.00 | 7.96 / 8.57 | 8.41 |
 
 ## CLS-attention prediction head
