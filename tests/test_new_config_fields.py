@@ -129,3 +129,17 @@ def test_default_jsons_load_with_new_fields(path, cls):
     # Shipped configs carry the SageMaker weight-mirror map (strict load would
     # otherwise reject the field as missing).
     assert cfg.sagemaker.weight_s3_uris['./checkpoints/labram-base.pth'].startswith('s3://')
+
+
+def test_older_config_missing_a_nested_section_loads_with_its_default(tmp_path):
+    """A run_config saved before a nested sub-config existed (e.g. a pre-
+    ``model.attention_head`` run) still loads; the new section gets its default."""
+    import json
+    path = tmp_path / "old.json"
+    FinetuneRunConfig().save_to(str(path))
+    data = json.loads(path.read_text())
+    del data["model"]["attention_head"]
+    path.write_text(json.dumps(data))
+    with pytest.warns(UserWarning, match="attention_head"):
+        loaded = FinetuneRunConfig.load_from(str(path), raise_exception=False)
+    assert loaded.model.attention_head == FinetuneRunConfig().model.attention_head

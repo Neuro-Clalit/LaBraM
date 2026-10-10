@@ -66,7 +66,10 @@ class ConfigBase(ABC):
         for field in cls.get_fields():
             try:
                 field_name = field.name
-                if  cls.is_dataclass(field_name) and isinstance(dict_obj[field_name], dict):
+                # A field missing from an older saved config keeps its default
+                # (reported by the mismatch warning above).
+                if field_name in dict_obj and cls.is_dataclass(field_name) \
+                        and isinstance(dict_obj[field_name], dict):
                     dict_obj[field_name] = field.type.from_dict(dict_obj[field_name])
             except TypeError as err:
                 # TODO backward compatibility: must raise exception
