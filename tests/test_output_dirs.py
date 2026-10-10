@@ -103,6 +103,10 @@ class TestClearMLTaskName:
 
         class _Task:
             @staticmethod
+            def set_random_seed(seed):
+                pass
+
+            @staticmethod
             def init(**kwargs):
                 created.update(kwargs)
                 return types.SimpleNamespace(add_tags=lambda tags: None,
