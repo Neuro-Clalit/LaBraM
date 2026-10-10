@@ -212,6 +212,34 @@ class MixupConfig(ConfigBase):
 
 
 @dataclass
+class AugmentConfig(ConfigBase):
+    """Label-preserving EEG augmentations for training (``labram/train/augment.py``),
+    off by default. Applied per sample, each with its own probability (``*_prob``;
+    0 disables that one), to the training batch before mixup -- never at eval.
+    All keep each channel's power spectrum, which carries the age signal.
+
+    * ``hemisphere_flip_prob``: swap left/right homologous electrodes (FP1<->FP2, ...).
+    * ``sign_flip_prob``: multiply the sample by -1.
+    * ``ft_surrogate_prob``: add a random phase per frequency, shared across
+      channels (``ft_phase_noise`` scales it, 1 = uniform over 2 pi).
+    * ``channel_dropout_prob``: zero each channel with probability ``channel_dropout_p``.
+    * ``time_mask_prob``: zero 1..``time_mask_max_count`` segments of
+      ``time_mask_min_sec``..``time_mask_max_sec`` seconds across all channels.
+    """
+    enabled: bool = False
+    hemisphere_flip_prob: float = 0.5
+    sign_flip_prob: float = 0.5
+    ft_surrogate_prob: float = 0.5
+    ft_phase_noise: float = 1.0
+    channel_dropout_prob: float = 0.5
+    channel_dropout_p: float = 0.1
+    time_mask_prob: float = 0.5
+    time_mask_max_count: int = 2
+    time_mask_min_sec: float = 0.5
+    time_mask_max_sec: float = 1.0
+
+
+@dataclass
 class DistributedConfig(ConfigBase):
     world_size: int = DEFAULT_WORLD_SIZE
     local_rank: int = DEFAULT_LOCAL_RANK

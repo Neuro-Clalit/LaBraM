@@ -70,6 +70,7 @@ def get_model(config: FinetuneRunConfig):
         init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
         labram_plus=config.labram_plus, max_time_patches=time_patches,
         **({'depth': m.depth} if m.depth is not None else {}),
+        input_clip=m.input_clip_uv / 100,
     )
     if m.lora.enabled:
         # Injected before the pretrained checkpoint loads: the base weights keep

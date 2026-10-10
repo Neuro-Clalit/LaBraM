@@ -171,7 +171,10 @@ class token queries all encoder tokens in one small multi-head attention layer, 
 predicts; `forward_with_attention` returns the class-token attention weights. `model.head_type=mlp`
 puts an `MLPHead` (`mlp_head.hidden_dims`) on the pooled feature instead of the single Linear,
 and `model.depth` overrides the number of transformer blocks (from-scratch run S2: 6 blocks +
-MLP head, no pretrained weights).
+MLP head, no pretrained weights). `augment.*` adds label-preserving training augmentations
+(hemisphere flip, sign flip, FT surrogate, channel dropout, time masking; all keep each channel's
+power spectrum, which carries the age signal) and `model.input_clip_uv` a model-owned amplitude
+clip (S3 = S2 + both, ±800 µV; `labram/train/augment.py`).
 `finetune_tuab_age_attn_head.json` = the best run (M1: D + mixup 0.4, 4 epochs) + `clip_grad`
 1.0 + that head (experiments N1/N2 in `scripts/submit_age_experiments.sh`). See
 `docs/age_regression.md`.

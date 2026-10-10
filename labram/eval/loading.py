@@ -63,6 +63,7 @@ def build_finetune_model(
             labram_plus=config.labram_plus,
             max_time_patches=required_time_patches(config.data),
             **({'depth': m.depth} if m.depth is not None else {}),
+            input_clip=m.input_clip_uv / 100,
         )
     if device is not None:
         model.to(device)

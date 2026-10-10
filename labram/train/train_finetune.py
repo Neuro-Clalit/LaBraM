@@ -20,13 +20,15 @@ from einops import rearrange
 import labram.utils as utils
 from labram.configs.loss_config import LossConfig
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import EvaluationConfig, LoggingConfig, MixupConfig, TrainerConfig
+from labram.configs.train_config import (
+    AugmentConfig, EvaluationConfig, LoggingConfig, MixupConfig, TrainerConfig)
 from labram.data.bundles import CLASSIFICATION as TASK_CLASSIFICATION
 from labram.data.bundles import REGRESSION as TASK_REGRESSION
 from labram.losses import (
     CodebookRegularizedCriterion, build_downstream_criterion, regression_output)
 from labram.losses.regression import downstream_term_name
 from labram.losses.outputs import LossBreakdown
+from labram.train.augment import augment_batch
 from labram.train.mixup import mixup_batch
 from labram.models.outputs import PredictorOutput
 from labram.optim_factory import (
@@ -93,6 +95,7 @@ def train_one_epoch(
     logging_cfg: Optional[LoggingConfig] = None,
     metrics: Optional[List[str]] = None,
     mixup_cfg: Optional[MixupConfig] = None,
+    augment_cfg: Optional[AugmentConfig] = None,
 ) -> Dict[str, float]:
     update_freq = trainer_cfg.update_freq
     if nb_classes is None:
@@ -158,6 +161,8 @@ def train_one_epoch(
             apply_lr_wd_schedule(optimizer, global_step, lr_schedule_values, wd_schedule_values)
 
         samples = samples.float().to(device, non_blocking=True) / 100
+        # Label-preserving augmentations (training only), before mixup.
+        samples = augment_batch(samples, augment_cfg, ch_names)
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
         
         targets = targets.to(device, non_blocking=True)
@@ -911,6 +916,7 @@ def train_loop(
             logging_cfg=config.logging,
             metrics=metrics,
             mixup_cfg=getattr(config, 'mixup', None),
+            augment_cfg=getattr(config, 'augment', None),
         )
         train_timing = utils.timing_stats(
             'train', train_timer.elapsed(), int(train_stats.get('samples_processed', 0)))

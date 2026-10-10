@@ -1172,6 +1172,106 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_fine
         finetune_checkpoint.finetune=./checkpoints/labram-base.pth
 ```
 
+## Label-preserving augmentation
+
+The from-scratch runs stop improving on validation while they keep fitting the
+training recordings (S2: val flat from epoch 9, train still falling), so the
+remaining lever is making each recording look different every epoch. Brain age
+is carried by the spectrum (the alpha peak slows and total power falls with
+age), so every augmentation in `labram/train/augment.py` keeps each channel's
+power spectrum and amplitude scale. Frequency or time stretching, global
+amplitude scaling and band-stop filters are deliberately not offered.
+Table 16.1 lists the options; Eqs. (16.1)–(16.6) define them.
+
+### Table 16.1. Augmentation options
+
+`augment.*` (training only, off by default; defaults in parentheses) and
+`model.input_clip_uv` (train and eval). Each `*_prob` is the per-sample
+probability; 0 disables that augmentation.
+
+| Option | Config | Eq. |
+|---|---|---|
+| Hemisphere flip | `hemisphere_flip_prob` (0.5) | (16.1) |
+| Sign flip | `sign_flip_prob` (0.5) | (16.2) |
+| Fourier-transform surrogate | `ft_surrogate_prob` (0.5), `ft_phase_noise` (1.0) | (16.3) |
+| Channel dropout | `channel_dropout_prob` (0.5), `channel_dropout_p` (0.1) | (16.4) |
+| Time masking | `time_mask_prob` (0.5), `time_mask_max_count` (2), `time_mask_min_sec` (0.5), `time_mask_max_sec` (1.0) | (16.5) |
+| Amplitude clip | `model.input_clip_uv` (0 = off; 800 in S3) | (16.6) |
+
+Let $x\in\mathbb{R}^{N\times T}$ be one training sample (channels $c$ in the
+bundle's order, $T$ samples at 200 Hz, model-input units µV/100), drawn
+independently per sample and per augmentation. They run in the order of the
+table, before mixup (Eq. (12.1)); the surrogate comes before the two blanking
+steps so it never smears a blanked segment.
+
+**Hemisphere flip** (`hemisphere_flip`). With $\pi$ the permutation that swaps
+each odd-numbered (left) electrode with the next even-numbered (right) one --
+FP1/FP2, F3/F4, C3/C4, P3/P4, O1/O2, F7/F8, T3/T4, T5/T6, A1/A2, T1/T2 -- and
+fixes FZ, CZ, PZ (`hemisphere_permutation`, an involution), Eq. (16.1):
+
+$$
+\tilde x_c=x_{\pi(c)} .
+\tag{16.1}
+$$
+
+**Sign flip** (`sign_flip`), Eq. (16.2); $\lvert\hat x_c(f)\rvert$ is unchanged:
+
+$$
+\tilde x=-x .
+\tag{16.2}
+$$
+
+**Fourier-transform surrogate** (`ft_surrogate`, Rommel et al. 2022). With
+$\hat x_c(f)$ the real FFT of channel $c$ (`torch.fft.rfft`) and one phase
+$\varphi_f\sim\mathcal{U}[0,\,2\pi\rho)$ per frequency shared by all channels
+($\rho$ = `ft_phase_noise`; $\varphi_0=0$, and $\varphi_{T/2}=0$ for even $T$, so
+the result is real), Eq. (16.3):
+
+$$
+\tilde x_c=\mathcal{F}^{-1}\bigl[\hat x_c(f)\,e^{\,i\varphi_f}\bigr] .
+\tag{16.3}
+$$
+
+$\lvert\hat{\tilde x}_c(f)\rvert=\lvert\hat x_c(f)\rvert$ (the power spectrum) and
+$\hat{\tilde x}_c\,\overline{\hat{\tilde x}_{c'}}=\hat x_c\,\overline{\hat x_{c'}}$
+(the cross-spectrum, hence coherence) are both preserved; only the waveform
+changes.
+
+**Channel dropout** (`channel_dropout`). $m_c\sim\operatorname{Bernoulli}(1-p)$,
+$p$ = `channel_dropout_p`, redrawn so that at least one channel is kept,
+Eq. (16.4):
+
+$$
+\tilde x_c=m_c\,x_c .
+\tag{16.4}
+$$
+
+**Time masking** (`time_mask`). $K\sim\mathcal{U}\{1,\dots,K_\text{max}\}$
+segments $S_k=[s_k,\,s_k+\ell_k)$ with
+$\ell_k\sim\mathcal{U}\{\ell_\text{min},\dots,\ell_\text{max}\}$ samples
+($\ell$ = seconds $\times$ 200) and $s_k$ uniform over the valid starts,
+Eq. (16.5):
+
+$$
+\tilde x_c(t)=x_c(t)\,\Bigl[\,t\notin\textstyle\bigcup_{k=1}^{K}S_k\Bigr] .
+\tag{16.5}
+$$
+
+**Amplitude clip** (`NeuralTransformerBase.maybe_preprocess_input`, before the
+CAR of the LaBraM++ mode) with $a$ = `input_clip_uv`/100, Eq. (16.6). It is part
+of the model, so training, `evaluate` and the offline eval tools all clip the
+same way. On TUAB it touches 0.15 % of samples (60 random recordings; median
+99.9th-percentile amplitude 191 µV), i.e. artifacts only.
+
+$$
+\tilde x_c(t)=\min\bigl(\max\bigl(x_c(t),\,-a\bigr),\,a\bigr) .
+\tag{16.6}
+$$
+
+S3 in `scripts/submit_age_experiments.sh` is the from-scratch S2 (6 blocks + MLP
+head, no pretrained weights; the MLP-head paragraph of section 15) with all six
+enabled at the defaults above.
+
 ## Next steps
 
 The default config (`finetune_tuab_age.json`) is scenario D of the October 2026
@@ -1183,9 +1283,9 @@ improvement plan is in [`brain_age_improvement_plan.md`](brain_age_improvement_p
 
 ## Files
 
-Table 17.1 maps each file to its role.
+Table 18.1 maps each file to its role.
 
-### Table 17.1. Files
+### Table 18.1. Files
 
 The files that implement age regression and its analysis.
 
@@ -1206,3 +1306,4 @@ The files that implement age regression and its analysis.
 | `labram/configs/defaults/finetune_tuab_age.json` | ready-to-run config |
 | `labram/layers/cls_attention_head.py` | `CLSAttentionHead` (`model.head_type=attention`) |
 | `labram/configs/defaults/finetune_tuab_age_attn_head.json` | best run (M1) + `clip_grad` 1.0 + attention head |
+| `labram/train/augment.py` | label-preserving training augmentations (`augment.*`) |

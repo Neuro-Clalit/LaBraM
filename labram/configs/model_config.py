@@ -162,6 +162,10 @@ class FinetuneModelConfig(ConfigBase):
     # for labram_base_*). A pretrained checkpoint then loads into the first
     # ``depth`` blocks and its deeper blocks are ignored.
     depth: Optional[int] = None
+    # Clip the raw EEG to +-input_clip_uv microvolts before the model sees it
+    # (artifact spikes); 0 = off. Applied inside the model, before CAR, so
+    # training and evaluation clip identically.
+    input_clip_uv: float = 0.0
     init_scale: float = conf_consts.DEFAULT_FINETUNE_INIT_SCALE
     nb_classes: int = conf_consts.DEFAULT_FINETUNE_NB_CLASSES
     # "classification" or "regression". Both use nb_classes == 1 for a single
@@ -203,6 +207,10 @@ class FinetuneModelConfig(ConfigBase):
                 raise ValueError(f"model.depth must be >= 1, got {self.depth}")
             if self.codebook_reg.enabled:
                 raise ValueError("model.depth is not supported with model.codebook_reg")
+        if self.input_clip_uv < 0:
+            raise ValueError(f"model.input_clip_uv must be >= 0, got {self.input_clip_uv}")
+        if self.input_clip_uv > 0 and self.codebook_reg.enabled:
+            raise ValueError("model.input_clip_uv is not supported with model.codebook_reg")
         if self.head_type == "attention":
             if self.concat_cls_token:
                 raise ValueError("model.concat_cls_token is not used with model.head_type=attention")
@@ -267,6 +275,8 @@ class TransformerArchConfig(ConfigBase):
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM
     max_time_patches: int = conf_consts.DEFAULT_ARCH_MAX_TIME_PATCHES
+    # Symmetric clip of the raw input in model-input units (uV / 100); 0 = off.
+    input_clip: float = 0.0
     # LaBraM++ input preprocessing (CAR + z-scoring); disabled by default so the
     # backbone reproduces the original LaBraM behaviour.
     labram_plus: LaBraMPlusConfig = field(default_factory=LaBraMPlusConfig)

@@ -67,6 +67,9 @@ class NeuralTransformerBase(nn.Module):
         self.init_std = init_std
         # LaBraM++ input preprocessing config (may be None on legacy arch configs).
         self.labram_plus = getattr(config, 'labram_plus', None)
+        # Symmetric amplitude clip of the raw input (model-input units, uV / 100);
+        # 0 = off. Model-owned so training and every eval path clip identically.
+        self.input_clip = getattr(config, 'input_clip', 0.0) or 0.0
 
         # patch embedding: TemporalConv on raw EEG (in_chans=1), else PatchEmbed
         # (decoder path with patch_size=1 used inside VQNSP).
@@ -150,7 +153,11 @@ class NeuralTransformerBase(nn.Module):
         ``labram_plus`` config returns ``x`` unchanged, so the default backbone
         matches the original LaBraM exactly.
         """
-        if self.in_chans != 1 or self.labram_plus is None or not self.labram_plus.preprocesses_input:
+        if self.in_chans != 1:
+            return x
+        if self.input_clip > 0:
+            x = x.clamp(-self.input_clip, self.input_clip)
+        if self.labram_plus is None or not self.labram_plus.preprocesses_input:
             return x
         from labram.data.preprocess import apply_labram_plus_preprocess
         return apply_labram_plus_preprocess(x, self.labram_plus)

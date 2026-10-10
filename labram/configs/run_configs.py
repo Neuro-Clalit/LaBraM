@@ -43,6 +43,7 @@ from labram.configs.train_config import (
     EvaluationConfig,
     LoggingConfig,
     MixupConfig,
+    AugmentConfig,
     OutputConfig,
     ShutdownConfig,
     TrainerConfig,
@@ -198,6 +199,8 @@ class FinetuneRunConfig(RunConfig):
     loss: LossConfig = field(default_factory=LossConfig)
     # Mixup across recordings for regression fine-tuning (opt-in).
     mixup: MixupConfig = field(default_factory=MixupConfig)
+    # Label-preserving EEG augmentations of the training batch (opt-in).
+    augment: AugmentConfig = field(default_factory=AugmentConfig)
     # K-fold cross-validation (opt-in). Disabled -> single train/val/test run.
     cross_validation: CrossValidationConfig = field(default_factory=CrossValidationConfig)
     optimizer: OptimizerConfig = field(
