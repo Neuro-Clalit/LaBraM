@@ -10,8 +10,8 @@ import torch
 import torch.nn as nn
 from timm.layers import trunc_normal_
 
-from labram.layers import Block, CLSAttentionHead, PatchEmbed, TemporalConv
-from labram.configs.model_config import AttentionHeadConfig, TransformerArchConfig
+from labram.layers import Block, CLSAttentionHead, MLPHead, PatchEmbed, TemporalConv
+from labram.configs.model_config import AttentionHeadConfig, MLPHeadConfig, TransformerArchConfig
 
 
 def _cfg(url='', **kwargs):
@@ -240,6 +240,7 @@ class NeuralTransformer(NeuralTransformerBase):
         self.head_type = config.head_type
         self._norm_layer = norm_layer
         self._attention_head_cfg = config.attention_head
+        self._mlp_head_cfg = config.mlp_head
 
         self.fc_norm = norm_layer(config.embed_dim) if pool else None
         # Optional [mean patch token, cls token] head input (mean pooling only).
@@ -269,11 +270,16 @@ class NeuralTransformer(NeuralTransformerBase):
                 self.num_features, num_classes, num_heads=c.num_heads, attn_dim=c.attn_dim,
                 mlp_hidden_dim=c.mlp_hidden_dim, drop=c.drop, attn_drop=c.attn_drop,
                 norm_layer=self._norm_layer)
+        if self.head_type == 'mlp':
+            c = self._mlp_head_cfg
+            if isinstance(c, dict):
+                c = MLPHeadConfig(**c)
+            return MLPHead(self.num_features, num_classes, hidden_dims=c.hidden_dims, drop=c.drop)
         return nn.Linear(self.num_features, num_classes)
 
     def _head_output_layer(self):
         """The head's final Linear (the one ``init_scale`` shrinks), or None."""
-        if isinstance(self.head, CLSAttentionHead):
+        if isinstance(self.head, (CLSAttentionHead, MLPHead)):
             return self.head.fc
         return self.head if isinstance(self.head, nn.Linear) else None
 

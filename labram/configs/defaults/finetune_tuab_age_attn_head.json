@@ -126,6 +126,14 @@
             "drop": 0.0,
             "attn_drop": 0.0
         },
+        "mlp_head": {
+            "py/object": "labram.configs.model_config.MLPHeadConfig",
+            "hidden_dims": [
+                256
+            ],
+            "drop": 0.0
+        },
+        "depth": null,
         "init_scale": 0.001,
         "nb_classes": 0,
         "task": "regression",

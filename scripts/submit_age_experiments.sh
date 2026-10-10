@@ -19,6 +19,13 @@
 #   N2  N1 + CLS-attention head (model.head_type=attention;
 #       = labram/configs/defaults/finetune_tuab_age_attn_head.json)
 #
+# From scratch (no pretrained weights; layer_decay 1.0 so the random lower blocks
+# train at the full LR):
+#   S1  scenario D, weights off                     (what pretraining is worth)
+#   S2  tuned for scratch: 6 transformer blocks (not 12) + MLP head (256),
+#       lr 3e-4, betas (0.9, 0.98), warmup 4 of 15 epochs, clip 1.0, mixup 0.4,
+#       random crops, EMA-weight evaluation (decay 0.9995)
+#
 # finetune_tuab_age.json now defaults to scenario D (CAR on); the ablations pin
 # labram_plus.enabled=false so A-D2 reproduce as originally run, and D turns it
 # back on.
@@ -164,7 +171,18 @@ BEST=("${SHORT[@]}" mixup.enabled=true mixup.alpha=0.4 mixup.sigma=0.0 optimizer
 run_N1() { submit N1 age_N1_short_mixup04_clip1          "${BEST[@]}"; }
 run_N2() { submit N2 age_N2_short_mixup04_clip1_attnhead "${BEST[@]}" model.head_type=attention; }
 
-ALL=(A B C C2 D D2 DX1 DX2 DX3 DX4 F1 F2 F3 F4 G1 H1 H2 M2 M3 M4 N1 N2)
+# From-scratch runs: common_sets pins the A-D2 schedule (15 epochs, lr 1e-4,
+# warmup 2, CAR off), so these restate what they change.
+SCRATCH=(labram_plus.enabled=true finetune_checkpoint.finetune= optimizer.layer_decay=1.0)
+run_S1() { submit S1 age_S1_scratch_ep15 "${SCRATCH[@]}"; }
+run_S2() { submit S2 age_S2_scratch_d6_mlp_ep15 "${SCRATCH[@]}" model.depth=6 \
+                     model.head_type=mlp optimizer.lr=3e-4 \
+                     'optimizer.opt_betas=[0.9,0.98]' optimizer.warmup_epochs=4 \
+                     optimizer.clip_grad=1.0 mixup.enabled=true mixup.alpha=0.4 \
+                     data.random_crop=true optimizer.model_ema=true \
+                     optimizer.model_ema_decay=0.9995 evaluation.use_ema=true; }
+
+ALL=(A B C C2 D D2 DX1 DX2 DX3 DX4 F1 F2 F3 F4 G1 H1 H2 M2 M3 M4 N1 N2 S1 S2)
 EXPERIMENTS=("$@")
 if [[ ${#EXPERIMENTS[@]} -eq 0 ]]; then
   EXPERIMENTS=(A B C C2 D D2)

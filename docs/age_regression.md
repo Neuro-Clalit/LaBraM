@@ -1137,6 +1137,16 @@ prediction together with $\alpha\in\mathbb{R}^{B\times H\times(N+1)}$ from
 Eq. (15.1) (index 0 = attention to the class token itself), so you can see which
 channels and time patches each prediction draws on.
 
+**MLP head and encoder depth.** `model.head_type=mlp`
+(`labram/layers/mlp_head.py::MLPHead`) keeps the pooled feature of the linear
+head (`fc_norm` of the mean patch token) and replaces the single `Linear` with
+`[Linear(h) -> GELU -> Dropout] x len(hidden_dims) -> Linear`
+(`model.mlp_head.hidden_dims`, default `[256]`; `model.mlp_head.drop`).
+`model.depth` sets the number of transformer blocks (`null` = the model's 12); a
+pretrained checkpoint then fills the first `depth` blocks. The from-scratch run
+S2 in `scripts/submit_age_experiments.sh` uses both (6 blocks, one 256-unit
+hidden layer) with no pretrained weights and `optimizer.layer_decay=1.0`.
+
 ### Table 15.2. Attention-head experiments
 
 `labram/configs/defaults/finetune_tuab_age_attn_head.json` is the best run so far,

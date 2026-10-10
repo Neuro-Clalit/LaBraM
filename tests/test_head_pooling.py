@@ -134,7 +134,7 @@ def test_linear_head_checkpoint_loads_into_attention_head(tmp_path):
 
 
 @pytest.mark.parametrize("kw, match", [
-    (dict(head_type="mlp"), "head_type"),
+    (dict(head_type="transformer"), "head_type"),
     (dict(head_type="attention", concat_cls_token=True), "concat_cls_token"),
     (dict(head_type="attention", attention_head={"num_heads": 3, "attn_dim": 200}), "divisible"),
 ])
@@ -186,3 +186,67 @@ def test_attention_head_trains_and_evaluates_with_mixup_and_grad_clip():
                    metrics=["mae", "r2"], is_binary=False, nb_classes=1,
                    task="regression", target_stats=(10.0, 5.0))
     assert res["mae"] >= 0
+
+
+# --- head_type="mlp" and model.depth ---------------------------------------
+
+def test_mlp_head_on_the_pooled_feature():
+    from labram.layers import MLPHead
+    model = _model(head_type="mlp", mlp_head={"hidden_dims": [128, 64], "drop": 0.1})
+    assert isinstance(model.head, MLPHead) and model.fc_norm is not None
+    assert [m.out_features for m in model.head.hidden if isinstance(m, torch.nn.Linear)] == [128, 64]
+    assert model.head.fc.in_features == 64 and model.head.fc.out_features == 1
+    x = torch.randn(2, 4, 10, 200)
+    assert model.forward_features(x).shape == (2, 200)  # same pooled input as the linear head
+    model(x).sum().backward()
+    assert model.head.hidden[0].weight.grad is not None and model.blocks[0].attn.qkv.weight.grad is not None
+    model.reset_classifier(30)
+    assert isinstance(model.head, MLPHead) and model.head.fc.out_features == 30
+
+
+def test_mlp_head_output_layer_uses_init_scale_and_concat_cls_widens_its_input():
+    torch.manual_seed(0)
+    small = _model(head_type="mlp", init_scale=0.001).head.fc.weight.abs().mean()
+    torch.manual_seed(0)
+    full = _model(head_type="mlp", init_scale=1.0).head.fc.weight.abs().mean()
+    assert torch.isclose(small, full * 0.001)
+    assert _model(head_type="mlp", concat_cls_token=True).head.hidden[0].in_features == 400
+
+
+def test_depth_sets_the_number_of_blocks_and_layer_decay_groups():
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs.run_finetune import get_model
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"model.depth": 6, "model.head_type": "mlp", "finetune_checkpoint.finetune": ""})
+    cfg.model.nb_classes = 1
+    cfg.model.validate()
+    model = get_model(cfg)
+    assert len(model.blocks) == 6 and model.get_num_layers() == 6
+    full = _model()
+    n = lambda m: sum(p.numel() for p in m.blocks.parameters())
+    assert n(model) * 2 == n(full)
+
+
+def test_pretrained_checkpoint_loads_into_a_shallower_encoder(tmp_path):
+    from types import SimpleNamespace
+    from labram.runs.finetune_setup import load_finetune_checkpoint
+    src = _model()
+    path = tmp_path / "ckpt.pth"
+    torch.save({"model": src.state_dict()}, path)
+    dst = _model(depth=4, head_type="mlp")
+    load_finetune_checkpoint(dst, SimpleNamespace(
+        finetune=str(path), model_key="model", model_filter_name="", model_prefix=""))
+    assert torch.equal(dst.blocks[3].mlp.fc1.weight, src.blocks[3].mlp.fc1.weight)
+
+
+@pytest.mark.parametrize("kw, match", [
+    (dict(depth=0), "depth"),
+    (dict(head_type="mlp", codebook_reg={"enabled": True}), "head_type=mlp"),
+])
+def test_mlp_head_and_depth_config_is_validated(kw, match):
+    from labram.configs.model_config import CodebookRegConfig
+    if "codebook_reg" in kw:
+        kw["codebook_reg"] = CodebookRegConfig(**kw["codebook_reg"])
+    with pytest.raises(ValueError, match=match):
+        FinetuneModelConfig(task="regression", **kw).validate()

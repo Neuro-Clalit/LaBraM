@@ -62,11 +62,13 @@ DEFAULT_FINETUNE_REL_POS_BIAS: bool = True
 DEFAULT_FINETUNE_ABS_POS_EMB: bool = False
 DEFAULT_FINETUNE_USE_MEAN_POOLING: bool = True
 DEFAULT_FINETUNE_CONCAT_CLS_TOKEN: bool = False
-# Prediction head: "linear" (pooled feature -> Linear) or "attention"
-# (CLSAttentionHead: cls-query attention over all tokens -> MLP).
+# Prediction head: "linear" (pooled feature -> Linear), "mlp" (pooled feature
+# -> MLPHead) or "attention" (CLSAttentionHead: cls-query attention over all
+# tokens -> MLP).
 DEFAULT_FINETUNE_HEAD_TYPE: str = 'linear'
 DEFAULT_ATTN_HEAD_NUM_HEADS: int = 4
 DEFAULT_ATTN_HEAD_MLP_HIDDEN_DIM: int = 256
+DEFAULT_MLP_HEAD_HIDDEN_DIM: int = 256
 DEFAULT_FINETUNE_INIT_SCALE: float = 0.001
 DEFAULT_FINETUNE_MODEL_KEY: str = 'model|module'
 DEFAULT_FINETUNE_MODEL_PREFIX: str = ''
