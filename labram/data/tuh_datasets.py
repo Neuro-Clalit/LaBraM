@@ -181,6 +181,10 @@ class TUABAgeLoader(TUHLoader):
     """
 
     _lookup_cache = {}
+    # recording stem -> 1 (abnormal) / 0 (normal); set by
+    # window_selection.enable_abnormal_target for the multi-task head, which
+    # turns the target into ``[age, abnormal]``.
+    abnormal_lookup = None
 
     def __init__(
         self,
@@ -220,10 +224,13 @@ class TUABAgeLoader(TUHLoader):
         return cls._lookup_cache[key]
 
     def _age_target(self, _sample, filename: str) -> torch.Tensor:
-        age = self.age_lookup[recording_stem(filename)]
+        stem = recording_stem(filename)
+        age = self.age_lookup[stem]
         if self.target_stats is not None:
             mean, std = self.target_stats
             age = (age - mean) / std
+        if self.abnormal_lookup is not None:
+            return torch.tensor([age, self.abnormal_lookup[stem]], dtype=torch.float32)
         return torch.tensor(age, dtype=torch.float32)
 
     def ages(self) -> list:

@@ -174,7 +174,11 @@ and `model.depth` overrides the number of transformer blocks (from-scratch run S
 MLP head, no pretrained weights). `augment.*` adds label-preserving training augmentations
 (hemisphere flip, sign flip, FT surrogate, channel dropout, time masking; all keep each channel's
 power spectrum, which carries the age signal) and `model.input_clip_uv` a model-owned amplitude
-clip (S3 = S2 + both, ±800 µV; `labram/train/augment.py`).
+clip (S3 = S2 + both, ±800 µV; `labram/train/augment.py`). `model.head_type=multitask` (`MultiTaskHead`) adds a
+normal/abnormal classifier: a shared MLP trunk feeds an age branch and a classification branch, the
+loader returns `[age, abnormal]` (from the sidecar's `label`), the loss is age + `loss.abnormal_weight`
+× BCE (`MultiTaskAgeCriterion`), and val/test add `abnormal_{roc_auc,pr_auc,accuracy,balanced_accuracy}`;
+selection stays on age MAE (`finetune_tuab_age_multitask.json` = M1 + this head, run MT1).
 `finetune_tuab_age_attn_head.json` = the best run (M1: D + mixup 0.4, 4 epochs) + `clip_grad`
 1.0 + that head (experiments N1/N2 in `scripts/submit_age_experiments.sh`). See
 `docs/age_regression.md`.

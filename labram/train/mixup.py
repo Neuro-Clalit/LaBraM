@@ -14,12 +14,13 @@ def mixup_partners(targets: torch.Tensor, sigma: float = 0.0) -> torch.Tensor:
     ``sigma <= 0``: a random derangement-free permutation (plain mixup).
     ``sigma > 0``: C-Mixup — partner ``j`` for ``i`` is drawn with probability
     proportional to ``exp(-(y_i - y_j)^2 / (2 sigma^2))`` (never ``i`` itself),
-    ``sigma`` in the units of ``targets``.
+    ``sigma`` in the units of ``targets`` (its first column -- the age -- for a
+    multi-task ``[age, abnormal]`` target).
     """
     n = targets.shape[0]
     if sigma <= 0:
         return torch.randperm(n, device=targets.device)
-    t = targets.float().reshape(-1)
+    t = targets.float().reshape(n, -1)[:, 0]
     w = torch.exp(-(t[:, None] - t[None, :]) ** 2 / (2 * sigma ** 2))
     w = w + 1e-12          # keep every off-diagonal entry positive (underflow)
     w.fill_diagonal_(0.0)

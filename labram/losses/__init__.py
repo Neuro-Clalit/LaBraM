@@ -9,11 +9,13 @@ from labram.losses.codebook_regularized import CodebookRegularizedCriterion
 from labram.losses.outputs import LossBreakdown
 from labram.losses.regression import (
     BalancedRegressionLoss,
+    MultiTaskAgeCriterion,
     SoftLabelRegressionLoss,
     age_balance_weights,
     build_downstream_criterion,
     build_regression_criterion,
     regression_output,
+    regression_target,
     soft_label_n_bins,
 )
 from labram.losses.spectral import SpectralReconstructionLoss
@@ -25,6 +27,7 @@ __all__ = [
     'CodebookRegularizedCriterion',
     'LossBreakdown',
     'LossConfig',
+    'MultiTaskAgeCriterion',
     'SoftLabelRegressionLoss',
     'SpectralReconstructionLoss',
     'age_balance_weights',
@@ -33,5 +36,6 @@ __all__ = [
     'build_regression_criterion',
     'get_vqnsp_losses',
     'regression_output',
+    'regression_target',
     'soft_label_n_bins',
 ]

@@ -1272,6 +1272,113 @@ S3 in `scripts/submit_age_experiments.sh` is the from-scratch S2 (6 blocks + MLP
 head, no pretrained weights; the MLP-head paragraph of section 15) with all six
 enabled at the defaults above.
 
+## Multi-task: brain age + normal/abnormal
+
+`model.head_type=multitask` (`labram/layers/mlp_head.py::MultiTaskHead`) predicts
+the age and the TUAB normal/abnormal label from the same pooled encoder
+feature: a shared MLP trunk feeds two dedicated branches. Every age metric, the
+cohort metrics and model selection (on val age MAE) are unchanged; the
+classifier adds the metrics of Eqs. (17.5)–(17.8). Table 17.1 lists the
+options.
+
+### Table 17.1. Multi-task options
+
+Config keys (defaults in parentheses). Each `*_dims` entry is one
+`Linear -> GELU -> Dropout(drop)` layer.
+
+| Option | Config | Eq. |
+|---|---|---|
+| Head | `model.head_type=multitask` | (17.1)–(17.3) |
+| Shared trunk | `model.multitask_head.shared_dims` (`[256]`) | (17.1) |
+| Age branch | `model.multitask_head.age_dims` (`[128]`) | (17.2) |
+| Abnormal branch | `model.multitask_head.abnormal_dims` (`[64]`) | (17.3) |
+| Dropout | `model.multitask_head.drop` (0.0) | — |
+| Classification weight | `loss.abnormal_weight` (0.5) | (17.4) |
+
+Regression task (`TUAB_AGE`) only; not combinable with `model.codebook_reg`,
+`model.lora` or `loss.regression_loss=soft_label`.
+
+**Head.** With $u\in\mathbb{R}^{D}$ the pooled feature (`fc_norm` of the mean
+patch token, as for the linear head) and $\phi_\theta(\cdot)$ a stack of
+`Linear -> GELU -> Dropout` layers, Eqs. (17.1)–(17.3):
+
+$$
+h=\phi_\text{shared}(u),
+\tag{17.1}
+$$
+
+$$
+\hat z=W_\text{age}\,\phi_\text{age}(h)+b_\text{age},
+\tag{17.2}
+$$
+
+$$
+\ell=W_\text{abn}\,\phi_\text{abn}(h)+b_\text{abn},
+\qquad
+\hat p=\sigma(\ell),
+\tag{17.3}
+$$
+
+where $\hat z$ is the z-scored age prediction of Eq. (5.3), $\ell$ the abnormal
+logit and $\sigma$ the logistic function. `init_scale` shrinks both output layers
+$W_\text{age}$ and $W_\text{abn}$. The head emits $[\hat z,\ell]$.
+
+**Targets and loss** (`labram/losses/regression.py::MultiTaskAgeCriterion`). The
+loader returns $[z_i,a_i]$, with $z_i$ the z-scored age (Eq. (5.1)) and
+$a_i=1$ for an abnormal recording, $0$ for a normal one (the `label` of
+`age_metadata.json`, `window_selection.enable_abnormal_target`). Mixup
+(Eq. (12.1)) blends $a_i$ like $z_i$, giving a soft target in $[0,1]$; C-Mixup
+pairs on $z_i$ only. For a batch of $N$ windows, Eq. (17.4):
+
+$$
+\mathcal{L}
+=\mathcal{L}_\text{age}\bigl(\hat z,z\bigr)
++w\,\frac{1}{N}\sum_{i=1}^{N}
+-\Bigl[a_i\log\sigma(\ell_i)+(1-a_i)\log\bigl(1-\sigma(\ell_i)\bigr)\Bigr],
+\tag{17.4}
+$$
+
+with $\mathcal{L}_\text{age}$ the configured age loss (Huber by default, Eq. (5.4))
+and $w$ = `loss.abnormal_weight`. Both terms are logged unweighted
+(`regression_loss`, `abnormal_loss`).
+
+**Classification metrics** (`train_finetune.py::_abnormal_metrics`, val/test).
+Per case $c$, the abnormal probability is the window mean
+$\bar p_c=\tfrac1{|c|}\sum_{i\in c}\hat p_i$ (`evaluation.agg_windows`) and the
+label $a_c$ that of its windows; $\hat a_c=[\bar p_c\ge 0.5]$. With TP, TN, FP,
+FN counted over cases (abnormal = positive), Eqs. (17.5)–(17.8):
+
+$$
+\text{abnormal\_accuracy}=\frac{\text{TP}+\text{TN}}{\text{TP}+\text{TN}+\text{FP}+\text{FN}},
+\tag{17.5}
+$$
+
+$$
+\text{abnormal\_balanced\_accuracy}=\frac12\Bigl(\frac{\text{TP}}{\text{TP}+\text{FN}}+\frac{\text{TN}}{\text{TN}+\text{FP}}\Bigr),
+\tag{17.6}
+$$
+
+$$
+\text{abnormal\_roc\_auc}=P\bigl(\bar p_{c^+}>\bar p_{c^-}\bigr)
+\quad\text{(+ half the ties)},
+\tag{17.7}
+$$
+
+$$
+\text{abnormal\_pr\_auc}=\sum_k (R_k-R_{k-1})\,P_k ,
+\tag{17.8}
+$$
+
+where $c^+$ / $c^-$ range over abnormal / normal cases, and $P_k$, $R_k$ are
+precision and recall at the $k$-th threshold (average precision). The same
+four per window are logged as `window_abnormal_*`. For reference, LaBraM-base
+fine-tuned for TUAB classification alone reports balanced accuracy 0.814 and
+AUROC 0.902 (Jiang et al. 2024; their split and evaluation windows differ).
+
+The run MT1 in `scripts/submit_age_experiments.sh`
+(`labram/configs/defaults/finetune_tuab_age_multitask.json`) is the best brain-age
+run M1 (pretrained, scenario D + mixup 0.4, 4 epochs / 1 warmup) with this head.
+
 ## Next steps
 
 The default config (`finetune_tuab_age.json`) is scenario D of the October 2026
@@ -1283,9 +1390,9 @@ improvement plan is in [`brain_age_improvement_plan.md`](brain_age_improvement_p
 
 ## Files
 
-Table 18.1 maps each file to its role.
+Table 19.1 maps each file to its role.
 
-### Table 18.1. Files
+### Table 19.1. Files
 
 The files that implement age regression and its analysis.
 
@@ -1307,3 +1414,4 @@ The files that implement age regression and its analysis.
 | `labram/layers/cls_attention_head.py` | `CLSAttentionHead` (`model.head_type=attention`) |
 | `labram/configs/defaults/finetune_tuab_age_attn_head.json` | best run (M1) + `clip_grad` 1.0 + attention head |
 | `labram/train/augment.py` | label-preserving training augmentations (`augment.*`) |
+| `labram/configs/defaults/finetune_tuab_age_multitask.json` | best run (M1) with the multi-task (age + normal/abnormal) head |

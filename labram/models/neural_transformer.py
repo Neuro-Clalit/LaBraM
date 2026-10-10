@@ -10,8 +10,9 @@ import torch
 import torch.nn as nn
 from timm.layers import trunc_normal_
 
-from labram.layers import Block, CLSAttentionHead, MLPHead, PatchEmbed, TemporalConv
-from labram.configs.model_config import AttentionHeadConfig, MLPHeadConfig, TransformerArchConfig
+from labram.layers import Block, CLSAttentionHead, MLPHead, MultiTaskHead, PatchEmbed, TemporalConv
+from labram.configs.model_config import (
+    AttentionHeadConfig, MLPHeadConfig, MultiTaskHeadConfig, TransformerArchConfig)
 
 
 def _cfg(url='', **kwargs):
@@ -248,6 +249,7 @@ class NeuralTransformer(NeuralTransformerBase):
         self._norm_layer = norm_layer
         self._attention_head_cfg = config.attention_head
         self._mlp_head_cfg = config.mlp_head
+        self._multitask_head_cfg = config.multitask_head
 
         self.fc_norm = norm_layer(config.embed_dim) if pool else None
         # Optional [mean patch token, cls token] head input (mean pooling only).
@@ -261,8 +263,7 @@ class NeuralTransformer(NeuralTransformerBase):
         self.apply(self._init_weights)
         self.fix_init_weight()
 
-        out_layer = self._head_output_layer()
-        if out_layer is not None:
+        for out_layer in self._head_output_layers():
             out_layer.weight.data.mul_(config.init_scale)
             out_layer.bias.data.mul_(config.init_scale)
 
@@ -282,13 +283,21 @@ class NeuralTransformer(NeuralTransformerBase):
             if isinstance(c, dict):
                 c = MLPHeadConfig(**c)
             return MLPHead(self.num_features, num_classes, hidden_dims=c.hidden_dims, drop=c.drop)
+        if self.head_type == 'multitask':
+            c = self._multitask_head_cfg
+            if isinstance(c, dict):
+                c = MultiTaskHeadConfig(**c)
+            return MultiTaskHead(self.num_features, num_classes, shared_dims=c.shared_dims,
+                                 age_dims=c.age_dims, abnormal_dims=c.abnormal_dims, drop=c.drop)
         return nn.Linear(self.num_features, num_classes)
 
-    def _head_output_layer(self):
-        """The head's final Linear (the one ``init_scale`` shrinks), or None."""
+    def _head_output_layers(self):
+        """The head's output Linear layer(s) -- the ones ``init_scale`` shrinks."""
+        if isinstance(self.head, MultiTaskHead):
+            return [self.head.age_fc, self.head.abnormal_fc]
         if isinstance(self.head, (CLSAttentionHead, MLPHead)):
-            return self.head.fc
-        return self.head if isinstance(self.head, nn.Linear) else None
+            return [self.head.fc]
+        return [self.head] if isinstance(self.head, nn.Linear) else []
 
     def get_classifier(self):
         return self.head

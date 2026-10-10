@@ -133,7 +133,8 @@
         "balance": "none",
         "balance_bin_width": 1.0,
         "balance_lds_sigma": 2.0,
-        "balance_max_weight": 10.0
+        "balance_max_weight": 10.0,
+        "abnormal_weight": 0.5
     },
     "disable_eval": false,
     "eval": false,

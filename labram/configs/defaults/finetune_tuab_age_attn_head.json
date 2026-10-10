@@ -133,6 +133,19 @@
             ],
             "drop": 0.0
         },
+        "multitask_head": {
+            "py/object": "labram.configs.model_config.MultiTaskHeadConfig",
+            "shared_dims": [
+                256
+            ],
+            "age_dims": [
+                128
+            ],
+            "abnormal_dims": [
+                64
+            ],
+            "drop": 0.0
+        },
         "depth": null,
         "input_clip_uv": 0.0,
         "init_scale": 0.001,
@@ -220,7 +233,8 @@
         "balance": "none",
         "balance_bin_width": 1.0,
         "balance_lds_sigma": 2.0,
-        "balance_max_weight": 10.0
+        "balance_max_weight": 10.0,
+        "abnormal_weight": 0.5
     },
     "shutdown": {
         "py/object": "labram.configs.train_config.ShutdownConfig",

@@ -11,6 +11,7 @@ import torch.nn.functional as F
 
 from labram.configs.loss_config import LossConfig
 from labram.losses.classification import build_classification_criterion
+from labram.losses.outputs import LossBreakdown
 
 REGRESSION_LOSSES = ("mse", "l1", "huber", "soft_label")
 
@@ -167,10 +168,49 @@ class BalancedRegressionLoss(nn.Module):
 
 
 def regression_output(criterion: nn.Module, output: torch.Tensor) -> torch.Tensor:
-    """The scalar prediction the metrics score: the head output itself, or the
-    soft-label criterion's expectation when the head is a bin distribution."""
+    """The scalar prediction the metrics score: the head output itself, the
+    soft-label criterion's expectation when the head is a bin distribution, or
+    the age column of a multi-task head."""
     predict = getattr(criterion, "predict", None)
     return predict(output) if callable(predict) else output
+
+
+def regression_target(criterion: nn.Module, target: torch.Tensor) -> torch.Tensor:
+    """The scalar target the metrics score: the target itself, or the age column
+    of a multi-task ``[age, abnormal]`` target."""
+    pick = getattr(criterion, "metric_target", None)
+    return pick(target) if callable(pick) else target
+
+
+class MultiTaskAgeCriterion(nn.Module):
+    """Brain age + normal/abnormal: ``age_criterion`` on the age column plus
+    ``abnormal_weight`` x BCE-with-logits on the abnormal logit.
+
+    The head emits ``[age, abnormal_logit]`` and the loader ``[age_z, abnormal]``
+    (``abnormal`` in {0, 1}, or a mixup blend of the two). Returns a
+    :class:`LossBreakdown` (``regression`` and ``abnormal`` components, unweighted)
+    so both terms are logged. ``predict`` / ``metric_target`` hand every age
+    metric just the age column, so MAE, model selection and the cohort metrics
+    are unchanged.
+    """
+
+    def __init__(self, age_criterion: nn.Module, abnormal_weight: float = 0.5):
+        super().__init__()
+        self.age_criterion = age_criterion
+        self.abnormal_weight = float(abnormal_weight)
+
+    def predict(self, output: torch.Tensor) -> torch.Tensor:
+        return output[..., :1]
+
+    def metric_target(self, target: torch.Tensor) -> torch.Tensor:
+        return target[..., :1]
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor) -> LossBreakdown:
+        age = self.age_criterion(output[..., :1], target[..., :1])
+        abnormal = F.binary_cross_entropy_with_logits(
+            output[..., -1].float(), target[..., -1].float())
+        return LossBreakdown(total=age + self.abnormal_weight * abnormal,
+                             components={"regression": age, "abnormal": abnormal})
 
 
 def build_regression_criterion(cfg: Optional[LossConfig] = None,

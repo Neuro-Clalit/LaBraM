@@ -137,6 +137,20 @@ class MLPHeadConfig(ConfigBase):
 
 
 @dataclass
+class MultiTaskHeadConfig(ConfigBase):
+    """``head_type="multitask"``: :class:`labram.layers.MultiTaskHead` on the
+    pooled feature -- a shared MLP trunk (``shared_dims``) feeding a dedicated
+    age-regression branch (``age_dims``) and a dedicated normal/abnormal
+    classification branch (``abnormal_dims``). Each entry is one
+    ``Linear -> GELU -> Dropout(drop)`` layer. Regression (brain age) only; the
+    classification loss weight is ``loss.abnormal_weight``."""
+    shared_dims: List[int] = field(default_factory=lambda: [256])
+    age_dims: List[int] = field(default_factory=lambda: [128])
+    abnormal_dims: List[int] = field(default_factory=lambda: [64])
+    drop: float = 0.0
+
+
+@dataclass
 class FinetuneModelConfig(ConfigBase):
     model: str = conf_consts.DEFAULT_FINETUNE_MODEL
     input_size: int = conf_consts.DEFAULT_FINETUNE_INPUT_SIZE
@@ -158,6 +172,8 @@ class FinetuneModelConfig(ConfigBase):
     head_type: str = conf_consts.DEFAULT_FINETUNE_HEAD_TYPE
     attention_head: AttentionHeadConfig = field(default_factory=AttentionHeadConfig)
     mlp_head: MLPHeadConfig = field(default_factory=MLPHeadConfig)
+    # "multitask": age + normal/abnormal from one pooled feature (multitask_head).
+    multitask_head: MultiTaskHeadConfig = field(default_factory=MultiTaskHeadConfig)
     # Number of transformer blocks; None = the registry model's own depth (12
     # for labram_base_*). A pretrained checkpoint then loads into the first
     # ``depth`` blocks and its deeper blocks are ignored.
@@ -197,9 +213,16 @@ class FinetuneModelConfig(ConfigBase):
                 raise ValueError(f"model.lora.rank must be >= 1, got {self.lora.rank}")
         if self.concat_cls_token and not self.use_mean_pooling:
             raise ValueError("model.concat_cls_token requires model.use_mean_pooling")
-        if self.head_type not in ("linear", "mlp", "attention"):
+        if self.head_type not in ("linear", "mlp", "attention", "multitask"):
             raise ValueError(
-                f"model.head_type must be 'linear', 'mlp' or 'attention', got {self.head_type!r}")
+                "model.head_type must be 'linear', 'mlp', 'attention' or 'multitask', "
+                f"got {self.head_type!r}")
+        if self.head_type == "multitask":
+            if self.task != "regression":
+                raise ValueError("model.head_type=multitask needs the regression (brain-age) task")
+            if self.codebook_reg.enabled or self.lora.enabled:
+                raise ValueError("model.head_type=multitask is not supported with "
+                                 "model.codebook_reg or model.lora")
         if self.head_type == "mlp" and self.codebook_reg.enabled:
             raise ValueError("model.head_type=mlp is not supported with model.codebook_reg")
         if self.depth is not None:
@@ -271,6 +294,7 @@ class TransformerArchConfig(ConfigBase):
     head_type: str = conf_consts.DEFAULT_ARCH_HEAD_TYPE
     attention_head: AttentionHeadConfig = field(default_factory=AttentionHeadConfig)
     mlp_head: MLPHeadConfig = field(default_factory=MLPHeadConfig)
+    multitask_head: MultiTaskHeadConfig = field(default_factory=MultiTaskHeadConfig)
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM
