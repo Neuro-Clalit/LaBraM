@@ -194,7 +194,7 @@ def test_explorer_figures_render():
     assert_max_columns(fig)
     titles = sorted(a.get_title() for a in fig.axes)
     assert [t[:3] for t in titles] == ["(a)", "(b)", "(c)", "(d)", "(e)", "(f)"]
-    assert fig._suptitle.get_text().startswith("Figure 8.1.")
+    assert fig._suptitle is None                       # the heading above is the title
     plt.close(fig)
     fig = ex.show("r3", reference=False, channels=["O1", "O2"], seconds=(0, 5), number="8.5")
     assert_max_columns(fig)
@@ -207,7 +207,7 @@ def test_numbering_helpers():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from labram.eval.age_plots import (
-        assert_max_columns, figure_caption, numbered_table, panel_labels)
+        assert_max_columns, figure_heading, numbered_table, panel_labels)
     fig, ax = plt.subplots(2, 2)
     for a in ax.ravel():
         a.set_title("t")
@@ -215,8 +215,8 @@ def test_numbering_helpers():
     assert [a.get_title() for a in ordered] == ["(a) t", "(b) t", "(c) t", "(d) t"]
     assert ordered[1] is ax[0, 1] and ordered[2] is ax[1, 0]
     assert_max_columns(fig)
-    figure_caption(fig, "3.1", "x")
-    assert fig._suptitle.get_text() == "Figure 3.1. x"
+    assert figure_heading("3.1", "x", level=3) == "### Figure 3.1. x"
+    assert figure_heading("8.5", "y", note="n", level=4) == "#### Figure 8.5. y\n\nn"
     plt.close(fig)
     fig, _ = plt.subplots(1, 3)
     with pytest.raises(AssertionError):

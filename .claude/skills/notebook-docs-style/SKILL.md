@@ -36,14 +36,14 @@ own section. Docs without numbered sections use their `##` order (1, 2, …).
 |---|---|---|
 | equation | `\tag{2.3}` inside the `$$` block | "Eq. (2.3)" |
 | table | its own **subsection heading** directly above it, one level below the enclosing heading: `### Table 2.1. <short title>`, then the description (columns, units, equations) as text under the heading. In a notebook the heading is a Markdown cell right before the code cell that displays the table (split the code cell so each table has its own cell); the displayed frame has **no** caption inside it (`numbered_table(df, "2.1", "…")` only formats it), so the title is never repeated in the table | "Table 2.1" |
-| figure | `**Figure 3.1.** …` caption in the Markdown, and the same `Figure 3.1` as the figure's suptitle (`figure_caption(fig, "3.1", "…")`) | "Figure 3.1" |
+| figure | like a table: its own **subsection heading** directly above it, `### Figure 3.1. <short title>`, with the panel description (what is plotted, units, split, equations) as text under it. In a notebook it is a Markdown cell right before the cell that draws the figure; the figure itself has **no** title (no suptitle). A figure drawn in a loop or by a helper gets its heading from `figure_heading(number, title, note, level)`, which displays it in the output right above the figure (`AgeExplorer.show/compare_at_age(..., number=..., heading_level=...)` do this) | "Figure 3.1" |
 | subfigure | every panel's title starts with `(a)`, `(b)`, … left-to-right, top-to-bottom (`panel_labels(axes)`) | "Figure 3.1(b)" |
 
 * Every numbered item is referenced at least once from the prose, and every
   reference resolves. No "the plot below", "top-left panel", "the table above".
 * A figure produced in a loop gets consecutive numbers (`8.1 … 8.4`, one per
-  loop item); the Markdown names the range.
-* A Markdown caption says what is plotted, the unit, the split/cohort and the
+  loop item), each with its own displayed heading; the Markdown names the range.
+* The text under a figure heading says what is plotted, the unit, the split/cohort and the
   `n`; the interpretation goes in the prose that cites it.
 
 ## 3. Figures: at most two subplots side by side
@@ -62,7 +62,9 @@ own section. Docs without numbered sections use their `##` order (1, 2, …).
 
 1. Every metric/loss column and axis has a numbered formula above it.
 2. Every equation, table, figure and panel has a number or letter, and the text
-   cites each one; every table sits under its own `Table s.k. <title>` heading.
+   cites each one; every table and every figure sits under its own
+   `Table s.k. <title>` / `Figure s.k. <title>` heading, and neither carries a
+   title inside it.
 3. No figure row has more than two axes.
 4. Notebook: *Restart & Run All* succeeds and the saved outputs show the
    numbered captions (`.venv/bin/jupyter nbconvert --to notebook --execute

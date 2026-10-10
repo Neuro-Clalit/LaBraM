@@ -180,7 +180,7 @@ MLP head, no pretrained weights).
 
 ### Key cross-cutting concerns
 
-**Notebook and docs style**: analysis notebooks (`notebooks/*.ipynb`) and docs (`docs/*.md`) follow `.claude/skills/notebook-docs-style/SKILL.md`: every loss/metric/derived value as a numbered LaTeX formula matching the code, every equation/table/figure/subfigure numbered per section (Eq. (2.1), Table 2.2, Figure 3.1(b)) and cited from the text, and at most two subplots side by side (helpers `panel_labels`, `figure_caption`, `numbered_table`, `assert_max_columns` in `labram/eval/age_plots.py`).
+**Notebook and docs style**: analysis notebooks (`notebooks/*.ipynb`) and docs (`docs/*.md`) follow `.claude/skills/notebook-docs-style/SKILL.md`: every loss/metric/derived value as a numbered LaTeX formula matching the code, every equation/table/figure/subfigure numbered per section (Eq. (2.1), Table 2.2, Figure 3.1(b)) and cited from the text, each table and figure under its own `Table s.k.` / `Figure s.k.` subsection heading, and at most two subplots side by side (helpers `panel_labels`, `figure_heading`, `numbered_table`, `assert_max_columns` in `labram/eval/age_plots.py`).
 
 **Channel handling**: 62-channel standard 10-20 layout is defined in `data/eeg_constants.py::standard_1020`. `get_channel_indices()` maps each dataset's channel names to this standard order. Fine-tuning setup (`runs/finetune_setup.py`) reorders loaded checkpoint weights to match the target dataset channel order — this is critical for transfer learning.
 
