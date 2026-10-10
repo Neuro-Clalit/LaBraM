@@ -242,7 +242,47 @@ def load_manifest(npy_root: str) -> list:
         return json.load(fh)["recordings"]
 
 
-EXTRACTORS = {"main": extract_recording, "scattering": extract_recording_scattering}
+def spectrogram_families(xw: np.ndarray) -> dict:
+    """Spectrogram-based families for windows ``[W, C, WIN]`` at 200 Hz."""
+    f, s = fx.stft_spectrogram(xw)
+    fp, sp = fx.stft_spectrogram(xw, pad=4)  # 0.25 Hz grid for the cepstral filter bank
+    fm, sm = fx.multitaper_spectrogram(xw)
+    return {"stft": fx.spectrogram_stats(f, s, prefix="stft")[0],
+            "stft_dyn": fx.spectrogram_dynamics(f, s)[0],
+            "cepstral": fx.cepstral_features(fp, sp)[0],
+            "multitaper": fx.spectrogram_stats(fm, sm, prefix="mt")[0]}
+
+
+def extract_recording_spectrogram(path: str, n_skip: int = 6, n_use: int = 30) -> dict:
+    """Spectrogram features (``rec/<family>``) under the reference preparation.
+
+    Same clean windows and median aggregation as :func:`extract_recording`.
+    """
+    seg = load_segment(path, n_skip + n_use)
+    quality = window_quality(to_windows(seg))
+    use = np.zeros(quality.shape[0], dtype=bool)
+    use[n_skip:] = True
+    mask = use & clean_mask(quality)
+    if not mask.any():
+        mask = use
+    xw = to_windows(prepare(seg, PREP_REF))[mask]
+    return {f"rec/{k}": np.median(v, axis=0).astype(np.float32)
+            for k, v in spectrogram_families(xw).items()}
+
+
+def spectrogram_names() -> dict:
+    xw = np.random.default_rng(0).standard_normal((1, 1, WIN))
+    f, s = fx.stft_spectrogram(xw)
+    fp, sp = fx.stft_spectrogram(xw, pad=4)
+    fm, sm = fx.multitaper_spectrogram(xw)
+    return {"stft": fx.spectrogram_stats(f, s, prefix="stft")[1],
+            "stft_dyn": fx.spectrogram_dynamics(f, s)[1],
+            "cepstral": fx.cepstral_features(fp, sp)[1],
+            "multitaper": fx.spectrogram_stats(fm, sm, prefix="mt")[1]}
+
+
+EXTRACTORS = {"main": extract_recording, "scattering": extract_recording_scattering,
+              "spectrogram": extract_recording_spectrogram}
 
 
 def default_cache_path(npy_root: str, kind: str = "main") -> str:
@@ -317,7 +357,7 @@ def main():
     ap.add_argument("--n_use", type=int, default=30, help="10 s windows used after the skip")
     ap.add_argument("--limit", type=int, default=None, help="only the first N recordings (debug)")
     ap.add_argument("--kind", choices=sorted(EXTRACTORS), default="main",
-                    help="main feature set, or wavelet scattering (needs kymatio)")
+                    help="main feature set, wavelet scattering (needs kymatio), or spectrograms")
     a = ap.parse_args()
     extract_corpus(a.npy_root, a.out or default_cache_path(a.npy_root, a.kind), a.n_jobs,
                    a.n_skip, a.n_use, a.limit, a.kind)

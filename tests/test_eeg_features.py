@@ -185,3 +185,40 @@ def test_extract_recording_scattering_shapes(tmp_path):
     for key in tuab.SCAT_CONFIGS:
         assert out[f"rec/{key}"].shape == (19, len(names[key]))
         assert np.isfinite(out[f"rec/{key}"]).all()
+
+
+def test_stft_and_multitaper_spectrograms_peak_and_variance():
+    x = (_sine(10.0) + np.random.default_rng(0).standard_normal(2000))[None]
+    f, s = fx.stft_spectrogram(x)
+    feats, names = fx.spectrogram_stats(f, s)
+    means = feats[0, : len(names) // 2]
+    assert names[int(np.argmax(means))] == "stft_mean_10Hz"
+    # Multitaper averaging lowers the frame-to-frame variance of log power on noise.
+    noise = np.random.default_rng(1).standard_normal((4, 2000))
+    _, s1 = fx.stft_spectrogram(noise, seg_sec=2.0)
+    _, sm = fx.multitaper_spectrogram(noise)
+    assert np.log10(sm).std(axis=-1).mean() < np.log10(s1).std(axis=-1).mean()
+
+
+def test_spectrogram_dynamics_separates_bursty_from_sustained_alpha():
+    t = np.arange(4000) / FS
+    sustained = np.sin(2 * np.pi * 10.0 * t)
+    bursty = sustained * (np.sin(2 * np.pi * 0.25 * t) > 0)
+    x = np.stack([sustained, bursty]) + 0.05 * np.random.default_rng(0).standard_normal((2, 4000))
+    f, s = fx.stft_spectrogram(x)
+    feats, names = fx.spectrogram_dynamics(f, s)
+    i = names.index("std_logpow_alpha")
+    assert feats[1, i] > feats[0, i] + 0.3
+    assert len(names) == feats.shape[-1] == 11
+
+
+def test_cepstral_features_shape_and_gain_invariance_of_higher_coefficients():
+    x = np.random.default_rng(0).standard_normal((2, 2000))
+    f, s = fx.stft_spectrogram(x, pad=4)
+    c1, names = fx.cepstral_features(f, s)
+    c2, _ = fx.cepstral_features(f, s * 100.0)  # +20 dB gain shifts only c0
+    assert c1.shape == (2, len(names)) == (2, 26)
+    assert np.allclose(c1[:, 1:13], c2[:, 1:13], atol=1e-6)
+    assert np.all(c2[:, 0] > c1[:, 0])
+    with pytest.raises(ValueError):  # 1 Hz grid is too coarse for the narrow low filters
+        fx.cepstral_features(*fx.stft_spectrogram(x, pad=1), n_filters=40)

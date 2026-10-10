@@ -136,6 +136,117 @@ def psd_bin_features(freqs, psd, lo=1.0, hi=45.0, width=1.0):
     return feats, [f"log_psd_{e:g}Hz" for e in edges[:-1]]
 
 
+# ------------------------------------------------------------ spectrograms
+def stft_spectrogram(x: np.ndarray, fs: float = FS, seg_sec: float = 1.0, lo: float = 1.0,
+                     hi: float = 45.0, pad: int = 1):
+    """Short-time Fourier power ``[..., F, frames]`` (Hann, 50 % overlap), ``lo <= f <= hi``.
+
+    A 1 s segment gives 1 Hz resolution and 19 frames per 10 s window: a
+    fixed time-frequency tiling, unlike the constant-Q wavelet tilings.
+    ``pad`` zero-pads each segment (``nfft = pad * nperseg``) to interpolate the
+    frequency grid without changing the resolution.
+    """
+    nper = int(seg_sec * fs)
+    f, _, s = signal.spectrogram(x, fs=fs, window="hann", nperseg=nper, noverlap=nper // 2,
+                                 nfft=pad * nper, scaling="density", mode="psd", axis=-1)
+    sel = (f >= lo) & (f <= hi)
+    return f[sel], s[..., sel, :]
+
+
+def multitaper_spectrogram(x: np.ndarray, fs: float = FS, seg_sec: float = 2.0, nw: float = 2.0,
+                           n_tapers: int = 3, lo: float = 1.0, hi: float = 45.0):
+    """Multitaper (DPSS) spectrogram ``[..., F, frames]`` (Thomson 1982; Prerau et al. 2017).
+
+    Averaging ``K = 2NW - 1`` orthogonal Slepian tapers reduces the variance of
+    each time-frequency estimate ~K-fold at a fixed spectral resolution of
+    ``2 NW / seg_sec`` Hz (here 2 Hz on 2 s segments with 1 s step).
+    """
+    nper = int(seg_sec * fs)
+    tapers = signal.windows.dpss(nper, nw, Kmax=n_tapers)
+    acc = None
+    for taper in tapers:
+        f, _, s = signal.spectrogram(x, fs=fs, window=taper, nperseg=nper, noverlap=nper // 2,
+                                     scaling="density", mode="psd", axis=-1)
+        acc = s if acc is None else acc + s
+    sel = (f >= lo) & (f <= hi)
+    return f[sel], acc[..., sel, :] / len(tapers)
+
+
+def spectrogram_stats(freqs, spec, lo: float = 1.0, hi: float = 45.0, width: float = 1.0,
+                      prefix: str = "stft"):
+    """Mean and std over time of log power in contiguous ``width``-Hz bins.
+
+    The mean is a (Welch-like) average spectrum; the std over frames measures
+    how much each frequency's power fluctuates inside the window.
+    """
+    edges = np.arange(lo, hi + 1e-9, width)[:-1]
+    logs = []
+    for e in edges:
+        sel = (freqs >= e) & (freqs < e + width)
+        if not sel.any():  # coarse grids (multitaper 0.5 Hz bins fit; guard anyway)
+            sel = np.argmin(np.abs(freqs - (e + width / 2)))
+            logs.append(np.log10(spec[..., sel, :] + EPS))
+        else:
+            logs.append(np.log10(spec[..., sel, :].mean(axis=-2) + EPS))
+    logs = np.stack(logs, axis=-2)  # [..., bins, frames]
+    feats = np.concatenate([logs.mean(axis=-1), logs.std(axis=-1)], axis=-1)
+    names = ([f"{prefix}_mean_{e:g}Hz" for e in edges] + [f"{prefix}_std_{e:g}Hz" for e in edges])
+    return feats, names
+
+
+def spectrogram_dynamics(freqs, spec):
+    """Temporal dynamics of the spectrogram: per-band variability, persistence and flux.
+
+    For each clinical band ``b`` with log band power ``l_b(tau)`` over frames:
+    ``std_tau l_b`` (variability), lag-1 autocorrelation of ``l_b`` (persistence:
+    sustained vs intermittent rhythm), plus the spectral flux
+    ``mean_tau ||log S(., tau+1) - log S(., tau)||_2 / sqrt(F)``.
+    """
+    df = freqs[1] - freqs[0]
+    lb = np.stack([np.log10(spec[..., (freqs >= lo) & (freqs < hi), :].sum(axis=-2) * df + EPS)
+                   for lo, hi in BANDS.values()], axis=-2)  # [..., 5, frames]
+    c = lb - lb.mean(axis=-1, keepdims=True)
+    ac1 = (c[..., 1:] * c[..., :-1]).mean(axis=-1) / (c.var(axis=-1) + EPS)
+    logs = np.log10(spec + EPS)
+    flux = np.sqrt((np.diff(logs, axis=-1) ** 2).mean(axis=-2)).mean(axis=-1, keepdims=True)
+    feats = np.concatenate([lb.std(axis=-1), ac1, flux], axis=-1)
+    names = ([f"std_logpow_{b}" for b in BANDS] + [f"ac1_logpow_{b}" for b in BANDS]
+             + ["spectral_flux"])
+    return feats, names
+
+
+def cepstral_features(freqs, spec, n_filters: int = 16, n_coef: int = 13, lo: float = 1.0,
+                      hi: float = 45.0, f_break: float = 4.0):
+    """MFCC-style cepstral coefficients of the spectrogram (mean and std over time).
+
+    Triangular filters equally spaced on the warped axis
+    ``u(f) = log(1 + f / f_break)`` -- the EEG analogue of the mel scale: linear
+    below ~``f_break`` Hz, logarithmic above -- pool the power spectrum into
+    ``M = n_filters`` energies ``E_m(tau)``; the DCT-II
+    ``c_k(tau) = sqrt(2/M) sum_m log10 E_m(tau) cos(pi k (m + 1/2) / M)`` (orthonormal)
+    decorrelates them. ``c_0`` is the overall log level; low ``k`` encode the
+    spectral envelope (tilt, broad slowing), higher ``k`` finer shape (peaks).
+    A gain change only moves ``c_0``. Use a finely sampled spectrum (e.g.
+    ``stft_spectrogram(..., pad=4)``) so every filter covers several bins.
+    """
+    u = np.log1p(np.asarray(freqs) / f_break)
+    centres = np.linspace(np.log1p(lo / f_break), np.log1p(hi / f_break), n_filters + 2)
+    fb = np.zeros((n_filters, len(freqs)))
+    for m in range(n_filters):
+        a, b, c = centres[m], centres[m + 1], centres[m + 2]
+        fb[m] = np.clip(np.minimum((u - a) / (b - a), (c - u) / (c - b)), 0.0, None)
+    if (fb > 0).sum(axis=1).min() < 2:
+        raise ValueError("frequency grid too coarse for the cepstral filter bank")
+    fb /= fb.sum(axis=1, keepdims=True)
+    energies = np.log10(np.einsum("mf,...ft->...mt", fb, spec) + EPS)  # [..., M, frames]
+    from scipy.fft import dct
+
+    cep = dct(energies, type=2, axis=-2, norm="ortho")[..., :n_coef, :]
+    feats = np.concatenate([cep.mean(axis=-1), cep.std(axis=-1)], axis=-1)
+    names = [f"cep_mean_c{k}" for k in range(n_coef)] + [f"cep_std_c{k}" for k in range(n_coef)]
+    return feats, names
+
+
 # --------------------------------------------------------------- wavelets: DWT
 def dwt_band_edges(level: int, fs: float = FS):
     """Nominal (ideal-filter) frequency band of each DWT output, A_L first."""
