@@ -70,6 +70,12 @@ Confusion-matrix cell **counts** and the AMP **loss scale** / **gradient norm**
 therefore live on their own plots rather than squashing the normalized metrics
 on the `val`/`test`/`opt` plots.
 
+**Regression runs** replace the per-split `val`/`test`/`train` (+ `_err`,
+`_window`) plots with one plot per metric and pooling (`mae_case_mean`,
+`mae_case_median`, `mae_window`, the same for `rmse` and `r2`, plus
+`loss_epoch`), each with `train`/`val`/`test` series. MSE is not plotted
+(RMSE instead). See [`age_regression.md`](age_regression.md#logged-plots).
+
 ### Relative (scale-free) metrics
 
 Metrics are reported in **relative** terms by default, so plots from different
@@ -84,14 +90,21 @@ the absolute form rather than adding a second series next to it.
 | `relative_step_scale`        | `1000`  | x-axis units the full run spans (progress in per-mille)            |
 
 **Relative loss components.** When a run has a composite loss (the
-codebook-regularized fine-tune's `classifier` / `magnitude` / `phase` /
-`quantize` terms, or VQNSP's `rec` / `rec_angle` / `quant` terms), the writer
+codebook-regularized fine-tune's `classifier` (`regression` for a scalar
+target) / `magnitude` / `phase` / `quantize` terms, or VQNSP's `rec` / `rec_angle` / `quant` terms), the writer
 receives `‹name›_loss_rel = |‹name›| / Σ|components|` — a `[0, 1]` series where
 all components sum to 1 — instead of the raw magnitude. The same applies to the
 per-component gradient norms (`grad_norm_‹name›_rel`) logged when
 `evaluation.log_grad_components` is on. This shows how the terms *trade off*,
 which is comparable across loss weights, datasets and runs, where the raw
 magnitudes are not.
+
+Fine-tuning additionally logs every loss term in **absolute** units on a
+`loss_terms` plot, independent of this option: the unweighted components plus
+`total_loss`, or the single downstream term on the plain path. That term is
+named after the task, `regression_loss` or `classifier_loss`, on both paths,
+so runs compare directly. Series are prefixed `train_` (per step); regression
+runs add `val_` / `test_` (per epoch, scored with the training criterion).
 
 The **aggregate** loss (`loss`, VQNSP's `total_loss`) keeps its absolute value —
 it is the quantity being minimized — as do non-loss counters such as VQNSP's
@@ -145,6 +158,12 @@ glance. The same flat dict is also `connect`-ed to the task as a `final_metrics`
 config section, so the values appear as **sortable columns in the experiments
 table** and in the hyperparameter comparison.
 
+Alongside them, `runs/common.py::log_summary_tables` reports one **table per
+split** (`summary` / `train`, `val`, `test` under PLOTS; a markdown table in
+TensorBoard's TEXT tab; and the console) with a `best` row (the epoch selected on
+validation) and a `last` row (the final epoch), numbers formatted to two
+decimals — the best-vs-last comparison within a single run.
+
 This is handled by `runs/common.py::log_summary_metrics` (called from
 `run_finetune.main`), so every fine-tune — including each cross-validation fold —
 gets a comparable final-metrics table. (A CV study additionally logs a
@@ -172,7 +191,7 @@ section (`labram.configs.train_config.ClearMLConfig`):
 | `enabled`                 | `false`   | Master switch for ClearML tracking.                            |
 | `project_name`            | `LaBraM`  | ClearML project the task is filed under.                       |
 | `task_name`               | `""`      | Task name; empty ⇒ derived from `output_dir` (or model name).  |
-| `append_timestamp`        | `true`    | Append a millisecond timestamp (`YYYYmmdd_HHMMSS_fff`) to the task name so each run is uniquely identifiable. |
+| `append_timestamp`        | `true`    | Append a millisecond timestamp (`YYYYmmdd_HHMMSS_fff`) to the task name so each run is uniquely identifiable. It reuses the run's output-dir stamp (`output.append_timestamp`), so the task and its directory share one name. |
 | `tags`                    | `[]`      | Tags added to the task. Two more are added automatically: `debug` for debug runs, and `sagemaker` when `sagemaker.enabled` is also set. |
 | `output_uri`              | `""`      | Artifact upload target; empty ⇒ ClearML default.               |
 | `offline`                 | `false`   | Run without a server, storing results locally.                 |

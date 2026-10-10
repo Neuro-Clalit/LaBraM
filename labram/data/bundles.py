@@ -39,7 +39,10 @@ class DatasetBundle:
         return self.task == REGRESSION
 
 
-def get_dataset_bundle(dataset_name: str, data_path: str) -> DatasetBundle:
+def get_dataset_bundle(dataset_name: str, data_path: str,
+                       data_format: str = "pickle") -> DatasetBundle:
+    if data_format != "pickle" and dataset_name != 'TUAB_AGE':
+        raise ValueError(f"data.data_format={data_format!r} is only available for TUAB_AGE")
     if dataset_name == 'TUAB':
         root = data_path or "path/to/TUAB"
         train, test, val = prepare_TUAB_dataset(root)
@@ -51,7 +54,7 @@ def get_dataset_bundle(dataset_name: str, data_path: str) -> DatasetBundle:
         )
     if dataset_name == 'TUAB_AGE':
         root = data_path or "path/to/TUAB"
-        train, test, val, target_stats = prepare_TUAB_age_dataset(root)
+        train, test, val, target_stats = prepare_TUAB_age_dataset(root, data_format=data_format)
         return DatasetBundle(
             train=train, val=val, test=test,
             ch_names=normalize_ch_names(TUH_EEG_CH_NAMES),

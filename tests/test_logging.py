@@ -229,6 +229,7 @@ class _FakeTask:
     without credentials."""
 
     last = None
+    random_seed = "unset"
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -243,6 +244,10 @@ class _FakeTask:
     @staticmethod
     def set_offline(offline_mode=False):
         pass
+
+    @classmethod
+    def set_random_seed(cls, random_seed):
+        cls.random_seed = random_seed
 
     def add_tags(self, tags):
         self.tags.extend(tags)
@@ -371,3 +376,49 @@ class TestInitClearMLTaskSageMakerTag:
         config = self._run_config(True)
         config.clearml.enabled = False
         assert self._init(monkeypatch, config) is None
+
+
+@pytest.mark.skipif(
+    not clearml_available,
+    reason="clearml is not installed/configured; ClearML tests skipped",
+)
+class TestInitClearMLTaskSeed:
+    """ClearML's Task.init reseeds every RNG with its own default (1337) unless
+    told otherwise; init_clearml_task must hand it distributed.seed instead, or
+    the configured seed is silently ignored for every ClearML-tracked run."""
+
+    def _init(self, monkeypatch, run_config):
+        import clearml
+        from labram.runs import common
+        monkeypatch.setattr(clearml, "Task", _FakeTask, raising=False)
+        monkeypatch.setattr(_FakeTask, "random_seed", "unset")
+        cfg = run_config.clearml if hasattr(run_config, "clearml") else None
+        from labram.configs.train_config import ClearMLConfig
+        return common.init_clearml_task(cfg or ClearMLConfig(enabled=True), run_config,
+                                        global_rank=0)
+
+    def test_task_init_reseeds_with_the_configured_seed(self, monkeypatch):
+        from labram.configs.run_configs import FinetuneRunConfig
+        config = FinetuneRunConfig()
+        config.clearml.enabled = True
+        config.distributed.seed = 7
+        self._init(monkeypatch, config)
+        assert _FakeTask.random_seed == 7
+
+    def test_reseeding_is_disabled_without_a_distributed_config(self, monkeypatch):
+        self._init(monkeypatch, types.SimpleNamespace(debug=False))
+        assert _FakeTask.random_seed is None
+
+    def test_real_clearml_set_random_seed_controls_the_init_seed(self):
+        """Pin the ClearML behaviour the fix relies on: Task.init seeds with
+        get_random_seed(), which reads the class-level _random_seed that
+        set_random_seed writes."""
+        from clearml import Task
+        saved = Task._random_seed
+        try:
+            Task.set_random_seed(7)
+            assert Task._random_seed == 7
+            Task.set_random_seed(None)
+            assert Task._random_seed is None
+        finally:
+            Task._random_seed = saved

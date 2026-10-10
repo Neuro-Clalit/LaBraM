@@ -42,6 +42,7 @@ from labram.configs.train_config import (
     DistributedConfig,
     EvaluationConfig,
     LoggingConfig,
+    MixupConfig,
     OutputConfig,
     ShutdownConfig,
     TrainerConfig,
@@ -195,6 +196,8 @@ class FinetuneRunConfig(RunConfig):
     finetune_checkpoint: FinetuneCheckpointConfig = field(default_factory=FinetuneCheckpointConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     loss: LossConfig = field(default_factory=LossConfig)
+    # Mixup across recordings for regression fine-tuning (opt-in).
+    mixup: MixupConfig = field(default_factory=MixupConfig)
     # K-fold cross-validation (opt-in). Disabled -> single train/val/test run.
     cross_validation: CrossValidationConfig = field(default_factory=CrossValidationConfig)
     optimizer: OptimizerConfig = field(

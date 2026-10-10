@@ -169,10 +169,10 @@ python -m labram.runs.submit_sagemaker \
   --set sagemaker.enabled=true \
         sagemaker.role=arn:aws:iam::574441342949:role/SageMakerExecutionRole \
         sagemaker.instance_type=ml.g5.2xlarge \
-        sagemaker.input_mode=FastFile sagemaker.use_spot=true \
+        sagemaker.input_mode=File sagemaker.use_spot=true \
         sagemaker.max_wait_min=1530 sagemaker.on_demand_fallback=true \
         sagemaker.job_name_prefix=labram-brain-age sagemaker.wait=true \
-        data.data_path=s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed/ \
+        data.data_path=s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed_npy/ \
         output.output_dir= output.log_dir= \
         clearml.enabled=true clearml.project_name=eeg/brain_age \
         clearml.task_name=finetune_tuab_age
@@ -586,15 +586,34 @@ raised explicitly (`--set sagemaker.max_run_sec=345600` for 4 days). With
 
 ClearML logging works inside the job: `clearml` is in `requirements.txt`, and the
 per-fold tasks group under `‹project›/‹experiment›` exactly as for a local run.
-It only needs credentials in the container. When `clearml.enabled` is set, the
-submit CLI **forwards the submitter's ClearML credentials**
-(`CLEARML_API_ACCESS_KEY`, `CLEARML_API_SECRET_KEY`, `CLEARML_API_HOST`,
-`CLEARML_WEB_HOST`, `CLEARML_FILES_HOST`) into the job's environment, resolving
-each from — in order — an explicit `sagemaker.environment` entry, the matching
-environment variable, then the local **`clearml.conf`** (which is where
-`clearml-init` puts them, so the common setup needs no extra work). If the
-access key, secret key and API host still cannot be resolved the CLI warns
-before submitting, because the job would otherwise fail to report. The
+It only needs credentials in the container, and they must never travel inside
+the run config: the config is uploaded to S3, recorded on the ClearML task and
+printed to the job log.
+
+**Credentials come from AWS Secrets Manager.** Store this machine's ClearML
+credentials once (re-run after rotating the key; needs an MFA session where the
+account enforces MFA for KMS):
+
+```bash
+python -m labram.aws.clearml_secret put      # secret labram/clearml, from clearml.conf
+python -m labram.aws.clearml_secret check    # lists the stored keys, never values
+```
+
+The submitter then puts only the secret's name in the job environment
+(`LABRAM_CLEARML_SECRET=labram/clearml`, from `sagemaker.clearml_secret`) and
+refuses to submit if the secret does not exist; `sagemaker_entry.py` reads it
+with the execution role (inline policy `labram-clearml-secret-read`:
+`secretsmanager:GetSecretValue` on `labram/clearml-*`) and exports the
+`CLEARML_*` variables before ClearML starts. `sagemaker.clearml_secret=''`
+restores the old behaviour of passing the credentials as job environment
+variables, which are visible in the SageMaker job definition.
+
+As a safety net, every copy of a config that leaves the process -- the saved
+`run_config.yaml`, the S3 upload, the ClearML hyperparameters and configuration,
+the console log -- is passed through `labram/utils/secrets.py::redacted_copy`,
+which masks values under credential-looking keys (`SECRET`, `PASSWORD`,
+`TOKEN`, `*_KEY`, ...) as `***`; the command line ClearML records as the task's
+entry point is masked the same way. The
 fold-number parsing in `cv_report` tolerates the `append_timestamp` task-name
 suffix.
 

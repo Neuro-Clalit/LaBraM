@@ -105,12 +105,15 @@ def run_pipeline(base_dir, device="cpu", real_tuab_path=None, verbose=False):
         "output.save_ckpt_freq": 1,
         "distributed.device": device,
         "output.output_dir": str(vqnsp_out),
+        "output.log_dir": str(vqnsp_out) + "_log",
         "model.model": "vqnsp_encoder_base_decoder_3x200x12",
     })
     print_command("VQNSP", "labram.runs.run_vqnsp", vqnsp_config, vqnsp_default)
     run_vqnsp.main(vqnsp_config)
     
-    vqnsp_checkpoint = vqnsp_out / "checkpoint-1.pth"
+    # output_dir gets the run timestamp (output.append_timestamp); the config
+    # holds the resolved directory after main().
+    vqnsp_checkpoint = Path(vqnsp_config.output.output_dir) / "checkpoint-1.pth"
     
     # 3. Run Pre-training
     print("\n>>> Running Pre-training stage")
@@ -126,13 +129,14 @@ def run_pipeline(base_dir, device="cpu", real_tuab_path=None, verbose=False):
         "output.save_ckpt_freq": 1,
         "distributed.device": device,
         "output.output_dir": str(pretrain_out),
+        "output.log_dir": str(pretrain_out) + "_log",
         "model.model": "labram_base_patch200_1600_8k_vocab",
         "model.tokenizer.tokenizer_weight": str(vqnsp_checkpoint),
     })
     print_command("Pre-training", "labram.runs.run_pretrain", pretrain_config, pretrain_default)
     run_pretrain.main(pretrain_config)
     
-    pretrain_checkpoint = pretrain_out / "checkpoint-1.pth"
+    pretrain_checkpoint = Path(pretrain_config.output.output_dir) / "checkpoint-1.pth"
     
     # 4. Run Fine-tuning
     print("\n>>> Running Fine-tuning stage")
@@ -147,6 +151,7 @@ def run_pipeline(base_dir, device="cpu", real_tuab_path=None, verbose=False):
         "trainer.debug_samples": 4,
         "distributed.device": device,
         "output.output_dir": str(finetune_out),
+        "output.log_dir": str(finetune_out) + "_log",
         "model.model": "labram_base_patch200_200",
         "finetune_checkpoint.finetune": str(pretrain_checkpoint),
     })
@@ -154,7 +159,7 @@ def run_pipeline(base_dir, device="cpu", real_tuab_path=None, verbose=False):
     run_finetune.main(finetune_config)
     
     print(f"\n>>> E2E Pipeline finished. Results in {base_dir}")
-    return finetune_out
+    return Path(finetune_config.output.output_dir)
 
 @pytest.mark.parametrize("device", ["cpu"])
 def test_e2e_debug_run(tmp_path, device, pytestconfig):

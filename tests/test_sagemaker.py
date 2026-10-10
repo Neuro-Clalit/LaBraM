@@ -1023,6 +1023,7 @@ def test_forward_clearml_env(monkeypatch):
     monkeypatch.setenv('CLEARML_API_SECRET_KEY', 'SK')
     c = FinetuneRunConfig()
     c.clearml.enabled = True
+    c.sagemaker.clearml_secret = ''        # legacy path: credentials as job env vars
     forwarded = sub.forward_clearml_env(c)
     assert forwarded['CLEARML_API_ACCESS_KEY'] == 'AK'
     assert c.sagemaker.environment['CLEARML_API_SECRET_KEY'] == 'SK'

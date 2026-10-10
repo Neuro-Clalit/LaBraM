@@ -134,6 +134,11 @@ class SageMakerConfig(ConfigBase):
         default_factory=lambda: dict(DEFAULT_SAGEMAKER_WEIGHT_S3_URIS))
     input_mode: str = DEFAULT_SAGEMAKER_INPUT_MODE
     environment: Dict[str, str] = field(default_factory=dict)
+    # Secrets Manager secret holding the ClearML credentials (create it with
+    # `python -m labram.aws.clearml_secret put`). The job gets only this name and
+    # reads the values with its execution role. '' falls back to passing the
+    # credentials as job environment variables (visible in the job definition).
+    clearml_secret: str = "labram/clearml"
     hyperparameters: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)
     wait: bool = DEFAULT_SAGEMAKER_WAIT

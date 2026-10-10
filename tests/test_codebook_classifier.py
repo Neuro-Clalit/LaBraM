@@ -43,7 +43,7 @@ from labram.optim_factory import (
     optimizer_update,
     summarize_trainable_parameters,
 )
-from labram.train.train_finetune import train_one_epoch
+from labram.train.train_finetune import evaluate, train_one_epoch
 from labram.utils import NativeScalerWithGradNormCount
 
 
@@ -218,6 +218,21 @@ class TestSetupHelpers:
         assert lc.phase_weight == 0.25 and lc.embedding_weight == 3.0
         assert lc.classification_label_smoothing == 0.1
 
+    def test_loss_config_keeps_the_runs_loss_settings(self):
+        """loss.freq_fraction / huber_delta / regression_loss must reach the
+        codebook criterion instead of being reset to their defaults."""
+        base = LossConfig(freq_fraction=0.5, huber_delta=2.0, regression_loss="l1",
+                          use_smooth_l1=True)
+        lc = loss_config_from_codebook_reg(CodebookRegConfig(), 0.0, base=base)
+        assert (lc.freq_fraction, lc.huber_delta, lc.regression_loss, lc.use_smooth_l1) == \
+            (0.5, 2.0, "l1", True)
+
+    def test_freq_fraction_halves_the_spectral_target(self):
+        from labram.losses.spectral import SpectralReconstructionLoss
+        amp, phase = SpectralReconstructionLoss(LossConfig(freq_fraction=0.5)).spectrum_targets(
+            torch.randn(2, 3, 4, 200))
+        assert amp.shape[-1] == phase.shape[-1] == 100
+
     def test_assigner_component_scales(self):
         cr = CodebookRegConfig(encoder=ComponentTrainConfig(lr_scale=0.1),
                                decoder=ComponentTrainConfig(trainable=True, lr_scale=0.2))
@@ -295,6 +310,32 @@ class TestTrainOneEpoch:
         assert math.isfinite(stats['loss'])
         for key in ('classifier_loss', 'magnitude_loss', 'phase_loss', 'quantize_loss'):
             assert key in stats, f"missing {key} in {sorted(stats)}"
+
+
+class TestEvaluateLossTerms:
+    """Val/test are scored with the training criterion: same weighted total,
+    plus each unweighted term, named like the train-side terms."""
+
+    def _eval(self, criterion):
+        torch.manual_seed(0)
+        model = _tiny_classifier(num_classes=1)
+        x, y = torch.randn(4, 4, 400) * 0.1, torch.randn(4)
+        loader = torch.utils.data.DataLoader(_DS(x, y), batch_size=2)
+        return evaluate(loader, model, torch.device('cpu'), ch_names=['FP1', 'FP2', 'F3', 'F4'],
+                        metrics=['mae'], is_binary=False, task='regression',
+                        criterion=criterion)
+
+    def test_regularized_criterion_reports_every_term(self):
+        crit = CodebookRegularizedCriterion(nn.HuberLoss(), LossConfig(), term_name='regression')
+        stats = self._eval(crit)
+        for key in ('regression_loss', 'magnitude_loss', 'phase_loss', 'quantize_loss'):
+            assert math.isfinite(stats[key]), key
+        assert stats['loss'] > stats['regression_loss']  # the weighted total
+
+    def test_without_the_criterion_only_the_downstream_loss(self):
+        stats = self._eval(None)
+        assert not [k for k in stats if k.endswith('_loss')]
+        assert math.isfinite(stats['loss'])
 
 
 # ---------------------------------------------------------------------------
@@ -391,3 +432,16 @@ class TestTrainableLogging:
         assert "Trainable parameters:" in text
         assert "[frozen]" in text
         assert "encoder.blocks.0" in text
+
+
+def test_tokenizer_is_sized_from_its_checkpoint(tmp_path):
+    """The released vqnsp.pth has a 64-dim codebook while the factory default is
+    32-dim; the codebook classifier must build the tokenizer to match."""
+    from timm.models import create_model
+    import labram.models.registry  # noqa: F401  (registers the VQNSP factories)
+    from labram.models.vqnsp import vqnsp_codebook_shape
+    tok = create_model("vqnsp_encoder_base_decoder_3x200x12", num_codebook_tokens=16,
+                       quantizer_dim=64, quantize_kmeans_init=False)
+    path = tmp_path / "vqnsp.pth"
+    torch.save({"model": tok.state_dict()}, path)
+    assert vqnsp_codebook_shape(str(path)) == (16, 64)
