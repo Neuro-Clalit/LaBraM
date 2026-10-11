@@ -41,13 +41,22 @@ class Protocol:
     l_freq: float = L_FREQ
     h_freq: float = H_FREQ
     sfreq: float = TARGET_SFREQ
+    # How the ``notch`` frequencies are removed: "notch" (MNE FIR notch),
+    # "spectrum_fit" (MNE multitaper sinusoid regression, as EEGLAB CleanLine),
+    # "interp" (spectrum interpolation, see ``spectrum_interpolate``).
+    line: str = "notch"
+    half_width: float = 1.5          # "interp": half-width (Hz) of the replaced band
 
 
 LABRAM = Protocol("labram (50 Hz notch)", notch=(50.0,))
 NOTCH60 = Protocol("60 Hz notch", notch=(60.0,))
 NOTCH_BOTH = Protocol("50 + 60 Hz notch", notch=(50.0, 60.0))
 LOWPASS45 = Protocol("60 Hz notch, 45 Hz low-pass", notch=(60.0,), h_freq=45.0)
+FIT60 = Protocol("60 Hz sinusoid fit", notch=(60.0,), line="spectrum_fit")
+INTERP60 = Protocol("60 Hz spectrum interpolation", notch=(60.0,), line="interp")
 PROTOCOLS = (LABRAM, NOTCH60, NOTCH_BOTH, LOWPASS45)
+# Ways to remove the 60 Hz line, compared for the hole they leave.
+LINE_REMOVAL = (NOTCH60, FIT60, INTERP60)
 
 
 def load_segment(edf_path: str, start_sec: float = 60.0, dur_sec: float = 120.0):
@@ -64,12 +73,45 @@ def load_segment(edf_path: str, start_sec: float = 60.0, dur_sec: float = 120.0)
     return raw
 
 
+def spectrum_interpolate(x: np.ndarray, fs: float, f0: float = 60.0, half: float = 1.5,
+                         flank: float = 3.0, win_sec: float = 10.0) -> np.ndarray:
+    """Remove a line at ``f0`` without a spectral hole (Leske & Dalal 2019).
+
+    Short-time Fourier transform with 10 s Hann windows and 50% overlap (a
+    constant-overlap-add pair, so an untouched signal is reconstructed
+    exactly); in every window the magnitude of the bins within ``half`` Hz of
+    ``f0`` is replaced by the mean magnitude of the ``flank`` Hz on either side,
+    their phase kept; inverse transform. 1-D or ``[C, T]`` input, same shape out.
+    """
+    from scipy.signal import istft, stft
+    n = int(round(win_sec * fs))
+    if x.shape[-1] < n:
+        return x
+    f, _, z = stft(x, fs=fs, window="hann", nperseg=n, noverlap=n // 2, axis=-1)
+    band = np.abs(f - f0) <= half
+    neigh = (np.abs(f - f0) > half) & (np.abs(f - f0) <= half + flank)
+    mag = np.abs(z[..., neigh, :]).mean(axis=-2, keepdims=True)
+    z[..., band, :] = mag * np.exp(1j * np.angle(z[..., band, :]))
+    _, y = istft(z, fs=fs, window="hann", nperseg=n, noverlap=n // 2, input_onesided=True)
+    return y[..., :x.shape[-1]]
+
+
 def apply_protocol(raw, protocol: Protocol):
     out = raw.copy()
     out.filter(l_freq=protocol.l_freq, h_freq=protocol.h_freq, verbose="error")
+    fs = out.info["sfreq"]
     for f0 in protocol.notch:
-        if f0 < out.info["sfreq"] / 2:
+        if f0 >= fs / 2:
+            continue
+        if protocol.line == "notch":
             out.notch_filter(f0, verbose="error")
+        elif protocol.line == "spectrum_fit":
+            out.notch_filter(f0, method="spectrum_fit", filter_length="10s", verbose="error")
+        elif protocol.line == "interp":
+            out.apply_function(spectrum_interpolate, channel_wise=True, fs=fs, f0=f0,
+                               half=protocol.half_width)
+        else:
+            raise ValueError(f"unknown line removal {protocol.line!r}")
     out.resample(protocol.sfreq, verbose="error")
     return out
 
@@ -121,7 +163,7 @@ def amplitude_stats(x_uv: np.ndarray, phys_max: float, fs: float) -> Dict[str, f
 
 
 def analyze_recording(edf_path: str, *, start_sec: float = 60.0, dur_sec: float = 120.0,
-                      protocols: Sequence[Protocol] = PROTOCOLS) -> Dict[str, object]:
+                      protocols: Sequence[Protocol] = PROTOCOLS + LINE_REMOVAL[1:]) -> Dict[str, object]:
     """Every measurement for one recording: raw line prominences, header filter
     and unit fields, amplitude stats, and per protocol the prominences left at
     the output plus the 55-65 Hz power share."""

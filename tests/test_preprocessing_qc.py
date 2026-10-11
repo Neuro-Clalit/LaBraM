@@ -28,3 +28,16 @@ def test_band_fraction_and_amplitude_stats():
     x[1] = 0.0                                                       # a flat channel
     stats = qc.amplitude_stats(x, phys_max=5000.0, fs=fs)
     assert stats["flat_channel_frac"] == 0.25 and stats["clip_frac"] == 0.0
+
+
+def test_spectrum_interpolation_removes_line_without_hole():
+    clean, fs = _signal(seconds=60)
+    # No bin selected (f0 between grid points): the STFT round trip is exact.
+    assert np.allclose(qc.spectrum_interpolate(clean, fs, f0=60.05, half=0.01), clean, atol=1e-6)
+    lined, _ = _signal(seconds=60, line_uv=5.0)
+    out = qc.spectrum_interpolate(lined, fs)
+    f, p = qc.channel_median_psd(out, fs)
+    assert abs(qc.line_prominence_db(f, p, 60.0)) < 2                 # line gone ...
+    f, p = qc.channel_median_psd(qc.spectrum_interpolate(clean, fs), fs)
+    assert qc.line_prominence_db(f, p, 60.0) > -2                       # ... and no hole
+    assert out.shape == lined.shape
