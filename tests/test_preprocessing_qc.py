@@ -41,3 +41,21 @@ def test_spectrum_interpolation_removes_line_without_hole():
     f, p = qc.channel_median_psd(qc.spectrum_interpolate(clean, fs), fs)
     assert qc.line_prominence_db(f, p, 60.0) > -2                       # ... and no hole
     assert out.shape == lined.shape
+
+
+def test_interpolation_preserves_band_power_without_a_line():
+    clean, fs = _signal(seconds=120, seed=3)
+    out = qc.spectrum_interpolate(clean, fs, f0=50.0)
+    f, p0 = qc.channel_median_psd(clean, fs)
+    _, p1 = qc.channel_median_psd(out, fs)
+    band = np.abs(f - 50.0) <= 1.5
+    assert abs(10 * np.log10(p1[band].mean() / p0[band].mean())) < 0.5
+
+
+def test_interpolation_ignores_a_peak_in_the_flanks():
+    x, fs = _signal(seconds=120, seed=4, line_uv=3.0, f0=53.0)       # unrelated peak at 53 Hz
+    out = qc.spectrum_interpolate(x, fs, f0=50.0)
+    f, p0 = qc.channel_median_psd(x, fs)
+    _, p1 = qc.channel_median_psd(out, fs)
+    band = np.abs(f - 50.0) <= 1.5
+    assert abs(10 * np.log10(p1[band].mean() / p0[band].mean())) < 1.0

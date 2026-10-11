@@ -54,9 +54,15 @@ NOTCH_BOTH = Protocol("50 + 60 Hz notch", notch=(50.0, 60.0))
 LOWPASS45 = Protocol("60 Hz notch, 45 Hz low-pass", notch=(60.0,), h_freq=45.0)
 FIT60 = Protocol("60 Hz sinusoid fit", notch=(60.0,), line="spectrum_fit")
 INTERP60 = Protocol("60 Hz spectrum interpolation", notch=(60.0,), line="interp")
+BANDPASS_ONLY = Protocol("band-pass only (no line removal)", notch=())
+INTERP50 = Protocol("50 Hz spectrum interpolation", notch=(50.0,), line="interp")
+INTERP_BOTH = Protocol("50 + 60 Hz spectrum interpolation", notch=(50.0, 60.0), line="interp")
 PROTOCOLS = (LABRAM, NOTCH60, NOTCH_BOTH, LOWPASS45)
 # Ways to remove the 60 Hz line, compared for the hole they leave.
 LINE_REMOVAL = (NOTCH60, FIT60, INTERP60)
+# What line removal does where there is no line (50 Hz on TUH), and the
+# universal 50 + 60 Hz recipe for corpora mixing both mains frequencies.
+NO_LINE = (BANDPASS_ONLY, INTERP50, INTERP_BOTH)
 
 
 def load_segment(edf_path: str, start_sec: float = 60.0, dur_sec: float = 120.0):
@@ -80,8 +86,13 @@ def spectrum_interpolate(x: np.ndarray, fs: float, f0: float = 60.0, half: float
     Short-time Fourier transform with 10 s Hann windows and 50% overlap (a
     constant-overlap-add pair, so an untouched signal is reconstructed
     exactly); in every window the magnitude of the bins within ``half`` Hz of
-    ``f0`` is replaced by the mean magnitude of the ``flank`` Hz on either side,
-    their phase kept; inverse transform. 1-D or ``[C, T]`` input, same shape out.
+    ``f0`` is set from the power of the ``flank`` Hz on either side, their
+    phase kept; inverse transform. The flank level is the median power divided
+    by ln 2: for noise-like EEG the power of a bin is exponentially distributed,
+    whose median is ln 2 times its mean, so this is an unbiased power estimate
+    (a mean *magnitude* would be 4/pi, ~1 dB, too low and cut a shallow hole)
+    that an unrelated narrow peak inside the flanks cannot pull up.
+    1-D or ``[C, T]`` input, same shape out.
     """
     from scipy.signal import istft, stft
     n = int(round(win_sec * fs))
@@ -90,7 +101,8 @@ def spectrum_interpolate(x: np.ndarray, fs: float, f0: float = 60.0, half: float
     f, _, z = stft(x, fs=fs, window="hann", nperseg=n, noverlap=n // 2, axis=-1)
     band = np.abs(f - f0) <= half
     neigh = (np.abs(f - f0) > half) & (np.abs(f - f0) <= half + flank)
-    mag = np.abs(z[..., neigh, :]).mean(axis=-2, keepdims=True)
+    power = np.median(np.abs(z[..., neigh, :]) ** 2, axis=-2, keepdims=True) / np.log(2)
+    mag = np.sqrt(power)
     z[..., band, :] = mag * np.exp(1j * np.angle(z[..., band, :]))
     _, y = istft(z, fs=fs, window="hann", nperseg=n, noverlap=n // 2, input_onesided=True)
     return y[..., :x.shape[-1]]
@@ -163,7 +175,8 @@ def amplitude_stats(x_uv: np.ndarray, phys_max: float, fs: float) -> Dict[str, f
 
 
 def analyze_recording(edf_path: str, *, start_sec: float = 60.0, dur_sec: float = 120.0,
-                      protocols: Sequence[Protocol] = PROTOCOLS + LINE_REMOVAL[1:]) -> Dict[str, object]:
+                      protocols: Sequence[Protocol] = PROTOCOLS + LINE_REMOVAL[1:] + NO_LINE
+                      ) -> Dict[str, object]:
     """Every measurement for one recording: raw line prominences, header filter
     and unit fields, amplitude stats, and per protocol the prominences left at
     the output plus the 55-65 Hz power share."""
