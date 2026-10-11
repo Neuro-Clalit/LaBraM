@@ -75,6 +75,10 @@ class TestRedaction:
 
         class _Task:
             @staticmethod
+            def set_random_seed(seed):
+                pass
+
+            @staticmethod
             def init(**kw):
                 return types.SimpleNamespace(
                     add_tags=lambda t: None,

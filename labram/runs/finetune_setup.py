@@ -242,7 +242,9 @@ def load_finetune_checkpoint(model: torch.nn.Module, ckpt_cfg) -> None:
 
     state_dict = model.state_dict()
     for k in ['head.weight', 'head.bias']:
-        if k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape:
+        # Absent from the model when head_type=attention (head.q/kv/proj/mlp/fc).
+        if k in checkpoint_model and (k not in state_dict
+                                      or checkpoint_model[k].shape != state_dict[k].shape):
             logger.info("Removing key %s from pretrained checkpoint", k)
             del checkpoint_model[k]
 

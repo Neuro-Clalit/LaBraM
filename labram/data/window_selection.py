@@ -218,6 +218,23 @@ def enable_random_crop(dataset) -> None:
         leaf.random_crop = True
 
 
+def enable_abnormal_target(dataset) -> None:
+    """Make every age leaf of ``dataset`` return ``[age, abnormal]`` targets
+    (abnormal = 1) for the multi-task head, from the labelled sidecar. Raises if
+    any recording has no normal/abnormal label: a missing key would otherwise be
+    swallowed by ``TUHLoader.__getitem__``, which substitutes another window."""
+    for leaf in _leaves(dataset):
+        if not hasattr(leaf, "age_lookup"):
+            raise ValueError("model.head_type=multitask needs the TUAB_AGE dataset")
+        labels = load_label_lookup_for(leaf.root)
+        stems = {recording_stem(f) for f in leaf.files}
+        missing = sorted(s for s in stems if labels.get(s) not in CASE_LABELS)
+        if missing:
+            raise ValueError(f"{len(missing)} recording(s) in {leaf.root} have no "
+                             f"normal/abnormal label (e.g. {missing[:3]})")
+        leaf.abnormal_lookup = {s: int(labels[s] == "abnormal") for s in stems}
+
+
 def _leaves(dataset) -> list:
     if dataset is None:
         return []

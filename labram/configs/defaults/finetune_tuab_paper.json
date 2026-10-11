@@ -13,6 +13,39 @@
         "drop_path": 0.1,
         "use_mean_pooling": true,
         "concat_cls_token": false,
+        "head_type": "linear",
+        "attention_head": {
+            "py/object": "labram.configs.model_config.AttentionHeadConfig",
+            "num_heads": 4,
+            "attn_dim": null,
+            "mlp_hidden_dim": 256,
+            "drop": 0.0,
+            "attn_drop": 0.0
+        },
+        "mlp_head": {
+            "py/object": "labram.configs.model_config.MLPHeadConfig",
+            "hidden_dims": [
+                256
+            ],
+            "drop": 0.0
+        },
+        "multitask_head": {
+            "py/object": "labram.configs.model_config.MultiTaskHeadConfig",
+            "shared_dims": [
+                256
+            ],
+            "age_dims": [
+                128
+            ],
+            "abnormal_dims": [
+                64
+            ],
+            "drop": 0.0
+        },
+        "condition_on_abnormal": false,
+        "abnormal_embed_dim": 16,
+        "depth": null,
+        "input_clip_uv": 0.0,
         "init_scale": 0.001,
         "nb_classes": 0,
         "task": "classification",
@@ -208,7 +241,8 @@
         "balance": "none",
         "balance_bin_width": 1.0,
         "balance_lds_sigma": 2.0,
-        "balance_max_weight": 10.0
+        "balance_max_weight": 10.0,
+        "abnormal_weight": 0.5
     },
     "finetune_checkpoint": {
         "py/object": "labram.configs.model_config.FinetuneCheckpointConfig",
@@ -288,5 +322,19 @@
         "alpha": 0.4,
         "prob": 1.0,
         "sigma": 0.0
+    },
+    "augment": {
+        "py/object": "labram.configs.train_config.AugmentConfig",
+        "enabled": false,
+        "hemisphere_flip_prob": 0.5,
+        "sign_flip_prob": 0.5,
+        "ft_surrogate_prob": 0.5,
+        "ft_phase_noise": 1.0,
+        "channel_dropout_prob": 0.5,
+        "channel_dropout_p": 0.1,
+        "time_mask_prob": 0.5,
+        "time_mask_max_count": 2,
+        "time_mask_min_sec": 0.5,
+        "time_mask_max_sec": 1.0
     }
 }

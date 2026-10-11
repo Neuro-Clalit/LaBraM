@@ -48,6 +48,10 @@ def test_task_init_receives_the_framework_map(monkeypatch):
 
     class _Task:
         @staticmethod
+        def set_random_seed(seed):
+            seen["random_seed"] = seed
+
+        @staticmethod
         def init(**kw):
             seen.update(kw)
             return types.SimpleNamespace(add_tags=lambda t: None, connect=lambda *a, **k: None,

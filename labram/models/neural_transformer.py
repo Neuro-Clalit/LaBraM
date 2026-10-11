@@ -10,8 +10,9 @@ import torch
 import torch.nn as nn
 from timm.layers import trunc_normal_
 
-from labram.layers import Block, PatchEmbed, TemporalConv
-from labram.configs.model_config import TransformerArchConfig
+from labram.layers import Block, CLSAttentionHead, MLPHead, MultiTaskHead, PatchEmbed, TemporalConv
+from labram.configs.model_config import (
+    AttentionHeadConfig, MLPHeadConfig, MultiTaskHeadConfig, TransformerArchConfig)
 
 
 def _cfg(url='', **kwargs):
@@ -67,6 +68,9 @@ class NeuralTransformerBase(nn.Module):
         self.init_std = init_std
         # LaBraM++ input preprocessing config (may be None on legacy arch configs).
         self.labram_plus = getattr(config, 'labram_plus', None)
+        # Symmetric amplitude clip of the raw input (model-input units, uV / 100);
+        # 0 = off. Model-owned so training and every eval path clip identically.
+        self.input_clip = getattr(config, 'input_clip', 0.0) or 0.0
 
         # patch embedding: TemporalConv on raw EEG (in_chans=1), else PatchEmbed
         # (decoder path with patch_size=1 used inside VQNSP).
@@ -150,7 +154,11 @@ class NeuralTransformerBase(nn.Module):
         ``labram_plus`` config returns ``x`` unchanged, so the default backbone
         matches the original LaBraM exactly.
         """
-        if self.in_chans != 1 or self.labram_plus is None or not self.labram_plus.preprocesses_input:
+        if self.in_chans != 1:
+            return x
+        if self.input_clip > 0:
+            x = x.clamp(-self.input_clip, self.input_clip)
+        if self.labram_plus is None or not self.labram_plus.preprocesses_input:
             return x
         from labram.data.preprocess import apply_labram_plus_preprocess
         return apply_labram_plus_preprocess(x, self.labram_plus)
@@ -229,34 +237,81 @@ class NeuralTransformer(NeuralTransformerBase):
                  *,
                  norm_layer=nn.LayerNorm, qk_norm=None, qk_scale=None):
         from dataclasses import replace as _replace
+        # The attention head reads every token, so it keeps the pretrained final
+        # norm instead of pooling into fc_norm.
+        pool = config.use_mean_pooling and config.head_type != 'attention'
         # fc_norm handles the pooled representation; base norm is only used when not pooling
-        base_cfg = _replace(config, use_norm=not config.use_mean_pooling, init_std=0.02)
+        base_cfg = _replace(config, use_norm=not pool, init_std=0.02)
         super().__init__(base_cfg, norm_layer=norm_layer, qk_norm=qk_norm, qk_scale=qk_scale)
         self.num_classes = config.num_classes
         self.time_window = config.eeg_window_size // config.patch_size
+        self.head_type = config.head_type
+        self._norm_layer = norm_layer
+        self._attention_head_cfg = config.attention_head
+        self._mlp_head_cfg = config.mlp_head
+        self._multitask_head_cfg = config.multitask_head
 
-        self.fc_norm = norm_layer(config.embed_dim) if config.use_mean_pooling else None
+        self.fc_norm = norm_layer(config.embed_dim) if pool else None
         # Optional [mean patch token, cls token] head input (mean pooling only).
         self.cls_norm = norm_layer(config.embed_dim) if (
-            config.use_mean_pooling and config.concat_cls_token) else None
+            pool and config.concat_cls_token) else None
         self.num_features = config.embed_dim * (2 if self.cls_norm is not None else 1)
-        self.head = nn.Linear(self.num_features, config.num_classes) if config.num_classes > 0 else nn.Identity()
+        # Known normal/abnormal label as an extra head input: [1 - a, a] -> R^d,
+        # concatenated to the pooled feature (a soft label stays well defined
+        # under mixup).
+        self.abnormal_embed = (nn.Linear(2, config.abnormal_embed_dim, bias=False)
+                               if config.condition_on_abnormal else None)
+        if self.abnormal_embed is not None:
+            self.num_features += config.abnormal_embed_dim
+        self.head = self._build_head(config.num_classes)
 
         if isinstance(self.head, nn.Linear):
             trunc_normal_(self.head.weight, std=.02)
         self.apply(self._init_weights)
         self.fix_init_weight()
 
-        if isinstance(self.head, nn.Linear):
-            self.head.weight.data.mul_(config.init_scale)
-            self.head.bias.data.mul_(config.init_scale)
+        for out_layer in self._head_output_layers():
+            out_layer.weight.data.mul_(config.init_scale)
+            out_layer.bias.data.mul_(config.init_scale)
+
+    def _build_head(self, num_classes):
+        if num_classes <= 0:
+            return nn.Identity()
+        if self.head_type == 'attention':
+            c = self._attention_head_cfg
+            if isinstance(c, dict):
+                c = AttentionHeadConfig(**c)
+            return CLSAttentionHead(
+                self.num_features, num_classes, num_heads=c.num_heads, attn_dim=c.attn_dim,
+                mlp_hidden_dim=c.mlp_hidden_dim, drop=c.drop, attn_drop=c.attn_drop,
+                norm_layer=self._norm_layer)
+        if self.head_type == 'mlp':
+            c = self._mlp_head_cfg
+            if isinstance(c, dict):
+                c = MLPHeadConfig(**c)
+            return MLPHead(self.num_features, num_classes, hidden_dims=c.hidden_dims, drop=c.drop)
+        if self.head_type == 'multitask':
+            c = self._multitask_head_cfg
+            if isinstance(c, dict):
+                c = MultiTaskHeadConfig(**c)
+            return MultiTaskHead(self.num_features, num_classes, shared_dims=c.shared_dims,
+                                 age_dims=c.age_dims, abnormal_dims=c.abnormal_dims, drop=c.drop)
+        return nn.Linear(self.num_features, num_classes)
+
+    def _head_output_layers(self):
+        """The head's output Linear layer(s) -- the ones ``init_scale`` shrinks."""
+        if isinstance(self.head, MultiTaskHead):
+            return [self.head.age_fc, self.head.abnormal_fc]
+        if isinstance(self.head, (CLSAttentionHead, MLPHead)):
+            return [self.head.fc]
+        return [self.head] if isinstance(self.head, nn.Linear) else []
 
     def get_classifier(self):
         return self.head
 
     def reset_classifier(self, num_classes, global_pool=''):
         self.num_classes = num_classes
-        self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
+        self.head = self._build_head(num_classes)
 
     def forward_features(self, x, channel_indices=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
         x = self._embed_inputs(x, channel_indices=channel_indices)
@@ -276,7 +331,8 @@ class NeuralTransformer(NeuralTransformerBase):
                 return torch.cat((pooled, self.cls_norm(x[:, 0])), dim=-1)
             return pooled
         else:
-            if return_all_tokens:
+            # The attention head consumes all tokens (cls at index 0).
+            if return_all_tokens or (self.head_type == 'attention' and not return_patch_tokens):
                 return x
             elif return_patch_tokens:
                 return x[:, 1:]
@@ -288,9 +344,31 @@ class NeuralTransformer(NeuralTransformerBase):
         x: [batch size, number of electrodes, number of patches, patch size]
         For example, for an EEG sample of 4 seconds with 64 electrodes, x will be [batch size, 64, 4, 200]
         '''
+        condition = kwargs.pop('condition', None)
         x = self.forward_features(x, channel_indices=channel_indices, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
+        if self.abnormal_embed is not None:
+            x = torch.cat((x, self.embed_abnormal(condition)), dim=-1)
         x = self.head(x)
         return x
+
+    def embed_abnormal(self, abnormal):
+        """``condition_on_abnormal``: the label feature for ``abnormal`` (B,) in
+        [0, 1] (1 = abnormal; soft under mixup)."""
+        if abnormal is None:
+            raise ValueError("this model conditions on the normal/abnormal label: call it "
+                             "with condition=<(B,) tensor, 1 = abnormal>")
+        a = abnormal.reshape(-1, 1).to(self.abnormal_embed.weight.dtype)
+        return self.abnormal_embed(torch.cat((1 - a, a), dim=-1))
+
+    def forward_with_attention(self, x, channel_indices=None):
+        """``head_type="attention"`` only: ``(prediction, cls_attention)``, where
+        ``cls_attention`` is ``(B, num_heads, 1 + N)`` -- the head's class-token
+        attention over [cls, patch tokens]; patch ``i`` of the input is token
+        ``1 + i`` (channel-major: channel ``i // A``, time patch ``i % A``)."""
+        if not isinstance(self.head, CLSAttentionHead):
+            raise ValueError("forward_with_attention requires model.head_type=attention")
+        return self.head(self.forward_features(x, channel_indices=channel_indices),
+                         return_attention=True)
 
     def forward_intermediate(self, x, channel_indices=None, layer_id=12, norm_output=False):
         x = self._embed_inputs(x, channel_indices=channel_indices)

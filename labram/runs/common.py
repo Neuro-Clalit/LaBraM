@@ -332,6 +332,13 @@ def init_clearml_task(
     if _sagemaker_enabled(run_config) and SAGEMAKER_TAG not in tags:
         tags.append(SAGEMAKER_TAG)
 
+    # Task.init reseeds random/numpy/torch with ClearML's default seed (1337)
+    # unless told otherwise, silently overriding the distributed.seed applied by
+    # setup_environment (every ClearML run trained with seed 1337). Give it our
+    # seed instead, so the run uses -- and ClearML records -- distributed.seed;
+    # None (no distributed config) turns ClearML's reseeding off.
+    dist_cfg = getattr(run_config, 'distributed', None)
+    Task.set_random_seed(dist_cfg.seed + global_rank if dist_cfg is not None else None)
     task = Task.init(
         project_name=project_name,
         task_name=task_name,

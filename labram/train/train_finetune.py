@@ -20,13 +20,17 @@ from einops import rearrange
 import labram.utils as utils
 from labram.configs.loss_config import LossConfig
 from labram.configs.optim_config import OptimizerConfig
-from labram.configs.train_config import EvaluationConfig, LoggingConfig, MixupConfig, TrainerConfig
+from labram.configs.train_config import (
+    AugmentConfig, EvaluationConfig, LoggingConfig, MixupConfig, TrainerConfig)
 from labram.data.bundles import CLASSIFICATION as TASK_CLASSIFICATION
 from labram.data.bundles import REGRESSION as TASK_REGRESSION
 from labram.losses import (
-    CodebookRegularizedCriterion, build_downstream_criterion, regression_output)
+    AbnormalConditionedAgeCriterion, CodebookRegularizedCriterion, LossBreakdown,
+    MultiTaskAgeCriterion, build_downstream_criterion, model_condition, regression_output,
+    regression_target)
 from labram.losses.regression import downstream_term_name
 from labram.losses.outputs import LossBreakdown
+from labram.train.augment import augment_batch
 from labram.train.mixup import mixup_batch
 from labram.models.outputs import PredictorOutput
 from labram.optim_factory import (
@@ -53,14 +57,23 @@ def train_class_batch(
     and the criterion a ``LossBreakdown`` (component losses for logging); for the
     plain path ``outputs`` is already the logits tensor and ``breakdown`` is None.
     """
-    outputs = model(samples, channel_indices)
+    # A label-conditioned age head takes the known normal/abnormal label as an
+    # extra input, carried in the target's last column.
+    condition = model_condition(criterion, target)
+    outputs = (model(samples, channel_indices) if condition is None
+               else model(samples, channel_indices, condition=condition))
     if isinstance(criterion, CodebookRegularizedCriterion):
         breakdown = criterion(outputs, target)
         return breakdown.total, outputs.logits, breakdown
     loss = criterion(outputs, target)
-    # A soft-label regression head emits bin logits; the metrics score the
-    # criterion's scalar expectation (a no-op for every other criterion).
-    return loss, regression_output(criterion, outputs), None
+    # A multi-task criterion returns its components (age + abnormal) too.
+    breakdown = loss if isinstance(loss, LossBreakdown) else None
+    if breakdown is not None:
+        loss = breakdown.total
+    # A soft-label regression head emits bin logits and a multi-task head
+    # [age, abnormal_logit]; the metrics score the criterion's scalar age
+    # prediction (a no-op for every other criterion).
+    return loss, regression_output(criterion, outputs), breakdown
 
 
 def get_loss_scale_for_deepspeed(model: torch.nn.Module) -> float:
@@ -93,6 +106,7 @@ def train_one_epoch(
     logging_cfg: Optional[LoggingConfig] = None,
     metrics: Optional[List[str]] = None,
     mixup_cfg: Optional[MixupConfig] = None,
+    augment_cfg: Optional[AugmentConfig] = None,
 ) -> Dict[str, float]:
     update_freq = trainer_cfg.update_freq
     if nb_classes is None:
@@ -158,11 +172,16 @@ def train_one_epoch(
             apply_lr_wd_schedule(optimizer, global_step, lr_schedule_values, wd_schedule_values)
 
         samples = samples.float().to(device, non_blocking=True) / 100
+        # Label-preserving augmentations (training only), before mixup.
+        samples = augment_batch(samples, augment_cfg, ch_names)
         samples = rearrange(samples, 'B N (A T) -> B N A T', T=200)
         
         targets = targets.to(device, non_blocking=True)
         if scalar_target:
-            targets = targets.float().unsqueeze(-1)
+            # A multi-task [age, abnormal] target is already (B, 2).
+            targets = targets.float()
+            if targets.dim() == 1:
+                targets = targets.unsqueeze(-1)
 
         # Mixup across recordings: the windows (and targets) of this batch are
         # blended with a permuted copy, so no sample maps to one recording.
@@ -223,6 +242,7 @@ def train_one_epoch(
         # probabilities for classification, raw scalar predictions for regression.
         step_target = targets.detach().float().cpu()
         if is_regression:
+            step_target = regression_target(criterion, step_target)
             step_scores = output.detach().float().cpu()
             # Report the running error in the target's own units (years), which
             # the normalized training loss does not give directly.
@@ -407,10 +427,19 @@ def evaluate(
     # forwarded for regression (to pick mse/l1/huber) so the classification eval
     # criterion stays exactly what it was before this branch existed.
     regularized = isinstance(criterion, CodebookRegularizedCriterion)
+    # A multi-task (age + abnormal) head keeps its two-term criterion, rebuilt
+    # around an unweighted age loss (any age-balance weighting is train-only).
+    multitask = isinstance(criterion, MultiTaskAgeCriterion)
+    conditioned = isinstance(criterion, AbnormalConditionedAgeCriterion)
     if not regularized:
+        abnormal_weight = criterion.abnormal_weight if multitask else None
         criterion = build_downstream_criterion(
             task, 1 if is_binary else 2, loss_cfg if is_regression else None,
             target_stats=target_stats if is_regression else None)
+        if multitask:
+            criterion = MultiTaskAgeCriterion(criterion, abnormal_weight)
+        elif conditioned:
+            criterion = AbnormalConditionedAgeCriterion(criterion)
 
     metric_logger = utils.MetricLogger(delimiter="  ")
 
@@ -431,14 +460,18 @@ def evaluate(
         eeg_batch = rearrange(eeg_batch, 'B N (A T) -> B N A T', T=200)
         target = target.to(device, non_blocking=True)
         if scalar_target:
-            target = target.float().unsqueeze(-1)
+            target = target.float()
+            if target.dim() == 1:
+                target = target.unsqueeze(-1)
 
         # compute output (classify_only skips the decoder branch on the
         # regularized model unless its loss terms are scored; the plain model
         # ignores the kwarg)
         with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
+            condition = model_condition(criterion, target)
+            extra = {} if condition is None else {'condition': condition}
             output = model(eeg_batch, channel_indices=channel_indices,
-                           classify_only=not regularized)
+                           classify_only=not regularized, **extra)
             if regularized:
                 breakdown = criterion(output, target)
                 loss = breakdown.total
@@ -448,7 +481,16 @@ def evaluate(
                 output = output.logits
             if not regularized:
                 loss = criterion(output, target)
+                if isinstance(loss, LossBreakdown):
+                    metric_logger.update(**{f'{name}_loss': float(v.detach().mean())
+                                            for name, v in loss.components.items()})
+                    loss = loss.total
 
+        if multitask:
+            # The abnormal column rides along with the age prediction (so the
+            # sharded gather below keeps the two aligned) and is split off after.
+            abnormal_prob = torch.sigmoid(output[..., -1:].float()).cpu()
+            abnormal_true = target[..., -1:].float().cpu()
         if is_regression:
             # A scalar prediction, not a probability: no sigmoid. (A soft-label
             # head's bin logits become their expectation here.)
@@ -457,7 +499,10 @@ def evaluate(
             output = torch.sigmoid(output).cpu()
         else:
             output = output.cpu()
-        target = target.float().cpu() if is_regression else target.cpu()
+        target = regression_target(criterion, target).float().cpu() if is_regression else target.cpu()
+        if multitask:
+            output = torch.cat((output, abnormal_prob), dim=-1)
+            target = torch.cat((target, abnormal_true), dim=-1)
 
         pred.append(output)
         true.append(target)
@@ -482,6 +527,9 @@ def evaluate(
     if _is_sharded_loader(data_loader):
         pred, true, groups = utils.gather_sharded_eval(
             pred, true, groups, total=_loader_dataset_len(data_loader))
+    if multitask:
+        pred, abnormal_prob = pred[:, :1], pred[:, 1:]
+        true, abnormal_true = true[:, :1], true[:, 1:]
 
     if is_regression:
         # Undo the loader's z-scoring once, on the gathered arrays, so every
@@ -519,6 +567,8 @@ def evaluate(
                 _log_detailed_report(
                     log_writer, window_report, f"{head}_window", epoch, eval_cfg)
 
+    if multitask:
+        ret.update(_abnormal_metrics(abnormal_prob, abnormal_true, groups, agg_mode))
     ret.update({key: meter.global_avg for key, meter in metric_logger.meters.items()
                 if key in ('data_time_sec', 'step_time_sec', 'host_compute_time_sec',
                            'gpu_compute_time_sec') or key.endswith('_loss')})
@@ -531,6 +581,22 @@ def evaluate(
 
 
 COHORTS = ("normal", "abnormal")
+
+
+ABNORMAL_METRICS = ("roc_auc", "pr_auc", "accuracy", "balanced_accuracy")
+
+
+def _abnormal_metrics(prob, true, groups, agg_mode) -> Dict[str, float]:
+    """Normal/abnormal classification metrics of a multi-task head:
+    ``abnormal_*`` per case (windows pooled by ``agg_mode`` on the probability)
+    when the windows carry case ids, and ``window_abnormal_*`` per window.
+    Probabilities are thresholded at 0.5 for the accuracies."""
+    mode = agg_mode if agg_mode in ('mean', 'median', 'max', 'vote', 'entropy') else 'none'
+    ret, _, window_ret, _, aggregated = _window_and_case_metrics(
+        prob, true, groups, mode, list(ABNORMAL_METRICS), True, 1, False, TASK_CLASSIFICATION)
+    out = {f'window_abnormal_{k}': v for k, v in window_ret.items()}
+    out.update({f'abnormal_{k}': v for k, v in (ret if aggregated else window_ret).items()})
+    return out
 
 
 def _case_labels(data_loader: Any) -> Optional[Dict[str, str]]:
@@ -737,6 +803,8 @@ def _log_regression_epoch(log_writer, epoch, split_stats, term_name='regression'
       by their mean / median prediction; ``{mae,rmse,r2}_window``: per window;
     * ``pearson_r``, ``age_bias_slope``, ``mae_corrected`` (case level) and
       ``prediction_stats`` (prediction vs target mean/std).
+    * ``abnormal_{roc_auc,pr_auc,accuracy,balanced_accuracy}``: the multi-task
+      head's normal/abnormal classification per case (val/test).
 
     The val/test loss terms are added to the per-step ``loss_terms`` plot at
     the end of the epoch (``val_*`` / ``test_*``), next to the per-step
@@ -762,6 +830,9 @@ def _log_regression_epoch(log_writer, epoch, split_stats, term_name='regression'
              lambda st, m=metric: f'window_{m}' if f'window_{m}' in st else m)
     for key in _EPOCH_DIAGNOSTIC_KEYS:
         plot(key, lambda st, k=key: k)
+    # Multi-task head: normal/abnormal classification per case (val/test only).
+    for metric in ABNORMAL_METRICS:
+        plot(f'abnormal_{metric}', lambda st, m=metric: f'abnormal_{m}')
     pred_stats = {f'{name}_{k}': stats[k] for name, stats in splits.items()
                   for k in _PREDICTION_STAT_KEYS if _is_scalar(stats.get(k))}
     if pred_stats:
@@ -911,6 +982,7 @@ def train_loop(
             logging_cfg=config.logging,
             metrics=metrics,
             mixup_cfg=getattr(config, 'mixup', None),
+            augment_cfg=getattr(config, 'augment', None),
         )
         train_timing = utils.timing_stats(
             'train', train_timer.elapsed(), int(train_stats.get('samples_processed', 0)))

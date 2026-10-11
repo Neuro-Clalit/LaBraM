@@ -110,6 +110,47 @@ class LoRAConfig(ConfigBase):
 
 
 @dataclass
+class AttentionHeadConfig(ConfigBase):
+    """``head_type="attention"``: :class:`labram.layers.CLSAttentionHead`.
+
+    One global multi-head attention layer where the encoder's class token
+    queries all ``1 + N`` encoder tokens (cls + every channel x time patch),
+    residual onto the class token, then ``LayerNorm -> Linear(mlp_hidden_dim) ->
+    GELU -> Dropout(drop) -> Linear(nb_classes)``. ``attn_dim`` is the q/k/v
+    width (``None`` = ``embed_dim``); it must be divisible by ``num_heads``.
+    """
+    num_heads: int = conf_consts.DEFAULT_ATTN_HEAD_NUM_HEADS
+    attn_dim: Optional[int] = None
+    mlp_hidden_dim: int = conf_consts.DEFAULT_ATTN_HEAD_MLP_HIDDEN_DIM
+    drop: float = 0.0
+    attn_drop: float = 0.0
+
+
+@dataclass
+class MLPHeadConfig(ConfigBase):
+    """``head_type="mlp"``: :class:`labram.layers.MLPHead` on the pooled feature,
+    ``[Linear(h) -> GELU -> Dropout(drop)]`` for each ``h`` in ``hidden_dims``,
+    then ``Linear(nb_classes)``."""
+    hidden_dims: List[int] = field(
+        default_factory=lambda: [conf_consts.DEFAULT_MLP_HEAD_HIDDEN_DIM])
+    drop: float = 0.0
+
+
+@dataclass
+class MultiTaskHeadConfig(ConfigBase):
+    """``head_type="multitask"``: :class:`labram.layers.MultiTaskHead` on the
+    pooled feature -- a shared MLP trunk (``shared_dims``) feeding a dedicated
+    age-regression branch (``age_dims``) and a dedicated normal/abnormal
+    classification branch (``abnormal_dims``). Each entry is one
+    ``Linear -> GELU -> Dropout(drop)`` layer. Regression (brain age) only; the
+    classification loss weight is ``loss.abnormal_weight``."""
+    shared_dims: List[int] = field(default_factory=lambda: [256])
+    age_dims: List[int] = field(default_factory=lambda: [128])
+    abnormal_dims: List[int] = field(default_factory=lambda: [64])
+    drop: float = 0.0
+
+
+@dataclass
 class FinetuneModelConfig(ConfigBase):
     model: str = conf_consts.DEFAULT_FINETUNE_MODEL
     input_size: int = conf_consts.DEFAULT_FINETUNE_INPUT_SIZE
@@ -124,6 +165,29 @@ class FinetuneModelConfig(ConfigBase):
     # With mean pooling, also feed the (separately normalized) class token to
     # the head: features = [mean patch token, cls token], width 2 * embed_dim.
     concat_cls_token: bool = conf_consts.DEFAULT_FINETUNE_CONCAT_CLS_TOKEN
+    # "linear": the pooled feature above -> Linear. "mlp": the pooled feature
+    # -> MLP (mlp_head). "attention": the class token attends over all encoder
+    # tokens, then an MLP predicts (attention_head); use_mean_pooling is then
+    # unused and the pretrained final norm is kept.
+    head_type: str = conf_consts.DEFAULT_FINETUNE_HEAD_TYPE
+    attention_head: AttentionHeadConfig = field(default_factory=AttentionHeadConfig)
+    mlp_head: MLPHeadConfig = field(default_factory=MLPHeadConfig)
+    # "multitask": age + normal/abnormal from one pooled feature (multitask_head).
+    multitask_head: MultiTaskHeadConfig = field(default_factory=MultiTaskHeadConfig)
+    # Condition the age head on the recording's known normal/abnormal label: a
+    # soft one-hot [1 - a, a] -> Linear(2 -> abnormal_embed_dim, no bias) is
+    # concatenated to the pooled feature (the label is an input, not predicted).
+    # Needs the label at inference too.
+    condition_on_abnormal: bool = False
+    abnormal_embed_dim: int = 16
+    # Number of transformer blocks; None = the registry model's own depth (12
+    # for labram_base_*). A pretrained checkpoint then loads into the first
+    # ``depth`` blocks and its deeper blocks are ignored.
+    depth: Optional[int] = None
+    # Clip the raw EEG to +-input_clip_uv microvolts before the model sees it
+    # (artifact spikes); 0 = off. Applied inside the model, before CAR, so
+    # training and evaluation clip identically.
+    input_clip_uv: float = 0.0
     init_scale: float = conf_consts.DEFAULT_FINETUNE_INIT_SCALE
     nb_classes: int = conf_consts.DEFAULT_FINETUNE_NB_CLASSES
     # "classification" or "regression". Both use nb_classes == 1 for a single
@@ -155,6 +219,48 @@ class FinetuneModelConfig(ConfigBase):
                 raise ValueError(f"model.lora.rank must be >= 1, got {self.lora.rank}")
         if self.concat_cls_token and not self.use_mean_pooling:
             raise ValueError("model.concat_cls_token requires model.use_mean_pooling")
+        if self.head_type not in ("linear", "mlp", "attention", "multitask"):
+            raise ValueError(
+                "model.head_type must be 'linear', 'mlp', 'attention' or 'multitask', "
+                f"got {self.head_type!r}")
+        if self.condition_on_abnormal:
+            if self.task != "regression":
+                raise ValueError("model.condition_on_abnormal needs the regression (brain-age) task")
+            if self.head_type not in ("linear", "mlp"):
+                raise ValueError("model.condition_on_abnormal works with head_type linear or mlp "
+                                 f"(it feeds the pooled feature), got {self.head_type!r}")
+            if self.codebook_reg.enabled or self.lora.enabled:
+                raise ValueError("model.condition_on_abnormal is not supported with "
+                                 "model.codebook_reg or model.lora")
+            if self.abnormal_embed_dim < 1:
+                raise ValueError(f"model.abnormal_embed_dim must be >= 1, got {self.abnormal_embed_dim}")
+        if self.head_type == "multitask":
+            if self.task != "regression":
+                raise ValueError("model.head_type=multitask needs the regression (brain-age) task")
+            if self.codebook_reg.enabled or self.lora.enabled:
+                raise ValueError("model.head_type=multitask is not supported with "
+                                 "model.codebook_reg or model.lora")
+        if self.head_type == "mlp" and self.codebook_reg.enabled:
+            raise ValueError("model.head_type=mlp is not supported with model.codebook_reg")
+        if self.depth is not None:
+            if self.depth < 1:
+                raise ValueError(f"model.depth must be >= 1, got {self.depth}")
+            if self.codebook_reg.enabled:
+                raise ValueError("model.depth is not supported with model.codebook_reg")
+        if self.input_clip_uv < 0:
+            raise ValueError(f"model.input_clip_uv must be >= 0, got {self.input_clip_uv}")
+        if self.input_clip_uv > 0 and self.codebook_reg.enabled:
+            raise ValueError("model.input_clip_uv is not supported with model.codebook_reg")
+        if self.head_type == "attention":
+            if self.concat_cls_token:
+                raise ValueError("model.concat_cls_token is not used with model.head_type=attention")
+            if self.codebook_reg.enabled:
+                raise ValueError("model.head_type=attention is not supported with model.codebook_reg")
+            attn_dim = self.attention_head.attn_dim
+            if attn_dim is not None and attn_dim % self.attention_head.num_heads:
+                raise ValueError(
+                    f"model.attention_head.attn_dim={attn_dim} is not divisible by "
+                    f"num_heads={self.attention_head.num_heads}")
 
     @property
     def is_regression(self) -> bool:
@@ -202,10 +308,19 @@ class TransformerArchConfig(ConfigBase):
     use_shared_rel_pos_bias: bool = conf_consts.DEFAULT_ARCH_USE_SHARED_REL_POS_BIAS
     use_mean_pooling: bool = conf_consts.DEFAULT_ARCH_USE_MEAN_POOLING
     concat_cls_token: bool = conf_consts.DEFAULT_ARCH_CONCAT_CLS_TOKEN
+    head_type: str = conf_consts.DEFAULT_ARCH_HEAD_TYPE
+    attention_head: AttentionHeadConfig = field(default_factory=AttentionHeadConfig)
+    mlp_head: MLPHeadConfig = field(default_factory=MLPHeadConfig)
+    multitask_head: MultiTaskHeadConfig = field(default_factory=MultiTaskHeadConfig)
+    # Age head conditioned on the known normal/abnormal label (see FinetuneModelConfig).
+    condition_on_abnormal: bool = False
+    abnormal_embed_dim: int = 16
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM
     max_time_patches: int = conf_consts.DEFAULT_ARCH_MAX_TIME_PATCHES
+    # Symmetric clip of the raw input in model-input units (uV / 100); 0 = off.
+    input_clip: float = 0.0
     # LaBraM++ input preprocessing (CAR + z-scoring); disabled by default so the
     # backbone reproduces the original LaBraM behaviour.
     labram_plus: LaBraMPlusConfig = field(default_factory=LaBraMPlusConfig)

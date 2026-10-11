@@ -14,6 +14,26 @@
 #   DX3 D + layer decay 0.5, drop path 0.2, dropout 0.1, wd 0.1, clip 1.0 (run locally)
 #   DX4 D + quantization (embedding) term (codebook path)
 #
+# Best-run follow-ups (M1 = D + mixup 0.4, 4 epochs: val/test 7.46 / 8.45):
+#   N1  M1 + clip_grad 1.0                         (control for N2)
+#   N2  N1 + CLS-attention head (model.head_type=attention;
+#       = labram/configs/defaults/finetune_tuab_age_attn_head.json)
+#
+# From scratch (no pretrained weights; layer_decay 1.0 so the random lower blocks
+# train at the full LR):
+#   S1  scenario D, weights off                     (what pretraining is worth)
+#   S2  tuned for scratch: 6 transformer blocks (not 12) + MLP head (256),
+#       lr 3e-4, betas (0.9, 0.98), warmup 4 of 15 epochs, clip 1.0, mixup 0.4,
+#       random crops, EMA-weight evaluation (decay 0.9995)
+#   MT1 multi-task: the best run (M1: D + mixup 0.4, 4 epochs / 1 warmup) with a
+#       shared MLP trunk feeding an age branch and a normal/abnormal branch
+#       (= labram/configs/defaults/finetune_tuab_age_multitask.json)
+#   LC1 the best run (M1) with an age-only MLP head that also gets the known
+#       normal/abnormal label as an input feature (model.condition_on_abnormal;
+#       = labram/configs/defaults/finetune_tuab_age_label_cond.json)
+#   S3  S2 + label-preserving augmentation (hemisphere flip, sign flip, FT
+#       surrogate, channel dropout, time masking) + +-800 uV input clip
+#
 # finetune_tuab_age.json now defaults to scenario D (CAR on); the ablations pin
 # labram_plus.enabled=false so A-D2 reproduce as originally run, and D turns it
 # back on.
@@ -153,7 +173,39 @@ run_M3() { submit M3 age_M3_short_lora16   "${SHORT[@]}" model.lora.enabled=true
 run_M4() { submit M4 age_M4_short_softlabel "${SHORT[@]}" loss.regression_loss=soft_label \
                      loss.soft_label_sigma=2.5; }
 
-ALL=(A B C C2 D D2 DX1 DX2 DX3 DX4 F1 F2 F3 F4 G1 H1 H2 M2 M3 M4)
+# Best run so far (M1) + gradient clipping; N2 swaps the linear head for the
+# CLS-attention head, so N2 - N1 is the head's effect alone.
+BEST=("${SHORT[@]}" mixup.enabled=true mixup.alpha=0.4 mixup.sigma=0.0 optimizer.clip_grad=1.0)
+run_N1() { submit N1 age_N1_short_mixup04_clip1          "${BEST[@]}"; }
+run_N2() { submit N2 age_N2_short_mixup04_clip1_attnhead "${BEST[@]}" model.head_type=attention; }
+
+# From-scratch runs: common_sets pins the A-D2 schedule (15 epochs, lr 1e-4,
+# warmup 2, CAR off), so these restate what they change.
+SCRATCH=(labram_plus.enabled=true finetune_checkpoint.finetune= optimizer.layer_decay=1.0)
+run_S1() { submit S1 age_S1_scratch_ep15 "${SCRATCH[@]}"; }
+run_S2() { submit S2 age_S2_scratch_d6_mlp_ep15 "${SCRATCH[@]}" model.depth=6 \
+                     model.head_type=mlp optimizer.lr=3e-4 \
+                     'optimizer.opt_betas=[0.9,0.98]' optimizer.warmup_epochs=4 \
+                     optimizer.clip_grad=1.0 mixup.enabled=true mixup.alpha=0.4 \
+                     data.random_crop=true optimizer.model_ema=true \
+                     optimizer.model_ema_decay=0.9995 evaluation.use_ema=true; }
+
+run_S3() { submit S3 age_S3_scratch_d6_mlp_aug_ep15 "${SCRATCH[@]}" model.depth=6 \
+                     model.head_type=mlp optimizer.lr=3e-4 \
+                     'optimizer.opt_betas=[0.9,0.98]' optimizer.warmup_epochs=4 \
+                     optimizer.clip_grad=1.0 mixup.enabled=true mixup.alpha=0.4 \
+                     data.random_crop=true optimizer.model_ema=true \
+                     optimizer.model_ema_decay=0.9995 evaluation.use_ema=true \
+                     augment.enabled=true model.input_clip_uv=800.0; }
+
+run_MT1() { submit MT1 age_MT1_short_mixup04_multitask "${SHORT[@]}" mixup.enabled=true \
+                     mixup.alpha=0.4 mixup.sigma=0.0 model.head_type=multitask; }
+
+run_LC1() { submit LC1 age_LC1_short_mixup04_label_cond "${SHORT[@]}" mixup.enabled=true \
+                     mixup.alpha=0.4 mixup.sigma=0.0 model.head_type=mlp \
+                     model.condition_on_abnormal=true; }
+
+ALL=(A B C C2 D D2 DX1 DX2 DX3 DX4 F1 F2 F3 F4 G1 H1 H2 M2 M3 M4 N1 N2 S1 S2 S3 MT1 LC1)
 EXPERIMENTS=("$@")
 if [[ ${#EXPERIMENTS[@]} -eq 0 ]]; then
   EXPERIMENTS=(A B C C2 D D2)

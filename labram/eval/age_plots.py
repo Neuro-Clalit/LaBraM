@@ -53,23 +53,30 @@ def panel_labels(axes) -> list:
     return axes
 
 
-def figure_caption(fig, number: str, text: str, fontsize: int = 12):
-    """``Figure <number>. <text>`` as the figure's suptitle."""
-    # Anchored just above the axes (bottom-aligned at y=1): tight_layout ignores
-    # suptitles, and the notebook's tight bbox keeps the overhang in view.
-    fig.suptitle(f"Figure {number}. {text}", fontsize=fontsize, fontweight="bold",
-                 y=1.0, va="bottom")
-    return fig
+def figure_heading(number: str, title: str, note: str = "", level: int = 3) -> str:
+    """Show ``Figure <number>. <title>`` as a Markdown subsection heading (with an
+    optional ``note`` paragraph under it) in the notebook output, directly above
+    the figure that follows. Used for figures made in a loop or by a helper,
+    whose heading cannot be a static Markdown cell. Figures carry no title of
+    their own (no suptitle): the heading is the title. Returns the Markdown."""
+    text = f"{'#' * level} Figure {number}. {title}" + (f"\n\n{note}" if note else "")
+    try:
+        from IPython.display import Markdown, display
+        display(Markdown(text))
+    except ImportError:                                  # plain Python: nothing to render
+        pass
+    return text
 
 
 def numbered_table(df, number: str, caption: str, precision: int = 2):
-    """A pandas Styler captioned ``Table <number>. <caption>`` (accepts a frame
-    or an existing Styler)."""
-    sty = df if hasattr(df, "set_caption") and not isinstance(df, pd.DataFrame) else (
-        df.style.format(precision=precision, na_rep="–"))
-    return sty.set_caption(f"Table {number}. {caption}").set_table_styles(
-        [{"selector": "caption", "props": "caption-side: top; font-weight: bold; "
-                                          "font-size: 1.05em; text-align: left;"}], overwrite=False)
+    """The table as a formatted pandas Styler (accepts a frame or an existing
+    Styler). No caption is rendered inside the table: its ``Table <number>.
+    <caption>`` title is the Markdown heading directly above the cell, and
+    ``number`` / ``caption`` only document which heading the call belongs to."""
+    del number, caption
+    if hasattr(df, "set_caption") and not isinstance(df, pd.DataFrame):
+        return df
+    return df.style.format(precision=precision, na_rep="–")
 
 
 def assert_max_columns(fig, max_columns: int = MAX_COLUMNS) -> None:
@@ -238,11 +245,13 @@ class AgeExplorer:
     # -- one recording -----------------------------------------------------
     def show(self, recording: str, window: Optional[int] = None, split: Optional[str] = None,
              channels: Optional[Sequence[str]] = None, seconds=(0.0, 10.0), car: bool = True,
-             reference: bool = True, clip: Optional[float] = 1.0, number: Optional[str] = None):
+             reference: bool = True, clip: Optional[float] = 1.0, number: Optional[str] = None,
+             heading_level: int = 3):
         """EEG of one window (default: the most representative one) + the
         prediction of every window across the recording + posterior spectrum
         against age-matched normal recordings + relative band power, as a 2 x 2
-        figure with panels (a)-(d). ``number`` captions it ``Figure <number>``."""
+        figure with panels (a)-(d). With ``number``, a ``Figure <number>. ...``
+        Markdown heading (level ``heading_level``) is shown above it."""
         import matplotlib.pyplot as plt
         r = self.record(recording, split)
         w = self.windows_of(recording, r.split)
@@ -282,9 +291,10 @@ class AgeExplorer:
         paf = r.get("paf", np.nan)
         d.set(title=f"relative band power (PAF {paf:.1f} Hz)", ylim=(0, 1))
         panel_labels([a, b, c, d])
-        figure_caption(fig, number or "–",
-                       f"{r.split} {r.recording} ({r.cohort}): true age {r.age:.0f}, recording "
-                       f"prediction {r.pred:.1f} ({r.err:+.1f} y)", fontsize=11)
+        if number:
+            figure_heading(number, f"{r.split} {r.recording} ({r.cohort}): true age {r.age:.0f}, "
+                                   f"recording prediction {r.pred:.1f} ({r.err:+.1f} y)",
+                           level=heading_level)
         fig.tight_layout()
         return fig
 
@@ -325,12 +335,13 @@ class AgeExplorer:
     def compare_at_age(self, age: float, tol: float = 3.0, split: Optional[str] = None,
                        cohort: Optional[str] = None, channels: Optional[Sequence[str]] = STANDARD_19,
                        seconds=(0.0, 10.0), car: bool = True, clip: Optional[float] = 1.0,
-                       number: Optional[str] = None):
+                       number: Optional[str] = None, heading_level: int = 3):
         """Real EEG of three recordings of about the same true age: predicted
         accurately, predicted too young, predicted too old, on the same µV scale;
         then their per-window predictions, spectra and band powers. A 3 x 2
         figure, panels (a)-(f): (a)-(c) EEG, (d) per-window predictions,
-        (e) posterior spectrum, (f) band power. ``number`` captions it."""
+        (e) posterior spectrum, (f) band power. With ``number``, a ``Figure <number>. ...`` Markdown
+        heading (level ``heading_level``) is shown above it."""
         import matplotlib.pyplot as plt
         picks = self.pick_at_age(age, tol, split, cohort)
         sigs, rows = {}, {}
@@ -357,11 +368,13 @@ class AgeExplorer:
             a.set_title(f"{kind.upper()}{note}\n{r.split} {r.recording} ({r.cohort})\n"
                         f"true age {r.age:.0f}  →  predicted {r.pred:.1f}  ({r.err:+.1f} y)",
                         fontsize=10, color=KIND_COLORS[kind], fontweight="bold")
-        figure_caption(fig, number or "–",
-                       f"Real EEG at true age ≈ {age:.0f}: accurate vs. under- vs. over-predicted\n"
-                       f"(CAR, same {spacing:.0f} µV scale"
-                       + (f", clipped at ±{clip:g} trace spacing" if clip is not None else "")
-                       + ", window closest to each recording's mean prediction)")
+        if number:
+            figure_heading(number, f"Real EEG at true age ≈ {age:.0f}: accurate vs. under- vs. "
+                                   "over-predicted",
+                           note=f"CAR, same {spacing:.0f} µV scale in (a)–(c)"
+                                + (f", clipped at ±{clip:g} trace spacing" if clip is not None else "")
+                                + "; the window closest to each recording's mean prediction.",
+                           level=heading_level)
         b = fig.add_subplot(gs[1, 1])
         c = fig.add_subplot(gs[2, 0])
         d = fig.add_subplot(gs[2, 1])
@@ -437,7 +450,8 @@ class AgeExplorer:
             with out:
                 fig = self.show(rec.value, None if rep.value else window.value, split.value,
                                 channels=CHANNEL_SETS[chans.value], car=car.value,
-                                clip=1.0 if clip.value else None, number="8.E")
+                                clip=1.0 if clip.value else None, number="8.E",
+                                heading_level=4)
                 plt.show(fig)
 
         for wd in (split, kind, cohort, age):

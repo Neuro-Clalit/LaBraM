@@ -117,7 +117,7 @@ torch>=2.3. Install a compatible DeepSpeed manually only if you need it.
 
 ### Package layout
 
-- `labram/layers/` — Neural-network primitives, one responsibility per module: `drop_path.py`, `mlp.py`, `attention.py`, `patch_embed.py` (PatchEmbed, TemporalConv), `transformer_block.py` (Block); all re-exported from `labram.layers`
+- `labram/layers/` — Neural-network primitives, one responsibility per module: `drop_path.py`, `mlp.py`, `attention.py`, `patch_embed.py` (PatchEmbed, TemporalConv), `transformer_block.py` (Block), `cls_attention_head.py` (CLSAttentionHead, `head_type=attention`), `mlp_head.py` (MLPHead, `head_type=mlp`); all re-exported from `labram.layers`
 - `labram/models/` — Config-driven model definitions: `neural_transformer.py` (shared backbone), `masked_eeg.py` (pre-training heads), `vqnsp.py` (tokenizer), `quantizer.py` (VQ with EMA), `components.py` (shared quantize/decode helpers reused by VQNSP and the regularized classifier), `codebook_classifier.py` (`CodebookRegularizedClassifier` for regularized fine-tuning), `outputs.py` (`PredictorOutput`), `registry.py` (all timm `@register_model` factories)
 - `labram/data/` — All data concerns: `eeg_constants.py` (standard 10-20 layout, channel-index helpers), `hdf5_datasets.py` (`SingleShockDataset`/`ShockDataset`), `tuh_datasets.py` (TUAB/TUEV loaders), `bundles.py` (per-task `DatasetBundle`/`get_dataset_bundle`), `preprocess.py`, `pretraining.py` (`build_pretraining_dataset`); public API on `labram.data`
 - `labram/losses/` — Configurable training losses: `config.py` (`LossConfig`), `spectral.py` (`SpectralReconstructionLoss`), `vqnsp.py` (`get_vqnsp_losses`), `classification.py` (`build_classification_criterion`), `codebook_regularized.py` (`CodebookRegularizedCriterion` combining classification + spectral + quantization losses), `outputs.py` (`LossBreakdown`)
@@ -167,13 +167,32 @@ are applied by `data/window_selection.py` in `run_finetune.main`. The age config
 scenario D of the Oct-2026 ablation (60 s trims, 5-minute eval, CAR-only `labram_plus`,
 15 epochs at lr 1e-4; val 7.77 / test 8.30 case MAE), documented with LaTeX in
 `docs/age_training_scenario_D.md` (+ PDF via `scripts/md_to_pdf.py`, needs matplotlib +
-reportlab). See `docs/age_regression.md`.
+reportlab). `model.head_type=attention` swaps the linear head for `CLSAttentionHead`: the
+class token queries all encoder tokens in one small multi-head attention layer, then an MLP
+predicts; `forward_with_attention` returns the class-token attention weights. `model.head_type=mlp`
+puts an `MLPHead` (`mlp_head.hidden_dims`) on the pooled feature instead of the single Linear,
+and `model.depth` overrides the number of transformer blocks (from-scratch run S2: 6 blocks +
+MLP head, no pretrained weights). `augment.*` adds label-preserving training augmentations
+(hemisphere flip, sign flip, FT surrogate, channel dropout, time masking; all keep each channel's
+power spectrum, which carries the age signal) and `model.input_clip_uv` a model-owned amplitude
+clip (S3 = S2 + both, ±800 µV; `labram/train/augment.py`). `model.head_type=multitask` (`MultiTaskHead`) adds a
+normal/abnormal classifier: a shared MLP trunk feeds an age branch and a classification branch, the
+loader returns `[age, abnormal]` (from the sidecar's `label`), the loss is age + `loss.abnormal_weight`
+× BCE (`MultiTaskAgeCriterion`), and val/test add `abnormal_{roc_auc,pr_auc,accuracy,balanced_accuracy}`;
+selection stays on age MAE (`finetune_tuab_age_multitask.json` = M1 + this head, run MT1).
+`model.condition_on_abnormal` instead feeds the **known** label to the age head: `[1-a, a]` →
+`abnormal_embed` (Linear 2→16) concatenated to the pooled feature (`AbnormalConditionedAgeCriterion`
+passes the label column as `model(x, condition=...)`; nothing is predicted for it; run LC1,
+`finetune_tuab_age_label_cond.json`).
+`finetune_tuab_age_attn_head.json` = the best run (M1: D + mixup 0.4, 4 epochs) + `clip_grad`
+1.0 + that head (experiments N1/N2 in `scripts/submit_age_experiments.sh`). See
+`docs/age_regression.md`.
 
 **LaBraM++ mode** (opt-in, `labram_plus.enabled`, arXiv:2505.16724): a bundle of three signal-processing/loss improvements over the original LaBraM, off by default so existing checkpoints/configs are unaffected. (1) Per-patch **Common Average Reference** and (2) per-patch **z-scoring** are applied to model inputs; (3) the VQNSP tokenizer's phase reconstruction uses a **sin/cos circular loss** (`‖sin φ̂ − sin φ‖² + ‖cos φ̂ − cos φ‖²`) instead of the raw-angle MSE, removing the ±π wrap-around discontinuity. The single switch is `LaBraMPlusConfig` (`labram/configs/labram_plus_config.py`) on every `RunConfig` as `config.labram_plus`; preprocessing is model-owned (applied in `NeuralTransformer._embed_inputs`, `NeuralTransformerForMaskedEEGModeling.forward_features`, and `VQNSP._preprocess`) so it stays consistent across training and evaluation and never double-applies. Config files: `configs/defaults/{vqnsp,pretrain_,finetune_tuab_}labram_plus_plus.json`. See `docs/labram_plus_plus.md`.
 
 ### Key cross-cutting concerns
 
-**Notebook and docs style**: analysis notebooks (`notebooks/*.ipynb`) and docs (`docs/*.md`) follow `.claude/skills/notebook-docs-style/SKILL.md`: every loss/metric/derived value as a numbered LaTeX formula matching the code, every equation/table/figure/subfigure numbered per section (Eq. (2.1), Table 2.2, Figure 3.1(b)) and cited from the text, and at most two subplots side by side (helpers `panel_labels`, `figure_caption`, `numbered_table`, `assert_max_columns` in `labram/eval/age_plots.py`).
+**Notebook and docs style**: analysis notebooks (`notebooks/*.ipynb`) and docs (`docs/*.md`) follow `.claude/skills/notebook-docs-style/SKILL.md`: every loss/metric/derived value as a numbered LaTeX formula matching the code, every equation/table/figure/subfigure numbered per section (Eq. (2.1), Table 2.2, Figure 3.1(b)) and cited from the text, each table and figure under its own `Table s.k.` / `Figure s.k.` subsection heading, and at most two subplots side by side (helpers `panel_labels`, `figure_heading`, `numbered_table`, `assert_max_columns` in `labram/eval/age_plots.py`).
 
 **Channel handling**: 62-channel standard 10-20 layout is defined in `data/eeg_constants.py::standard_1020`. `get_channel_indices()` maps each dataset's channel names to this standard order. Fine-tuning setup (`runs/finetune_setup.py`) reorders loaded checkpoint weights to match the target dataset channel order — this is critical for transfer learning.
 
