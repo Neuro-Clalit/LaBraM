@@ -84,7 +84,7 @@
         "trim_end_sec": 0.0,
         "window_sec": 10,
         "eval_minutes": 0.0,
-        "data_format": "pickle",
+        "data_format": "npy",
         "random_crop": false
     },
     "clearml": {

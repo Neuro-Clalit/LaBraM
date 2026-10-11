@@ -1079,6 +1079,7 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
         # Submitted as an s3:// uri, so the run really goes through channel
         # staging; the fake container below maps the mount back to `data`.
         "data.dataset": "TUAB", "data.data_path": "s3://fake-bucket/data/TUAB",
+        "data.data_format": "pickle",          # synthetic window pickles
         "finetune_checkpoint.finetune": "",   # train from scratch, no weights to ship
         "trainer.debug": True, "trainer.epochs": 1, "trainer.debug_samples": 4,
         "optimizer.warmup_epochs": 0, "distributed.device": "cpu",

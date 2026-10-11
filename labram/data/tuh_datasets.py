@@ -235,15 +235,16 @@ NPY_MANIFEST = "manifest.json"
 WINDOW_SAMPLES = 2000   # one 10 s window at 200 Hz
 
 
-class TUABAgeNpyLoader(TUABAgeLoader):
-    """:class:`TUABAgeLoader` over the per-recording float32 ``.npy`` format
-    (``dataset_maker/make_TUAB_npy.py``).
+class NpyWindowsMixin:
+    """Window reads from the per-recording ``.npy`` format
+    (``dataset_maker/make_TUAB_npy.py`` / ``make_TUH_npy.py``).
 
-    Items keep the pickle loader's names (``<split>/<stem>_<k>.pkl``), so the
-    age split, window selection, cross-validation and split reuse work
-    unchanged; only the read differs: window ``k`` is the contiguous slice
+    Items keep the pickle loaders' names (``<split>/<stem>_<k>.pkl``), so
+    splits, window selection, cross-validation and split reuse work unchanged;
+    only the read differs: window ``k`` is the contiguous slice
     ``[2000 k, 2000 k + L)`` of a memory-mapped ``recordings/<stem>.npy``
-    (``[T, 23]``), bit-identical to the pickle cast to float32.
+    (``[T, 23]``), bit-identical to the pickle cast to float32. float16 files
+    are upcast to float32.
 
     ``random_crop`` (training only) moves each sample to a uniformly random
     start within half a sample length of its grid position, kept inside
@@ -253,10 +254,7 @@ class TUABAgeNpyLoader(TUABAgeLoader):
 
     MMAP_CACHE = 256   # open memory maps per process (each holds a file descriptor)
 
-    def __init__(self, root, files, sampling_rate=200, *, age_lookup=None,
-                 target_stats=None):
-        super().__init__(root, files, sampling_rate, age_lookup=age_lookup,
-                         target_stats=target_stats)
+    def _init_npy(self):
         self.random_crop = False
         self.sample_bounds = {}
         self._mmaps = OrderedDict()
@@ -264,8 +262,7 @@ class TUABAgeNpyLoader(TUABAgeLoader):
 
     def manifest(self):
         if self._manifest is None:
-            with open(os.path.join(self.root, NPY_MANIFEST)) as fh:
-                self._manifest = json.load(fh)
+            self._manifest = _read_manifest(self.root)
         return self._manifest
 
     def _n_samples(self, stem):
@@ -308,7 +305,7 @@ class TUABAgeNpyLoader(TUABAgeLoader):
             lo, hi = max(lo, start - length // 2), min(hi - length, start + length // 2)
             if hi > lo:
                 start = int(torch.randint(lo, hi + 1, (1,)))
-        X = np.ascontiguousarray(self._recording(stem)[start:start + length].T)
+        X = np.ascontiguousarray(self._recording(stem)[start:start + length].T, dtype=np.float32)
         if X.shape[-1] != length:
             raise ValueError(f"{filename}: crop [{start}, {start + length}) is out of range")
         if self.sampling_rate != self.default_rate:
@@ -318,6 +315,49 @@ class TUABAgeNpyLoader(TUABAgeLoader):
         if self.return_id:
             return torch.from_numpy(X), Y, self.group_id(filename)
         return torch.from_numpy(X), Y
+
+
+_MANIFEST_CACHE = {}
+
+
+def _read_manifest(root):
+    key = os.path.abspath(root)
+    if key not in _MANIFEST_CACHE:
+        with open(os.path.join(root, NPY_MANIFEST)) as fh:
+            _MANIFEST_CACHE[key] = json.load(fh)
+    return _MANIFEST_CACHE[key]
+
+
+class TUABAgeNpyLoader(NpyWindowsMixin, TUABAgeLoader):
+    """:class:`TUABAgeLoader` over the per-recording ``.npy`` format."""
+
+    def __init__(self, root, files, sampling_rate=200, *, age_lookup=None,
+                 target_stats=None):
+        super().__init__(root, files, sampling_rate, age_lookup=age_lookup,
+                         target_stats=target_stats)
+        self._init_npy()
+
+
+class TUABNpyLoader(NpyWindowsMixin, TUHLoader):
+    """TUAB normal (0) / abnormal (1) classification over the ``.npy`` format.
+
+    The label is the recording's TUAB folder (``label`` in the manifest), which
+    is what ``make_TUAB.py`` stored as ``y`` in every window pickle.
+    """
+
+    def __init__(self, root: str, files: list, sampling_rate: int = 200):
+        labels = {r["stem"]: r["label"] for r in _read_manifest(root)["recordings"]}
+        unknown = {labels.get(recording_stem(f)) for f in files} - {"normal", "abnormal"}
+        if unknown:
+            raise ValueError(f"{root}: recordings without a normal/abnormal label: {unknown}")
+        self.case_labels = {stem: int(lab == "abnormal") for stem, lab in labels.items()}
+        super().__init__(
+            root, files, sampling_rate,
+            signal_key="X",
+            duration_sec=10,
+            label_fn=lambda _s, filename: self.case_labels[recording_stem(filename)],
+        )
+        self._init_npy()
 
 
 def _age_data_dir(root, data_format):
@@ -391,7 +431,23 @@ def prepare_TUEV_dataset(root):
     return train_dataset, test_dataset, val_dataset
 
 
-def prepare_TUAB_dataset(root):
+def prepare_TUAB_dataset(root, data_format: str = "pickle"):
+    """TUAB normal/abnormal splits as produced by ``make_TUAB.py`` (train / val
+    / test = the published LaBraM/BIOT protocol). ``data_format="npy"`` reads
+    the same windows from ``processed_npy/`` (``root`` may be the corpus
+    ``edf`` dir or the ``processed``/``processed_npy`` dir itself)."""
+    if data_format == "npy":
+        npy = _npy_root(root)
+        split = {"train": [], "val": [], "test": []}
+        for row in _read_manifest(npy)["recordings"]:
+            split[row["source_split"]] += [f"{row['source_split']}/{row['stem']}_{k}.pkl"
+                                           for k in range(row["n_windows"])]
+        print(len(split["train"]), len(split["val"]), len(split["test"]))
+        return (TUABNpyLoader(npy, split["train"]), TUABNpyLoader(npy, split["test"]),
+                TUABNpyLoader(npy, split["val"]))
+    if data_format != "pickle":
+        raise ValueError(f"data.data_format must be 'pickle' or 'npy', got {data_format!r}")
+
     seed = 12345
     np.random.seed(seed)
 
@@ -407,3 +463,15 @@ def prepare_TUAB_dataset(root):
     val_dataset = TUABLoader(os.path.join(root, "val"), val_files)
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset
+
+
+def _npy_root(root):
+    """``processed_npy`` for a data_path that is the corpus ``edf`` dir, its
+    ``processed`` dir (the pickle-era TUAB data_path), or the npy dir itself."""
+    for cand in (root, os.path.join(root, "processed_npy"),
+                 os.path.join(os.path.dirname(os.path.normpath(root)), "processed_npy")):
+        if os.path.isfile(os.path.join(cand, NPY_MANIFEST)):
+            return cand
+    raise FileNotFoundError(
+        f"No {NPY_MANIFEST} in {root}, {root}/processed_npy or a sibling processed_npy; "
+        f"build it with dataset_maker/make_TUAB_npy.py convert + merge")

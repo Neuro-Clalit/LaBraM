@@ -51,7 +51,7 @@ python -m labram.runs.submit_sagemaker \
         sagemaker.max_wait_min=1500 sagemaker.wait=true \
         sagemaker.job_name_prefix=labram-abnormal \
         data.dataset=TUAB \
-        data.data_path=s3://<bucket>/TUH_Abnormal/v3.0.0/edf/processed/ \
+        data.data_path=s3://<bucket>/TUH_Abnormal/v3.0.0/edf/processed_npy/ \
         output.output_dir= output.log_dir= \
         clearml.enabled=true clearml.project_name=eeg/abnormal \
         clearml.task_name=finetune_tuab_abnormal \

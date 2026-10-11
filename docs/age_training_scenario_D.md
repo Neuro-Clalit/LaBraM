@@ -284,8 +284,8 @@ python -m labram.runs.run_finetune \
 The config reads the per-recording npy format (`data.data_format=npy`, under
 `edf/processed_npy/`; see `age_regression.md`). It gives the same samples as the
 window pickles: re-running D on it reproduced every metric and per-epoch curve
-exactly, in 3:20 instead of 9:47. Add `data.data_format=pickle` to read
-`edf/processed/` instead.
+exactly, in 3:20 instead of 9:47. The window pickles are no longer kept
+locally (S3 backup only).
 
 SageMaker (spot; File mode copies the ~75 GB npy dataset to the instance):
 

@@ -574,10 +574,13 @@ edf/processed_npy/
 the loader already applied to every pickle, so the model sees bit-identical
 input (verified on 1,000 sampled windows).
 
-`finetune_tuab_age.json` reads this format by default (`data.data_format=npy`;
-the class default, and every other config, stays `pickle`). Pass
-`data.data_format=pickle` to read the window pickles instead. `data.data_path`
-may point at `edf/` or straight at `processed_npy/`. Items keep the pickle names, so
+Every TUAB config reads this format (`data.data_format=npy`): the age config
+and, since 2026-10-11, the normal/abnormal configs too (`TUABNpyLoader`; the
+label is the manifest's `label`, identical to the pickles' `y` on every
+recording). The window pickles were removed from local disk; their only copy is
+the S3 backup `s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed/`, kept
+for reference and not used. `data.data_path` may point at `edf/`, `processed/`
+(the old TUAB path; its sibling `processed_npy/` is used) or `processed_npy/`. Items keep the pickle names, so
 window selection, cross-validation and split reuse work unchanged.
 `data.random_crop=true` (npy only, training only) moves each training sample to
 a random start within half a sample length of its grid position, inside the

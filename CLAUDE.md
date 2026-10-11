@@ -54,9 +54,10 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.vqnsp \
 # Age regression / EEG brain age (opt-in): patient age comes from the EDF
 # headers (MNE cannot see it -- the DOB is anonymized), joined onto the existing
 # window pickles by filename. Two read-only prep steps, then a normal fine-tune.
-# The age config reads the per-recording float32 npy format (edf/processed_npy/,
-# built by dataset_maker/make_TUAB_npy.py) and uses SageMaker File mode; add
-# --set data.data_format=pickle for the window pickles. See docs/age_regression.md.
+# Every TUAB config (age and normal/abnormal) reads the per-recording float32 npy
+# format (edf/processed_npy/, built by dataset_maker/make_TUAB_npy.py) and uses
+# SageMaker File mode. The window pickles were removed from local disk and kept
+# only as an S3 backup (edf/processed/); do not use them. See docs/age_regression.md.
 python -m dataset_maker.make_TUAB_age scan  --root /data/TUAB/edf   # age_metadata.json
 python -m dataset_maker.make_TUAB_age split --root /data/TUAB/edf   # age_split.json
 OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_finetune \
