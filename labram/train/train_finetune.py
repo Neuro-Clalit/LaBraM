@@ -885,7 +885,10 @@ def train_loop(
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
         epoch_timer = utils.PhaseTimer(device)
-        if config.distributed.distributed:
+        # Also on a single process: the train sampler is a DistributedSampler
+        # (or the age-bin sampler) either way, and without set_epoch it would
+        # repeat epoch 0's order -- or draw -- every epoch.
+        if hasattr(loaders.train.sampler, 'set_epoch'):
             loaders.train.sampler.set_epoch(epoch)
         if log_writer is not None:
             log_writer.set_step(epoch * num_training_steps_per_epoch * config.trainer.update_freq)

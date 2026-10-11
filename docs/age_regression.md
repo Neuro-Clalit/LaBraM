@@ -476,7 +476,7 @@ decimals, including the median-pooled `case_median_*` columns.
 
 ## Recording and window selection
 
-Five `data.*` options pick which windows each split uses
+Six `data.*` options pick which windows each split uses
 (`labram/data/window_selection.py`). They are applied once, in
 `run_finetune.main`, after the bundle is built (or a recorded split / CV fold is
 applied). The defaults keep everything; `finetune_tuab_age.json` trims a minute
@@ -491,6 +491,7 @@ The `data.*` window-selection options: class default, the value in
 | Option | Default (age config) | Effect |
 |---|---|---|
 | `case_filter` | `all` | `normal` / `abnormal` / `all`: TUAB cases used for train **and** eval |
+| `age_range` | `[]` | `[min, max]` years, inclusive: keep only recordings whose age is in range, in train **and** val/test (`[]` = every age) |
 | `trim_start_sec` / `trim_end_sec` | `0` (`60` / `60`) | Drop the first/last seconds of every recording, rounded up to whole 10 s windows |
 | `window_sec` | `10` | Model input length: `window_sec/10` consecutive pickles concatenated (multiple of 10, 10–60) |
 | `eval_minutes` | `0` (`5`) | Val/test use only the first N minutes after the trimmed start (`0` = whole recording); train always uses everything |
@@ -518,7 +519,8 @@ $$
 For a recording with $n$ windows on disk (one past the highest window index),
 window $i$ starts a kept sample iff all of Eq. (8.2) hold
 (`window_selection.py::select_files`; the last condition only for val/test with
-$B>0$), and its recording passes `case_filter`:
+$B>0$), and its recording passes `case_filter` and, when `age_range` $=[a_\text{min},a_\text{max}]$
+is set, its age $y$ (years) satisfies $a_\text{min}\le y\le a_\text{max}$:
 
 $$
 \begin{aligned}
@@ -949,6 +951,55 @@ $[10m,10m+10)$ years, `age_analysis.py::error_by_age_bin`) improves in the tails
 40–59 range, so overall MAE goes up. Use it when age-independent bias matters
 more than the lowest MAE.
 
+### Age-bin-balanced sampling
+
+The alternative to reweighting the loss is to change **which samples are
+drawn**. `data.age_bin_sampling=true` (`labram/data/age_sampling.py`) replaces the
+shuffled training sampler with a three-stage draw. First an age bin is picked
+uniformly among the non-empty bins, then a case (a recording, or a subject under
+`evaluation.agg_case_by=subject`) is picked uniformly within that bin, then one of
+the case's samples is picked uniformly. Every age bin is therefore equally likely
+in a batch, however few cases it has. The loss stays the unweighted Eq. (5.4).
+Val and test are not resampled.
+
+With bin width $w$ = `data.age_bin_width` (years, default 5) and origin $a_0$
+(the `age_range` minimum, or 0 without a range), the bin of age $y$ is given by
+Eq. (13.9). With an `age_range`, the index is clipped to the $K$ bins of
+Eq. (13.10), so the inclusive maximum joins the last bin. For `[20, 70]` the bins
+are 20–24, …, 60–64 and 65–70:
+
+$$
+b(y)=\min\Bigl(\Bigl\lfloor \frac{y-a_0}{w}\Bigr\rfloor,\ K-1\Bigr),
+\tag{13.9}
+$$
+
+$$
+K=\Bigl\lceil \frac{a_\text{max}-a_\text{min}}{w}\Bigr\rceil .
+\tag{13.10}
+$$
+
+Let $K_+$ be the number of non-empty bins, $C_b$ the number of training cases in
+bin $b$, and $n_c$ the number of training samples of case $c$. Sample $i$ of case
+$c$ in bin $b$ is drawn with the probability of Eq. (13.11)
+(`age_sampling.py::age_bin_sample_weights`):
+
+$$
+P(i)=\frac{1}{K_+}\cdot\frac{1}{C_b}\cdot\frac{1}{n_c} .
+\tag{13.11}
+$$
+
+An epoch draws $N_\text{tr}$ samples with replacement. That is as many as the
+shuffled sampler, so the step count and the LR schedule are unchanged. The draw
+uses seed `distributed.seed` + epoch and is sharded across ranks
+(`DistributedWeightedSampler`). The sampler is re-seeded every epoch, including on
+a single GPU. Before this change the single-GPU `DistributedSampler` was never
+re-seeded, so it repeated epoch 0's order in every epoch.
+
+On TUAB with `age_range=[20, 70]`, the 1,815 training recordings fall into the
+ten bins as 171, 144, 156, 131, 179, 226, 255, 193, 185 and 175 cases. The bins'
+natural share of training samples ranges from 7.2% (35–39) to 13.7% (50–54);
+the balanced draw gives each bin 10%.
+
 ## Artifact-aware window pooling
 
 The worst under-predictions are recordings full of muscle (EMG) artifact (65 y
@@ -1193,7 +1244,8 @@ The files that implement age regression and its analysis.
 |---|---|
 | `labram/data/tuh_metadata.py` | EDF-header parser, sidecar I/O, age lookup |
 | `labram/data/age_splits.py` | subject-disjoint split + leakage assertions |
-| `labram/data/window_selection.py` | case filter, trimming, multi-window samples, eval budget |
+| `labram/data/window_selection.py` | case filter, age range, trimming, multi-window samples, eval budget |
+| `labram/data/age_sampling.py` | age-bin-balanced training sampler (`data.age_bin_sampling`) |
 | `labram/data/tuh_datasets.py` | `TUABAgeLoader`, `prepare_TUAB_age_dataset` |
 | `labram/data/bundles.py` | `TUAB_AGE` bundle, `task` / `target_stats` |
 | `labram/losses/regression.py` | criterion selection + `build_downstream_criterion`, age-balanced loss |

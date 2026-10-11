@@ -16,6 +16,7 @@ import labram.runs.common as runner_common
 import labram.utils as utils
 from labram.utils.secrets import redacted_copy
 from labram.data import get_dataset_bundle
+from labram.data.age_sampling import build_age_bin_sampler
 from labram.data.window_selection import (
     WindowSelection, apply_window_selection, enable_random_crop, train_window_ages,
 )
@@ -174,6 +175,12 @@ def main(config: FinetuneRunConfig, bundle=None):
         dataset_train, dataset_val, dataset_test,
         num_tasks, global_rank, config.distributed.dist_eval,
     )
+    if config.data.age_bin_sampling:
+        if not is_regression_task:
+            raise ValueError("data.age_bin_sampling is meant for age regression (TUAB_AGE)")
+        sampler_train = build_age_bin_sampler(
+            dataset_train, config.data.age_bin_width, config.data.age_range,
+            num_replicas=num_tasks, rank=global_rank, seed=config.distributed.seed)
 
     log_writer = runner_common.create_log_writer(
         config.output, global_rank, config.clearml, config)

@@ -45,6 +45,7 @@ class TestSelectionConfig:
     @pytest.mark.parametrize("kwargs", [
         dict(case_filter="sick"), dict(window_sec=15), dict(window_sec=70),
         dict(window_sec=0), dict(trim_start_sec=-1), dict(window_sec=60, eval_minutes=0.5),
+        dict(age_range=(20.0,)), dict(age_range=(70.0, 20.0)),
     ])
     def test_invalid_settings_raise(self, kwargs):
         with pytest.raises(ValueError):
@@ -162,6 +163,27 @@ class TestApplyToBundle:
         bundle.task = "classification"
         with pytest.raises(ValueError, match="single class"):
             apply_window_selection(bundle, WindowSelection(case_filter="normal"))
+
+    def test_age_range_is_inclusive_and_applies_to_every_split(self, tmp_path):
+        # train ages 30 / 70, val 40, test 50 / 60.
+        bundle = apply_window_selection(_labelled_corpus(tmp_path),
+                                        WindowSelection(age_range=(40.0, 70.0)))
+        subjects = lambda ds: {f.split("/")[1].split("_")[0] for f in ds.files}
+        assert subjects(bundle.train) == {"bbb"}
+        assert subjects(bundle.val) == {"ccc"}
+        assert subjects(bundle.test) == {"ddd", "eee"}
+        assert bundle.target_stats[0] == pytest.approx(70.0)
+
+    def test_age_range_from_data_config(self):
+        from labram.configs.data_config import DataConfig
+        sel = WindowSelection.from_data_config(DataConfig(age_range=[20, 70]))
+        assert sel.age_range == (20.0, 70.0) and not sel.is_default
+
+    def test_age_range_is_rejected_for_classification(self, tmp_path):
+        bundle = _labelled_corpus(tmp_path)
+        bundle.task = "classification"
+        with pytest.raises(ValueError, match="age regression"):
+            apply_window_selection(bundle, WindowSelection(age_range=(20.0, 70.0)))
 
     def test_non_tuab_loaders_are_rejected(self, tmp_path):
         bundle = _labelled_corpus(tmp_path)
