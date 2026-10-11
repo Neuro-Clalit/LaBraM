@@ -54,10 +54,16 @@ class Corpus:
         return self.remote.rstrip("/").rsplit("/", 1)[-1]
 
 
-# TUAB is deliberately absent: the local + S3 v3.0.0 copy is kept as is.
+# Every corpus NEDC distributes (https://isip.piconepress.com/projects/nedc/html/tuh_eeg/).
+# Only TUEG is chunked; the sub-corpora are small enough to fetch whole.
 CORPORA: Dict[str, Corpus] = {
     "tueg": Corpus("data/tuh_eeg/tuh_eeg/v2.0.2", "TUH_EEG/tueg/v2.0.2", "edf"),
+    "tuab": Corpus("data/tuh_eeg/tuh_eeg_abnormal/v3.0.1", "TUH_EEG/tuab/v3.0.1", None),
     "tuep": Corpus("data/tuh_eeg/tuh_eeg_epilepsy/v3.1.0", "TUH_EEG/tuep/v3.1.0", None),
+    "tusz": Corpus("data/tuh_eeg/tuh_eeg_seizure/v2.0.6", "TUH_EEG/tusz/v2.0.6", None),
+    "tuev": Corpus("data/tuh_eeg/tuh_eeg_events/v2.0.1", "TUH_EEG/tuev/v2.0.1", None),
+    "tusl": Corpus("data/tuh_eeg/tuh_eeg_slowing/v2.0.1", "TUH_EEG/tusl/v2.0.1", None),
+    "tuar": Corpus("data/tuh_eeg/tuh_eeg_artifact/v3.0.1", "TUH_EEG/tuar/v3.0.1", None),
 }
 
 # `rsync --list-only` line: perms, size (may contain commas), date, time, name
@@ -221,6 +227,7 @@ def process_chunk(name, corpus, chunk, args, state):
     s3_prefix = f"{corpus.s3_prefix}/{rel}" if rel else corpus.s3_prefix
 
     state.update(chunk, status="downloading", started=_now())
+    os.makedirs(local_dir, exist_ok=True)      # rsync creates only the last level
     run(rsync_cmd(corpus, chunk, local_root, args.ssh_key))
 
     if chunk != META and not args.no_scan:
