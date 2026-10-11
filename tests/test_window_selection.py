@@ -45,6 +45,7 @@ class TestSelectionConfig:
     @pytest.mark.parametrize("kwargs", [
         dict(case_filter="sick"), dict(window_sec=15), dict(window_sec=70),
         dict(window_sec=0), dict(trim_start_sec=-1), dict(window_sec=60, eval_minutes=0.5),
+        dict(age_range=(20.0,)), dict(age_range=(70.0, 20.0)),
     ])
     def test_invalid_settings_raise(self, kwargs):
         with pytest.raises(ValueError):
@@ -89,6 +90,16 @@ class TestSelectFiles:
         labels = {"aaa_s001_t000": "normal", "bbb_s001_t000": "abnormal"}
         kept = _select(tmp_path, files, WindowSelection(case_filter="normal"), labels=labels)
         assert kept == [f for f in files if f.startswith("aaa")]
+
+    @pytest.mark.parametrize("quality", [False, True])
+    def test_age_range_also_applies_with_the_quality_filter(self, tmp_path, quality):
+        files = (_write_recording(tmp_path, "aaa_s001_t000", 3)
+                 + _write_recording(tmp_path, "bbb_s001_t000", 3))
+        ages = {"aaa_s001_t000": 30.0, "bbb_s001_t000": 70.0}
+        window_ok = ({stem: np.ones(3, dtype=bool) for stem in ages} if quality else None)
+        kept = _select(tmp_path, files, WindowSelection(age_range=(40.0, 80.0)),
+                       ages=ages, window_ok=window_ok)
+        assert kept == [f for f in files if f.startswith("bbb")]
 
     def test_samples_with_a_missing_window_are_dropped(self, tmp_path):
         files = _write_recording(tmp_path, "aaa_s001_t000", 9, missing={4})
@@ -162,6 +173,27 @@ class TestApplyToBundle:
         bundle.task = "classification"
         with pytest.raises(ValueError, match="single class"):
             apply_window_selection(bundle, WindowSelection(case_filter="normal"))
+
+    def test_age_range_is_inclusive_and_applies_to_every_split(self, tmp_path):
+        # train ages 30 / 70, val 40, test 50 / 60.
+        bundle = apply_window_selection(_labelled_corpus(tmp_path),
+                                        WindowSelection(age_range=(40.0, 70.0)))
+        subjects = lambda ds: {f.split("/")[1].split("_")[0] for f in ds.files}
+        assert subjects(bundle.train) == {"bbb"}
+        assert subjects(bundle.val) == {"ccc"}
+        assert subjects(bundle.test) == {"ddd", "eee"}
+        assert bundle.target_stats[0] == pytest.approx(70.0)
+
+    def test_age_range_from_data_config(self):
+        from labram.configs.data_config import DataConfig
+        sel = WindowSelection.from_data_config(DataConfig(age_range=[20, 70]))
+        assert sel.age_range == (20.0, 70.0) and not sel.is_default
+
+    def test_age_range_is_rejected_for_classification(self, tmp_path):
+        bundle = _labelled_corpus(tmp_path)
+        bundle.task = "classification"
+        with pytest.raises(ValueError, match="age regression"):
+            apply_window_selection(bundle, WindowSelection(age_range=(20.0, 70.0)))
 
     def test_non_tuab_loaders_are_rejected(self, tmp_path):
         bundle = _labelled_corpus(tmp_path)

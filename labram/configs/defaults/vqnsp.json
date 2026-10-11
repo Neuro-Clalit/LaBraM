@@ -86,6 +86,7 @@
         "dataset": "",
         "data_path": "",
         "case_filter": "all",
+        "age_range": [],
         "trim_start_sec": 0.0,
         "trim_end_sec": 0.0,
         "window_sec": 10,
@@ -98,7 +99,9 @@
         "drop_channels": [],
         "train_minutes_per_epoch": 0.0,
         "stage_dir": "auto",
-        "stage_reserve_gb": 20.0
+        "stage_reserve_gb": 20.0,
+        "age_bin_sampling": false,
+        "age_bin_width": 5.0
     },
     "clearml": {
         "py/object": "labram.configs.train_config.ClearMLConfig",

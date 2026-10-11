@@ -40,6 +40,9 @@ class DataConfig(ConfigBase):
     # labram/data/window_selection.py). The defaults keep every window. ---
     # Which TUAB cases to train *and* evaluate on: "all", "normal" or "abnormal".
     case_filter: str = "all"
+    # Age regression only: keep the recordings whose age is in [min, max]
+    # (inclusive, years) in train, val *and* test. [] keeps every age.
+    age_range: List[Union[int, float]] = field(default_factory=list)
     # Seconds dropped from the start / end of every recording (rounded up to
     # whole 10 s windows), e.g. 60 to skip set-up and wind-down artifacts.
     trim_start_sec: Union[int, float] = 0.0
@@ -84,3 +87,10 @@ class DataConfig(ConfigBase):
     # from data_path. Debug runs never stage.
     stage_dir: str = "auto"
     stage_reserve_gb: float = 20.0
+    # Age regression only: draw training samples so every ``age_bin_width``-year
+    # age bin is equally likely, then a case (recording) uniformly within the
+    # bin, then one of its samples (labram/data/age_sampling.py). With
+    # ``age_range`` set the bins start at its minimum and the last bin also
+    # holds the maximum.
+    age_bin_sampling: bool = False
+    age_bin_width: Union[int, float] = 5.0

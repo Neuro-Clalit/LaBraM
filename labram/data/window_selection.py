@@ -45,11 +45,17 @@ class WindowSelection:
     # +-max_abs_uv or a channel whose std is below min_std_uv.
     max_abs_uv: float = 0.0
     min_std_uv: float = 0.0
+    # (min, max) recording age in years, inclusive; () keeps every age.
+    age_range: Tuple[float, ...] = ()
 
     def __post_init__(self):
         if self.case_filter not in CASE_FILTERS:
             raise ValueError(f"data.case_filter must be one of {CASE_FILTERS}, "
                              f"got {self.case_filter!r}")
+        if self.age_range and (len(self.age_range) != 2
+                               or self.age_range[0] > self.age_range[1]):
+            raise ValueError(f"data.age_range must be [] or [min, max] with min <= max, "
+                             f"got {list(self.age_range)}")
         if self.trim_start_sec < 0 or self.trim_end_sec < 0 or self.eval_minutes < 0:
             raise ValueError("data.trim_start_sec / trim_end_sec / eval_minutes must be >= 0")
         if (self.window_sec % PICKLE_WINDOW_SEC
@@ -74,6 +80,7 @@ class WindowSelection:
             eval_minutes=float(getattr(data_cfg, "eval_minutes", 0.0)),
             max_abs_uv=float(getattr(data_cfg, "window_max_abs_uv", 0.0)),
             min_std_uv=float(getattr(data_cfg, "window_min_std_uv", 0.0)),
+            age_range=tuple(float(a) for a in (getattr(data_cfg, "age_range", None) or ())),
         )
 
     @property
@@ -146,13 +153,15 @@ def select_files(
     n_windows: Dict[Tuple[str, str], int],
     available: Set[str],
     labels: Optional[Dict[str, str]] = None,
+    ages: Optional[Dict[str, float]] = None,
     is_eval: bool = False,
     sep: str = "_",
     window_ok: Optional[Dict[str, "object"]] = None,
 ) -> List[str]:
     """The sample-start files of ``files`` that ``selection`` keeps.
 
-    A file starts a sample when its recording passes the case filter, it lies on
+    A file starts a sample when its recording passes the case filter and the
+    age range (``ages``: recording stem -> age, needed when one is set), it lies on
     the sample grid inside the trimmed recording, the sample's windows all exist
     on disk, and -- for an evaluation split -- the sample ends within the first
     ``eval_minutes`` after the trimmed start.
@@ -165,13 +174,24 @@ def select_files(
     k = selection.windows_per_sample
     start = selection.trim_start_windows
     budget = selection.eval_windows if is_eval else 0
+
+    def case_ok(stem: str) -> bool:
+        # the recording passes the case filter and the age range
+        if selection.case_filter != "all" and (labels or {}).get(stem) != selection.case_filter:
+            return False
+        if selection.age_range:
+            age = (ages or {}).get(stem)
+            if age is None or not selection.age_range[0] <= age <= selection.age_range[1]:
+                return False
+        return True
+
     if window_ok is not None:
         return _select_quality(files, selection, k, start, budget, n_windows, available,
-                               labels, sep, window_ok)
+                               case_ok, sep, window_ok)
     kept = []
     for f in files:
         stem = recording_stem(f, sep=sep)
-        if selection.case_filter != "all" and (labels or {}).get(stem) != selection.case_filter:
+        if not case_ok(stem):
             continue
         i = window_index(f, sep)
         if i < start or (i - start) % k:
@@ -184,12 +204,12 @@ def select_files(
     return kept
 
 
-def _select_quality(files, selection, k, start, budget, n_windows, available, labels, sep,
+def _select_quality(files, selection, k, start, budget, n_windows, available, case_ok, sep,
                     window_ok):
     candidates = []
     for f in files:
         stem = recording_stem(f, sep=sep)
-        if selection.case_filter != "all" and (labels or {}).get(stem) != selection.case_filter:
+        if not case_ok(stem):
             continue
         i = window_index(f, sep)
         if i < start or (i - start) % k:
@@ -216,6 +236,10 @@ def _select_leaf(leaf, selection: WindowSelection, is_eval: bool, split: str) ->
     sep = getattr(leaf, "_recording_sep", "_")
     labels = (load_label_lookup_for(leaf.root)
               if selection.case_filter != "all" else None)
+    ages = getattr(leaf, "age_lookup", None)
+    if selection.age_range and ages is None:
+        raise ValueError(f"data.age_range needs age loaders (TUAB_AGE); got "
+                         f"{type(leaf).__name__}")
     if hasattr(leaf, "window_inventory"):          # npy: counts come from the manifest
         n_windows, available = leaf.window_inventory()
     else:
@@ -235,7 +259,7 @@ def _select_leaf(leaf, selection: WindowSelection, is_eval: bool, split: str) ->
                      for stem, (mx, sd) in load_window_stats(leaf.root).items()}
     before_files = leaf.files
     leaf.files = select_files(before_files, selection, n_windows=n_windows,
-                              available=available, labels=labels,
+                              available=available, labels=labels, ages=ages,
                               is_eval=is_eval, sep=sep, window_ok=window_ok)
     leaf.windows_per_item = selection.windows_per_sample
     recordings = lambda fs: len({recording_stem(f, sep=sep) for f in fs})
@@ -348,10 +372,10 @@ def _train_target_stats(train) -> Optional[Tuple[float, float]]:
 def apply_window_selection(bundle, selection: WindowSelection):
     """Apply ``selection`` to a :class:`DatasetBundle` in place and return it.
 
-    Case filter and trimming apply to every split; ``eval_minutes`` to val and
-    test only. A regression bundle's target z-scoring stats are recomputed from
-    the selected train samples, since the filter can shift the age distribution
-    (e.g. normal-only skews younger).
+    Case filter, age range and trimming apply to every split; ``eval_minutes``
+    to val and test only. A regression bundle's target z-scoring stats are
+    recomputed from the selected train samples, since the filter can shift the
+    age distribution (e.g. normal-only skews younger).
     """
     if selection.is_default:
         return bundle
@@ -359,6 +383,8 @@ def apply_window_selection(bundle, selection: WindowSelection):
         raise ValueError(
             f"data.case_filter={selection.case_filter!r} would leave a classification "
             f"task with a single class; it is meant for age regression (TUAB_AGE)")
+    if selection.age_range and not bundle.is_regression:
+        raise ValueError("data.age_range is meant for age regression (TUAB_AGE)")
     bundle.train = _apply_to_dataset(bundle.train, selection, False, "train")
     bundle.val = _apply_to_dataset(bundle.val, selection, True, "val")
     bundle.test = _apply_to_dataset(bundle.test, selection, True, "test")

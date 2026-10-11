@@ -17,6 +17,7 @@ import labram.utils as utils
 from labram.utils.secrets import redacted_copy
 from labram.data import get_dataset_bundle
 from labram.data.staging import stage_bundle
+from labram.data.age_sampling import build_age_bin_sampler
 from labram.data.window_selection import (
     WindowSelection, apply_window_selection, enable_abnormal_target, enable_random_crop,
     enable_session_features,
@@ -224,7 +225,17 @@ def main(config: FinetuneRunConfig, bundle=None):
         dataset_train, dataset_val, dataset_test,
         num_tasks, global_rank, config.distributed.dist_eval,
     )
-    if config.data.train_minutes_per_epoch and not config.trainer.eval:
+    if config.data.age_bin_sampling and config.data.train_minutes_per_epoch:
+        raise ValueError("data.age_bin_sampling and data.train_minutes_per_epoch both replace the "
+                         "train sampler; set only one of them")
+    if config.data.age_bin_sampling:
+        if not is_regression_task:
+            raise ValueError("data.age_bin_sampling is meant for age regression (TUAB_AGE)")
+        sampler_train = build_age_bin_sampler(
+            dataset_train, config.data.age_bin_width, config.data.age_range,
+            num_replicas=num_tasks, rank=global_rank, seed=config.distributed.seed)
+        logger.info("Sampler_train = %s", sampler_train)
+    elif config.data.train_minutes_per_epoch and not config.trainer.eval:
         # A fresh random subset of each recording's training samples per epoch.
         from labram.data.samplers import RecordingSubsetSampler
         per_recording = max(1, int(config.data.train_minutes_per_epoch * 60
