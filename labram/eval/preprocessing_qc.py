@@ -24,6 +24,7 @@ from typing import Dict, Optional, Sequence
 import numpy as np
 from scipy.signal import welch
 
+from labram.data.line_removal import spectrum_interpolate
 from labram.data.tuh_metadata import TUH_CHANNELS, channel_map, read_edf_signal_header
 
 L_FREQ, H_FREQ, TARGET_SFREQ = 0.1, 75.0, 200.0
@@ -77,35 +78,6 @@ def load_segment(edf_path: str, start_sec: float = 60.0, dur_sec: float = 120.0)
     raw.crop(tmin, tmax, include_tmax=False)
     raw.load_data(verbose="error")
     return raw
-
-
-def spectrum_interpolate(x: np.ndarray, fs: float, f0: float = 60.0, half: float = 1.5,
-                         flank: float = 3.0, win_sec: float = 10.0) -> np.ndarray:
-    """Remove a line at ``f0`` without a spectral hole (Leske & Dalal 2019).
-
-    Short-time Fourier transform with 10 s Hann windows and 50% overlap (a
-    constant-overlap-add pair, so an untouched signal is reconstructed
-    exactly); in every window the magnitude of the bins within ``half`` Hz of
-    ``f0`` is set from the power of the ``flank`` Hz on either side, their
-    phase kept; inverse transform. The flank level is the median power divided
-    by ln 2: for noise-like EEG the power of a bin is exponentially distributed,
-    whose median is ln 2 times its mean, so this is an unbiased power estimate
-    (a mean *magnitude* would be 4/pi, ~1 dB, too low and cut a shallow hole)
-    that an unrelated narrow peak inside the flanks cannot pull up.
-    1-D or ``[C, T]`` input, same shape out.
-    """
-    from scipy.signal import istft, stft
-    n = int(round(win_sec * fs))
-    if x.shape[-1] < n:
-        return x
-    f, _, z = stft(x, fs=fs, window="hann", nperseg=n, noverlap=n // 2, axis=-1)
-    band = np.abs(f - f0) <= half
-    neigh = (np.abs(f - f0) > half) & (np.abs(f - f0) <= half + flank)
-    power = np.median(np.abs(z[..., neigh, :]) ** 2, axis=-2, keepdims=True) / np.log(2)
-    mag = np.sqrt(power)
-    z[..., band, :] = mag * np.exp(1j * np.angle(z[..., band, :]))
-    _, y = istft(z, fs=fs, window="hann", nperseg=n, noverlap=n // 2, input_onesided=True)
-    return y[..., :x.shape[-1]]
 
 
 def apply_protocol(raw, protocol: Protocol):

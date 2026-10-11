@@ -10,7 +10,7 @@ Infrastructure: infra/batch_dataprep (deploy.sh).
 
     python scripts/submit_batch_npy.py submit --corpus tueg \\
         --scan /data/datasets/EEG-public/TUH_EEG/_state/tueg/recordings.parquet \\
-        --notch 60 --shards 64 --dry-run
+        --notch 50,60 --line-removal interp --shards 64 --dry-run
     python scripts/submit_batch_npy.py status --job-id <parent job id>
 """
 import argparse
@@ -27,20 +27,21 @@ QUEUE = "labram-dataprep"
 JOB_DEFINITION = "labram-dataprep-tuh-npy"
 
 
-def default_dst(notch, dtype):
+def default_dst(notch, dtype, method="notch"):
     tag = "none" if notch.lower() == "none" else notch.replace(",", "-")
-    return f"processed_npy_notch{tag}_{dtype}"
+    return f"processed_npy_{method}{tag}_{dtype}"
 
 
 def cmd_submit(args):
     corpus = CORPORA[args.corpus]
     base = f"s3://{BUCKET}/{corpus.s3_prefix}"
-    dst = f"{base}/{args.dst or default_dst(args.notch, args.dtype)}"
+    dst = f"{base}/{args.dst or default_dst(args.notch, args.dtype, args.line_removal)}"
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S")
     scan_key = f"{corpus.s3_prefix}/_work/scan-{stamp}.parquet"
     edf_root = f"{base}/{args.edf_subdir}" if args.edf_subdir else base
     command = ["convert", "--scan", f"s3://{BUCKET}/{scan_key}", "--edf-root", edf_root,
                "--dst", dst, "--num-shards", str(args.shards), "--notch", args.notch,
+               "--line-removal", args.line_removal,
                "--dtype", args.dtype, "--threads", str(args.threads)]
     print(f"{args.corpus}: {args.shards} Spot array children -> {dst}")
     print("command:", " ".join(command))
@@ -74,7 +75,9 @@ def main(argv=None):
     s = sub.add_parser("submit")
     s.add_argument("--corpus", required=True, choices=sorted(CORPORA))
     s.add_argument("--scan", required=True, help="local corpus scan (work list), .parquet")
-    s.add_argument("--notch", required=True, help="mains notch: '60', '50' (TUAB papers), '50,60', 'none'")
+    s.add_argument("--notch", required=True, help="mains frequencies: '50,60' (recommended with "
+                   "interp), '50' (TUAB papers), '60', 'none'")
+    s.add_argument("--line-removal", default="interp", choices=["notch", "interp"])
     s.add_argument("--dtype", default="float16", choices=["float16", "float32"])
     s.add_argument("--shards", type=int, default=64)
     s.add_argument("--threads", type=int, default=4, help="recordings in flight per child")

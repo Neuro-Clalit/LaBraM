@@ -40,7 +40,7 @@ aws ecr get-login-password --region "$REGION" | docker login --username AWS --pa
 TAG="$(git -C ../.. rev-parse --short HEAD)"
 CTX="$(mktemp -d)"; trap 'rm -rf "$CTX"' EXIT
 cp Dockerfile requirements.txt ../../dataset_maker/make_TUH_npy.py ../../dataset_maker/make_TUAB_npy.py \
-   ../../labram/data/tuh_metadata.py "$CTX"/
+   ../../labram/data/tuh_metadata.py ../../labram/data/line_removal.py "$CTX"/
 docker build -t "$REPO:latest" -t "$REPO:$TAG" "$CTX"
 docker push "$REPO:$TAG"
 docker push "$REPO:latest"

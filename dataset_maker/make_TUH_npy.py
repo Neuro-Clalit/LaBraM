@@ -41,8 +41,10 @@ import numpy as np
 
 try:
     from dataset_maker.make_TUAB_npy import Store, assign_shards, npy_bytes, resolve_shard
+    from labram.data.line_removal import spectrum_interpolate
     from labram.data.tuh_metadata import TUH_CHANNELS, channel_map
-except ImportError:      # flat source_dir inside a SageMaker processing container
+except ImportError:      # flat source dir inside a processing / Batch container
+    from line_removal import spectrum_interpolate
     from make_TUAB_npy import Store, assign_shards, npy_bytes, resolve_shard
     from tuh_metadata import TUH_CHANNELS, channel_map
 
@@ -50,9 +52,12 @@ SAMPLE_RATE = 200
 WINDOW_SAMPLES = 2000
 FORMAT_VERSION = 2
 L_FREQ, H_FREQ = 0.1, 75.0
-# The published TUAB recipe notches 50 Hz; TUH is US data with 60 Hz mains
-# (notebooks/tuh_preprocessing_analysis.ipynb), hence --notch.
+# The published TUAB recipe notches 50 Hz; TUH is US data with 60 Hz mains, and
+# spectrum interpolation at 50 + 60 Hz removes a line without cutting a hole
+# where there is none (notebooks/tuh_preprocessing_analysis.ipynb, Section 8),
+# hence --notch (the frequencies) and --line-removal (notch | interp).
 DEFAULT_NOTCH = (50.0,)
+LINE_METHODS = ("notch", "interp")
 # Recordings whose float64 [23, T] at the native rate exceeds this are filtered
 # one at a time per process (MNE filtering needs a few times the raw size).
 BIG_RECORDING_GB = 2.0
@@ -68,9 +73,10 @@ SIDECARS = ("age_metadata.json", "age_split.json")
 
 
 # ---------------------------------------------------------------- preprocess
-def preprocess_recording(edf_path, notch=DEFAULT_NOTCH):
+def preprocess_recording(edf_path, notch=DEFAULT_NOTCH, method="notch"):
     """EDF -> (``[T, 23]`` float64 µV at 200 Hz, whole windows only; channel mask).
-    ``notch``: mains frequencies (Hz) to notch; empty for none."""
+    ``notch``: mains frequencies (Hz) to remove, empty for none; ``method``:
+    ``notch`` (MNE FIR notch) or ``interp`` (spectrum interpolation)."""
     import mne
     raw = mne.io.read_raw_edf(edf_path, preload=False, verbose="error")
     present = channel_map(raw.ch_names)          # canonical -> raw label
@@ -82,8 +88,16 @@ def preprocess_recording(edf_path, notch=DEFAULT_NOTCH):
     if raw.info["sfreq"] < MIN_NATIVE_SFREQ:
         raise ValueError(f"sampling rate {raw.info['sfreq']} Hz < {MIN_NATIVE_SFREQ}")
     raw.filter(l_freq=L_FREQ, h_freq=H_FREQ, verbose="error")
+    fs = raw.info["sfreq"]
     for f0 in notch:
-        raw.notch_filter(f0, verbose="error")
+        if f0 >= fs / 2:
+            continue
+        if method == "notch":
+            raw.notch_filter(f0, verbose="error")
+        elif method == "interp":
+            raw.apply_function(spectrum_interpolate, channel_wise=True, fs=fs, f0=f0)
+        else:
+            raise ValueError(f"unknown line removal {method!r}")
     raw.resample(SAMPLE_RATE, verbose="error")
     data = raw.get_data(units="uV")              # [len(order), T]
     n = data.shape[1] // WINDOW_SAMPLES * WINDOW_SAMPLES
@@ -127,6 +141,7 @@ def cmd_convert(args):
     dtype = np.dtype(args.dtype)
     notch = parse_notch(args.notch)
     notch_tag = ",".join(f"{f:g}" for f in notch) or "none"
+    line_tag = f"{args.line_removal}:{notch_tag}"
     big_lock = threading.Semaphore(1)
     t0 = time.time()
     print(f"[shard {shard}/{num_shards}] {len(mine)} of {len(todo)} recordings "
@@ -136,7 +151,8 @@ def cmd_convert(args):
         row = todo[stem]
         rel = f"recordings/{stem}.npy"
         meta = dst.head(rel)
-        if meta and "sha256" in meta and "channel_mask" in meta and meta.get("notch", "50") == notch_tag:
+        done_tag = meta and (meta.get("line") or f"notch:{meta.get('notch', '50')}")
+        if meta and "sha256" in meta and "channel_mask" in meta and done_tag == line_tag:
             return {"stem": stem, **{k: json.loads(v) if k == "channel_mask" else v
                                      for k, v in meta.items()}, "skipped": True}
         big = estimated_gb(row) > args.big_gb
@@ -147,9 +163,10 @@ def cmd_convert(args):
                 with tempfile.NamedTemporaryFile(suffix=".edf") as tmp:
                     tmp.write(src.read(row["path"]))
                     tmp.flush()
-                    x, mask = preprocess_recording(tmp.name, notch)
+                    x, mask = preprocess_recording(tmp.name, notch, args.line_removal)
             else:
-                x, mask = preprocess_recording(os.path.join(src.root, row["path"]), notch)
+                x, mask = preprocess_recording(os.path.join(src.root, row["path"]), notch,
+                                               args.line_removal)
         except Exception as exc:              # record, never abort the shard
             return {"stem": stem, "error": f"{type(exc).__name__}: {exc}"[:300]}
         finally:
@@ -162,9 +179,9 @@ def cmd_convert(args):
         data = npy_bytes(np.ascontiguousarray(x.astype(dtype)))
         out = {"stem": stem, "n_windows": x.shape[0] // WINDOW_SAMPLES, "n_samples": x.shape[0],
                "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data),
-               "channel_mask": mask, "dtype": dtype.name, "notch": notch_tag}
+               "channel_mask": mask, "dtype": dtype.name, "notch": notch_tag, "line": line_tag}
         dst.write(rel, data, metadata={**{k: out[k] for k in ("n_windows", "n_samples", "sha256",
-                                                                "bytes", "dtype", "notch")},
+                                                                "bytes", "dtype", "notch", "line")},
                                        "channel_mask": json.dumps(mask)})
         return out
 
@@ -233,6 +250,7 @@ def cmd_merge(args):
             rows[r["stem"]] = r
     dtypes = sorted({r["dtype"] for r in rows.values()})
     notches = sorted({r.get("notch", "50") for r in rows.values()})
+    lines = sorted({r.get("line") or f"notch:{r.get('notch', '50')}" for r in rows.values()})
     manifest = {
         "format_version": FORMAT_VERSION,
         "layout": "recordings/<stem>.npy, [n_samples, n_channels], time-major",
@@ -242,8 +260,9 @@ def cmd_merge(args):
         "channels": list(TUH_CHANNELS),
         "units": "uV",
         "notch_hz": notches[0] if len(notches) == 1 else notches,
+        "line_removal": lines[0] if len(lines) == 1 else lines,
         "provenance": (f"dataset_maker/make_TUH_npy.py: EDF -> {L_FREQ}-{H_FREQ} Hz band-pass, "
-                       f"notch {'/'.join(notches)} Hz, resampled to {SAMPLE_RATE} Hz "
+                       f"line removal {'/'.join(lines)} Hz, resampled to {SAMPLE_RATE} Hz "
                        "(make_TUAB.py pipeline); "
                        "missing channels zero-filled, see channel_mask"),
         "n_recordings": len(rows),
@@ -287,7 +306,9 @@ def main(argv=None):
     c.add_argument("--shard", type=int, default=None)
     c.add_argument("--num-shards", type=int, default=1)
     c.add_argument("--threads", type=int, default=4)
-    c.add_argument("--notch", default="50", help="mains notch in Hz: '60', '50,60' or 'none'")
+    c.add_argument("--notch", default="50", help="mains frequencies in Hz: '60', '50,60' or 'none'")
+    c.add_argument("--line-removal", default="notch", choices=LINE_METHODS,
+                   help="how the --notch frequencies are removed: FIR notch or spectrum interpolation")
     c.add_argument("--big-gb", type=float, default=BIG_RECORDING_GB,
                    help="recordings above this in-memory size are filtered one at a time")
     c.add_argument("--limit", type=int, default=0, help="convert at most N (debug)")

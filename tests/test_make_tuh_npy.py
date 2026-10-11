@@ -132,6 +132,7 @@ def test_merge_excludes_recordings_outside_the_reused_split(corpus):
 def test_notch_option_and_batch_array_shard(corpus, monkeypatch):
     manifest = _convert(corpus, "--notch", "60")
     assert manifest["notch_hz"] == "60" and all(r["notch"] == "60" for r in manifest["recordings"])
+    assert manifest["line_removal"] == "notch:60"
     again = _convert(corpus, "--notch", "50")          # a different notch is not "already done"
     assert again["notch_hz"] == "50"
     assert mk.parse_notch("none") == () and mk.parse_notch("50,60") == (50.0, 60.0)
@@ -140,3 +141,13 @@ def test_notch_option_and_batch_array_shard(corpus, monkeypatch):
     class A:
         shard, num_shards = None, 8
     assert mk.resolve_shard(A()) == (3, 8)
+
+
+def test_interp_line_removal_and_recipe_tags(corpus):
+    manifest = _convert(corpus, "--notch", "50,60", "--line-removal", "interp", "--dtype", "float32")
+    assert manifest["line_removal"] == "interp:50,60"
+    assert all(r["line"] == "interp:50,60" for r in manifest["recordings"])
+    x = np.load(corpus / "npy/recordings/aaaaaaaa_s001_t000.npy")
+    assert np.isfinite(x).all() and 25 < np.sqrt(2) * x[4000:14000, 0].std() < 35   # EEG kept
+    again = _convert(corpus, "--notch", "50,60", "--line-removal", "notch")          # other recipe
+    assert again["line_removal"] == "notch:50,60"
