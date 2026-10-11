@@ -8,12 +8,14 @@ from labram.configs.loss_config import LossConfig
 from labram.losses.codebook_regularized import CodebookRegularizedCriterion
 from labram.losses.outputs import LossBreakdown
 from labram.losses.regression import (
+    AbnormalConditionedAgeCriterion,
     BalancedRegressionLoss,
     MultiTaskAgeCriterion,
     SoftLabelRegressionLoss,
     age_balance_weights,
     build_downstream_criterion,
     build_regression_criterion,
+    model_condition,
     regression_output,
     regression_target,
     soft_label_n_bins,
@@ -23,6 +25,7 @@ from labram.losses.vqnsp import get_vqnsp_losses
 
 
 __all__ = [
+    'AbnormalConditionedAgeCriterion',
     'BalancedRegressionLoss',
     'CodebookRegularizedCriterion',
     'LossBreakdown',
@@ -35,6 +38,7 @@ __all__ = [
     'build_downstream_criterion',
     'build_regression_criterion',
     'get_vqnsp_losses',
+    'model_condition',
     'regression_output',
     'regression_target',
     'soft_label_n_bins',

@@ -174,6 +174,12 @@ class FinetuneModelConfig(ConfigBase):
     mlp_head: MLPHeadConfig = field(default_factory=MLPHeadConfig)
     # "multitask": age + normal/abnormal from one pooled feature (multitask_head).
     multitask_head: MultiTaskHeadConfig = field(default_factory=MultiTaskHeadConfig)
+    # Condition the age head on the recording's known normal/abnormal label: a
+    # soft one-hot [1 - a, a] -> Linear(2 -> abnormal_embed_dim, no bias) is
+    # concatenated to the pooled feature (the label is an input, not predicted).
+    # Needs the label at inference too.
+    condition_on_abnormal: bool = False
+    abnormal_embed_dim: int = 16
     # Number of transformer blocks; None = the registry model's own depth (12
     # for labram_base_*). A pretrained checkpoint then loads into the first
     # ``depth`` blocks and its deeper blocks are ignored.
@@ -217,6 +223,17 @@ class FinetuneModelConfig(ConfigBase):
             raise ValueError(
                 "model.head_type must be 'linear', 'mlp', 'attention' or 'multitask', "
                 f"got {self.head_type!r}")
+        if self.condition_on_abnormal:
+            if self.task != "regression":
+                raise ValueError("model.condition_on_abnormal needs the regression (brain-age) task")
+            if self.head_type not in ("linear", "mlp"):
+                raise ValueError("model.condition_on_abnormal works with head_type linear or mlp "
+                                 f"(it feeds the pooled feature), got {self.head_type!r}")
+            if self.codebook_reg.enabled or self.lora.enabled:
+                raise ValueError("model.condition_on_abnormal is not supported with "
+                                 "model.codebook_reg or model.lora")
+            if self.abnormal_embed_dim < 1:
+                raise ValueError(f"model.abnormal_embed_dim must be >= 1, got {self.abnormal_embed_dim}")
         if self.head_type == "multitask":
             if self.task != "regression":
                 raise ValueError("model.head_type=multitask needs the regression (brain-age) task")
@@ -295,6 +312,9 @@ class TransformerArchConfig(ConfigBase):
     attention_head: AttentionHeadConfig = field(default_factory=AttentionHeadConfig)
     mlp_head: MLPHeadConfig = field(default_factory=MLPHeadConfig)
     multitask_head: MultiTaskHeadConfig = field(default_factory=MultiTaskHeadConfig)
+    # Age head conditioned on the known normal/abnormal label (see FinetuneModelConfig).
+    condition_on_abnormal: bool = False
+    abnormal_embed_dim: int = 16
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM

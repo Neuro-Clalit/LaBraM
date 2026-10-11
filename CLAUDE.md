@@ -179,6 +179,10 @@ normal/abnormal classifier: a shared MLP trunk feeds an age branch and a classif
 loader returns `[age, abnormal]` (from the sidecar's `label`), the loss is age + `loss.abnormal_weight`
 × BCE (`MultiTaskAgeCriterion`), and val/test add `abnormal_{roc_auc,pr_auc,accuracy,balanced_accuracy}`;
 selection stays on age MAE (`finetune_tuab_age_multitask.json` = M1 + this head, run MT1).
+`model.condition_on_abnormal` instead feeds the **known** label to the age head: `[1-a, a]` →
+`abnormal_embed` (Linear 2→16) concatenated to the pooled feature (`AbnormalConditionedAgeCriterion`
+passes the label column as `model(x, condition=...)`; nothing is predicted for it; run LC1,
+`finetune_tuab_age_label_cond.json`).
 `finetune_tuab_age_attn_head.json` = the best run (M1: D + mixup 0.4, 4 epochs) + `clip_grad`
 1.0 + that head (experiments N1/N2 in `scripts/submit_age_experiments.sh`). See
 `docs/age_regression.md`.

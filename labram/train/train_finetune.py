@@ -25,8 +25,9 @@ from labram.configs.train_config import (
 from labram.data.bundles import CLASSIFICATION as TASK_CLASSIFICATION
 from labram.data.bundles import REGRESSION as TASK_REGRESSION
 from labram.losses import (
-    CodebookRegularizedCriterion, LossBreakdown, MultiTaskAgeCriterion, build_downstream_criterion,
-    regression_output, regression_target)
+    AbnormalConditionedAgeCriterion, CodebookRegularizedCriterion, LossBreakdown,
+    MultiTaskAgeCriterion, build_downstream_criterion, model_condition, regression_output,
+    regression_target)
 from labram.losses.regression import downstream_term_name
 from labram.losses.outputs import LossBreakdown
 from labram.train.augment import augment_batch
@@ -56,7 +57,11 @@ def train_class_batch(
     and the criterion a ``LossBreakdown`` (component losses for logging); for the
     plain path ``outputs`` is already the logits tensor and ``breakdown`` is None.
     """
-    outputs = model(samples, channel_indices)
+    # A label-conditioned age head takes the known normal/abnormal label as an
+    # extra input, carried in the target's last column.
+    condition = model_condition(criterion, target)
+    outputs = (model(samples, channel_indices) if condition is None
+               else model(samples, channel_indices, condition=condition))
     if isinstance(criterion, CodebookRegularizedCriterion):
         breakdown = criterion(outputs, target)
         return breakdown.total, outputs.logits, breakdown
@@ -425,6 +430,7 @@ def evaluate(
     # A multi-task (age + abnormal) head keeps its two-term criterion, rebuilt
     # around an unweighted age loss (any age-balance weighting is train-only).
     multitask = isinstance(criterion, MultiTaskAgeCriterion)
+    conditioned = isinstance(criterion, AbnormalConditionedAgeCriterion)
     if not regularized:
         abnormal_weight = criterion.abnormal_weight if multitask else None
         criterion = build_downstream_criterion(
@@ -432,6 +438,8 @@ def evaluate(
             target_stats=target_stats if is_regression else None)
         if multitask:
             criterion = MultiTaskAgeCriterion(criterion, abnormal_weight)
+        elif conditioned:
+            criterion = AbnormalConditionedAgeCriterion(criterion)
 
     metric_logger = utils.MetricLogger(delimiter="  ")
 
@@ -460,8 +468,10 @@ def evaluate(
         # regularized model unless its loss terms are scored; the plain model
         # ignores the kwarg)
         with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
+            condition = model_condition(criterion, target)
+            extra = {} if condition is None else {'condition': condition}
             output = model(eeg_batch, channel_indices=channel_indices,
-                           classify_only=not regularized)
+                           classify_only=not regularized, **extra)
             if regularized:
                 breakdown = criterion(output, target)
                 loss = breakdown.total

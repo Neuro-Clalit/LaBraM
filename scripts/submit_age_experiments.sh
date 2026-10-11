@@ -28,6 +28,9 @@
 #   MT1 multi-task: the best run (M1: D + mixup 0.4, 4 epochs / 1 warmup) with a
 #       shared MLP trunk feeding an age branch and a normal/abnormal branch
 #       (= labram/configs/defaults/finetune_tuab_age_multitask.json)
+#   LC1 the best run (M1) with an age-only MLP head that also gets the known
+#       normal/abnormal label as an input feature (model.condition_on_abnormal;
+#       = labram/configs/defaults/finetune_tuab_age_label_cond.json)
 #   S3  S2 + label-preserving augmentation (hemisphere flip, sign flip, FT
 #       surrogate, channel dropout, time masking) + +-800 uV input clip
 #
@@ -198,7 +201,11 @@ run_S3() { submit S3 age_S3_scratch_d6_mlp_aug_ep15 "${SCRATCH[@]}" model.depth=
 run_MT1() { submit MT1 age_MT1_short_mixup04_multitask "${SHORT[@]}" mixup.enabled=true \
                      mixup.alpha=0.4 mixup.sigma=0.0 model.head_type=multitask; }
 
-ALL=(A B C C2 D D2 DX1 DX2 DX3 DX4 F1 F2 F3 F4 G1 H1 H2 M2 M3 M4 N1 N2 S1 S2 S3 MT1)
+run_LC1() { submit LC1 age_LC1_short_mixup04_label_cond "${SHORT[@]}" mixup.enabled=true \
+                     mixup.alpha=0.4 mixup.sigma=0.0 model.head_type=mlp \
+                     model.condition_on_abnormal=true; }
+
+ALL=(A B C C2 D D2 DX1 DX2 DX3 DX4 F1 F2 F3 F4 G1 H1 H2 M2 M3 M4 N1 N2 S1 S2 S3 MT1 LC1)
 EXPERIMENTS=("$@")
 if [[ ${#EXPERIMENTS[@]} -eq 0 ]]; then
   EXPERIMENTS=(A B C C2 D D2)

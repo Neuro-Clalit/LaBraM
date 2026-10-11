@@ -256,6 +256,13 @@ class NeuralTransformer(NeuralTransformerBase):
         self.cls_norm = norm_layer(config.embed_dim) if (
             pool and config.concat_cls_token) else None
         self.num_features = config.embed_dim * (2 if self.cls_norm is not None else 1)
+        # Known normal/abnormal label as an extra head input: [1 - a, a] -> R^d,
+        # concatenated to the pooled feature (a soft label stays well defined
+        # under mixup).
+        self.abnormal_embed = (nn.Linear(2, config.abnormal_embed_dim, bias=False)
+                               if config.condition_on_abnormal else None)
+        if self.abnormal_embed is not None:
+            self.num_features += config.abnormal_embed_dim
         self.head = self._build_head(config.num_classes)
 
         if isinstance(self.head, nn.Linear):
@@ -337,9 +344,21 @@ class NeuralTransformer(NeuralTransformerBase):
         x: [batch size, number of electrodes, number of patches, patch size]
         For example, for an EEG sample of 4 seconds with 64 electrodes, x will be [batch size, 64, 4, 200]
         '''
+        condition = kwargs.pop('condition', None)
         x = self.forward_features(x, channel_indices=channel_indices, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
+        if self.abnormal_embed is not None:
+            x = torch.cat((x, self.embed_abnormal(condition)), dim=-1)
         x = self.head(x)
         return x
+
+    def embed_abnormal(self, abnormal):
+        """``condition_on_abnormal``: the label feature for ``abnormal`` (B,) in
+        [0, 1] (1 = abnormal; soft under mixup)."""
+        if abnormal is None:
+            raise ValueError("this model conditions on the normal/abnormal label: call it "
+                             "with condition=<(B,) tensor, 1 = abnormal>")
+        a = abnormal.reshape(-1, 1).to(self.abnormal_embed.weight.dtype)
+        return self.abnormal_embed(torch.cat((1 - a, a), dim=-1))
 
     def forward_with_attention(self, x, channel_indices=None):
         """``head_type="attention"`` only: ``(prediction, cls_attention)``, where

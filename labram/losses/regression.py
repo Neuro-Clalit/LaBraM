@@ -182,6 +182,36 @@ def regression_target(criterion: nn.Module, target: torch.Tensor) -> torch.Tenso
     return pick(target) if callable(pick) else target
 
 
+def model_condition(criterion: nn.Module, target: torch.Tensor):
+    """The extra model input a criterion takes from the target (the known
+    normal/abnormal label for a label-conditioned age head), else ``None``."""
+    pick = getattr(criterion, "condition", None)
+    return pick(target) if callable(pick) else None
+
+
+class AbnormalConditionedAgeCriterion(nn.Module):
+    """Age loss for a head conditioned on the known normal/abnormal label.
+
+    The loader yields ``[age_z, abnormal]``; ``condition`` hands the label
+    column to the model (``model(x, condition=...)``) and the age criterion
+    scores only the age column (``metric_target``), so every age metric is
+    unchanged and nothing is predicted for the label.
+    """
+
+    def __init__(self, age_criterion: nn.Module):
+        super().__init__()
+        self.age_criterion = age_criterion
+
+    def condition(self, target: torch.Tensor) -> torch.Tensor:
+        return target[..., -1]
+
+    def metric_target(self, target: torch.Tensor) -> torch.Tensor:
+        return target[..., :1]
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return self.age_criterion(output, target[..., :1])
+
+
 class MultiTaskAgeCriterion(nn.Module):
     """Brain age + normal/abnormal: ``age_criterion`` on the age column plus
     ``abnormal_weight`` x BCE-with-logits on the abnormal logit.

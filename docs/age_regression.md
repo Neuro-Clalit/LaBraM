@@ -1379,6 +1379,60 @@ The run MT1 in `scripts/submit_age_experiments.sh`
 (`labram/configs/defaults/finetune_tuab_age_multitask.json`) is the best brain-age
 run M1 (pretrained, scenario D + mixup 0.4, 4 epochs / 1 warmup) with this head.
 
+## Age head conditioned on the normal/abnormal label
+
+`model.condition_on_abnormal=true` gives the age head the recording's **known**
+normal/abnormal label (the clinical label in `age_metadata.json`) as an extra
+input, next to the encoder feature; nothing is predicted for the label. It
+tests how much of the age error is the abnormal-cohort shift (test MAE ≈ 10.5
+on abnormal vs. ≈ 6.7 on normal recordings for M1 and MT1,
+`age_overfitting_experiments.md` Table 10.2) once the diagnosis is given. The label is then needed at inference too. Table 18.1 lists the options.
+
+### Table 18.1. Label-conditioning options
+
+Config keys (defaults in parentheses).
+
+| Option | Config | Eq. |
+|---|---|---|
+| Switch | `model.condition_on_abnormal` (false) | (18.1)–(18.2) |
+| Label-feature width | `model.abnormal_embed_dim` (16) | (18.1) |
+| Head on the joint feature | `model.head_type` = `linear` or `mlp` | (18.2) |
+
+Regression only; not combinable with `head_type` `attention` or `multitask`,
+`model.codebook_reg`, `model.lora` or `loss.regression_loss=soft_label`.
+
+With $u\in\mathbb{R}^{D}$ the pooled feature, $a\in[0,1]$ the label (1 =
+abnormal; a mixup blend of two labels in training, Eq. (12.1)) and
+$E\in\mathbb{R}^{d\times 2}$ the bias-free label embedding
+(`NeuralTransformer.abnormal_embed`, $d$ = `abnormal_embed_dim`), Eq. (18.1):
+
+$$
+e(a)=E\begin{bmatrix}1-a\\ a\end{bmatrix},
+\qquad
+\tilde u=\bigl[\,u\,;\,e(a)\,\bigr]\in\mathbb{R}^{D+d}.
+\tag{18.1}
+$$
+
+$e$ is linear in $a$, so a mixed sample's label feature is the same blend as its
+input. The head then predicts the z-scored age from $\tilde u$, Eq. (18.2):
+
+$$
+\hat z=g(\tilde u),
+\tag{18.2}
+$$
+
+with $g$ the linear head or the MLP head of section 15. With a linear $g$ the
+label can only shift the prediction by a per-cohort constant; the MLP lets it
+interact with the EEG feature. The loss is the age loss of section 5 on
+$\hat z$ alone (`labram/losses/regression.py::AbnormalConditionedAgeCriterion`,
+which hands the label column to the model as `condition` and scores only the
+age column), so every metric of section 6 is unchanged.
+
+The run LC1 (`scripts/submit_age_experiments.sh`,
+`labram/configs/defaults/finetune_tuab_age_label_cond.json`) is M1 (pretrained,
+scenario D + mixup 0.4, 4 epochs / 1 warmup) with the MLP head (256) on
+$[u;e(a)]$, $d=16$.
+
 ## Next steps
 
 The default config (`finetune_tuab_age.json`) is scenario D of the October 2026
@@ -1390,9 +1444,9 @@ improvement plan is in [`brain_age_improvement_plan.md`](brain_age_improvement_p
 
 ## Files
 
-Table 19.1 maps each file to its role.
+Table 20.1 maps each file to its role.
 
-### Table 19.1. Files
+### Table 20.1. Files
 
 The files that implement age regression and its analysis.
 
@@ -1415,3 +1469,4 @@ The files that implement age regression and its analysis.
 | `labram/configs/defaults/finetune_tuab_age_attn_head.json` | best run (M1) + `clip_grad` 1.0 + attention head |
 | `labram/train/augment.py` | label-preserving training augmentations (`augment.*`) |
 | `labram/configs/defaults/finetune_tuab_age_multitask.json` | best run (M1) with the multi-task (age + normal/abnormal) head |
+| `labram/configs/defaults/finetune_tuab_age_label_cond.json` | best run (M1) with an age head conditioned on the known normal/abnormal label |

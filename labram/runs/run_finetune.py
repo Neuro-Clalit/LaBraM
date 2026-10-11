@@ -22,8 +22,8 @@ from labram.data.window_selection import (
 )
 from labram.layers.lora import inject_lora, mark_only_lora_trainable
 from labram.losses import (
-    CodebookRegularizedCriterion, LossConfig, MultiTaskAgeCriterion, build_downstream_criterion,
-    soft_label_n_bins)
+    AbnormalConditionedAgeCriterion, CodebookRegularizedCriterion, LossConfig, MultiTaskAgeCriterion,
+    build_downstream_criterion, soft_label_n_bins)
 from labram.losses.regression import downstream_term_name
 from labram.configs.run_configs import FinetuneRunConfig
 from labram.configs.utils_conf import add_override_arg, parse_overrides
@@ -69,6 +69,8 @@ def get_model(config: FinetuneRunConfig):
         concat_cls_token=m.concat_cls_token,
         head_type=m.head_type, attention_head=m.attention_head, mlp_head=m.mlp_head,
         multitask_head=m.multitask_head,
+        condition_on_abnormal=m.condition_on_abnormal,
+        abnormal_embed_dim=m.abnormal_embed_dim,
         use_rel_pos_bias=m.rel_pos_bias, use_abs_pos_emb=m.abs_pos_emb,
         init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
         labram_plus=config.labram_plus, max_time_patches=time_patches,
@@ -127,10 +129,12 @@ def main(config: FinetuneRunConfig, bundle=None):
     bundle = apply_window_selection(bundle, WindowSelection.from_data_config(config.data))
     if config.data.random_crop:
         enable_random_crop(bundle.train)
-    if config.model.head_type == 'multitask':
-        # Age + normal/abnormal: every split yields [age, abnormal] targets.
+    if config.model.head_type == 'multitask' or config.model.condition_on_abnormal:
+        # Age + normal/abnormal: every split yields [age, abnormal] targets --
+        # predicted by a multi-task head, or fed to a label-conditioned age head.
         if config.loss.regression_loss == 'soft_label':
-            raise ValueError("model.head_type=multitask needs a scalar age loss, not soft_label")
+            raise ValueError("model.head_type=multitask / model.condition_on_abnormal need a "
+                             "scalar age loss, not soft_label")
         for split in (bundle.train, bundle.val, bundle.test):
             enable_abnormal_target(split)
     # The bundle is the source of truth for the head size and the task: a scalar
@@ -314,6 +318,8 @@ def main(config: FinetuneRunConfig, bundle=None):
             if task == 'regression' and config.loss.balance != 'none' else None)
         if config.model.head_type == 'multitask':
             criterion = MultiTaskAgeCriterion(criterion, config.loss.abnormal_weight)
+        elif config.model.condition_on_abnormal:
+            criterion = AbnormalConditionedAgeCriterion(criterion)
     logger.info("Downstream criterion (%s): %s", task, criterion)
 
     utils.auto_load_model(
