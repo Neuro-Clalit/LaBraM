@@ -58,3 +58,11 @@ class DataConfig(ConfigBase):
     # sample length of its grid position (inside the trimmed range), redrawn
     # every epoch. Evaluation always uses the fixed grid.
     random_crop: bool = False
+    # npy only: copy the recordings the run uses onto fast local storage before
+    # training (labram/data/staging.py). "auto" = the instance NVMe
+    # (/opt/dlami/nvme) when present, skipped inside SageMaker; "" / "none"
+    # disables; any other value is a directory. Train is staged first, then
+    # val, then test; what does not fit (keeping stage_reserve_gb free) is read
+    # from data_path. Debug runs never stage.
+    stage_dir: str = "auto"
+    stage_reserve_gb: float = 20.0

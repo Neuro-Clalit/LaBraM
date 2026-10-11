@@ -16,6 +16,7 @@ import labram.runs.common as runner_common
 import labram.utils as utils
 from labram.utils.secrets import redacted_copy
 from labram.data import get_dataset_bundle
+from labram.data.staging import stage_bundle
 from labram.data.window_selection import (
     WindowSelection, apply_window_selection, enable_abnormal_target, enable_random_crop,
     train_window_ages,
@@ -129,6 +130,10 @@ def main(config: FinetuneRunConfig, bundle=None):
     bundle = apply_window_selection(bundle, WindowSelection.from_data_config(config.data))
     if config.data.random_crop:
         enable_random_crop(bundle.train)
+    if not config.trainer.debug:
+        # Only the selected recordings, train first; a no-op for pickles, on
+        # SageMaker, or with data.stage_dir=none.
+        stage_bundle(bundle, config.data.stage_dir, reserve_gb=config.data.stage_reserve_gb)
     if config.model.head_type == 'multitask' or config.model.condition_on_abnormal:
         # Age + normal/abnormal: every split yields [age, abnormal] targets --
         # predicted by a multi-task head, or fed to a label-conditioned age head.
