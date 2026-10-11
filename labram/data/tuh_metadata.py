@@ -345,6 +345,12 @@ class EdfSignalHeader:
     sfreqs: Tuple[float, ...]
     n_records: int
     record_duration: float
+    # Per signal: physical unit ('uV', 'mV', ...), physical range and the
+    # free-text hardware prefiltering ('HP:0.5Hz LP:70Hz N:60Hz' style).
+    units: Tuple[str, ...] = ()
+    physical_min: Tuple[float, ...] = ()
+    physical_max: Tuple[float, ...] = ()
+    prefilters: Tuple[str, ...] = ()
 
     @property
     def duration_sec(self) -> float:
@@ -375,7 +381,22 @@ def read_edf_signal_header(path: str) -> EdfSignalHeader:
     labels = field(0, 16)
     samples = [int(s) for s in field(16 + 80 + 8 * 5 + 80, 8)]
     sfreqs = tuple(s / record_duration if record_duration > 0 else 0.0 for s in samples)
-    return EdfSignalHeader(tuple(labels), sfreqs, n_records, record_duration)
+
+    def floats(values):
+        out = []
+        for v in values:
+            try:
+                out.append(float(v))
+            except ValueError:
+                out.append(float("nan"))
+        return tuple(out)
+
+    return EdfSignalHeader(
+        tuple(labels), sfreqs, n_records, record_duration,
+        units=tuple(field(16 + 80, 8)),
+        physical_min=floats(field(16 + 80 + 8, 8)),
+        physical_max=floats(field(16 + 80 + 16, 8)),
+        prefilters=tuple(field(16 + 80 + 8 * 5, 80)))
 
 
 def canonical_channel(label: str) -> Optional[str]:
