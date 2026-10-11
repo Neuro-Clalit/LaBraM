@@ -55,3 +55,11 @@ def test_disabled_and_sagemaker(processed, monkeypatch):
     assert staging.stage_bundle(_bundle(processed), "none") is None
     monkeypatch.setenv("SM_TRAINING_ENV", "{}")
     assert staging.resolve_stage_dir("auto") is None
+
+
+def test_eval_splits_only(processed, tmp_path):
+    b = _bundle(processed)
+    report = staging.stage_bundle(b, str(tmp_path / "nvme"), reserve_gb=0, splits=("val", "test"))
+    assert report.staged == {"val": 1, "test": 1} and "train" not in report.staged
+    assert b.val.root.startswith(str(tmp_path / "nvme"))
+    assert not b.train.root.startswith(str(tmp_path / "nvme"))   # train untouched

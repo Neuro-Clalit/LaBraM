@@ -79,10 +79,10 @@ def _npy_leaves(dataset) -> List[NpyWindowsMixin]:
     return [leaf for leaf in _leaves(dataset) if isinstance(leaf, NpyWindowsMixin)]
 
 
-def _ordered_needs(bundle):
+def _ordered_needs(bundle, splits):
     """[(split, source_root, stem)] in priority order, each recording once."""
     seen, out = set(), []
-    for split in SPLIT_PRIORITY:
+    for split in splits:
         for leaf in _npy_leaves(getattr(bundle, split, None)):
             for f in leaf.files:
                 key = (leaf.root, recording_stem(f))
@@ -112,10 +112,10 @@ def _prepare_mirror(source, mirror):
             _copy_atomic(path, os.path.join(mirror, name))
 
 
-def _do_stage(bundle, stage_root, reserve_gb, threads) -> StageReport:
+def _do_stage(bundle, stage_root, reserve_gb, threads, splits) -> StageReport:
     t0 = time.time()
     report = StageReport()
-    needs = _ordered_needs(bundle)
+    needs = _ordered_needs(bundle, splits)
     for _, root, _ in needs:
         if root not in report.mirrors:
             report.mirrors[root] = mirror_root(stage_root, root)
@@ -145,16 +145,21 @@ def _do_stage(bundle, stage_root, reserve_gb, threads) -> StageReport:
 
 
 def stage_bundle(bundle, stage_dir: str = AUTO, *, reserve_gb: float = 20.0,
-                 threads: int = 8) -> Optional[StageReport]:
+                 threads: int = 8, splits=SPLIT_PRIORITY) -> Optional[StageReport]:
     """Stage the npy recordings ``bundle`` uses and re-root its loaders at the
     mirror. Returns None (and changes nothing) when staging is disabled, there
     is nothing npy-backed to stage, or the data is already on the stage disk.
+
+    ``splits`` is the priority order and the set staged: a run that only
+    evaluates passes ``("val", "test")`` so no train recording is copied. Only
+    the loaders of those splits are re-rooted; any other split keeps reading
+    its source.
 
     Under DDP only rank 0 copies; the others wait at a barrier and re-root."""
     stage_root = resolve_stage_dir(stage_dir)
     if stage_root is None:
         return None
-    leaves = [leaf for split in SPLIT_PRIORITY
+    leaves = [leaf for split in splits
               for leaf in _npy_leaves(getattr(bundle, split, None))]
     if not leaves or all(os.path.abspath(leaf.root).startswith(os.path.dirname(stage_root))
                          for leaf in leaves):
@@ -163,8 +168,8 @@ def stage_bundle(bundle, stage_dir: str = AUTO, *, reserve_gb: float = 20.0,
     distributed = dist.is_available() and dist.is_initialized()
     report = None
     if not distributed or dist.get_rank() == 0:
-        report = _do_stage(bundle, stage_root, reserve_gb, threads)
-        for split in SPLIT_PRIORITY:
+        report = _do_stage(bundle, stage_root, reserve_gb, threads, splits)
+        for split in splits:
             n_s, n_l = report.staged.get(split, 0), report.linked.get(split, 0)
             if n_s or n_l:
                 logger.info("staging [%s]: %d recording(s) on %s, %d read from source",

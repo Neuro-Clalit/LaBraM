@@ -133,7 +133,8 @@ def main(config: FinetuneRunConfig, bundle=None):
     if not config.trainer.debug:
         # Only the selected recordings, train first; a no-op for pickles, on
         # SageMaker, or with data.stage_dir=none.
-        stage_bundle(bundle, config.data.stage_dir, reserve_gb=config.data.stage_reserve_gb)
+        stage_bundle(bundle, config.data.stage_dir, reserve_gb=config.data.stage_reserve_gb,
+                     splits=("val", "test") if config.trainer.eval else ("train", "val", "test"))
     if config.model.head_type == 'multitask' or config.model.condition_on_abnormal:
         # Age + normal/abnormal: every split yields [age, abnormal] targets --
         # predicted by a multi-task head, or fed to a label-conditioned age head.

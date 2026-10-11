@@ -28,6 +28,7 @@ import labram.models.registry  # noqa: F401
 import labram.utils as utils
 from labram.data import get_dataset_bundle
 from labram.data.tuh_metadata import load_label_lookup_for
+from labram.data.staging import stage_bundle
 from labram.data.window_selection import WindowSelection, apply_window_selection
 from labram.eval.loading import load_run_config
 from labram.losses import build_downstream_criterion, regression_output, soft_label_n_bins
@@ -78,6 +79,8 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
         cfg.model.codebook_reg.tokenizer_weight = "./checkpoints/vqnsp.pth"
     bundle = get_dataset_bundle(cfg.data.dataset, data_path, data_format=cfg.data.data_format)
     bundle = apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
+    stage_bundle(bundle, cfg.data.stage_dir, reserve_gb=cfg.data.stage_reserve_gb,
+                 splits=tuple(s for s in ("val", "test", "train") if s in splits))
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
     to_scalar = None
     if bundle.task == "regression" and cfg.loss.regression_loss == "soft_label":

@@ -85,8 +85,13 @@ def load_age_bundle(run_dir: str, data_path: str):
 
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
+    from labram.data.staging import stage_bundle
+
     bundle = get_dataset_bundle(cfg.data.dataset, data_path, data_format=cfg.data.data_format)
-    return cfg, apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
+    bundle = apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
+    stage_bundle(bundle, cfg.data.stage_dir, reserve_gb=cfg.data.stage_reserve_gb,
+                 splits=("val", "test", "train"))     # analyses read val/test first
+    return cfg, bundle
 
 
 def load_age_run(run_dir: str, data_path: str, checkpoint: str = "checkpoint-best.pth",
