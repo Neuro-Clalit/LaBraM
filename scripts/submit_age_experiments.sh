@@ -41,13 +41,12 @@ ROLE="${ROLE:-arn:aws:iam::574441342949:role/SageMakerExecutionRole}"
 # streams the 409k window pickles with FastFile, as the first ablations did; they
 # survive only as the S3 backup below (removed from local disk 2026-10-11).
 DATA_FORMAT="${DATA_FORMAT:-npy}"
-if [[ "${DATA_FORMAT}" == "npy" ]]; then
-  DATA="${DATA:-s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed_npy/}"
-  INPUT_MODE="${INPUT_MODE:-File}"
-else
-  DATA="${DATA:-s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed/}"
-  INPUT_MODE="${INPUT_MODE:-FastFile}"
+if [[ "${DATA_FORMAT}" != "npy" ]]; then
+  echo "DATA_FORMAT=${DATA_FORMAT}: the TUAB window pickles are retired (v3.0.0, S3 backup only); use npy" >&2
+  exit 1
 fi
+DATA="${DATA:-s3://eeg-data-public/TUH_EEG/tuab/v3.0.1/edf/processed_npy/}"
+INPUT_MODE="${INPUT_MODE:-File}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-ml.g5.2xlarge}"
 USE_SPOT="${USE_SPOT:-false}"
 MAX_WAIT_MIN="${MAX_WAIT_MIN:-0}"                 # spot only: total window, >= max run

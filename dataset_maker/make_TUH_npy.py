@@ -172,7 +172,7 @@ def cmd_merge(args):
         # train/val/test), so a re-release is a drop-in replacement.
         with open(args.split_from) as fh:
             split_of = {r["stem"]: r["source_split"] for r in json.load(fh)["recordings"]}
-    rows, errors = {}, {}
+    rows, errors, excluded = {}, {}, {}
     for name in sorted(n for n in dst.list("_parts") if n.endswith(".json")):
         for r in json.loads(dst.read(f"_parts/{name}"))["recordings"]:
             r.pop("skipped", None)
@@ -184,7 +184,10 @@ def cmd_merge(args):
             r["sfreq_native"] = _plain(s.get("sfreq"))
             if split_of is not None:
                 if r["stem"] not in split_of:
-                    raise ValueError(f"{r['stem']} is not in --split-from {args.split_from}")
+                    # Not part of the reused protocol (e.g. TUAB recordings that
+                    # make_TUAB.py rejected for missing channels): keep it out.
+                    excluded[r["stem"]] = f"not in {os.path.basename(args.split_from)}"
+                    continue
                 r["source_split"] = split_of[r["stem"]]
             for k in ("n_windows", "n_samples", "bytes"):
                 r[k] = int(r[k])
@@ -206,13 +209,15 @@ def cmd_merge(args):
         "n_windows": sum(r["n_windows"] for r in rows.values()),
         "recordings": [rows[s] for s in sorted(rows)],
         "errors": errors,
+        "excluded": excluded,
     }
     dst.write("manifest.json", json.dumps(manifest, indent=1).encode())
     for name in SIDECARS if args.sidecar_dir else ():
         with open(os.path.join(args.sidecar_dir, name), "rb") as fh:
             dst.write(name, fh.read())
     print(f"manifest.json: {len(rows)} recordings, {manifest['n_windows']} windows, "
-          f"{sum(r['bytes'] for r in rows.values()) / 1e9:.2f} GB, {len(errors)} failed")
+          f"{sum(r['bytes'] for r in rows.values()) / 1e9:.2f} GB, {len(errors)} failed, "
+          f"{len(excluded)} excluded")
 
 
 def _plain(v):

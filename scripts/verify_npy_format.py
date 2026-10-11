@@ -9,7 +9,7 @@
    (cold page cache when ``--drop-caches`` and passwordless sudo are available).
 
     python scripts/verify_npy_format.py \\
-        --data-path /data/datasets/EEG-public/TAUB/TUH_Abnormal/v3.0.0/edf \\
+        --data-path /data/datasets/EEG-public/TUH_EEG/tuab/v3.0.1/edf \\
         --config labram/configs/defaults/finetune_tuab_age.json \\
         --data-split path/to/data_split.json --drop-caches
 """

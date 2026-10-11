@@ -9,7 +9,7 @@ recordings and for TUAB's normal and abnormal recordings separately. The
 normal/abnormal label comes from the age metadata sidecar (``label`` field).
 
     python scripts/eval_age_by_cohort.py \\
-        --data-path /data/datasets/EEG-public/TAUB/TUH_Abnormal/v3.0.0/edf \\
+        --data-path /data/datasets/EEG-public/TUH_EEG/tuab/v3.0.1/edf \\
         --run D=path/to/extracted/D --run C2-head=checkpoints/age_C2_headonly_... \\
         --out cohort_metrics.json
 

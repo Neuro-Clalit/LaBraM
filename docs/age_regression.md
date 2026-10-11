@@ -606,7 +606,7 @@ writing the npy files back; re-runs skip finished recordings):
 ```bash
 python scripts/submit_tuab_npy_conversion.py --instances 4          # convert
 python -m dataset_maker.make_TUAB_npy merge \
-  --dst s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed_npy \
+  --dst s3://eeg-data-public/TUH_EEG/tuab/v3.0.1/edf/processed_npy \
   --sidecar-dir /path/to/edf/processed --expect 2990                # manifest
 ```
 
@@ -621,7 +621,7 @@ epoch) with identical metrics, per-epoch curves and data split.
 ## Usage
 
 ```bash
-TUAB=/path/to/TUH_Abnormal/v3.0.0/edf
+TUAB=/path/to/tuab/v3.0.1/edf
 ```
 
 Extract the demographics (prints a summary to cross-check against the corpus
@@ -942,7 +942,7 @@ re-run, so it takes minutes on CPU:
 
 ```bash
 python scripts/age_artifact_pooling.py \
-  --data-path /data/datasets/EEG-public/TAUB/TUH_Abnormal/v3.0.0/edf \
+  --data-path /data/datasets/EEG-public/TUH_EEG/tuab/v3.0.1/edf \
   --run M1=checkpoints/age_M1_... --run M2=path/to/extracted/M2 \
   --out artifact_pooling.json
 ```

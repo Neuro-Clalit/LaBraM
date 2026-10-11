@@ -116,3 +116,14 @@ def test_merge_reuses_split_and_copies_sidecars(corpus):
     assert {r["stem"]: r["source_split"] for r in manifest["recordings"]} == \
         {"aaaaaaaa_s001_t000": "val", "aaaaaaab_s001_t000": "test"}
     assert all((corpus / "npy" / name).exists() for name in mk.SIDECARS)
+
+
+def test_merge_excludes_recordings_outside_the_reused_split(corpus):
+    _convert(corpus)
+    prev = {"recordings": [{"stem": "aaaaaaab_s001_t000", "source_split": "train"}]}
+    (corpus / "prev1.json").write_text(json.dumps(prev))
+    mk.main(["merge", "--scan", str(corpus / "scan.parquet"), "--dst", str(corpus / "npy"),
+             "--split-from", str(corpus / "prev1.json")])
+    manifest = json.loads((corpus / "npy/manifest.json").read_text())
+    assert [r["stem"] for r in manifest["recordings"]] == ["aaaaaaab_s001_t000"]
+    assert list(manifest["excluded"]) == ["aaaaaaaa_s001_t000"]
