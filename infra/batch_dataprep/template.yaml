@@ -1,0 +1,169 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  batch-dataprep - AWS Batch on EC2 Spot for EEG data preparation (EDF -> npy,
+  dataset_maker/make_TUH_npy.py) as array jobs. Scales to zero when idle. See
+  infra/batch_dataprep/README.md.
+
+Parameters:
+  # Plain types: the AWS-specific parameter types make CloudFormation call
+  # ec2:Describe* on the caller's behalf, which this account's policy denies.
+  VpcId:
+    Type: String
+  SubnetIds:
+    Type: CommaDelimitedList
+  DataBucket:
+    Type: String
+    Default: eeg-data-public
+  MaxVcpus:
+    Type: Number
+    Default: 256
+    Description: Upper bound on concurrent Spot vCPUs (cost and fan-out cap).
+  JobVcpus:
+    Type: Number
+    Default: 4
+  JobMemoryMiB:
+    Type: Number
+    Default: 30000
+    Description: The longest TUEG recordings need ~24 GB while filtering.
+  AttemptTimeoutSeconds:
+    Type: Number
+    Default: 28800
+
+Resources:
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: labram-dataprep
+      LifecyclePolicy:
+        LifecyclePolicyText: >-
+          {"rules":[{"rulePriority":1,"description":"keep 10 images",
+          "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},
+          "action":{"type":"expire"}}]}
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: labram-dataprep-instance
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: labram-dataprep-instance
+      Roles: [!Ref InstanceRole]
+
+  # What the container itself may do: read EDFs and work lists, write npy, under
+  # the data bucket only.
+  JobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: labram-dataprep-job
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ecs-tasks.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: data-bucket
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:ListBucket]
+                Resource: !Sub arn:aws:s3:::${DataBucket}
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub arn:aws:s3:::${DataBucket}/*
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: labram-dataprep-execution
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ecs-tasks.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: batch-dataprep (egress only)
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  ComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      ComputeEnvironmentName: labram-dataprep-spot
+      Type: MANAGED
+      State: ENABLED
+      ComputeResources:
+        Type: SPOT
+        AllocationStrategy: SPOT_PRICE_CAPACITY_OPTIMIZED
+        MinvCpus: 0
+        DesiredvCpus: 0
+        MaxvCpus: !Ref MaxVcpus
+        # Memory-heavy families first fit 4 vCPU / 30 GB jobs best (r: 8 GB/vCPU).
+        InstanceTypes: [r5, r5a, r6i, r6a, r7i, m5, m6i, m6a, m7i]
+        Subnets: !Ref SubnetIds
+        SecurityGroupIds: [!Ref SecurityGroup]
+        InstanceRole: !GetAtt InstanceProfile.Arn
+        Tags: {Project: labram, Purpose: dataprep}
+
+  JobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      JobQueueName: labram-dataprep
+      State: ENABLED
+      Priority: 1
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref ComputeEnvironment
+
+  JobDefinition:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      JobDefinitionName: labram-dataprep-tuh-npy
+      Type: container
+      PlatformCapabilities: [EC2]
+      ContainerProperties:
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/labram-dataprep:latest
+        JobRoleArn: !GetAtt JobRole.Arn
+        ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+        ResourceRequirements:
+          - {Type: VCPU, Value: !Ref JobVcpus}
+          - {Type: MEMORY, Value: !Ref JobMemoryMiB}
+        Command: ["--help"]
+      # A Spot reclaim kills the host: retry those; any other failure is final
+      # (the converter records per-recording errors itself and exits 0).
+      RetryStrategy:
+        Attempts: 5
+        EvaluateOnExit:
+          - {OnStatusReason: "Host EC2*", Action: RETRY}
+          - {OnReason: "CannotPullContainerError*", Action: RETRY}
+          - {OnReason: "*", Action: EXIT}
+      Timeout:
+        AttemptDurationSeconds: !Ref AttemptTimeoutSeconds
+      Tags: {Project: labram, Purpose: dataprep}
+
+Outputs:
+  JobQueue:
+    Value: !Ref JobQueue
+  JobDefinition:
+    Value: !Ref JobDefinition
+  Repository:
+    Value: !GetAtt Repository.RepositoryUri

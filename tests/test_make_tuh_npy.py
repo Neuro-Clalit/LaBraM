@@ -127,3 +127,16 @@ def test_merge_excludes_recordings_outside_the_reused_split(corpus):
     manifest = json.loads((corpus / "npy/manifest.json").read_text())
     assert [r["stem"] for r in manifest["recordings"]] == ["aaaaaaab_s001_t000"]
     assert list(manifest["excluded"]) == ["aaaaaaaa_s001_t000"]
+
+
+def test_notch_option_and_batch_array_shard(corpus, monkeypatch):
+    manifest = _convert(corpus, "--notch", "60")
+    assert manifest["notch_hz"] == "60" and all(r["notch"] == "60" for r in manifest["recordings"])
+    again = _convert(corpus, "--notch", "50")          # a different notch is not "already done"
+    assert again["notch_hz"] == "50"
+    assert mk.parse_notch("none") == () and mk.parse_notch("50,60") == (50.0, 60.0)
+    monkeypatch.setenv("AWS_BATCH_JOB_ARRAY_INDEX", "3")
+
+    class A:
+        shard, num_shards = None, 8
+    assert mk.resolve_shard(A()) == (3, 8)
