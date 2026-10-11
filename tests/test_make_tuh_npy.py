@@ -99,3 +99,20 @@ def test_skip_stems_and_rerun(corpus):
     assert [r["stem"] for r in manifest["recordings"]] == ["aaaaaaab_s001_t000"]
     again = _convert(corpus, "--skip-stems", str(corpus / "skip.parquet"))
     assert again["recordings"][0]["sha256"] == manifest["recordings"][0]["sha256"]
+
+
+def test_merge_reuses_split_and_copies_sidecars(corpus):
+    _convert(corpus)
+    prev = {"recordings": [{"stem": "aaaaaaaa_s001_t000", "source_split": "val"},
+                           {"stem": "aaaaaaab_s001_t000", "source_split": "test"}]}
+    (corpus / "prev.json").write_text(json.dumps(prev))
+    side = corpus / "side"
+    side.mkdir()
+    for name in mk.SIDECARS:
+        (side / name).write_text("{}")
+    mk.main(["merge", "--scan", str(corpus / "scan.parquet"), "--dst", str(corpus / "npy"),
+             "--split-from", str(corpus / "prev.json"), "--sidecar-dir", str(side)])
+    manifest = json.loads((corpus / "npy/manifest.json").read_text())
+    assert {r["stem"]: r["source_split"] for r in manifest["recordings"]} == \
+        {"aaaaaaaa_s001_t000": "val", "aaaaaaab_s001_t000": "test"}
+    assert all((corpus / "npy" / name).exists() for name in mk.SIDECARS)

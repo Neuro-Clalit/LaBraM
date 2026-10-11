@@ -56,7 +56,8 @@ MIN_DURATION_SEC = 60
 # signal on TUAB (0.003-0.06 µV); only values beyond this are clipped.
 FLOAT16_MAX = float(np.finfo(np.float16).max)
 SCAN_FIELDS = ("corpus", "path", "subject", "session", "token", "age", "raw_age", "sex", "year",
-               "montage", "session_date", "abnormal", "epilepsy", "source_split")
+               "label", "montage", "session_date", "abnormal", "epilepsy", "source_split")
+SIDECARS = ("age_metadata.json", "age_split.json")
 
 
 # ---------------------------------------------------------------- preprocess
@@ -165,6 +166,12 @@ def cmd_merge(args):
     """Shard parts + scan metadata -> manifest.json (failures in ``errors``)."""
     dst = Store(args.dst)
     scan = {r["stem"]: r for r in read_scan(args.scan).to_dict("records")}
+    split_of = None
+    if args.split_from:
+        # Reuse another manifest's split assignment (e.g. TUAB's make_TUAB.py
+        # train/val/test), so a re-release is a drop-in replacement.
+        with open(args.split_from) as fh:
+            split_of = {r["stem"]: r["source_split"] for r in json.load(fh)["recordings"]}
     rows, errors = {}, {}
     for name in sorted(n for n in dst.list("_parts") if n.endswith(".json")):
         for r in json.loads(dst.read(f"_parts/{name}"))["recordings"]:
@@ -175,6 +182,10 @@ def cmd_merge(args):
             s = scan[r["stem"]]
             r.update({k: _plain(s.get(k)) for k in SCAN_FIELDS})
             r["sfreq_native"] = _plain(s.get("sfreq"))
+            if split_of is not None:
+                if r["stem"] not in split_of:
+                    raise ValueError(f"{r['stem']} is not in --split-from {args.split_from}")
+                r["source_split"] = split_of[r["stem"]]
             for k in ("n_windows", "n_samples", "bytes"):
                 r[k] = int(r[k])
             r["duration_sec"] = r["n_samples"] / SAMPLE_RATE
@@ -197,6 +208,9 @@ def cmd_merge(args):
         "errors": errors,
     }
     dst.write("manifest.json", json.dumps(manifest, indent=1).encode())
+    for name in SIDECARS if args.sidecar_dir else ():
+        with open(os.path.join(args.sidecar_dir, name), "rb") as fh:
+            dst.write(name, fh.read())
     print(f"manifest.json: {len(rows)} recordings, {manifest['n_windows']} windows, "
           f"{sum(r['bytes'] for r in rows.values()) / 1e9:.2f} GB, {len(errors)} failed")
 
@@ -232,6 +246,10 @@ def main(argv=None):
     m = sub.add_parser("merge")
     m.add_argument("--scan", required=True)
     m.add_argument("--dst", required=True)
+    m.add_argument("--split-from", default=None,
+                   help="manifest.json whose per-recording source_split to reuse")
+    m.add_argument("--sidecar-dir", default=None,
+                   help=f"dir whose {' and '.join(SIDECARS)} are copied next to the manifest")
     m.set_defaults(func=cmd_merge)
     args = ap.parse_args(argv)
     args.func(args)
