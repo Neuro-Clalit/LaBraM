@@ -111,14 +111,23 @@ Resources:
       ComputeEnvironmentName: labram-dataprep-spot
       Type: MANAGED
       State: ENABLED
+      # Update instance types / limits in place instead of replacing the
+      # (custom-named) environment; running jobs are left to finish.
+      ReplaceComputeEnvironment: false
+      UpdatePolicy:
+        TerminateJobsOnUpdate: false
+        JobExecutionTimeoutMinutes: 30
       ComputeResources:
         Type: SPOT
         AllocationStrategy: SPOT_PRICE_CAPACITY_OPTIMIZED
         MinvCpus: 0
         DesiredvCpus: 0
         MaxvCpus: !Ref MaxVcpus
-        # Memory-heavy families first fit 4 vCPU / 30 GB jobs best (r: 8 GB/vCPU).
-        InstanceTypes: [r5, r5a, r6i, r6a, r7i, m5, m6i, m6a, m7i]
+        # Memory-optimized only (8 GB/vCPU): a 4 vCPU / 30 GB job fills an r*.xlarge
+        # exactly. With m-family allowed, Spot chose m5.2xlarge (8 vCPU / 32 GB),
+        # one job per machine, half the vCPUs idle and half the array queued
+        # (first TUEG run, 2026-10-12).
+        InstanceTypes: [r5, r5a, r5n, r6i, r6a, r7i, r7a]
         Subnets: !Ref SubnetIds
         SecurityGroupIds: [!Ref SecurityGroup]
         InstanceRole: !GetAtt InstanceProfile.Arn

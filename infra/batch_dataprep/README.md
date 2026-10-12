@@ -14,7 +14,7 @@ SageMaker price premium. TUEG (~20k hours of EEG) is about 100 vCPU-hours.
 | resource | purpose |
 |---|---|
 | ECR `labram-dataprep` | the data-prep image (`Dockerfile`: python 3.10, mne 1.4.2, numpy 1.26.4, scipy 1.15.3 -- same filter implementation as the training environment) |
-| compute env `labram-dataprep-spot` | EC2 Spot, `SPOT_PRICE_CAPACITY_OPTIMIZED`, r/m families, 0..`MaxVcpus` (256) vCPUs |
+| compute env `labram-dataprep-spot` | EC2 Spot, `SPOT_PRICE_CAPACITY_OPTIMIZED`, memory-optimized r families only (a 4 vCPU / 30 GB job fills an r*.xlarge), 0..`MaxVcpus` (256) vCPUs, updated in place |
 | job queue `labram-dataprep` | |
 | job definition `labram-dataprep-tuh-npy` | 4 vCPU / 30 GB per child (the longest TUEG recordings need ~24 GB while filtering; the converter filters them one at a time), 8 h per attempt, up to 5 attempts on Spot reclaim |
 | IAM roles `labram-dataprep-{instance,job,execution}` | ECS host role; job role limited to `s3:GetObject/PutObject/ListBucket` on the data bucket; ECR pull + logs |
@@ -44,3 +44,9 @@ python -m dataset_maker.make_TUH_npy merge \
 Output goes to `processed_npy_notch<notch>_<dtype>/` so recipes never mix. A rerun
 skips recordings already written with the same notch; per-recording failures are
 listed in the manifest's `errors`.
+
+## Runs
+
+| date | corpus | recipe | children | result |
+|---|---|---|---|---|
+| 2026-10-12 | TUEG v2.0.2 (60,387 recordings) | 0.1–75 Hz, 50+60 Hz spectrum interpolation, 200 Hz, float16 | 64, all first attempt, 24 min mean | 60,386 converted (1 file has none of the 23 channels), 26,912 h, 891 GB; 4 outputs bit-identical to a local recomputation |
