@@ -58,6 +58,12 @@ class DataConfig(ConfigBase):
     # sample length of its grid position (inside the trimmed range), redrawn
     # every epoch. Evaluation always uses the fixed grid.
     random_crop: bool = False
+    # npy only: drop every sample with a 10 s window that has any sample beyond
+    # +-window_max_abs_uv µV, or any channel whose std is below window_min_std_uv
+    # µV (a flat channel), in train, val and test; 0 turns a test off. Needs the
+    # dataset's window_stats.npz (python -m labram.data.window_qc).
+    window_max_abs_uv: Union[int, float] = 0.0
+    window_min_std_uv: Union[int, float] = 0.0
     # npy only: copy the recordings the run uses onto fast local storage before
     # training (labram/data/staging.py). "auto" = the instance NVMe
     # (/opt/dlami/nvme) when present, skipped inside SageMaker; "off" disables; any other value is a directory. Train is staged first, then

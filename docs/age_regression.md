@@ -494,6 +494,7 @@ The `data.*` window-selection options: class default, the value in
 | `trim_start_sec` / `trim_end_sec` | `0` (`60` / `60`) | Drop the first/last seconds of every recording, rounded up to whole 10 s windows |
 | `window_sec` | `10` | Model input length: `window_sec/10` consecutive pickles concatenated (multiple of 10, 10–60) |
 | `eval_minutes` | `0` (`5`) | Val/test use only the first N minutes after the trimmed start (`0` = whole recording); train always uses everything |
+| `window_max_abs_uv` / `window_min_std_uv` | `0` | npy only: drop samples with a 10 s window that has a sample beyond ±`window_max_abs_uv` µV or a channel with std below `window_min_std_uv` µV, in train, val and test (Eq. (8.3)); `0` turns a test off |
 
 **How samples are chosen.** Window `i` of a recording covers `[10i, 10i+10)` s.
 Sample starts lie on a fixed grid per recording, every `window_sec` seconds from
@@ -532,6 +533,31 @@ Recording length is read from the window directories, not the split's file list,
 so the selection is idempotent: re-applying it to a reused `data_split.json` or a
 CV fold changes nothing. Recordings too short for one sample after trimming drop
 out, and the run logs per-split sample/recording counts.
+
+**Signal-quality rejection.** `window_max_abs_uv` = $A$ and `window_min_std_uv` = $\sigma_\text{min}$
+(µV; npy format only) drop windows with an artifact or a flat channel. For window
+$i$ with samples $x_{c,t}$ (µV, channel $c$ among the channels the manifest's
+`channel_mask` marks present, $t = 1,\dots,2000$), `labram/data/window_qc.py::recording_window_stats`
+stores in `window_stats.npz` (next to `manifest.json`)
+
+$$
+a_i=\max_{c,t}\lvert x_{c,t}\rvert,
+\qquad
+\sigma_i=\min_c \sqrt{\tfrac{1}{2000}\sum_t \bigl(x_{c,t}-\bar x_c\bigr)^2},
+\tag{8.3}
+$$
+
+and window $i$ passes iff $a_i \le A$ and $\sigma_i \ge \sigma_\text{min}$
+(`window_passes`; a zero threshold skips its test). A sample is kept only when all
+its $k$ windows pass, on top of Eq. (8.2). For val/test the budget $B$ then counts
+passing samples: the first $\lfloor B/k \rfloor$ passing samples after the
+trimmed start, so rejected windows do not use it up. A recording with no passing
+sample leaves that split. Build the stats once per dataset (fetching recordings
+that are only on S3 with `--s3`), then copy the file next to the S3 copy:
+
+```bash
+python -m labram.data.window_qc --root <npy dir> --s3 s3://.../<npy dir>/
+```
 
 **Labels.** `case_filter` reads TUAB's normal/abnormal label from the metadata
 sidecar, derived from the EDF folder (`.../train/abnormal/...`). Sidecars written

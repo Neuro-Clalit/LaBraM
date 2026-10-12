@@ -190,6 +190,8 @@
         "eval_minutes": 0.0,
         "data_format": "npy",
         "random_crop": false,
+        "window_max_abs_uv": 0.0,
+        "window_min_std_uv": 0.0,
         "stage_dir": "auto",
         "stage_reserve_gb": 20.0
     },
