@@ -26,8 +26,8 @@ from labram.data.bundles import CLASSIFICATION as TASK_CLASSIFICATION
 from labram.data.bundles import REGRESSION as TASK_REGRESSION
 from labram.losses import (
     AbnormalConditionedAgeCriterion, CodebookRegularizedCriterion, LossBreakdown,
-    MultiTaskAgeCriterion, build_downstream_criterion, model_condition, regression_output,
-    regression_target)
+    MultiTaskAgeCriterion, SessionFeatureAgeCriterion, build_downstream_criterion,
+    model_condition, regression_output, regression_target)
 from labram.losses.regression import downstream_term_name
 from labram.losses.outputs import LossBreakdown
 from labram.train.augment import augment_batch
@@ -431,6 +431,7 @@ def evaluate(
     # around an unweighted age loss (any age-balance weighting is train-only).
     multitask = isinstance(criterion, MultiTaskAgeCriterion)
     conditioned = isinstance(criterion, AbnormalConditionedAgeCriterion)
+    with_session = isinstance(criterion, SessionFeatureAgeCriterion)
     if not regularized:
         abnormal_weight = criterion.abnormal_weight if multitask else None
         criterion = build_downstream_criterion(
@@ -440,6 +441,8 @@ def evaluate(
             criterion = MultiTaskAgeCriterion(criterion, abnormal_weight)
         elif conditioned:
             criterion = AbnormalConditionedAgeCriterion(criterion)
+        elif with_session:
+            criterion = SessionFeatureAgeCriterion(criterion)
 
     metric_logger = utils.MetricLogger(delimiter="  ")
 

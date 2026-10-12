@@ -185,6 +185,10 @@ class TUABAgeLoader(TUHLoader):
     # window_selection.enable_abnormal_target for the multi-task head, which
     # turns the target into ``[age, abnormal]``.
     abnormal_lookup = None
+    # (stem -> row, [n_recordings, n_features] float32) of session-level
+    # features; set by window_selection.enable_session_features, which turns the
+    # target into ``[age, *features]`` (the model takes the features as input).
+    session_features = None
 
     def __init__(
         self,
@@ -231,6 +235,10 @@ class TUABAgeLoader(TUHLoader):
             age = (age - mean) / std
         if self.abnormal_lookup is not None:
             return torch.tensor([age, self.abnormal_lookup[stem]], dtype=torch.float32)
+        if self.session_features is not None:
+            rows, matrix = self.session_features
+            return torch.cat((torch.tensor([age], dtype=torch.float32),
+                              torch.from_numpy(matrix[rows[stem]])))
         return torch.tensor(age, dtype=torch.float32)
 
     def ages(self) -> list:
@@ -263,6 +271,9 @@ class NpyWindowsMixin:
 
     def _init_npy(self):
         self.random_crop = False
+        # Serve zeros instead of reading the EEG (a model that ignores it,
+        # model.session_features=only).
+        self.skip_signal = False
         self.sample_bounds = {}
         self._mmaps = OrderedDict()
         self._manifest = None
@@ -306,6 +317,10 @@ class NpyWindowsMixin:
         filename = self.files[index]
         stem, k = os.path.basename(filename)[:-4].rsplit(self._recording_sep, 1)
         length = WINDOW_SAMPLES * self.windows_per_item
+        if self.skip_signal:
+            X = torch.zeros(len(self.manifest().get("channels") or ()) or 23, length)
+            Y = self._label_fn(None, filename)
+            return (X, Y, self.group_id(filename)) if self.return_id else (X, Y)
         start = int(k) * WINDOW_SAMPLES
         if self.random_crop:
             lo, hi = self.sample_bounds.get(stem) or (0, self._n_samples(stem))

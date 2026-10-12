@@ -64,6 +64,10 @@ class DataConfig(ConfigBase):
     # dataset's window_stats.npz (python -m labram.data.window_qc).
     window_max_abs_uv: Union[int, float] = 0.0
     window_min_std_uv: Union[int, float] = 0.0
+    # TUAB_AGE only: per-recording classical EEG features
+    # (dataset_maker/make_session_features.py), a file name inside data_path or
+    # an absolute path; "" = none. Used by model.session_features.
+    session_features: str = ""
     # npy only: copy the recordings the run uses onto fast local storage before
     # training (labram/data/staging.py). "auto" = the instance NVMe
     # (/opt/dlami/nvme) when present, skipped inside SageMaker; "off" disables; any other value is a directory. Train is staged first, then

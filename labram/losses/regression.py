@@ -212,6 +212,28 @@ class AbnormalConditionedAgeCriterion(nn.Module):
         return self.age_criterion(output, target[..., :1])
 
 
+class SessionFeatureAgeCriterion(nn.Module):
+    """Age loss for a model that also takes session-level features.
+
+    The loader yields ``[age_z, *features]``; ``condition`` hands the feature
+    columns to the model (``model(x, condition=...)``) and the age criterion
+    scores only the age column, so every age metric is unchanged.
+    """
+
+    def __init__(self, age_criterion: nn.Module):
+        super().__init__()
+        self.age_criterion = age_criterion
+
+    def condition(self, target: torch.Tensor) -> torch.Tensor:
+        return target[..., 1:]
+
+    def metric_target(self, target: torch.Tensor) -> torch.Tensor:
+        return target[..., :1]
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return self.age_criterion(output, target[..., :1])
+
+
 class MultiTaskAgeCriterion(nn.Module):
     """Brain age + normal/abnormal: ``age_criterion`` on the age column plus
     ``abnormal_weight`` x BCE-with-logits on the abnormal logit.

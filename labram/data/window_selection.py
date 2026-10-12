@@ -292,6 +292,33 @@ def enable_abnormal_target(dataset) -> None:
         leaf.abnormal_lookup = {s: int(labels[s] == "abnormal") for s in stems}
 
 
+def enable_session_features(dataset, path: str, skip_signal: bool = False):
+    """Make every age leaf of ``dataset`` return ``[age, *features]`` targets
+    from a session-feature file (``dataset_maker/make_session_features.py``);
+    ``path`` is absolute or relative to each leaf's data root. Returns the
+    feature groups ``[[n_tokens, dim], ...]``. Raises if a recording has no
+    features. ``skip_signal`` makes npy leaves serve zeros instead of the EEG."""
+    from labram.data.session_features import load_session_features
+    groups = None
+    for leaf in _leaves(dataset):
+        if not hasattr(leaf, "age_lookup"):
+            raise ValueError("data.session_features needs the TUAB_AGE dataset")
+        feats = load_session_features(path if os.path.isabs(path)
+                                      else os.path.join(leaf.root, path))
+        stems = {recording_stem(f) for f in leaf.files}
+        missing = sorted(stems - set(feats.rows))
+        if missing:
+            raise ValueError(f"{len(missing)} recording(s) in {leaf.root} have no session "
+                             f"features in {path} (e.g. {missing[:3]})")
+        leaf.session_features = (feats.rows, feats.matrix)
+        if skip_signal:
+            if not hasattr(leaf, "skip_signal"):
+                raise ValueError("model.session_features=only needs data.data_format=npy")
+            leaf.skip_signal = True
+        groups = feats.groups
+    return groups
+
+
 def _leaves(dataset) -> list:
     if dataset is None:
         return []

@@ -19,11 +19,13 @@ from labram.data import get_dataset_bundle
 from labram.data.staging import stage_bundle
 from labram.data.window_selection import (
     WindowSelection, apply_window_selection, enable_abnormal_target, enable_random_crop,
+    enable_session_features,
     train_window_ages,
 )
 from labram.layers.lora import inject_lora, mark_only_lora_trainable
 from labram.losses import (
     AbnormalConditionedAgeCriterion, CodebookRegularizedCriterion, LossConfig, MultiTaskAgeCriterion,
+    SessionFeatureAgeCriterion,
     build_downstream_criterion, soft_label_n_bins)
 from labram.losses.regression import downstream_term_name
 from labram.configs.run_configs import FinetuneRunConfig
@@ -72,6 +74,9 @@ def get_model(config: FinetuneRunConfig):
         multitask_head=m.multitask_head,
         condition_on_abnormal=m.condition_on_abnormal,
         abnormal_embed_dim=m.abnormal_embed_dim,
+        session_features=m.session_features,
+        session_feature_groups=m.session_feature_groups,
+        session_feature_drop=m.session_feature_drop,
         use_rel_pos_bias=m.rel_pos_bias, use_abs_pos_emb=m.abs_pos_emb,
         init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
         labram_plus=config.labram_plus, max_time_patches=time_patches,
@@ -143,6 +148,20 @@ def main(config: FinetuneRunConfig, bundle=None):
                              "scalar age loss, not soft_label")
         for split in (bundle.train, bundle.val, bundle.test):
             enable_abnormal_target(split)
+    if (config.model.session_features != "off") != bool(config.data.session_features):
+        raise ValueError("model.session_features and data.session_features go together: "
+                         "set both or neither")
+    if config.data.session_features:
+        # Every split yields [age, *features]; the model takes the features as
+        # extra tokens, or (only) instead of the EEG, which is then not read.
+        if config.loss.regression_loss == 'soft_label':
+            raise ValueError("model.session_features needs a scalar age loss, not soft_label")
+        for split in (bundle.train, bundle.val, bundle.test):
+            groups = enable_session_features(
+                split, config.data.session_features,
+                skip_signal=config.model.session_features == "only")
+            if groups is not None:
+                config.model.session_feature_groups = groups
     # The bundle is the source of truth for the head size and the task: a scalar
     # regression head and a binary classifier both have nb_classes == 1, so the
     # task must travel with it.
@@ -326,6 +345,8 @@ def main(config: FinetuneRunConfig, bundle=None):
             criterion = MultiTaskAgeCriterion(criterion, config.loss.abnormal_weight)
         elif config.model.condition_on_abnormal:
             criterion = AbnormalConditionedAgeCriterion(criterion)
+        elif config.model.session_features != "off":
+            criterion = SessionFeatureAgeCriterion(criterion)
     logger.info("Downstream criterion (%s): %s", task, criterion)
 
     utils.auto_load_model(

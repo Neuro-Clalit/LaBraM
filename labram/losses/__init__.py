@@ -9,6 +9,7 @@ from labram.losses.codebook_regularized import CodebookRegularizedCriterion
 from labram.losses.outputs import LossBreakdown
 from labram.losses.regression import (
     AbnormalConditionedAgeCriterion,
+    SessionFeatureAgeCriterion,
     BalancedRegressionLoss,
     MultiTaskAgeCriterion,
     SoftLabelRegressionLoss,
@@ -26,6 +27,7 @@ from labram.losses.vqnsp import get_vqnsp_losses
 
 __all__ = [
     'AbnormalConditionedAgeCriterion',
+    'SessionFeatureAgeCriterion',
     'BalancedRegressionLoss',
     'CodebookRegularizedCriterion',
     'LossBreakdown',

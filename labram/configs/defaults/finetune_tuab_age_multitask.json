@@ -88,6 +88,7 @@
         "random_crop": false,
         "window_max_abs_uv": 0.0,
         "window_min_std_uv": 0.0,
+        "session_features": "",
         "stage_dir": "auto",
         "stage_reserve_gb": 20.0
     },
@@ -152,6 +153,9 @@
         },
         "condition_on_abnormal": false,
         "abnormal_embed_dim": 16,
+        "session_features": "off",
+        "session_feature_groups": [],
+        "session_feature_drop": 0.0,
         "depth": null,
         "input_clip_uv": 0.0,
         "init_scale": 0.001,

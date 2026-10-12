@@ -180,6 +180,16 @@ class FinetuneModelConfig(ConfigBase):
     # Needs the label at inference too.
     condition_on_abnormal: bool = False
     abnormal_embed_dim: int = 16
+    # Session-level classical EEG features (data.session_features):
+    # "off"; "tokens" -- each feature group's tokens ([n, dim] per recording,
+    # e.g. 19 channel tokens + 6 filter-bank Riemann tokens) are projected to
+    # the embedding width and appended to the transformer's token sequence;
+    # "only" -- no EEG encoder: the head (head_type linear or mlp) sees just
+    # the flattened features. session_feature_groups ([[n, dim], ...]) is set
+    # from the feature file at runtime.
+    session_features: str = "off"
+    session_feature_groups: List[List[int]] = field(default_factory=list)
+    session_feature_drop: float = 0.0
     # Number of transformer blocks; None = the registry model's own depth (12
     # for labram_base_*). A pretrained checkpoint then loads into the first
     # ``depth`` blocks and its deeper blocks are ignored.
@@ -234,6 +244,20 @@ class FinetuneModelConfig(ConfigBase):
                                  "model.codebook_reg or model.lora")
             if self.abnormal_embed_dim < 1:
                 raise ValueError(f"model.abnormal_embed_dim must be >= 1, got {self.abnormal_embed_dim}")
+        if self.session_features not in ("off", "tokens", "only"):
+            raise ValueError("model.session_features must be 'off', 'tokens' or 'only', "
+                             f"got {self.session_features!r}")
+        if self.session_features != "off":
+            if self.task != "regression":
+                raise ValueError("model.session_features needs the regression (brain-age) task")
+            if (self.condition_on_abnormal or self.head_type == "multitask"
+                    or self.codebook_reg.enabled or self.lora.enabled):
+                raise ValueError("model.session_features is not supported with "
+                                 "condition_on_abnormal, head_type=multitask, codebook_reg "
+                                 "or lora")
+            if self.session_features == "only" and self.head_type not in ("linear", "mlp"):
+                raise ValueError("model.session_features=only needs head_type linear or mlp, "
+                                 f"got {self.head_type!r}")
         if self.head_type == "multitask":
             if self.task != "regression":
                 raise ValueError("model.head_type=multitask needs the regression (brain-age) task")
@@ -315,6 +339,11 @@ class TransformerArchConfig(ConfigBase):
     # Age head conditioned on the known normal/abnormal label (see FinetuneModelConfig).
     condition_on_abnormal: bool = False
     abnormal_embed_dim: int = 16
+    # Session-level classical features as extra tokens / the only input (see
+    # FinetuneModelConfig).
+    session_features: str = "off"
+    session_feature_groups: List[List[int]] = field(default_factory=list)
+    session_feature_drop: float = 0.0
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM
