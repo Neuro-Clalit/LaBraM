@@ -58,8 +58,9 @@ class StageReport:
 def resolve_stage_dir(stage_dir: str) -> Optional[str]:
     """``auto`` -> the instance NVMe when present and writable (never inside a
     SageMaker container, whose File-mode channels are local already); ``""`` /
-    ``none`` -> disabled; anything else is used as given."""
-    if not stage_dir or stage_dir.lower() == "none":
+    ``off`` / ``none`` -> disabled (``off`` on the command line: the override
+    parser reads ``none`` as null); anything else is used as given."""
+    if not stage_dir or stage_dir.lower() in ("none", "off", "false"):
         return None
     if stage_dir != AUTO:
         return os.path.join(stage_dir, STAGE_SUBDIR)

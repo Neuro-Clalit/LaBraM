@@ -201,7 +201,10 @@ def write(args, manifest, meta, files, counts, c):
                 missing.append(stem)
                 continue
             if not os.path.exists(dst):
-                os.link(src, dst)                 # same filesystem: no extra space
+                try:
+                    os.link(src, dst)             # same filesystem: no extra space
+                except OSError:                   # another filesystem: symlink
+                    os.symlink(os.path.abspath(src), dst)
         if missing:
             with open(os.path.join(out, "missing_recordings.txt"), "w") as fh:
                 fh.write("\n".join(missing) + "\n")

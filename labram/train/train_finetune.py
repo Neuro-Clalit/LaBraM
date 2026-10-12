@@ -953,6 +953,16 @@ def train_loop(
     last_train_stats: dict = {}
     last_val_stats: dict = {}
     last_test_stats: dict = {}
+    if config.trainer.start_epoch > 0 and config.output.output_dir:
+        # Resuming (e.g. after a spot interruption): restore the best epoch so
+        # far, so selection and the final summary cover every epoch.
+        state = utils.load_train_state(config.output.output_dir)
+        if state:
+            best_val, best_test, best_epoch = state["best_val"], state["best_test"], state["best_epoch"]
+            best_val_stats, best_test_stats = state["best_val_stats"], state["best_test_stats"]
+            best_train_stats = state["best_train_stats"]
+            logger.info("Resumed best-epoch state: best %s val %.4f at epoch %d",
+                        select_metric, best_val, best_epoch)
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
         epoch_timer = utils.PhaseTimer(device)
@@ -1085,6 +1095,11 @@ def train_loop(
         if log_writer is not None and config.output.output_dir and utils.is_main_process():
             log_writer.flush()
         runner_common.append_log_line(config.output, log_stats)
+        if config.output.output_dir and utils.is_main_process():
+            utils.save_train_state(config.output.output_dir, {
+                "epoch": epoch, "best_val": best_val, "best_test": best_test,
+                "best_epoch": best_epoch, "best_val_stats": best_val_stats,
+                "best_test_stats": best_test_stats, "best_train_stats": best_train_stats})
 
     # Save the final trained model. Always done at the end; it is the only
     # checkpoint written when save_only_final_model is set.

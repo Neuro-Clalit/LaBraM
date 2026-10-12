@@ -1163,3 +1163,45 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
         assert "pytorch-training:2.4.0-gpu-py311" in image
         assert (Path(model_dir) / "cv" / f"fold_{fold}" / "fold_metrics.json").exists()
         assert (Path(model_dir) / "cv" / "cv_split.json").exists()
+
+
+# ------------------------------------------------------- spot checkpoint resume
+def test_checkpoint_uri_auto_is_spot_only_and_unique_per_fold():
+    from labram.runs.submit_sagemaker import resolve_checkpoint_uri
+    from labram.configs.run_configs import FinetuneRunConfig
+    sm = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_age.json").sagemaker
+    sm.role = "arn:aws:iam::123456789012:role/SM"
+    assert resolve_checkpoint_uri(sm, "job", "us-east-1") == ""            # on-demand: off
+    sm.use_spot = True
+    a = resolve_checkpoint_uri(sm, "job-fold-1", "us-east-1", stamp="T1")
+    b = resolve_checkpoint_uri(sm, "job-fold-2", "us-east-1", stamp="T1")
+    assert a == "s3://sagemaker-us-east-1-123456789012/labram/checkpoints/job-fold-1-T1/" and a != b
+    sm.checkpoint_s3_uri = "off"
+    assert resolve_checkpoint_uri(sm, "job", "us-east-1") == ""
+    sm.checkpoint_s3_uri = "s3://bucket/ckpt"
+    assert resolve_checkpoint_uri(sm, "job", "us-east-1", stamp="T") == "s3://bucket/ckpt/job-T/"
+
+
+def test_estimator_kwargs_carry_checkpoint_location():
+    from labram.aws.sagemaker import SageMakerJobSpec, estimator_kwargs
+    kw = estimator_kwargs(SageMakerJobSpec(entry_point="e.py", checkpoint_s3_uri="s3://b/c/"))
+    assert kw["checkpoint_s3_uri"] == "s3://b/c/" and kw["checkpoint_local_path"] == "/opt/ml/checkpoints"
+    assert "checkpoint_s3_uri" not in estimator_kwargs(SageMakerJobSpec(entry_point="e.py"))
+
+
+def test_entry_trains_into_checkpoint_dir_and_publishes(tmp_path, monkeypatch):
+    from labram.aws import sagemaker as sm_mod
+    from labram.runs import sagemaker_entry as entry
+    ckpt, model = tmp_path / "ckpt", tmp_path / "model"
+    model.mkdir()
+    monkeypatch.setattr(sm_mod, "CHECKPOINT_LOCAL_PATH", str(ckpt))
+    monkeypatch.setenv("LABRAM_SM_CHECKPOINTS", "1")
+    monkeypatch.setenv("SM_MODEL_DIR", str(model))
+    cli = entry.parse_cli(["--config", "labram/configs/defaults/finetune_tuab_age.json", "--phase", "finetune",
+                           "--set", "output.output_dir=", "output.log_dir="])   # as the submitter does
+    config = entry.build_config(cli)
+    assert config.output.output_dir == str(ckpt / "finetune") and config.output.auto_resume
+    os.makedirs(config.output.output_dir)
+    (ckpt / "finetune" / "log.txt").write_text("{}\n")
+    entry.publish_checkpoint_outputs()
+    assert (model / "finetune" / "log.txt").read_text() == "{}\n"

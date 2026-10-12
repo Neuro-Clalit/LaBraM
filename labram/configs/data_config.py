@@ -60,8 +60,7 @@ class DataConfig(ConfigBase):
     random_crop: bool = False
     # npy only: copy the recordings the run uses onto fast local storage before
     # training (labram/data/staging.py). "auto" = the instance NVMe
-    # (/opt/dlami/nvme) when present, skipped inside SageMaker; "" / "none"
-    # disables; any other value is a directory. Train is staged first, then
+    # (/opt/dlami/nvme) when present, skipped inside SageMaker; "off" disables; any other value is a directory. Train is staged first, then
     # val, then test; what does not fit (keeping stage_reserve_gb free) is read
     # from data_path. Debug runs never stage.
     stage_dir: str = "auto"

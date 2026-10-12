@@ -118,6 +118,11 @@ class SageMakerConfig(ConfigBase):
     # fractional-minute support (``1.5`` = 90 seconds).
     max_wait_min: Union[int, float] = DEFAULT_SAGEMAKER_MAX_WAIT_MIN
     on_demand_fallback: bool = DEFAULT_SAGEMAKER_ON_DEMAND_FALLBACK
+    # Checkpoints synced to S3 so an interrupted (spot) job resumes instead of
+    # restarting: "auto" = on for spot jobs, under
+    # s3://sagemaker-<region>-<account>/labram/checkpoints/<job>-<UTC time>/;
+    # "off" = never; any other value is the S3 prefix to use instead.
+    checkpoint_s3_uri: str = "auto"
     framework_version: str = DEFAULT_SAGEMAKER_FRAMEWORK_VERSION
     py_version: str = DEFAULT_SAGEMAKER_PY_VERSION
     image_uri: str = DEFAULT_SAGEMAKER_IMAGE_URI
