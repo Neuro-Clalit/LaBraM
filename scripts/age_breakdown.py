@@ -5,9 +5,13 @@ Reads the per-recording predictions written by ``scripts/eval_age_by_cohort.py``
 (``--out``) and the true age and normal/abnormal label from the evaluated
 data's ``age_metadata.json``; a recording counts as TUAB when it belongs to the
 TUAB corpus (TUH index ``corpora``), else as TUEG. Per (split, source, cohort)
-it reports n, MAE and RMSE (years) over recordings:
+it reports n, MAE and RMSE (years) and R^2 over recordings:
 
     MAE = mean |pred - age|,   RMSE = sqrt(mean (pred - age)^2)
+    R^2 = 1 - sum (pred - age)^2 / sum (age - mean age)^2
+
+R^2 is computed within each group, so it depends on that group's age spread
+(a narrow-age cohort gets a lower R^2 at the same MAE).
 
     python scripts/age_breakdown.py \\
         --eval exp1=/tmp/evals/exp1_own.json:/data/.../cohorts/normal_both_v1 ...
@@ -43,7 +47,8 @@ def summarize(df):
             if len(sub):
                 err = sub.pred - sub.age
                 out.append({"split": split, "source": source, "cohort": cohort, "n": len(sub),
-                            "MAE": err.abs().mean(), "RMSE": float(np.sqrt((err ** 2).mean()))})
+                            "MAE": err.abs().mean(), "RMSE": float(np.sqrt((err ** 2).mean())),
+                            "R2": 1 - float((err ** 2).sum() / ((sub.age - sub.age.mean()) ** 2).sum())})
     return pd.DataFrame(out)
 
 
