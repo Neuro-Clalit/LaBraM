@@ -1013,17 +1013,19 @@ def train_loop(
                 int(val_stats.get('samples_processed', 0)))
             unit = '' if is_regression else '%'
             logger.info(f"Val EEG {select_metric}: {val_stats[select_metric]:.2f}{unit}")
-            test_timer = utils.PhaseTimer(device)
-            test_stats = evaluate(loaders.test, eval_model, device, header='Test:',
-                                  ch_names=ch_names, metrics=metrics, is_binary=is_binary,
-                                  nb_classes=nb_classes, eval_cfg=config.evaluation,
-                                  log_writer=log_writer, head='test', epoch=epoch,
-                                  task=task, target_stats=target_stats,
-                                  loss_cfg=config.loss, logging_cfg=config.logging,
-                                  criterion=criterion)
-            test_timing = utils.timing_stats(
-                'test', test_timer.elapsed(), int(test_stats.get('samples_processed', 0)))
-            logger.info(f"Test EEG {select_metric}: {test_stats[select_metric]:.2f}{unit}")
+            test_stats, test_timing = {}, {}
+            if loaders.test is not None:      # a cohort may have no test split
+                test_timer = utils.PhaseTimer(device)
+                test_stats = evaluate(loaders.test, eval_model, device, header='Test:',
+                                      ch_names=ch_names, metrics=metrics, is_binary=is_binary,
+                                      nb_classes=nb_classes, eval_cfg=config.evaluation,
+                                      log_writer=log_writer, head='test', epoch=epoch,
+                                      task=task, target_stats=target_stats,
+                                      loss_cfg=config.loss, logging_cfg=config.logging,
+                                      criterion=criterion)
+                test_timing = utils.timing_stats(
+                    'test', test_timer.elapsed(), int(test_stats.get('samples_processed', 0)))
+                logger.info(f"Test EEG {select_metric}: {test_stats[select_metric]:.2f}{unit}")
 
             if better(val_stats[select_metric], best_val):
                 best_val = val_stats[select_metric]
@@ -1034,7 +1036,7 @@ def train_loop(
                         optimizer=optimizer, loss_scaler=loss_scaler,
                         epoch="best", model_ema=model_ema,
                         enable_deepspeed=enable_deepspeed)
-                best_test = test_stats[select_metric]
+                best_test = test_stats.get(select_metric, float("nan"))
                 best_epoch = epoch
                 best_val_stats = dict(val_stats)
                 best_test_stats = dict(test_stats)
@@ -1044,7 +1046,8 @@ def train_loop(
 
             if not is_regression:
                 _log_eval_stats(log_writer, val_stats, head="val", epoch=epoch)
-                _log_eval_stats(log_writer, test_stats, head="test", epoch=epoch)
+                if test_stats:
+                    _log_eval_stats(log_writer, test_stats, head="test", epoch=epoch)
             last_val_stats, last_test_stats = dict(val_stats), dict(test_stats)
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},

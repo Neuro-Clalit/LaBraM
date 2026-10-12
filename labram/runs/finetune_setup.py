@@ -154,7 +154,9 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
         drop_last=False,
     )
 
-    if isinstance(dataset_test, list):
+    if dataset_test is None:          # e.g. a cohort without a test split
+        test_loader = None
+    elif isinstance(dataset_test, list):
         test_loader = [torch.utils.data.DataLoader(
             d, sampler=s,
             batch_size=eval_batch_size,

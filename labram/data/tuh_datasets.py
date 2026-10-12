@@ -415,9 +415,12 @@ def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True,
         target_stats = (mean, max(var ** 0.5, 1e-6))
         logger.info("Age target normalization: mean=%.2f std=%.2f", *target_stats)
 
+    # A cohort may have no test split (e.g. train + validate only); the trainer
+    # then skips test evaluation.
+    test = loader("test", target_stats) if split.files.get("test") else None
     return (
         loader("train", target_stats),
-        loader("test", target_stats),
+        test,
         loader("val", target_stats),
         target_stats,
     )
