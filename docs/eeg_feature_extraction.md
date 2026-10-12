@@ -12,7 +12,7 @@ looking at the data.
 ```bash
 pip install -r requirements-features.txt          # PyWavelets, kymatio
 # 1) extract features once (~45 min each on 5-6 cores; ~1.1 GB + small scattering cache)
-NPY=/data/datasets/EEG-public/TAUB/TUH_Abnormal/v3.0.0/edf/processed_npy
+NPY=/data/datasets/EEG-public/TUH_EEG/tuab/v3.0.1/edf/processed_npy
 python -m labram.features.tuab --npy_root $NPY --n_jobs 6
 python -m labram.features.tuab --npy_root $NPY --n_jobs 6 --kind scattering
 python -m labram.features.tuab --npy_root $NPY --n_jobs 6 --kind spectrogram   # ~3 min
@@ -29,6 +29,7 @@ If the cache is missing, the notebook builds it.
 | Module | Contents |
 |---|---|
 | `labram/features/extractors.py` | Per-window extractors on `[..., C, T]` arrays. **Time:** Hjorth, line length, moments, ZCR. **Welch spectral:** absolute/relative band power, ratios, SEF95, spectral entropy, peak alpha, 1/f exponent + offset. **1 Hz log-PSD bins.** **DWT:** per-level log/relative energy + wavelet entropy, any pywt wavelet/depth. **Wavelet packets.** **Complex-Morlet CWT:** pywt `cmorB-C` parameterisation, evaluated in the frequency domain; per-window features use complex demodulation at a reduced rate. **Multiscale permutation entropy.** **Wavelet scattering**: kymatio `Scattering1D`, time-averaged log S1 and renormalised log S2/S1. **Spectrograms**: STFT and multitaper (DPSS) log-spectrogram mean/std over time, band-power dynamics (variability, lag-1 persistence, spectral flux), MFCC-style cepstral coefficients on a mel-like warped axis. Band-pass and covariances. |
+| `labram/features/modeling.py` | Shared modelling layer: merges the caches (`load_feature_table`), builds feature sets with named column groups, the Riemann tangent-space transformer, a model factory (linear / HistGradientBoosting / XGBoost / random forest), subject-grouped CV + held-out test (`cross_validate`), group permutation importance and intrinsic (coefficient / gain / impurity) group importance, and a pickle-backed results cache. |
 | `labram/features/riemann.py` | Riemannian (Karcher) mean and tangent-space vectors, NumPy-only. |
 | `labram/features/tuab.py` | `extract_recording` / `extract_recording_scattering` / `extract_recording_spectrogram` / `extract_corpus` over the `processed_npy` export, plus the preparation variants (`PREP_STORED`, `PREP_CAR`, `PREP_REF`). Scattering runs at 100 Hz (anti-aliased resample of the 1–45 Hz signal) with J = 7 and J = 9, Q = (8, 1). |
 
@@ -43,3 +44,13 @@ If the cache is missing, the notebook builds it.
 
 The cache also holds per-window "core" features under the stored and CAR-only preparations,
 for the preparation ablations.
+
+## Companion notebook: models, importance and label-aware age
+
+`notebooks/eeg_feature_models_tuab.ipynb` reuses the same caches and splits to:
+- fit 4 model families on 13 feature groups plus all groups combined, for both tasks;
+- report group-level feature importance (joint-permutation and intrinsic) for the combined models;
+- test whether adding the normal/abnormal label, or a predicted probability of abnormality, as a feature improves age prediction on all recordings.
+
+Results are cached in `features_handcrafted/model_results_v1.pkl` (override with
+`TUAB_MODEL_RESULTS`), so re-executing it is cheap after the first run (~3 h on 8 cores).

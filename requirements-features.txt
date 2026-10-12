@@ -7,3 +7,5 @@
 PyWavelets>=1.4
 # Wavelet scattering (reference implementation; torch backend on CPU).
 kymatio==0.3.0
+# Gradient-boosted trees for the model-comparison notebook (CPU-only wheel, no CUDA deps).
+xgboost-cpu>=2.1

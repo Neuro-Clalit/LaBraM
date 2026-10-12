@@ -281,8 +281,47 @@ def spectrogram_names() -> dict:
             "multitaper": fx.spectrogram_stats(fm, sm, prefix="mt")[1]}
 
 
+COHORT_FAMILIES = ("time", "spectral", "psd_bins", "dwt_db4_L6", "wpd_db4_L5", "cwt_cmor1.5-1.0",
+                   "mspe", "stft", "stft_dyn", "cepstral")
+
+
+def extract_recording_cohort(path: str, n_skip: int = 6, n_use: int = 30) -> dict:
+    """Lean single-pass extractor for large cohorts (e.g. TUEG): reference preparation only.
+
+    Computes exactly the families of the combined age model without scattering
+    (:data:`COHORT_FAMILIES`) plus the filter-bank covariances, with the same
+    windows, rejection and median aggregation as :func:`extract_recording` and
+    :func:`extract_recording_spectrogram`, so the outputs are interchangeable
+    with the TUAB caches (same ``rec/<family>`` keys). Skips the wavelet sweeps,
+    the extra preparation variants and the per-window core arrays.
+    """
+    seg = load_segment(path, n_skip + n_use)
+    quality = window_quality(to_windows(seg))
+    use = np.zeros(quality.shape[0], dtype=bool)
+    use[n_skip:] = True
+    mask = use & clean_mask(quality)
+    if not mask.any():
+        mask = use
+    x = prepare(seg, PREP_REF)
+    xw = to_windows(x)[mask]
+    freqs, psd = fx.welch_psd(xw)
+    rec = {"time": fx.time_features(xw)[0], "spectral": fx.spectral_features(freqs, psd)[0],
+           "psd_bins": fx.psd_bin_features(freqs, psd)[0], "dwt_db4_L6": fx.dwt_features(xw, "db4", 6)[0],
+           "wpd_db4_L5": fx.wpd_features(xw, "db4", 5)[0], "mspe": fx.multiscale_pe_features(xw)[0]}
+    rec["cwt_cmor1.5-1.0"] = fx.cwt_window_features(x, CWT_FREQS, "cmor1.5-1.0", WIN)[0][mask]
+    spec = spectrogram_families(xw)
+    rec.update({k: spec[k] for k in ("stft", "stft_dyn", "cepstral")})
+    out = {f"rec/{k}": np.median(v, axis=0).astype(np.float32) for k, v in rec.items()}
+    covs = [fx.window_covariances(to_windows(fx.bandpass(x, lo, hi))[mask]).mean(axis=0)
+            for lo, hi in fx.FILTERBANK.values()]
+    out["fbcov"] = np.stack(covs).astype(np.float32)
+    out["n_clean"] = int(mask.sum())
+    out["quality"] = quality.astype(np.float32)
+    return out
+
+
 EXTRACTORS = {"main": extract_recording, "scattering": extract_recording_scattering,
-              "spectrogram": extract_recording_spectrogram}
+              "spectrogram": extract_recording_spectrogram, "cohort": extract_recording_cohort}
 
 
 def default_cache_path(npy_root: str, kind: str = "main") -> str:
@@ -301,7 +340,8 @@ def _worker(args):
 
 
 def extract_corpus(npy_root: str, out_path: str, n_jobs: int = 6, n_skip: int = 6,
-                   n_use: int = 30, limit: int | None = None, kind: str = "main") -> str:
+                   n_use: int = 30, limit: int | None = None, kind: str = "main",
+                   stems=None) -> str:
     """Run an extractor (``kind``: ``main`` = :func:`extract_recording`,
     ``scattering`` = :func:`extract_recording_scattering`) over every recording
     and save one ``.npz``.
@@ -311,7 +351,11 @@ def extract_corpus(npy_root: str, out_path: str, n_jobs: int = 6, n_skip: int = 
     is stored alongside as ``meta/<field>`` arrays. Windows beyond a recording's
     length (never the case on TUAB: >= 96 windows each) would be NaN-padded.
     """
-    recs = load_manifest(npy_root)[:limit]
+    recs = load_manifest(npy_root)
+    if stems is not None:  # e.g. a curated cohort of a larger export (TUEG)
+        keep = set(stems)
+        recs = [r for r in recs if r["stem"] in keep]
+    recs = recs[:limit]
     paths = [os.path.join(npy_root, "recordings", r["stem"] + ".npy") for r in recs]
     n_win = n_skip + n_use
     stacked: dict = {}
@@ -336,8 +380,8 @@ def extract_corpus(npy_root: str, out_path: str, n_jobs: int = 6, n_skip: int = 
                 print(f"{i + 1}/{len(paths)} recordings, {rate:.2f} s/rec, "
                       f"eta {rate * (len(paths) - i - 1) / 60:.1f} min", flush=True)
     for field in ("stem", "subject", "source_split", "label", "sex"):
-        stacked[f"meta/{field}"] = np.array([str(r[field]) for r in recs])
-    stacked["meta/age"] = np.array([np.nan if r["age"] is None else float(r["age"]) for r in recs])
+        stacked[f"meta/{field}"] = np.array([str(r.get(field)) for r in recs])
+    stacked["meta/age"] = np.array([np.nan if r.get("age") is None else float(r["age"]) for r in recs])
     stacked["meta/n_skip"] = np.array(n_skip)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     tmp = out_path + ".tmp.npz"
@@ -358,9 +402,20 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="only the first N recordings (debug)")
     ap.add_argument("--kind", choices=sorted(EXTRACTORS), default="main",
                     help="main feature set, wavelet scattering (needs kymatio), or spectrograms")
+    ap.add_argument("--stems_file", default=None,
+                    help="only these recordings: a text file with one stem per line, or a parquet "
+                         "table with a 'stem' column (e.g. TUEG healthy_subset_v1.parquet)")
     a = ap.parse_args()
+    stems = None
+    if a.stems_file:
+        if a.stems_file.endswith(".parquet"):
+            import pandas as pd
+
+            stems = pd.read_parquet(a.stems_file)["stem"].tolist()
+        else:
+            stems = [ln.strip() for ln in open(a.stems_file) if ln.strip()]
     extract_corpus(a.npy_root, a.out or default_cache_path(a.npy_root, a.kind), a.n_jobs,
-                   a.n_skip, a.n_use, a.limit, a.kind)
+                   a.n_skip, a.n_use, a.limit, a.kind, stems)
 
 
 if __name__ == "__main__":

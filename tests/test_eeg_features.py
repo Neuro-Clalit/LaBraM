@@ -222,3 +222,16 @@ def test_cepstral_features_shape_and_gain_invariance_of_higher_coefficients():
     assert np.all(c2[:, 0] > c1[:, 0])
     with pytest.raises(ValueError):  # 1 Hz grid is too coarse for the narrow low filters
         fx.cepstral_features(*fx.stft_spectrogram(x, pad=1), n_filters=40)
+
+
+def test_cohort_extractor_matches_main_and_spectrogram(tmp_path):
+    path = tmp_path / "rec.npy"
+    np.save(path, (np.random.default_rng(0).standard_normal((9 * 2000, 23)) * 10).astype(np.float16))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        c = tuab.extract_recording_cohort(str(path), n_skip=2, n_use=4)
+        ref = {**tuab.extract_recording(str(path), n_skip=2, n_use=4),
+               **tuab.extract_recording_spectrogram(str(path), n_skip=2, n_use=4)}
+    for fam in tuab.COHORT_FAMILIES:
+        assert np.allclose(c[f"rec/{fam}"], ref[f"rec/{fam}"], equal_nan=True), fam
+    assert np.allclose(c["fbcov"], ref["fbcov"])
