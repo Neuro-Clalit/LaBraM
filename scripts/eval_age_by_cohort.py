@@ -58,9 +58,13 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None):
     return torch.cat(preds).numpy(), torch.cat(targets).numpy(), recs
 
 
-def _per_recording(pred, true, recs, target_stats):
-    """Mean prediction per recording, in years."""
-    pred, true = utils.denormalize(pred, target_stats), utils.denormalize(true, target_stats)
+def _per_recording(pred, true, recs, target_stats, pred_stats=None):
+    """Mean prediction per recording, in years. Targets are de-normalized with
+    the evaluated data's stats; predictions with the stats the model was trained
+    on (``pred_stats``, default the same), which differ when a model is scored
+    on another cohort than its own."""
+    pred = utils.denormalize(pred, pred_stats or target_stats)
+    true = utils.denormalize(true, target_stats)
     sums = OrderedDict()
     for p, t, r in zip(pred, true, recs):
         s = sums.setdefault(r, [0.0, 0, t])
@@ -70,7 +74,16 @@ def _per_recording(pred, true, recs, target_stats):
     return ids, np.array([sums[r][0] / sums[r][1] for r in ids]), np.array([sums[r][2] for r in ids])
 
 
-def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None):
+def train_target_stats(cfg, train_data_path):
+    """(mean, std) of the training targets of the run, rebuilt from its own
+    training data with its own window selection (older run configs do not
+    store them)."""
+    bundle = get_dataset_bundle(cfg.data.dataset, train_data_path, data_format=cfg.data.data_format)
+    return apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data)).target_stats
+
+
+def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None,
+                 train_data_path=None):
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
     if data_format:
@@ -82,6 +95,7 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     stage_bundle(bundle, cfg.data.stage_dir, reserve_gb=cfg.data.stage_reserve_gb,
                  splits=tuple(s for s in ("val", "test", "train") if s in splits))
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
+    pred_stats = train_target_stats(cfg, train_data_path) if train_data_path else None
     to_scalar = None
     if bundle.task == "regression" and cfg.loss.regression_loss == "soft_label":
         cfg.model.nb_classes = soft_label_n_bins(cfg.loss)
@@ -97,11 +111,12 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
 
     root = getattr(bundle.test, "root", data_path)
     labels = load_label_lookup_for(root)
-    result = {"epoch": state.get("epoch"), "splits": {}}
+    result = {"epoch": state.get("epoch"), "splits": {},
+              "pred_target_stats": pred_stats or bundle.target_stats}
     for split in splits:
         pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device,
                                     batch_size, to_scalar)
-        ids, p, t = _per_recording(pred, true, recs, bundle.target_stats)
+        ids, p, t = _per_recording(pred, true, recs, bundle.target_stats, pred_stats)
         cohort = np.array([labels.get(r) for r in ids])   # group ids are recording stems
         out = {}
         for name, mask in (("all", np.ones(len(ids), bool)), ("normal", cohort == "normal"),
@@ -122,6 +137,9 @@ def main():
     ap.add_argument("--batch-size", type=int, default=128)
     ap.add_argument("--data-format", choices=["pickle", "npy"], default=None,
                     help="override the run's data.data_format (e.g. to compare formats)")
+    ap.add_argument("--train-data-path", default=None,
+                    help="the run's own training data, when --data-path is another cohort: "
+                         "predictions are de-normalized with its training-target stats")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -129,7 +147,8 @@ def main():
     for item in args.run:
         name, run_dir = item.split("=", 1)
         results[name] = evaluate_run(run_dir, args.data_path, args.checkpoint, args.splits,
-                                     device, args.batch_size, args.data_format)
+                                     device, args.batch_size, args.data_format,
+                                     train_data_path=args.train_data_path)
         for split, cohorts in results[name]["splits"].items():
             print(f"{name:14s} {split:4s} " + "  ".join(
                 f"{c}: n={v['n']} MAE={v['mae']:.2f} R2={v['r2']:.2f}" for c, v in cohorts.items()
