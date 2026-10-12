@@ -24,7 +24,8 @@ import boto3
 VARIANTS = ("A_notch50", "B_notch60", "C_interp5060")
 KEEP = {
     "age": ["train_mae", "val_mae", "test_mae", "test_rmse", "test_pearson_r", "test_normal_mae",
-            "test_abnormal_mae", "test_age_bias_slope"],
+            "test_abnormal_mae", "test_normal_rmse", "test_abnormal_rmse", "test_normal_pearson_r",
+            "test_abnormal_pearson_r", "test_age_bias_slope"],
     "abn": ["val_accuracy", "val_balanced_accuracy", "test_accuracy", "test_balanced_accuracy",
             "test_roc_auc", "test_pr_auc", "test_window_balanced_accuracy", "test_window_roc_auc",
             "test_window_pr_auc"],
