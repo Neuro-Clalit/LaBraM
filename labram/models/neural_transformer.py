@@ -285,8 +285,13 @@ class NeuralTransformer(NeuralTransformerBase):
             self.session_token_embed = nn.Parameter(
                 torch.zeros(1, sum(n for n, _ in self.session_groups), config.embed_dim))
         self.session_drop = nn.Dropout(config.session_feature_drop)
+        self.session_head_embed = None
         if self.session_mode == "only":
             self.num_features = sum(n * dim for n, dim in self.session_groups)
+        elif self.session_mode == "head":
+            self.session_head_embed = nn.Linear(sum(n * dim for n, dim in self.session_groups),
+                                                config.session_head_dim, bias=False)
+            self.num_features += config.session_head_dim
         self.head = self._build_head(config.num_classes)
 
         if isinstance(self.head, nn.Linear):
@@ -400,6 +405,12 @@ class NeuralTransformer(NeuralTransformerBase):
         if self.session_mode == "tokens":
             kwargs['session'] = condition
         x = self.forward_features(x, channel_indices=channel_indices, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
+        if self.session_mode == "head":
+            if condition is None:
+                raise ValueError("this model takes session features: call it with "
+                                 "condition=<(B, n_features) tensor>")
+            c = self.session_drop(condition.to(self.session_head_embed.weight.dtype))
+            x = torch.cat((x, self.session_head_embed(c)), dim=-1)
         if self.abnormal_embed is not None:
             x = torch.cat((x, self.embed_abnormal(condition)), dim=-1)
         x = self.head(x)

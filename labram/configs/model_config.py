@@ -185,8 +185,11 @@ class FinetuneModelConfig(ConfigBase):
     # e.g. 19 channel tokens + 6 filter-bank Riemann tokens) are projected to
     # the embedding width and appended to the transformer's token sequence;
     # "only" -- no EEG encoder: the head (head_type linear or mlp) sees just
-    # the flattened features. session_feature_groups ([[n, dim], ...]) is set
-    # from the feature file at runtime.
+    # the flattened features; "head" -- the flattened features (e.g. clinical
+    # condition vectors, dataset_maker/make_condition_features.py) -> Linear(->
+    # session_head_dim, no bias) concatenated to the pooled EEG feature before
+    # the head. session_feature_groups ([[n, dim], ...]) is set from the
+    # feature file at runtime.
     session_features: str = "off"
     session_feature_groups: List[List[int]] = field(default_factory=list)
     session_feature_drop: float = 0.0
@@ -198,6 +201,7 @@ class FinetuneModelConfig(ConfigBase):
     # already standardized per column with training-split statistics.)
     session_feature_norm: str = "post"
     session_token_gain: float = 0.5
+    session_head_dim: int = 32
     # Number of transformer blocks; None = the registry model's own depth (12
     # for labram_base_*). A pretrained checkpoint then loads into the first
     # ``depth`` blocks and its deeper blocks are ignored.
@@ -252,8 +256,8 @@ class FinetuneModelConfig(ConfigBase):
                                  "model.codebook_reg or model.lora")
             if self.abnormal_embed_dim < 1:
                 raise ValueError(f"model.abnormal_embed_dim must be >= 1, got {self.abnormal_embed_dim}")
-        if self.session_features not in ("off", "tokens", "only"):
-            raise ValueError("model.session_features must be 'off', 'tokens' or 'only', "
+        if self.session_features not in ("off", "tokens", "only", "head"):
+            raise ValueError("model.session_features must be 'off', 'tokens', 'only' or 'head', "
                              f"got {self.session_features!r}")
         if self.session_features != "off":
             if self.task != "regression":
@@ -266,9 +270,12 @@ class FinetuneModelConfig(ConfigBase):
             if self.session_feature_norm not in ("post", "pre", "both", "none"):
                 raise ValueError("model.session_feature_norm must be post, pre, both or none, "
                                  f"got {self.session_feature_norm!r}")
-            if self.session_features == "only" and self.head_type not in ("linear", "mlp"):
-                raise ValueError("model.session_features=only needs head_type linear or mlp, "
-                                 f"got {self.head_type!r}")
+            if (self.session_features in ("only", "head")
+                    and self.head_type not in ("linear", "mlp")):
+                raise ValueError(f"model.session_features={self.session_features} needs head_type "
+                                 f"linear or mlp, got {self.head_type!r}")
+            if self.session_features == "head" and self.session_head_dim < 1:
+                raise ValueError("model.session_head_dim must be >= 1")
         if self.head_type == "multitask":
             if self.task != "regression":
                 raise ValueError("model.head_type=multitask needs the regression (brain-age) task")
@@ -357,6 +364,7 @@ class TransformerArchConfig(ConfigBase):
     session_feature_drop: float = 0.0
     session_feature_norm: str = "post"
     session_token_gain: float = 0.5
+    session_head_dim: int = 32
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM

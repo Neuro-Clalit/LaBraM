@@ -4,6 +4,7 @@ head, and an end-to-end fine-tune of both."""
 import json
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from torch import nn
@@ -160,7 +161,8 @@ def test_loader_returns_age_and_features_and_can_skip_the_eeg(tmp_path):
     assert train[0][0].abs().sum() == 0 and torch.equal(train[0][1], y)
 
 
-@pytest.mark.parametrize("mode, head", [("tokens", "linear"), ("only", "mlp")])
+@pytest.mark.parametrize("mode, head", [("tokens", "linear"), ("only", "mlp"), ("head", "linear"),
+                                        ("head", "mlp")])
 def test_run_finetune_end_to_end(tmp_path, mode, head):
     from labram.configs.run_configs import FinetuneRunConfig
     from labram.runs import run_finetune
@@ -216,3 +218,29 @@ def test_unknown_normalization_is_rejected():
     with pytest.raises(ValueError, match="session_feature_norm"):
         FinetuneModelConfig(task="regression", session_features="tokens",
                             session_feature_norm="batch").validate()
+
+
+def test_head_mode_concatenates_an_embedding_to_the_pooled_feature():
+    torch.manual_seed(0)
+    model = _tiny("head", session_head_dim=8).eval()
+    assert model.num_features == 200 + 8 and model.session_head_embed.bias is None
+    x, feats = torch.randn(2, 23, 1, 200), torch.randn(2, N_FEATS)
+    tokens = model.forward_features(x, return_all_tokens=True)
+    assert tokens.shape[1] == 1 + 23                      # no extra tokens
+    assert not torch.allclose(model(x, condition=feats), model(x, condition=-feats),
+                              rtol=0, atol=1e-9)
+    with pytest.raises(ValueError, match="session features"):
+        model(x)
+
+
+def test_condition_vectors():
+    from dataset_maker import make_condition_features as mcf
+    assert list(mcf.status_vector("abnormal")) == [0, 1, 0]
+    assert list(mcf.status_vector(None)) == [0, 0, 1]
+    healthy = mcf.pathology_vector({"dx_stroke": False})
+    assert healthy[0] == 1 and healthy[1:].sum() == 0
+    assert mcf.pathology_vector({})[0] == 1                 # not in the sheet: not available
+    names = list(mcf.PATHOLOGY)
+    v = mcf.pathology_vector({"dx_stroke": True, "dx_alzheimers": True, "dx_adhd": pd.NA})
+    assert v[0] == 0 and v[names.index("stroke")] == 1 and v[names.index("dementia")] == 1
+    assert v[names.index("other")] == 0

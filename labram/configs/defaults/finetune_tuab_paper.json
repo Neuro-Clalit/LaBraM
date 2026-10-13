@@ -49,6 +49,7 @@
         "session_feature_drop": 0.0,
         "session_feature_norm": "post",
         "session_token_gain": 0.5,
+        "session_head_dim": 32,
         "depth": null,
         "input_clip_uv": 0.0,
         "init_scale": 0.001,
