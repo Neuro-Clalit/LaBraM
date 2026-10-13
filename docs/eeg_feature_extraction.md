@@ -30,6 +30,8 @@ If the cache is missing, the notebook builds it.
 |---|---|
 | `labram/features/extractors.py` | Per-window extractors on `[..., C, T]` arrays. **Time:** Hjorth, line length, moments, ZCR. **Welch spectral:** absolute/relative band power, ratios, SEF95, spectral entropy, peak alpha, 1/f exponent + offset. **1 Hz log-PSD bins.** **DWT:** per-level log/relative energy + wavelet entropy, any pywt wavelet/depth. **Wavelet packets.** **Complex-Morlet CWT:** pywt `cmorB-C` parameterisation, evaluated in the frequency domain; per-window features use complex demodulation at a reduced rate. **Multiscale permutation entropy.** **Wavelet scattering**: kymatio `Scattering1D`, time-averaged log S1 and renormalised log S2/S1. **Spectrograms**: STFT and multitaper (DPSS) log-spectrogram mean/std over time, band-power dynamics (variability, lag-1 persistence, spectral flux), MFCC-style cepstral coefficients on a mel-like warped axis. Band-pass and covariances. |
 | `labram/features/modeling.py` | Shared modelling layer: merges the caches (`load_feature_table`), builds feature sets with named column groups, the Riemann tangent-space transformer, a model factory (linear / HistGradientBoosting / XGBoost / random forest), subject-grouped CV + held-out test (`cross_validate`), group permutation importance and intrinsic (coefficient / gain / impurity) group importance, and a pickle-backed results cache. |
+| `labram/features/export.py` | Training-ready export of the caches (`flat_v1`): one float32 `features.npy` matrix per dataset in the canonical column order, `fbcov.npy`, `meta.parquet` with targets and the notebook's splits (`fold_abn`, `fold_age`, `split` for TUAB; `cohort_split` for TUEG), `columns.parquet`, and `info.json` with checksums. `python -m labram.features.export --dataset tuab|tueg ...`. |
+| `labram/features/dataset.py` | `load_flat` (column selection by group/family, memory-mapped; `design()` appends the covariances for `FBTangentSpace`) and `HandcraftedFeatureDataset`, a PyTorch `Dataset` with a train-rows standardiser. |
 | `labram/features/riemann.py` | Riemannian (Karcher) mean and tangent-space vectors, NumPy-only. |
 | `labram/features/tuab.py` | `extract_recording` / `extract_recording_scattering` / `extract_recording_spectrogram` / `extract_corpus` over the `processed_npy` export, plus the preparation variants (`PREP_STORED`, `PREP_CAR`, `PREP_REF`). Scattering runs at 100 Hz (anti-aliased resample of the 1–45 Hz signal) with J = 7 and J = 9, Q = (8, 1). |
 
@@ -69,3 +71,22 @@ The TUEG features (`tueg_healthy_cohort_v1.npz`, `TUEG_FEATURE_DIR`) come from
 families as the main extractor except scattering and multitaper, about 3× faster.
 `modeling.cache_riemann_refs(True)` memoises the Riemannian reference means across refits of
 the same folds (identical results, ~5× faster subset searches).
+
+## Training-ready export (`flat_v1`)
+
+```bash
+NPY=/data/datasets/EEG-public/TUH_EEG/tuab/v3.0.1/edf/processed_npy
+python -m labram.features.export --dataset tuab --npy_root $NPY
+python -m labram.features.export --dataset tueg --npy_root $NPY \
+    --npz /data/datasets/EEG-public/TUH_EEG/tueg/v2.0.2/features_handcrafted/tueg_healthy_cohort_v1.npz
+```
+
+| Export | Recordings | Per-channel columns | Location (local, and the same path under `s3://eeg-data-public/`) |
+|---|---|---|---|
+| TUAB v3.0.1 | 2,990 | 10,374 (12 families) + `fbcov` | `TUH_EEG/tuab/v3.0.1/edf/features_handcrafted/flat_v1/` |
+| TUEG healthy subset v1 | 8,592 | 5,377 (10 families: no scattering / multitaper) + `fbcov` | `TUH_EEG/tueg/v2.0.2/features_handcrafted/flat_v1/` |
+
+The export reproduces the notebook exactly: identical columns to `build_feature_set`, the same
+folds, and the same results (ridge on the 1 Hz bins: CV 8.48 / test 7.62 y; forward top-4 set:
+TUAB test 7.02 y, TUEG test 8.36 y). Each folder has a README with scikit-learn and PyTorch
+examples.
