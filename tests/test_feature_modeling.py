@@ -141,3 +141,39 @@ def test_l1_logistic_runs():
     sp = M.make_splits(meta)
     res = M.cross_validate(fs, "abn", "lasso", sp, n_jobs=1)
     assert res["cv_AUROC"] > 0.8 and "n_selected" in res
+
+
+def test_forward_group_selection_path_and_one_se():
+    # additive toy score: each group lowers the error by a fixed amount, "bad" raises it
+    gain = {"a": 3.0, "b": 1.0, "c": 0.05, "bad": -0.5}
+
+    def evaluate(gs):
+        return {"cv_MAE": 10 - sum(gain[g] for g in gs), "cv_MAE_sd": 0.5, "test_MAE": 9.0}
+
+    path = M.forward_group_selection(evaluate, list(gain))
+    assert list(path.added) == ["a", "b", "c", "bad"]
+    assert path.subset.iloc[-1] == ("a", "b", "c", "bad") and path.step.tolist() == [1, 2, 3, 4]
+    # best is step 3 (5.95); one SE = 0.5/sqrt(5) = 0.22, so step 2 (6.0) is within it
+    assert M.one_se_choice(path) == 2
+    rev = M.forward_group_selection(lambda gs: {"cv_AUROC": sum(gain[g] for g in gs)}, list(gain),
+                                    metric="cv_AUROC", lower_is_better=False)
+    assert rev.added.iloc[0] == "a"
+
+
+def test_riemann_reference_cache_is_exact():
+    rng = np.random.default_rng(1)
+    c, nb, n = 4, 2, 25
+    a = rng.standard_normal((n, nb, c, 4 * c))
+    cov = (a @ a.transpose(0, 1, 3, 2)).reshape(n, -1)
+    X1 = np.concatenate([rng.standard_normal((n, 3)), cov], axis=1)
+    X2 = np.concatenate([rng.standard_normal((n, 5)), cov], axis=1)  # other flat block, same covariances
+    ref = M.FBTangentSpace(n_passthrough=5, n_channels=c, n_bands=nb).fit(X2).transform(X2)
+    try:
+        M.cache_riemann_refs(True)
+        M.FBTangentSpace(n_passthrough=3, n_channels=c, n_bands=nb).fit(X1)
+        assert len(M._REF_CACHE) == 1
+        out = M.FBTangentSpace(n_passthrough=5, n_channels=c, n_bands=nb).fit(X2).transform(X2)
+        assert len(M._REF_CACHE) == 1  # reused
+    finally:
+        M.cache_riemann_refs(False)
+    np.testing.assert_allclose(out, ref)

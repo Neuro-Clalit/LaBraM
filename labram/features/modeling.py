@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass, field
 
@@ -112,6 +113,21 @@ def build_feature_set(D: dict, names: dict, families, riemann: bool = False,
 
 
 # ------------------------------------------------------------------ Riemann transformer
+_REF_CACHE: dict | None = None
+
+
+def cache_riemann_refs(enabled: bool = True) -> None:
+    """Memoise :class:`FBTangentSpace` reference means across fits.
+
+    The Riemannian mean of a training fold depends only on the covariance
+    block of its rows, so subset searches that refit the same folds with
+    different flat feature groups can reuse it (it is ~80 % of a ridge fit).
+    Keyed by a hash of that block; results are identical with or without it.
+    """
+    global _REF_CACHE
+    _REF_CACHE = {} if enabled else None
+
+
 class FBTangentSpace(BaseEstimator, TransformerMixin):
     """Filter-bank covariances (last ``n_bands*C*C`` columns) -> tangent vectors.
 
@@ -136,8 +152,18 @@ class FBTangentSpace(BaseEstimator, TransformerMixin):
         return (1 - self.shrink) * cov + self.shrink * tr * np.eye(cov.shape[-1])
 
     def fit(self, X, y=None):
-        cov = self._covs(np.asarray(X, dtype=np.float64))
+        X = np.asarray(X, dtype=np.float64)
+        key = None
+        if _REF_CACHE is not None:
+            block = np.ascontiguousarray(X[:, self.n_passthrough:])
+            key = (hashlib.sha1(block.tobytes()).hexdigest(), self.n_channels, self.n_bands, self.shrink)
+            if key in _REF_CACHE:
+                self.refs_ = _REF_CACHE[key]
+                return self
+        cov = self._covs(X)
         self.refs_ = [mean_riemann(cov[:, b]) for b in range(cov.shape[1])]
+        if key is not None:
+            _REF_CACHE[key] = self.refs_
         return self
 
     def transform(self, X):
@@ -479,6 +505,40 @@ def results_cache(path: str):
             os.replace(tmp, path)
 
     return store, save
+
+
+def forward_group_selection(evaluate, groups, metric: str = "cv_MAE", lower_is_better: bool = True,
+                            start=()) -> pd.DataFrame:
+    """Greedy forward selection over feature *groups*.
+
+    ``evaluate(list_of_groups) -> dict`` scores one subset (e.g. a cached
+    :func:`cross_validate` call). Starting from ``start``, each step adds the
+    group that gives the best ``metric``; the search runs until every group is
+    in, so the returned path (one row per step: the group added, the subset and
+    all numeric scores) also shows where adding more starts to hurt. Choose on
+    CV scores only; held-out test scores are just carried along.
+    """
+    chosen, remaining = list(start), [g for g in groups if g not in start]
+    sign = 1.0 if lower_is_better else -1.0
+    rows = []
+    while remaining:
+        trial = {g: evaluate(chosen + [g]) for g in remaining}
+        best = min(trial, key=lambda g: sign * trial[g][metric])
+        chosen.append(best)
+        remaining.remove(best)
+        rows.append({"step": len(chosen), "added": best, "subset": tuple(chosen),
+                     **{k: v for k, v in trial[best].items() if isinstance(v, (int, float, np.floating))}})
+    return pd.DataFrame(rows)
+
+
+def one_se_choice(path: pd.DataFrame, metric: str = "cv_MAE", n_folds: int = 5,
+                  lower_is_better: bool = True) -> int:
+    """Smallest step whose CV score is within one standard error of the best step."""
+    sign = 1.0 if lower_is_better else -1.0
+    best = (sign * path[metric]).idxmin()
+    se = path[f"{metric}_sd"][best] / np.sqrt(n_folds)
+    ok = sign * path[metric] <= sign * path[metric][best] + se
+    return int(path.step[ok].min())
 
 
 # ------------------------------------------------------------------ stacking + nested tuning

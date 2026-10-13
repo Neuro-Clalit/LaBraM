@@ -45,12 +45,27 @@ If the cache is missing, the notebook builds it.
 The cache also holds per-window "core" features under the stored and CAR-only preparations,
 for the preparation ablations.
 
-## Companion notebook: models, importance and label-aware age
+## Models, importance, age as classes and the TUEG cohort (§8–§13)
 
-`notebooks/eeg_feature_models_tuab.ipynb` reuses the same caches and splits to:
-- fit 4 model families on 13 feature groups plus all groups combined, for both tasks;
-- report group-level feature importance (joint-permutation and intrinsic) for the combined models;
-- test whether adding the normal/abnormal label, or a predicted probability of abnormality, as a feature improves age prediction on all recordings.
+The second half of the same notebook reuses the caches and splits to:
+- fit 4 model families (linear, HistGradientBoosting, XGBoost, random forest) on 13 feature groups plus all groups combined, for both tasks (§8);
+- report group-level feature importance (joint permutation and intrinsic) for the combined models, and run a **greedy forward selection of feature groups** for age with ridge regression, then refit the selected subsets with every model family (§9, §9.1; `modeling.forward_group_selection`, `modeling.one_se_choice`);
+- test whether adding the normal/abnormal label, or a predicted probability of abnormality, improves age prediction on all recordings (§10);
+- explain why ridge beats the trees for age: train/validation gaps, validation and learning curves, nested tuning, ridge + XGBoost stacking, feature scalers, lasso / elastic net (§11);
+- predict age as 1-, 2- or 5-year classes (multinomial, ordinal Frank & Hall, XGBoost, random forest) and compare with ridge (§12);
+- train ridge on the TUAB normal recordings, the TUEG healthy subset, or both pooled, and test on both cohorts, for every feature group (§13).
 
-Results are cached in `features_handcrafted/model_results_v1.pkl` (override with
-`TUAB_MODEL_RESULTS`), so re-executing it is cheap after the first run (~3 h on 8 cores).
+Results are cached next to the feature caches, so re-executing is cheap after the first run:
+
+| Cache | Sections | Override |
+|---|---|---|
+| `model_results_v1.pkl` | §8–§12 | `TUAB_MODEL_RESULTS` |
+| `model_results_l1_v1.pkl` | §11.7 (lasso / elastic net) | – |
+| `subset_results_v1.pkl` | §9.1 (forward selection) | – |
+| `cohort_results_v1.pkl` | §13 (TUAB + TUEG) | – |
+
+The TUEG features (`tueg_healthy_cohort_v1.npz`, `TUEG_FEATURE_DIR`) come from
+`python -m labram.features.tuab --kind cohort --stems_file ...`, which computes the same
+families as the main extractor except scattering and multitaper, about 3× faster.
+`modeling.cache_riemann_refs(True)` memoises the Riemannian reference means across refits of
+the same folds (identical results, ~5× faster subset searches).
