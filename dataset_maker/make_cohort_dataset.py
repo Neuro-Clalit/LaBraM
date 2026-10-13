@@ -19,7 +19,10 @@ Split rules (patient level):
   in every TUAB-only run, so results stay comparable. TUAB-eval patients
   contribute only their TUAB eval recordings (the test set); their other TUEG
   recordings are excluded.
-* Other TUEG patients are split train/val by a seeded shuffle of patients.
+* Other TUEG patients: their split in ``--patient-split`` (one assignment
+  shared by every cohort, ``dataset_maker/tueg_patient_split.py``; v2 cohorts),
+  or (v1) a seeded shuffle of the cohort's own patients -- which differs
+  between cohorts, so one cohort's val patients can be in another's train.
 * At most ``--max-per-subject`` recordings per patient in train and val
   (seeded), and at most ``--train-minutes`` of windows per training recording
   (evenly spaced inside the trimmed range), so no patient or long recording
@@ -84,14 +87,22 @@ def select(j, experiment, *, min_age, max_age, min_minutes):
     return pool.fillna(False).astype(bool), test
 
 
-def assign_splits(j, pool, test, experiment, tuab_split, *, val_fraction, seed):
+def assign_splits(j, pool, test, experiment, tuab_split, *, val_fraction, seed,
+                  patient_split=None):
     """Per-recording split ('train'/'val'/'test') or None (not in the cohort)."""
     tuab_subjects = set(tuab_split)
     split = pd.Series(None, index=j.index, dtype=object)
     other = sorted(set(j.loc[pool & ~j.subject.isin(tuab_subjects), "subject"]))
-    random.Random(seed).shuffle(other)
-    n_val = int(round(val_fraction * len(other)))
-    other_split = {s: ("val" if i < n_val else "train") for i, s in enumerate(other)}
+    if patient_split is not None:
+        missing = [s for s in other if s not in patient_split]
+        if missing:
+            raise ValueError(f"{len(missing)} patients are not in the patient split "
+                             f"(e.g. {missing[:3]})")
+        other_split = {s: patient_split[s] for s in other}
+    else:
+        random.Random(seed).shuffle(other)
+        n_val = int(round(val_fraction * len(other)))
+        other_split = {s: ("val" if i < n_val else "train") for i, s in enumerate(other)}
     for i in j.index[pool]:
         subj = j.at[i, "subject"]
         if subj in tuab_subjects:
@@ -139,8 +150,11 @@ def build(args):
     tuab_split = tuab_subject_split(args.tuab_split)
     pool, test = select(j, args.experiment, min_age=args.min_age, max_age=args.max_age,
                         min_minutes=args.min_minutes)
+    patient_split = (json.load(open(args.patient_split))["subjects"]
+                     if args.patient_split else None)
     split = assign_splits(j, pool, test, args.experiment, tuab_split,
-                          val_fraction=args.val_fraction, seed=args.seed)
+                          val_fraction=args.val_fraction, seed=args.seed,
+                          patient_split=patient_split)
     split = cap_per_subject(j, split, args.max_per_subject, args.seed)
     j["split"] = split
     c = j[j.split.notna()].copy()
@@ -172,6 +186,7 @@ def build(args):
                 "n_windows": sum(r["n_windows"] for r in manifest_rows),
                 "cohort": {"experiment": args.experiment, "source": args.source,
                            "seed": args.seed, "val_fraction": args.val_fraction,
+                           "patient_split": args.patient_split,
                            "max_per_subject": args.max_per_subject,
                            "train_minutes": args.train_minutes, "min_age": args.min_age,
                            "max_age": args.max_age, "min_minutes": args.min_minutes,
@@ -220,6 +235,9 @@ def main(argv=None):
     p.add_argument("--sheet", default=DEFAULT_SHEET)
     p.add_argument("--tuab-split", default=DEFAULT_TUAB_SPLIT)
     p.add_argument("--val-fraction", type=float, default=0.1, help="for patients outside TUAB")
+    p.add_argument("--patient-split", default=None,
+                   help="shared TUEG patient split (dataset_maker/tueg_patient_split.py); "
+                        "default: a seeded shuffle of this cohort's own patients (v1)")
     p.add_argument("--seed", type=int, default=12345)
     p.add_argument("--max-per-subject", type=int, default=10)
     p.add_argument("--train-minutes", type=int, default=20, help="per training recording; 0 = all")
