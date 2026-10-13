@@ -128,11 +128,14 @@ def publish_checkpoint_outputs() -> None:
         return
     import shutil
     dst = os.environ.get('SM_MODEL_DIR', '/opt/ml/model')
+    # SageMaker's checkpoint sync leaves <file>.sagemaker-uploaded/-uploading
+    # markers next to every file; they are not outputs.
+    markers = shutil.ignore_patterns('*.sagemaker-uploaded', '*.sagemaker-uploading')
     for name in os.listdir(src):
         path = os.path.join(src, name)
         if os.path.isdir(path):
-            shutil.copytree(path, os.path.join(dst, name), dirs_exist_ok=True)
-        else:
+            shutil.copytree(path, os.path.join(dst, name), dirs_exist_ok=True, ignore=markers)
+        elif not markers(src, [name]):
             shutil.copy2(path, os.path.join(dst, name))
 
 

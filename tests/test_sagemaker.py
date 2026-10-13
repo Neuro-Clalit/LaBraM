@@ -1203,5 +1203,8 @@ def test_entry_trains_into_checkpoint_dir_and_publishes(tmp_path, monkeypatch):
     assert config.output.output_dir == str(ckpt / "finetune") and config.output.auto_resume
     os.makedirs(config.output.output_dir)
     (ckpt / "finetune" / "log.txt").write_text("{}\n")
+    (ckpt / "finetune" / "log.txt.sagemaker-uploaded").write_text("")   # sync markers
+    (ckpt / "stray.sagemaker-uploading").write_text("")
     entry.publish_checkpoint_outputs()
     assert (model / "finetune" / "log.txt").read_text() == "{}\n"
+    assert sorted(p.name for p in model.rglob("*")) == ["finetune", "log.txt"]
