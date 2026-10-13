@@ -195,3 +195,24 @@ def test_model_and_data_switches_go_together(tmp_path):
            "output.log_dir": str(tmp_path / "o"), "model.session_features": "tokens"})
     with pytest.raises(ValueError, match="go together"):
         run_finetune.main(cfg)
+
+
+@pytest.mark.parametrize("norm, pre, post", [("post", False, True), ("pre", True, False),
+                                             ("both", True, True), ("none", False, False)])
+def test_feature_token_normalization(norm, pre, post):
+    torch.manual_seed(0)
+    model = _tiny("tokens", session_feature_norm=norm, session_token_gain=0.5).eval()
+    proj = model.session_proj[0]
+    assert isinstance(proj[0], nn.LayerNorm) == pre and isinstance(proj[2], nn.LayerNorm) == post
+    if post:      # unit-RMS tokens scaled to the gain: the EEG tokens' scale
+        assert torch.all(proj[2].weight == 0.5)
+        with torch.no_grad():
+            tokens = model.session_tokens(torch.randn(4, N_FEATS)) - model.session_token_embed
+        rms = tokens.pow(2).mean(-1).sqrt()          # (LayerNorm eps shaves a little off)
+        assert 0.45 < rms.min() and rms.max() <= 0.5 + 1e-4
+
+
+def test_unknown_normalization_is_rejected():
+    with pytest.raises(ValueError, match="session_feature_norm"):
+        FinetuneModelConfig(task="regression", session_features="tokens",
+                            session_feature_norm="batch").validate()

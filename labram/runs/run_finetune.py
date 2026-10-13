@@ -77,6 +77,8 @@ def get_model(config: FinetuneRunConfig):
         session_features=m.session_features,
         session_feature_groups=m.session_feature_groups,
         session_feature_drop=m.session_feature_drop,
+        session_feature_norm=m.session_feature_norm,
+        session_token_gain=m.session_token_gain,
         use_rel_pos_bias=m.rel_pos_bias, use_abs_pos_emb=m.abs_pos_emb,
         init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
         labram_plus=config.labram_plus, max_time_patches=time_patches,

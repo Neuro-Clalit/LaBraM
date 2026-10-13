@@ -274,9 +274,14 @@ class NeuralTransformer(NeuralTransformerBase):
                              "(set from data.session_features)")
         self.session_proj = self.session_token_embed = None
         if self.session_mode == "tokens":
+            pre = config.session_feature_norm in ("pre", "both")
+            post = config.session_feature_norm in ("post", "both")
             self.session_proj = nn.ModuleList(
-                nn.Sequential(norm_layer(dim), nn.Linear(dim, config.embed_dim))
+                nn.Sequential(norm_layer(dim) if pre else nn.Identity(),
+                              nn.Linear(dim, config.embed_dim),
+                              norm_layer(config.embed_dim) if post else nn.Identity())
                 for _, dim in self.session_groups)
+            self._session_token_gain = config.session_token_gain if post else None
             self.session_token_embed = nn.Parameter(
                 torch.zeros(1, sum(n for n, _ in self.session_groups), config.embed_dim))
         self.session_drop = nn.Dropout(config.session_feature_drop)
@@ -294,6 +299,9 @@ class NeuralTransformer(NeuralTransformerBase):
             out_layer.bias.data.mul_(config.init_scale)
         if self.session_token_embed is not None:
             trunc_normal_(self.session_token_embed, std=.02)
+            if self._session_token_gain is not None:      # after _init_weights reset it to 1
+                for proj in self.session_proj:
+                    proj[2].weight.data.fill_(self._session_token_gain)
 
     def session_tokens(self, features):
         """Flat session features ``(B, sum n*dim)`` -> tokens ``(B, sum n, embed_dim)``."""

@@ -190,6 +190,14 @@ class FinetuneModelConfig(ConfigBase):
     session_features: str = "off"
     session_feature_groups: List[List[int]] = field(default_factory=list)
     session_feature_drop: float = 0.0
+    # "tokens" only: where the feature tokens are layer-normalized. "post":
+    # Linear -> LayerNorm, its gain initialized to session_token_gain (0.5 ~ the
+    # per-token RMS of the pretrained EEG tokens, 0.57), so both token kinds
+    # enter the transformer at the same scale; "pre": LayerNorm over each
+    # token's features -> Linear; "both"; "none". (The features themselves are
+    # already standardized per column with training-split statistics.)
+    session_feature_norm: str = "post"
+    session_token_gain: float = 0.5
     # Number of transformer blocks; None = the registry model's own depth (12
     # for labram_base_*). A pretrained checkpoint then loads into the first
     # ``depth`` blocks and its deeper blocks are ignored.
@@ -255,6 +263,9 @@ class FinetuneModelConfig(ConfigBase):
                 raise ValueError("model.session_features is not supported with "
                                  "condition_on_abnormal, head_type=multitask, codebook_reg "
                                  "or lora")
+            if self.session_feature_norm not in ("post", "pre", "both", "none"):
+                raise ValueError("model.session_feature_norm must be post, pre, both or none, "
+                                 f"got {self.session_feature_norm!r}")
             if self.session_features == "only" and self.head_type not in ("linear", "mlp"):
                 raise ValueError("model.session_features=only needs head_type linear or mlp, "
                                  f"got {self.head_type!r}")
@@ -344,6 +355,8 @@ class TransformerArchConfig(ConfigBase):
     session_features: str = "off"
     session_feature_groups: List[List[int]] = field(default_factory=list)
     session_feature_drop: float = 0.0
+    session_feature_norm: str = "post"
+    session_token_gain: float = 0.5
     init_scale: float = conf_consts.DEFAULT_ARCH_INIT_SCALE
     init_std: float = conf_consts.DEFAULT_ARCH_INIT_STD
     use_norm: bool = conf_consts.DEFAULT_ARCH_USE_NORM
