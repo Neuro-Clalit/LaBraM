@@ -108,11 +108,13 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     session = cfg.model.session_features != "off"
     if session:
         for split in splits:
-            enable_session_features(getattr(bundle, split),
-                                    session_features or cfg.data.session_features,
-                                    skip_signal=cfg.model.session_features == "only")
-    stage_bundle(bundle, cfg.data.stage_dir, reserve_gb=cfg.data.stage_reserve_gb,
-                 splits=tuple(s for s in ("val", "test", "train") if s in splits))
+            # (the run's saved config predates the groups, set from the file)
+            cfg.model.session_feature_groups = enable_session_features(
+                getattr(bundle, split), session_features or cfg.data.session_features,
+                skip_signal=cfg.model.session_features == "only")
+    if cfg.model.session_features != "only":          # a features-only model reads no EEG
+        stage_bundle(bundle, cfg.data.stage_dir, reserve_gb=cfg.data.stage_reserve_gb,
+                     splits=tuple(s for s in ("val", "test", "train") if s in splits))
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
     pred_stats = train_target_stats(cfg, train_data_path) if train_data_path else None
     to_scalar = None
