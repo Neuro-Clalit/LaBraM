@@ -268,3 +268,27 @@ def test_cls_token_model_with_condition_vectors_trains_end_to_end(tmp_path):
     assert "mae" in summary["best_val_stats"]
     model = run_finetune.get_model(cfg)
     assert model.fc_norm is None and model.num_features == 200 + cfg.model.session_head_dim
+
+
+def test_features_load_when_the_recordings_are_staged(tmp_path):
+    """Staging moves each loader's root to the stage mirror, which holds no
+    feature file: a relative data.session_features must resolve before it."""
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    root = _npy_corpus(tmp_path / "data")
+    _feature_file(root, np.random.default_rng(0))
+    out = tmp_path / "out"
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy",
+           "data.trim_start_sec": 0.0, "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0,
+           "data.num_workers": 0, "data.session_features": "feats.npz",
+           "data.stage_dir": str(tmp_path / "stage"), "data.stage_reserve_gb": 0.0,
+           "trainer.debug": False, "trainer.epochs": 1, "trainer.batch_size": 8,
+           "optimizer.warmup_epochs": 0,
+           "distributed.device": "cpu", "finetune_checkpoint.finetune": "",
+           "clearml.enabled": False, "output.output_dir": str(out), "output.log_dir": str(out),
+           "model.session_features": "head", "logging.log_model_graph": False})
+    summary = run_finetune.main(cfg)
+    assert "mae" in summary["best_val_stats"]
+    assert any((tmp_path / "stage").rglob("*.npy"))           # it did stage

@@ -141,6 +141,22 @@ def main(config: FinetuneRunConfig, bundle=None):
         drop_channels(bundle, config.data.drop_channels)
     if config.data.random_crop:
         enable_random_crop(bundle.train)
+    if (config.model.session_features != "off") != bool(config.data.session_features):
+        raise ValueError("model.session_features and data.session_features go together: "
+                         "set both or neither")
+    if config.data.session_features:
+        # Every split yields [age, *features]; the model takes the features as
+        # extra tokens, or (only) instead of the EEG, which is then not read.
+        # Loaded before staging, which moves each loader's root to the stage
+        # mirror (a relative feature path resolves against the data root).
+        if config.loss.regression_loss == 'soft_label':
+            raise ValueError("model.session_features needs a scalar age loss, not soft_label")
+        for split in (bundle.train, bundle.val, bundle.test):
+            groups = enable_session_features(
+                split, config.data.session_features,
+                skip_signal=config.model.session_features == "only")
+            if groups is not None:
+                config.model.session_feature_groups = groups
     if not config.trainer.debug:
         # Only the selected recordings, train first; a no-op for pickles, on
         # SageMaker, or with data.stage_dir=none.
@@ -154,20 +170,6 @@ def main(config: FinetuneRunConfig, bundle=None):
                              "scalar age loss, not soft_label")
         for split in (bundle.train, bundle.val, bundle.test):
             enable_abnormal_target(split)
-    if (config.model.session_features != "off") != bool(config.data.session_features):
-        raise ValueError("model.session_features and data.session_features go together: "
-                         "set both or neither")
-    if config.data.session_features:
-        # Every split yields [age, *features]; the model takes the features as
-        # extra tokens, or (only) instead of the EEG, which is then not read.
-        if config.loss.regression_loss == 'soft_label':
-            raise ValueError("model.session_features needs a scalar age loss, not soft_label")
-        for split in (bundle.train, bundle.val, bundle.test):
-            groups = enable_session_features(
-                split, config.data.session_features,
-                skip_signal=config.model.session_features == "only")
-            if groups is not None:
-                config.model.session_feature_groups = groups
     # The bundle is the source of truth for the head size and the task: a scalar
     # regression head and a binary classifier both have nb_classes == 1, so the
     # task must travel with it.
