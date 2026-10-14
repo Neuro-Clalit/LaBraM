@@ -356,9 +356,13 @@
     },
     "channel_drop": {
         "py/object": "labram.configs.train_config.ChannelDropConfig",
+        "enabled": false,
         "channels": [],
+        "min_drop": 1,
+        "max_drop": 1,
         "prob": 0.2,
         "consistency_weight": 1.0,
-        "detach_full": false
+        "detach_full": true,
+        "eval_consistency": true
     }
 }

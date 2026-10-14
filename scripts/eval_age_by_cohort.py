@@ -51,7 +51,7 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False,
                                          num_workers=8, pin_memory=True)
     channel_indices = utils.get_channel_indices(ch_names)
-    # Recordings without a channel_drop run's channels (zero-filled) run without them.
+    # With channel_drop, every sample runs on its present (non-zero) channels.
     dropper = ChannelDropper.from_config(channel_drop, ch_names)
     preds, targets, recs = [], [], []
     with torch.no_grad():
@@ -63,7 +63,7 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
                 y = y[:, 0]
             with torch.amp.autocast(device.type, enabled=device.type == "cuda"):
                 if dropper is not None:
-                    out = dropper.forward(model, x, dropper.has_channels(x),
+                    out = dropper.forward(model, x, dropper.present(x),
                                           condition=extra.get("condition"))
                 else:
                     out = model(x, channel_indices=channel_indices, classify_only=True, **extra)

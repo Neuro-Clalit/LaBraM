@@ -1,33 +1,38 @@
 # --------------------------------------------------------
 # Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
-# Training-time dropout of named channels (e.g. T1/T2) for a whole batch, a
-# consistency loss between the full and the dropped representation, and
-# per-sample handling of recordings that lack those channels.
+# Channel-dropout augmentation for a whole batch with a consistency loss to a
+# frozen all-channels pass, and per-sample handling of missing channels.
 # ---------------------------------------------------------
 """``channel_drop``: one model for recordings with and without some channels.
 
-A cohort can mix recordings that have every channel with recordings that lack
-some (zero-filled in the npy, e.g. TUEG's linked-ear recordings without
-T1/T2). LaBraM has one token per channel and patch, so a recording without
-T1/T2 is run with those tokens left out rather than as zeros:
+LaBraM has one token per channel and patch, so a channel is *dropped* by
+leaving its tokens out (not by feeding zeros). Two mechanisms, both on when
+``channel_drop.enabled``:
 
-* every forward pass splits the batch per sample: rows whose dropped channels
-  are all zero run on the kept channels only, the others on all channels;
-  outputs are reassembled in batch order (the encoder has no batch-coupled
-  layers, so this equals a per-sample forward);
-* training, with probability ``prob`` per batch: every row runs without the
-  channels -- the loss is computed on these outputs -- and the rows that do
-  have them are also run on all channels, adding
+* **Missing channels** (train and eval). A channel that is all zero in a
+  sample (zero-filled in the npy: e.g. TUEG recordings without T1/T2) is
+  missing for that sample. Each batch is split by its present-channel
+  patterns and every group runs on its own channel subset; outputs are put
+  back in batch order. The encoder has no batch-coupled layers, so this
+  equals a per-sample forward.
+* **Augmentation** (train only). With probability ``prob`` per batch, draw
+  ``n ~ U{min_drop..max_drop}`` channels among ``channels`` (empty = every
+  channel) and drop them from every sample of the batch. The training loss is
+  computed on this dropped pass and, for the samples that had at least one of
+  the dropped channels,
 
-      L_cons = mean_{rows with the channels} mean_d (f_full - f_drop)^2
+      L = L_task(dropped) + lambda * mean_samples mean_d (f_full - f_drop)^2
 
-  times ``consistency_weight``, where ``f`` is the feature the head reads
-  (the class token with ``model.use_mean_pooling=false``, else the mean of
-  the patch tokens), so the representation does not depend on whether the
-  channels are present. ``detach_full`` stops the gradient through ``f_full``.
+  with ``f`` the feature the head reads (the class token with
+  ``model.use_mean_pooling=false``) and ``lambda = consistency_weight``. With
+  ``detach_full`` (default) the all-channels pass ``f_full`` is a frozen
+  target: run without gradient and in eval mode (no dropout / drop-path), so
+  only the dropped pass learns to match it.
 
-Mixup partners are blended only where both have the channels; elsewhere the
-mixed channels are zeroed, so a mixed sample is never half present.
+``eval_consistency`` also scores val/test with a drop drawn by the same rule
+(seeded per batch), reporting ``channel_drop_consistency`` and the dropped-
+channel MAE next to the usual metrics. Mixup blends a channel only where both
+partners have it; elsewhere the mixed channel is zeroed (missing).
 """
 from typing import List, Optional, Sequence
 
@@ -39,82 +44,105 @@ from labram.data.eeg_constants import get_channel_indices
 class ChannelDropper:
     def __init__(self, cfg, ch_names: Sequence[str]):
         self.cfg = cfg
-        names = {c.upper() for c in cfg.channels}
+        self.ch_names = list(ch_names)
         upper = [c.upper() for c in ch_names]
-        missing = sorted(names - set(upper))
+        names = [c.upper() for c in cfg.channels]
+        missing = sorted(set(names) - set(upper))
         if missing:
             raise ValueError(f"channel_drop.channels {missing} not among {list(ch_names)}")
-        self.drop: List[int] = [i for i, c in enumerate(upper) if c in names]
-        self.keep: List[int] = [i for i, c in enumerate(upper) if c not in names]
-        full = get_channel_indices(list(ch_names))
-        self.ci_full = full
-        self.ci_kept = [full[0]] + [full[i + 1] for i in self.keep]
+        # Candidate channels for the augmentation (empty config = all).
+        self.candidates: List[int] = ([upper.index(n) for n in names] if names
+                                      else list(range(len(upper))))
+        lo, hi = int(cfg.min_drop), int(cfg.max_drop)
+        if not 1 <= lo <= hi:
+            raise ValueError(f"channel_drop needs 1 <= min_drop <= max_drop, got [{lo}, {hi}]")
+        if hi > len(self.candidates) or hi >= len(upper):
+            raise ValueError(f"channel_drop.max_drop={hi} exceeds the {len(self.candidates)} "
+                             f"candidate channels (and must leave one)")
+        self.min_drop, self.max_drop = lo, hi
+        self.ci_all = get_channel_indices(self.ch_names)
 
     @classmethod
     def from_config(cls, cfg, ch_names) -> Optional["ChannelDropper"]:
-        if cfg is None or not cfg.channels or ch_names is None:
+        if cfg is None or not getattr(cfg, "enabled", False) or ch_names is None:
             return None
         return cls(cfg, ch_names)
 
-    # ------------------------------------------------------------------ rows
-    def has_channels(self, samples: torch.Tensor) -> torch.Tensor:
-        """(B,) True where any dropped channel carries signal; ``samples`` is
-        (B, N, A, T) or (B, N, L)."""
-        return samples[:, self.drop].flatten(1).abs().amax(1) > 0
+    # ------------------------------------------------------------- channels
+    @staticmethod
+    def present(samples: torch.Tensor) -> torch.Tensor:
+        """(B, C) True where the channel carries signal (not all zero);
+        ``samples`` is (B, C, A, T) or (B, C, L)."""
+        return samples.flatten(2).abs().amax(-1) > 0
 
-    def zero_rows(self, samples: torch.Tensor, rows: torch.Tensor) -> torch.Tensor:
-        """Zero the dropped channels of ``rows`` (bool (B,))."""
-        if rows.any():
-            idx = rows.nonzero().squeeze(1)
-            samples = samples.clone()
-            samples[idx[:, None], torch.as_tensor(self.drop, device=samples.device)] = 0
-        return samples
+    def draw(self, generator: Optional[torch.Generator] = None) -> List[int]:
+        """Channels to drop for one batch: n ~ U{min..max} of the candidates."""
+        n = int(torch.randint(self.min_drop, self.max_drop + 1, (1,), generator=generator))
+        pick = torch.randperm(len(self.candidates), generator=generator)[:n]
+        return sorted(self.candidates[int(i)] for i in pick)
 
-    # --------------------------------------------------------------- forward
-    def forward(self, model, samples, full_rows, condition=None, return_features=False,
-                **kwargs):
-        """Rows in ``full_rows`` on all channels, the rest on the kept ones.
-        Returns the output (and the head-input feature) in batch order."""
-        parts = []
-        for rows, channels, ci in ((full_rows, None, self.ci_full),
-                                   (~full_rows, self.keep, self.ci_kept)):
-            if not rows.any():
-                continue
-            idx = rows.nonzero().squeeze(1)
-            x = samples[idx] if channels is None else samples[idx][:, channels]
+    def drop_mask(self, present: torch.Tensor, channels: Sequence[int]) -> torch.Tensor:
+        mask = torch.zeros_like(present)
+        if channels:
+            mask[:, list(channels)] = True
+        return mask
+
+    def zero_missing(self, samples: torch.Tensor, keep: torch.Tensor) -> torch.Tensor:
+        """Zero the channels where ``keep`` (B, C) is False."""
+        if bool(keep.all()):
+            return samples
+        shape = (*keep.shape,) + (1,) * (samples.dim() - 2)
+        return samples * keep.reshape(shape).to(samples.dtype)
+
+    # -------------------------------------------------------------- forward
+    def forward(self, model, samples, present, condition=None, return_features=False, **kwargs):
+        """Run every sample on its ``present`` (B, C) channels; outputs (and
+        head-input features) in batch order."""
+        patterns, inverse = torch.unique(present, dim=0, return_inverse=True)
+        outs, feats, rows = [], [], []
+        for p in range(patterns.shape[0]):
+            idx = (inverse == p).nonzero().squeeze(1)
+            chans = patterns[p].nonzero().squeeze(1)
+            if chans.numel() == 0:
+                raise ValueError("a sample has no channel left after dropping")
+            x = samples[idx][:, chans]
+            ci = [self.ci_all[0]] + [self.ci_all[int(c) + 1] for c in chans]
             extra = dict(kwargs)
             if condition is not None:
-                extra['condition'] = condition[idx]
-            res = model(x, ci, return_features=True, **extra)
-            parts.append((idx, res))
-        out = _scatter([(i, r[0]) for i, r in parts], samples.shape[0])
+                extra["condition"] = condition[idx]
+            out, feat = model(x, ci, return_features=True, **extra)
+            outs.append(out)
+            feats.append(feat)
+            rows.append(idx)
+        order = torch.argsort(torch.cat(rows))
+        out = torch.cat([o.to(outs[0].dtype) for o in outs])[order]
         if not return_features:
             return out
-        feats = [(i, r[1]) for i, r in parts]
-        return out, (_scatter(feats, samples.shape[0]) if all(f is not None for _, f in feats)
-                     else None)
+        if any(f is None for f in feats):
+            return out, None
+        return out, torch.cat([f.to(feats[0].dtype) for f in feats])[order]
 
-    def consistency(self, model, samples, has, feat_dropped, condition=None, **kwargs):
-        """L_cons over the rows that have the channels (0 if none do)."""
-        if not has.any() or feat_dropped is None:
+    def consistency(self, model, samples, present, dropped, feat_dropped, condition=None,
+                    **kwargs):
+        """mean (f_full - f_dropped)^2 over the samples that lost a channel."""
+        affected = (present & dropped).any(1)
+        if not bool(affected.any()) or feat_dropped is None:
             return samples.new_zeros(())
-        idx = has.nonzero().squeeze(1)
-        extra = dict(kwargs)
-        if condition is not None:
-            extra['condition'] = condition[idx]
-        _, f_full = model(samples[idx], self.ci_full, return_features=True, **extra)
+        idx = affected.nonzero().squeeze(1)
+        cond = condition[idx] if condition is not None else None
         if self.cfg.detach_full:
+            # Frozen all-channels target: no gradient and deterministic (eval
+            # mode: no dropout / drop-path), then back to the caller's mode.
+            was_training = model.training
+            model.eval()
+            try:
+                with torch.no_grad():
+                    _, f_full = self.forward(model, samples[idx], present[idx], condition=cond,
+                                             return_features=True, **kwargs)
+            finally:
+                model.train(was_training)
             f_full = f_full.detach()
+        else:
+            _, f_full = self.forward(model, samples[idx], present[idx], condition=cond,
+                                     return_features=True, **kwargs)
         return (f_full.float() - feat_dropped[idx].float()).pow(2).mean()
-
-
-def _scatter(parts, n):
-    """Reassemble ``[(row_idx, tensor)]`` into one (n, ...) tensor in row order."""
-    first = parts[0][1]
-    if len(parts) == 1 and parts[0][0].numel() == n:
-        order = parts[0][0]
-        return first if torch.equal(order, torch.arange(n, device=order.device)) else \
-            first[torch.argsort(order)]
-    idx = torch.cat([i for i, _ in parts])
-    val = torch.cat([v.to(first.dtype) for _, v in parts])
-    return val[torch.argsort(idx)]

@@ -241,21 +241,30 @@ class AugmentConfig(ConfigBase):
 
 @dataclass
 class ChannelDropConfig(ConfigBase):
-    """Dropping named channels (e.g. T1/T2) for a whole training batch, with a
-    consistency loss between the full and the dropped head-input feature, and
-    per-sample handling of recordings that lack them (zero-filled), in training
-    and evaluation (``labram/train/channel_drop.py``). ``channels=[]`` = off.
+    """Channel-dropout augmentation with a consistency loss, and per-sample
+    handling of missing (all-zero) channels in training and evaluation
+    (``labram/train/channel_drop.py``). Off unless ``enabled``.
 
-    * ``prob``: per training batch, run every row without the channels; the
-      loss is computed on that pass.
-    * ``consistency_weight``: weight of mean (f_full - f_dropped)^2 over the rows
-      that have the channels, on the feature the head reads.
-    * ``detach_full``: stop the gradient through the full pass.
+    * ``channels``: candidate channels to drop; empty = any channel.
+    * ``min_drop`` / ``max_drop``: per augmented batch, n ~ U{min..max} of the
+      candidates are dropped from every sample.
+    * ``prob``: probability that a training batch is augmented; its loss is
+      computed on the dropped pass.
+    * ``consistency_weight`` (lambda): weight of mean (f_full - f_dropped)^2 on
+      the head-input feature, over the samples that lost a channel.
+    * ``detach_full``: the all-channels pass is a frozen target (no gradient,
+      eval mode).
+    * ``eval_consistency``: val/test also report the consistency and the MAE
+      with a drop drawn by the same rule (seeded per batch).
     """
+    enabled: bool = False
     channels: List[str] = field(default_factory=list)
+    min_drop: int = 1
+    max_drop: int = 1
     prob: float = 0.2
     consistency_weight: float = 1.0
-    detach_full: bool = False
+    detach_full: bool = True
+    eval_consistency: bool = True
 
 
 @dataclass

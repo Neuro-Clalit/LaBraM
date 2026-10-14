@@ -84,18 +84,23 @@ def train_channel_drop_batch(model, samples, target, criterion, dropper: Channel
     and the consistency term (full vs dropped feature) is added. Returns
     ``(loss, scalar output, breakdown, consistency or None)``."""
     condition = model_condition(criterion, target)
-    has = dropper.has_channels(samples)
-    full_rows = torch.zeros_like(has) if drop_all else has
-    outputs, feat = dropper.forward(model, samples, full_rows, condition=condition,
+    present = dropper.present(samples)
+    dropped = dropper.drop_mask(present, dropper.draw() if drop_all else [])
+    run = present & ~dropped
+    run[~run.any(1)] = present[~run.any(1)]          # never drop a sample's last channel
+    outputs, feat = dropper.forward(model, samples, run, condition=condition,
                                     return_features=True)
     loss = criterion(outputs, target)
     breakdown = loss if isinstance(loss, LossBreakdown) else None
     if breakdown is not None:
         loss = breakdown.total
     consistency = None
-    if drop_all and dropper.cfg.consistency_weight > 0:
-        consistency = dropper.consistency(model, samples, has, feat, condition=condition)
-        loss = loss + dropper.cfg.consistency_weight * consistency
+    if drop_all:
+        # Logged on every augmented batch; enters the loss with lambda > 0.
+        consistency = dropper.consistency(model, samples, present, present & ~run,
+                                          feat, condition=condition)
+        if dropper.cfg.consistency_weight > 0:
+            loss = loss + dropper.cfg.consistency_weight * consistency
     return loss, regression_output(criterion, outputs), breakdown, consistency
 
 
@@ -217,10 +222,10 @@ def train_one_epoch(
         mixed = use_mixup and torch.rand(()).item() < mixup_cfg.prob
         if mixed and dropper is not None:
             # Blend the channel_drop channels only where both partners have them.
-            had = dropper.has_channels(samples)
+            had = dropper.present(samples)
             samples, targets, _, perm = mixup_batch(samples, targets, mixup_cfg.alpha,
                                                     mixup_sigma, return_perm=True)
-            samples = dropper.zero_rows(samples, ~(had & had[perm]))
+            samples = dropper.zero_missing(samples, had & had[perm])
         elif mixed:
             samples, targets, _ = mixup_batch(samples, targets, mixup_cfg.alpha, mixup_sigma)
         consistency = None
@@ -490,6 +495,8 @@ def evaluate(
             criterion = SessionFeatureAgeCriterion(criterion)
 
     dropper = ChannelDropper.from_config(channel_drop_cfg, ch_names)
+    drop_cons_sum = drop_abs_sum = 0.0
+    drop_cons_n = drop_abs_n = 0
     metric_logger = utils.MetricLogger(delimiter="  ")
 
     # switch to evaluation mode
@@ -520,9 +527,27 @@ def evaluate(
             condition = model_condition(criterion, target)
             extra = {} if condition is None else {'condition': condition}
             if dropper is not None:
-                # Recordings without the channel_drop channels run without them.
-                output = dropper.forward(model, eeg_batch, dropper.has_channels(eeg_batch),
-                                         condition=condition)
+                # Each sample runs on its present (non-zero) channels; with
+                # eval_consistency, also on a seeded random drop of the same rule.
+                present = dropper.present(eeg_batch)
+                output, feat = dropper.forward(model, eeg_batch, present, condition=condition,
+                                               return_features=True)
+                if dropper.cfg.eval_consistency:
+                    gen = torch.Generator().manual_seed(step)
+                    dropped = dropper.drop_mask(present, dropper.draw(gen))
+                    run = present & ~dropped
+                    run[~run.any(1)] = present[~run.any(1)]
+                    out_d, feat_d = dropper.forward(model, eeg_batch, run, condition=condition,
+                                                    return_features=True)
+                    affected = (present & ~run).any(1)
+                    if feat is not None and bool(affected.any()):
+                        drop_cons_sum += float((feat[affected].float() - feat_d[affected].float())
+                                               .pow(2).mean(-1).sum())
+                        drop_cons_n += int(affected.sum())
+                    err = (regression_output(criterion, out_d).float()
+                           - regression_target(criterion, target).float()).abs()
+                    drop_abs_sum += float(err.sum()) * (target_stats[1] if target_stats else 1.0)
+                    drop_abs_n += err.numel()
             else:
                 output = model(eeg_batch, channel_indices=channel_indices,
                                classify_only=not regularized, **extra)
@@ -627,6 +652,11 @@ def evaluate(
                 if key in ('data_time_sec', 'step_time_sec', 'host_compute_time_sec',
                            'gpu_compute_time_sec') or key.endswith('_loss')})
     ret['samples_processed'] = step_timer.samples_processed * utils.get_world_size()
+    if drop_abs_n:
+        # channel_drop eval_consistency: windows scored with a random drop.
+        ret['channel_drop_window_mae'] = drop_abs_sum / drop_abs_n
+    if drop_cons_n:
+        ret['channel_drop_consistency'] = drop_cons_sum / drop_cons_n
 
     if primary_report is not None and log_writer is not None and head is not None:
         _log_detailed_report(log_writer, primary_report, head, epoch, eval_cfg)
