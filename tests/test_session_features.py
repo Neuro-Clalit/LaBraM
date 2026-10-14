@@ -244,3 +244,27 @@ def test_condition_vectors():
     v = mcf.pathology_vector({"dx_stroke": True, "dx_alzheimers": True, "dx_adhd": pd.NA})
     assert v[0] == 0 and v[names.index("stroke")] == 1 and v[names.index("dementia")] == 1
     assert v[names.index("other")] == 0
+
+
+def test_cls_token_model_with_condition_vectors_trains_end_to_end(tmp_path):
+    """Exp3-cls-cond: the head reads the class token (no mean pooling) plus the
+    embedded condition vectors."""
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    root = _npy_corpus(tmp_path / "data")
+    _feature_file(root, np.random.default_rng(0))
+    out = tmp_path / "out"
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy",
+           "data.trim_start_sec": 0.0, "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0,
+           "data.num_workers": 0, "data.session_features": "feats.npz",
+           "trainer.debug": True, "trainer.epochs": 1,
+           "distributed.device": "cpu", "finetune_checkpoint.finetune": "",
+           "clearml.enabled": False, "output.output_dir": str(out), "output.log_dir": str(out),
+           "model.session_features": "head", "model.use_mean_pooling": False,
+           "logging.log_model_graph": False})
+    summary = run_finetune.main(cfg)
+    assert "mae" in summary["best_val_stats"]
+    model = run_finetune.get_model(cfg)
+    assert model.fc_norm is None and model.num_features == 200 + cfg.model.session_head_dim
