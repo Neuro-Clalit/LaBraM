@@ -63,16 +63,20 @@ def test_task_init_receives_the_framework_map(monkeypatch):
 
 @pytest.mark.parametrize("body, expected", [("pass", 0), ("raise RuntimeError('boom')", 1)])
 def test_exit_guard_ends_a_process_whose_exit_handlers_hang(body, expected):
+    # The child reports when main() starts, so only the shutdown is timed: a
+    # cold torch import on a busy disk can take tens of seconds by itself.
     script = textwrap.dedent(f"""
-        import atexit, time
+        import atexit, sys, time
         from labram.utils.exit_guard import run_and_exit
         atexit.register(lambda: time.sleep(60))     # e.g. ClearML waiting on an upload
         def main():
+            print("MAIN", time.time(), file=sys.stderr, flush=True)
             {body}
         run_and_exit(main, grace_sec=1)
     """)
-    t0 = time.time()
-    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=30)
-    assert time.time() - t0 < 15
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120)
+    ended = time.time()
+    started = float(next(l for l in proc.stderr.splitlines() if l.startswith("MAIN")).split()[1])
+    assert ended - started < 15          # not the 60 s exit handler
     assert proc.returncode == expected
     assert "forcing exit" in proc.stderr
