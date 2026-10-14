@@ -109,3 +109,14 @@ def test_run_finetune_with_fast_settings(tmp_path):
     assert "mae" in summary["best_val_stats"]
     model = run_finetune.get_model(cfg)
     assert all(b.attn.fused_attn for b in model.blocks)
+
+
+def test_whole_numbers_are_accepted_for_float_fields():
+    from labram.configs.run_configs import FinetuneRunConfig
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"channel_drop.consistency_weight": 1, "channel_drop.prob": 0, "optimizer.lr": 1})
+    assert cfg.channel_drop.consistency_weight == 1.0 and isinstance(cfg.channel_drop.prob, float)
+    with pytest.raises(ValueError):
+        FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_age.json",
+                                      **{"channel_drop.min_drop": 1.5})
