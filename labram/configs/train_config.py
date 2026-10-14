@@ -240,6 +240,25 @@ class AugmentConfig(ConfigBase):
 
 
 @dataclass
+class ChannelDropConfig(ConfigBase):
+    """Dropping named channels (e.g. T1/T2) for a whole training batch, with a
+    consistency loss between the full and the dropped head-input feature, and
+    per-sample handling of recordings that lack them (zero-filled), in training
+    and evaluation (``labram/train/channel_drop.py``). ``channels=[]`` = off.
+
+    * ``prob``: per training batch, run every row without the channels; the
+      loss is computed on that pass.
+    * ``consistency_weight``: weight of mean (f_full - f_dropped)^2 over the rows
+      that have the channels, on the feature the head reads.
+    * ``detach_full``: stop the gradient through the full pass.
+    """
+    channels: List[str] = field(default_factory=list)
+    prob: float = 0.2
+    consistency_weight: float = 1.0
+    detach_full: bool = False
+
+
+@dataclass
 class DistributedConfig(ConfigBase):
     world_size: int = DEFAULT_WORLD_SIZE
     local_rank: int = DEFAULT_LOCAL_RANK

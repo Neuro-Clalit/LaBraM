@@ -28,18 +28,23 @@ def mixup_partners(targets: torch.Tensor, sigma: float = 0.0) -> torch.Tensor:
 
 
 def mixup_batch(samples: torch.Tensor, targets: torch.Tensor, alpha: float,
-                sigma: float = 0.0) -> Tuple[torch.Tensor, torch.Tensor, float]:
+                sigma: float = 0.0, return_perm: bool = False):
     """Mix a batch with a permuted copy of itself.
 
     ``lam ~ Beta(alpha, alpha)`` is drawn once per batch (``alpha <= 0`` ->
     ``lam = 1``, i.e. no mixing). Returns ``(samples, targets, lam)`` with both
     mixed by the same ``lam`` and partner assignment. A batch of one sample is
-    returned unchanged.
+    returned unchanged. ``return_perm`` also returns the partner index of each
+    sample (the identity when nothing is mixed).
     """
     if samples.shape[0] < 2 or alpha <= 0:
+        if return_perm:
+            return samples, targets, 1.0, torch.arange(samples.shape[0], device=samples.device)
         return samples, targets, 1.0
     lam = float(torch.distributions.Beta(alpha, alpha).sample())
     perm = mixup_partners(targets, sigma)
     mixed_x = lam * samples + (1.0 - lam) * samples[perm]
     mixed_y = lam * targets + (1.0 - lam) * targets[perm]
+    if return_perm:
+        return mixed_x, mixed_y, lam, perm
     return mixed_x, mixed_y, lam

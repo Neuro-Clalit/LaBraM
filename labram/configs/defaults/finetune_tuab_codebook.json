@@ -349,5 +349,12 @@
         "time_mask_max_count": 2,
         "time_mask_min_sec": 0.5,
         "time_mask_max_sec": 1.0
+    },
+    "channel_drop": {
+        "py/object": "labram.configs.train_config.ChannelDropConfig",
+        "channels": [],
+        "prob": 0.2,
+        "consistency_weight": 1.0,
+        "detach_full": false
     }
 }

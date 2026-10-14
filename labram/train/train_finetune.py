@@ -21,7 +21,7 @@ import labram.utils as utils
 from labram.configs.loss_config import LossConfig
 from labram.configs.optim_config import OptimizerConfig
 from labram.configs.train_config import (
-    AugmentConfig, EvaluationConfig, LoggingConfig, MixupConfig, TrainerConfig)
+    AugmentConfig, ChannelDropConfig, EvaluationConfig, LoggingConfig, MixupConfig, TrainerConfig)
 from labram.data.bundles import CLASSIFICATION as TASK_CLASSIFICATION
 from labram.data.bundles import REGRESSION as TASK_REGRESSION
 from labram.losses import (
@@ -31,6 +31,7 @@ from labram.losses import (
 from labram.losses.regression import downstream_term_name
 from labram.losses.outputs import LossBreakdown
 from labram.train.augment import augment_batch
+from labram.train.channel_drop import ChannelDropper
 from labram.train.mixup import mixup_batch
 from labram.models.outputs import PredictorOutput
 from labram.optim_factory import (
@@ -76,6 +77,28 @@ def train_class_batch(
     return loss, regression_output(criterion, outputs), breakdown
 
 
+def train_channel_drop_batch(model, samples, target, criterion, dropper: ChannelDropper,
+                             drop_all: bool):
+    """``train_class_batch`` for ``channel_drop``: rows without the channels run
+    without them; with ``drop_all`` every row does, the loss is on that pass,
+    and the consistency term (full vs dropped feature) is added. Returns
+    ``(loss, scalar output, breakdown, consistency or None)``."""
+    condition = model_condition(criterion, target)
+    has = dropper.has_channels(samples)
+    full_rows = torch.zeros_like(has) if drop_all else has
+    outputs, feat = dropper.forward(model, samples, full_rows, condition=condition,
+                                    return_features=True)
+    loss = criterion(outputs, target)
+    breakdown = loss if isinstance(loss, LossBreakdown) else None
+    if breakdown is not None:
+        loss = breakdown.total
+    consistency = None
+    if drop_all and dropper.cfg.consistency_weight > 0:
+        consistency = dropper.consistency(model, samples, has, feat, condition=condition)
+        loss = loss + dropper.cfg.consistency_weight * consistency
+    return loss, regression_output(criterion, outputs), breakdown, consistency
+
+
 def get_loss_scale_for_deepspeed(model: torch.nn.Module) -> float:
     optimizer = model.optimizer
     return optimizer.loss_scale if hasattr(optimizer, "loss_scale") else optimizer.cur_scale
@@ -107,6 +130,7 @@ def train_one_epoch(
     metrics: Optional[List[str]] = None,
     mixup_cfg: Optional[MixupConfig] = None,
     augment_cfg: Optional[AugmentConfig] = None,
+    channel_drop_cfg: Optional[ChannelDropConfig] = None,
 ) -> Dict[str, float]:
     update_freq = trainer_cfg.update_freq
     if nb_classes is None:
@@ -143,6 +167,9 @@ def train_one_epoch(
     channel_indices = None
     if ch_names is not None:
         channel_indices = utils.get_channel_indices(ch_names)
+    dropper = ChannelDropper.from_config(channel_drop_cfg, ch_names)
+    if dropper is not None and isinstance(criterion, CodebookRegularizedCriterion):
+        raise ValueError("channel_drop is not supported with model.codebook_reg")
     model.train(True)
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -188,10 +215,25 @@ def train_one_epoch(
         # Mixed batches carry no case id, so they stay out of the per-case
         # train report (their running MAE is scored against the mixed target).
         mixed = use_mixup and torch.rand(()).item() < mixup_cfg.prob
-        if mixed:
+        if mixed and dropper is not None:
+            # Blend the channel_drop channels only where both partners have them.
+            had = dropper.has_channels(samples)
+            samples, targets, _, perm = mixup_batch(samples, targets, mixup_cfg.alpha,
+                                                    mixup_sigma, return_perm=True)
+            samples = dropper.zero_rows(samples, ~(had & had[perm]))
+        elif mixed:
             samples, targets, _ = mixup_batch(samples, targets, mixup_cfg.alpha, mixup_sigma)
+        consistency = None
 
-        if loss_scaler is None:
+        if dropper is not None:
+            drop_all = torch.rand(()).item() < dropper.cfg.prob
+            if loss_scaler is None:
+                samples = samples.half()
+            with torch.amp.autocast(device.type, enabled=(device.type == 'cuda'
+                                                           and loss_scaler is not None)):
+                loss, output, breakdown, consistency = train_channel_drop_batch(
+                    model, samples, targets, criterion, dropper, drop_all)
+        elif loss_scaler is None:
             samples = samples.half()
             loss, output, breakdown = train_class_batch(
                 model, samples, targets, criterion, channel_indices)
@@ -267,6 +309,8 @@ def train_one_epoch(
                 train_groups.extend(list(group_batch))
 
         metric_logger.update(loss=loss_value)
+        if consistency is not None:
+            metric_logger.update(channel_drop_consistency=float(consistency.detach()))
         # Keep the meter name stable across tasks so the existing logging and
         # progress output need no branching; for regression it holds MAE.
         metric_logger.update(**{('mae' if is_regression else 'class_acc'): step_metric})
@@ -380,6 +424,7 @@ def evaluate(
     loss_cfg: Optional[LossConfig] = None,
     logging_cfg: Optional[LoggingConfig] = None,
     criterion: Optional[torch.nn.Module] = None,
+    channel_drop_cfg: Optional[ChannelDropConfig] = None,
 ) -> Dict[str, float]:
     """Evaluate a split.
 
@@ -444,6 +489,7 @@ def evaluate(
         elif with_session:
             criterion = SessionFeatureAgeCriterion(criterion)
 
+    dropper = ChannelDropper.from_config(channel_drop_cfg, ch_names)
     metric_logger = utils.MetricLogger(delimiter="  ")
 
     # switch to evaluation mode
@@ -473,8 +519,13 @@ def evaluate(
         with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
             condition = model_condition(criterion, target)
             extra = {} if condition is None else {'condition': condition}
-            output = model(eeg_batch, channel_indices=channel_indices,
-                           classify_only=not regularized, **extra)
+            if dropper is not None:
+                # Recordings without the channel_drop channels run without them.
+                output = dropper.forward(model, eeg_batch, dropper.has_channels(eeg_batch),
+                                         condition=condition)
+            else:
+                output = model(eeg_batch, channel_indices=channel_indices,
+                               classify_only=not regularized, **extra)
             if regularized:
                 breakdown = criterion(output, target)
                 loss = breakdown.total
@@ -996,6 +1047,7 @@ def train_loop(
             metrics=metrics,
             mixup_cfg=getattr(config, 'mixup', None),
             augment_cfg=getattr(config, 'augment', None),
+            channel_drop_cfg=getattr(config, 'channel_drop', None),
         )
         train_timing = utils.timing_stats(
             'train', train_timer.elapsed(), int(train_stats.get('samples_processed', 0)))
@@ -1020,7 +1072,8 @@ def train_loop(
                                  log_writer=log_writer, head='val', epoch=epoch,
                                  task=task, target_stats=target_stats,
                                  loss_cfg=config.loss, logging_cfg=config.logging,
-                                 criterion=criterion)
+                                 criterion=criterion,
+                                 channel_drop_cfg=getattr(config, 'channel_drop', None))
             validation_timing = utils.timing_stats(
                 'validation', validation_timer.elapsed(),
                 int(val_stats.get('samples_processed', 0)))
@@ -1035,7 +1088,8 @@ def train_loop(
                                       log_writer=log_writer, head='test', epoch=epoch,
                                       task=task, target_stats=target_stats,
                                       loss_cfg=config.loss, logging_cfg=config.logging,
-                                      criterion=criterion)
+                                      criterion=criterion,
+                                      channel_drop_cfg=getattr(config, 'channel_drop', None))
                 test_timing = utils.timing_stats(
                     'test', test_timer.elapsed(), int(test_stats.get('samples_processed', 0)))
                 logger.info(f"Test EEG {select_metric}: {test_stats[select_metric]:.2f}{unit}")

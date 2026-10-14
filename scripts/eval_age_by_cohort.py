@@ -40,15 +40,19 @@ from labram.eval.loading import load_run_config
 from labram.losses import build_downstream_criterion, regression_output, soft_label_n_bins
 from labram.runs.finetune_setup import enable_window_ids
 from labram.runs.run_finetune import get_model
+from labram.train.channel_drop import ChannelDropper
 
 METRICS = ["mae", "rmse", "r2", "pearson_r"]
 
 
-def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, session=False):
+def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, session=False,
+             channel_drop=None):
     enable_window_ids(dataset, "recording")
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False,
                                          num_workers=8, pin_memory=True)
     channel_indices = utils.get_channel_indices(ch_names)
+    # Recordings without a channel_drop run's channels (zero-filled) run without them.
+    dropper = ChannelDropper.from_config(channel_drop, ch_names)
     preds, targets, recs = [], [], []
     with torch.no_grad():
         for x, y, rec in loader:
@@ -58,7 +62,11 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
                 extra = {"condition": y[:, 1:].float().to(device)}
                 y = y[:, 0]
             with torch.amp.autocast(device.type, enabled=device.type == "cuda"):
-                out = model(x, channel_indices=channel_indices, classify_only=True, **extra)
+                if dropper is not None:
+                    out = dropper.forward(model, x, dropper.has_channels(x),
+                                          condition=extra.get("condition"))
+                else:
+                    out = model(x, channel_indices=channel_indices, classify_only=True, **extra)
             out = getattr(out, "logits", out)
             if to_scalar is not None:          # soft-label head: bin logits -> expectation
                 out = to_scalar(out)
@@ -139,7 +147,8 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
               "pred_target_stats": pred_stats or bundle.target_stats}
     for split in splits:
         pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device,
-                                    batch_size, to_scalar, session=session)
+                                    batch_size, to_scalar, session=session,
+                                    channel_drop=getattr(cfg, "channel_drop", None))
         ids, p, t = _per_recording(pred, true, recs, bundle.target_stats, pred_stats)
         cohort = np.array([labels.get(r) for r in ids])   # group ids are recording stems
         out = {}

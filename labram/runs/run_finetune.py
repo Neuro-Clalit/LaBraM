@@ -381,7 +381,8 @@ def main(config: FinetuneRunConfig, bundle=None):
                                   nb_classes=nb_classes, eval_cfg=config.evaluation,
                                   log_writer=log_writer, head='test', epoch=0,
                                   task=task, target_stats=config.model.target_stats,
-                                  loss_cfg=config.loss, criterion=criterion)
+                                  loss_cfg=config.loss, criterion=criterion,
+                                  channel_drop_cfg=config.channel_drop)
             for k in summary_keys:
                 collected[k].append(test_stats[k])
         logger.info(", ".join(

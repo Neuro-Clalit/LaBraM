@@ -396,15 +396,20 @@ class NeuralTransformer(NeuralTransformerBase):
         For example, for an EEG sample of 4 seconds with 64 electrodes, x will be [batch size, 64, 4, 200]
         '''
         condition = kwargs.pop('condition', None)
+        # (output, head-input feature) -- the pooled / class-token feature
+        # before any condition embedding; None for a features-only model.
+        return_features = kwargs.pop('return_features', False)
         if self.session_mode == "only":
             # No EEG encoder: the head sees just the session features.
             if condition is None:
                 raise ValueError("this model takes session features: call it with "
                                  "condition=<(B, n_features) tensor>")
-            return self.head(self.session_drop(condition.to(self.head_dtype())))
+            out = self.head(self.session_drop(condition.to(self.head_dtype())))
+            return (out, None) if return_features else out
         if self.session_mode == "tokens":
             kwargs['session'] = condition
         x = self.forward_features(x, channel_indices=channel_indices, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
+        feature = x
         if self.session_mode == "head":
             if condition is None:
                 raise ValueError("this model takes session features: call it with "
@@ -414,7 +419,7 @@ class NeuralTransformer(NeuralTransformerBase):
         if self.abnormal_embed is not None:
             x = torch.cat((x, self.embed_abnormal(condition)), dim=-1)
         x = self.head(x)
-        return x
+        return (x, feature) if return_features else x
 
     def head_dtype(self):
         return next(self.head.parameters()).dtype

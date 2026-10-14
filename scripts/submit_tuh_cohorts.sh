@@ -23,6 +23,11 @@
 #          dataset_maker/make_condition_features.py
 #   exp3clscond: exp3cond with the head on the class token instead of the mean
 #          of the patch tokens (model.use_mean_pooling=false)
+#   exp4aug: exp3cond on the class token with all_both_v3 (adds the TUEG
+#          recordings lacking only T1/T2) on 23 channels: recordings without
+#          T1/T2 run without those tokens; per training batch, with p=0.2,
+#          T1/T2 are dropped for every row, the loss is on that pass, plus
+#          mean (f_full - f_dropped)^2 on the class token (channel_drop.*)
 #   exp1f: the same features with no EEG encoder: an MLP head on the features
 #          only (normal_both_v1_meta = the cohort's metadata + features, no EEG)
 #   DRY_RUN=1 scripts/submit_tuh_cohorts.sh exp2 exp3
@@ -32,16 +37,16 @@ PY="${PY:-python}"
 S3=s3://eeg-data-public/TUH_EEG/cohorts
 declare -A COHORT=([exp2]=normal_tueg_v1 [exp3]=all_both_v1 [exp3b]=all_both_v1 [exp3q]=all_both_v1
                    [exp1t]=normal_both_v1 [exp1f]=normal_both_v1_meta [exp3cond]=all_both_v2
-                   [exp3clscond]=all_both_v2)
-declare -A EPOCHS=([exp2]=4 [exp3]=4 [exp3b]=10 [exp3q]=4 [exp1t]=4 [exp1f]=4 [exp3cond]=4 [exp3clscond]=4)
-declare -A WARMUP=([exp2]=1 [exp3]=1 [exp3b]=3 [exp3q]=1 [exp1t]=1 [exp1f]=1 [exp3cond]=1 [exp3clscond]=1)
+                   [exp3clscond]=all_both_v2 [exp4aug]=all_both_v3)
+declare -A EPOCHS=([exp2]=4 [exp3]=4 [exp3b]=10 [exp3q]=4 [exp1t]=4 [exp1f]=4 [exp3cond]=4 [exp3clscond]=4 [exp4aug]=4)
+declare -A WARMUP=([exp2]=1 [exp3]=1 [exp3b]=3 [exp3q]=1 [exp1t]=1 [exp1f]=1 [exp3cond]=1 [exp3clscond]=1 [exp4aug]=1)
 declare -A VOLUME=([exp2]=120 [exp3]=590 [exp3b]=590 [exp3q]=590    # GB: File mode copies the cohort first
-                   [exp1t]=200 [exp1f]=30 [exp3cond]=590 [exp3clscond]=590)
+                   [exp1t]=200 [exp1f]=30 [exp3cond]=590 [exp3clscond]=590 [exp4aug]=590)
 # exp3 (459 GB) exceeds the 450 GB local disk of ml.g5.2xlarge; ml.g5.4xlarge has the
 # same A10G GPU and 600 GB of NVMe.
 declare -A INSTANCE=([exp2]=ml.g5.2xlarge [exp3]=ml.g5.4xlarge [exp3b]=ml.g5.4xlarge [exp3q]=ml.g5.4xlarge
                      [exp1t]=ml.g5.2xlarge [exp1f]=ml.g5.2xlarge [exp3cond]=ml.g5.4xlarge
-                     [exp3clscond]=ml.g5.4xlarge)
+                     [exp3clscond]=ml.g5.4xlarge [exp4aug]=ml.g5.4xlarge)
 # Extra --set overrides. SPOT (unused for now): exp3 ran 5.9 h, so a 10 h cap
 # and up to 24 h of queueing; an interrupted job resumes from its S3 checkpoint.
 SPOT="sagemaker.use_spot=true sagemaker.max_run_sec=36000 sagemaker.max_wait_min=2040"
@@ -51,9 +56,10 @@ declare -A EXTRA=([exp2]= [exp3]= [exp3b]=
                   [exp1t]="data.session_features=session_features_top10_v1.npz model.session_features=tokens model.session_feature_norm=post"
                   [exp3cond]="data.session_features=conditions_v1.npz model.session_features=head"
                   [exp3clscond]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false"
+                  [exp4aug]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false channel_drop.channels=[\"T1\",\"T2\"] channel_drop.prob=0.2 channel_drop.consistency_weight=1.0"
                   [exp1f]="${FEATS} model.session_features=only model.head_type=mlp model.mlp_head.hidden_dims=[256] model.mlp_head.drop=0.3 model.session_feature_drop=0.2")
 declare -A TAG=([exp2]= [exp3]= [exp3b]= [exp3q]=qc800-0.5 [exp1t]=feat-tokens [exp1f]=feat-only [exp3cond]=cond-status-pathology
-                [exp3clscond]=cls-cond-status-pathology)
+                [exp3clscond]=cls-cond-status-pathology [exp4aug]=cls-cond-augT1T2)
 mode=(--detach); [[ "${DRY_RUN:-0}" == "1" ]] && mode=(--dry_run)
 for exp in "$@"; do
   cohort=${COHORT[$exp]}
