@@ -74,6 +74,9 @@ def build_finetune_model(
             **({'depth': m.depth} if m.depth is not None else {}),
             input_clip=m.input_clip_uv / 100,
         )
+        if m.fused_attention:
+            from labram.layers.attention import set_fused_attention
+            set_fused_attention(model, True)
     if device is not None:
         model.to(device)
     return model

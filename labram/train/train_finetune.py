@@ -1020,7 +1020,10 @@ def train_loop(
 
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
         epoch_timer = utils.PhaseTimer(device)
-        if config.distributed.distributed:
+        # Reshuffle (and, for RecordingSubsetSampler, redraw) every epoch --
+        # also on one GPU, where the DistributedSampler would otherwise repeat
+        # the same order each epoch.
+        if hasattr(loaders.train.sampler, 'set_epoch'):
             loaders.train.sampler.set_epoch(epoch)
         if log_writer is not None:
             log_writer.set_step(epoch * num_training_steps_per_epoch * config.trainer.update_freq)

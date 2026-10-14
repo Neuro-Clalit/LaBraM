@@ -90,6 +90,7 @@
         "window_min_std_uv": 0.0,
         "session_features": "",
         "drop_channels": [],
+        "train_minutes_per_epoch": 0.0,
         "stage_dir": "auto",
         "stage_reserve_gb": 20.0
     },
@@ -162,6 +163,7 @@
         "session_head_dim": 32,
         "depth": null,
         "input_clip_uv": 0.0,
+        "fused_attention": false,
         "init_scale": 0.001,
         "nb_classes": 0,
         "task": "regression",

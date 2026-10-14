@@ -93,6 +93,7 @@
         "window_min_std_uv": 0.0,
         "session_features": "",
         "drop_channels": [],
+        "train_minutes_per_epoch": 0.0,
         "stage_dir": "auto",
         "stage_reserve_gb": 20.0
     },

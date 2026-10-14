@@ -86,6 +86,9 @@ def get_model(config: FinetuneRunConfig):
         **({'depth': m.depth} if m.depth is not None else {}),
         input_clip=m.input_clip_uv / 100,
     )
+    if m.fused_attention:
+        from labram.layers.attention import set_fused_attention
+        set_fused_attention(model, True)
     if m.lora.enabled:
         # Injected before the pretrained checkpoint loads: the base weights keep
         # their keys, the LoRA factors are new (B = 0, so the model is unchanged
@@ -221,6 +224,15 @@ def main(config: FinetuneRunConfig, bundle=None):
         dataset_train, dataset_val, dataset_test,
         num_tasks, global_rank, config.distributed.dist_eval,
     )
+    if config.data.train_minutes_per_epoch and not config.trainer.eval:
+        # A fresh random subset of each recording's training samples per epoch.
+        from labram.data.samplers import RecordingSubsetSampler
+        per_recording = max(1, int(config.data.train_minutes_per_epoch * 60
+                                   // config.data.window_sec))
+        sampler_train = RecordingSubsetSampler(
+            dataset_train, per_recording, num_replicas=num_tasks, rank=global_rank,
+            seed=config.distributed.seed)
+        logger.info("Sampler_train = %s", sampler_train)
 
     log_writer = runner_common.create_log_writer(
         config.output, global_rank, config.clearml, config)
@@ -279,7 +291,8 @@ def main(config: FinetuneRunConfig, bundle=None):
         config.logging, config.output, model_without_ddp, log_writer)
 
     total_batch_size = config.trainer.batch_size * config.trainer.update_freq * utils.get_world_size()
-    num_training_steps_per_epoch = len(dataset_train) // total_batch_size
+    # Samples per epoch across ranks: the dataset, or a per-epoch subset of it.
+    num_training_steps_per_epoch = len(sampler_train) * utils.get_world_size() // total_batch_size
     logger.info(f"LR={config.optimizer.lr:.8f}  batch={total_batch_size}  update_freq={config.trainer.update_freq}")
 
     num_layers = model_without_ddp.get_num_layers()

@@ -67,8 +67,19 @@ class Attention(nn.Module):
             self.relative_position_index = None
 
         self.attn_drop = nn.Dropout(attn_drop)
+        # PyTorch's fused scaled_dot_product_attention instead of the explicit
+        # softmax(q k^T) v (same maths; flash/memory-efficient kernels). Set by
+        # set_fused_attention (model.fused_attention); attention maps
+        # (return_attention) always take the explicit path.
+        self.fused_attn = False
         self.proj = nn.Linear(all_head_dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
+
+    def _relative_position_bias(self):
+        bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
+            self.window_size[0] * self.window_size[1] + 1,
+            self.window_size[0] * self.window_size[1] + 1, -1)
+        return bias.permute(2, 0, 1).contiguous()
 
     def forward(self, x, rel_pos_bias=None, return_attention=False, return_qkv=False):
         B, N, C = x.shape
@@ -87,6 +98,20 @@ class Attention(nn.Module):
             q = self.q_norm(q).type_as(v)
         if self.k_norm is not None:
             k = self.k_norm(k).type_as(v)
+
+        if self.fused_attn and not return_attention:
+            bias = None
+            if self.relative_position_bias_table is not None:
+                bias = self._relative_position_bias().unsqueeze(0)
+            if rel_pos_bias is not None:
+                bias = rel_pos_bias if bias is None else bias + rel_pos_bias
+            if bias is not None:
+                bias = bias.to(q.dtype)
+            x = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=bias, scale=self.scale,
+                dropout_p=self.attn_drop.p if self.training else 0.0)
+            x = self.proj_drop(self.proj(x.transpose(1, 2).reshape(B, N, -1)))
+            return (x, qkv) if return_qkv else x
 
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
@@ -117,3 +142,14 @@ class Attention(nn.Module):
             return x, qkv
 
         return x
+
+
+def set_fused_attention(model: nn.Module, enabled: bool) -> int:
+    """Switch every :class:`Attention` in ``model`` to (or off) the fused
+    kernel; returns how many layers were set."""
+    n = 0
+    for m in model.modules():
+        if isinstance(m, Attention):
+            m.fused_attn = bool(enabled)
+            n += 1
+    return n

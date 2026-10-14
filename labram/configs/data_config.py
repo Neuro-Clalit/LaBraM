@@ -72,6 +72,11 @@ class DataConfig(ConfigBase):
     # e.g. ["T1", "T2"] for a 21-channel model that can also use the TUEG
     # recordings without them. The files keep all channels.
     drop_channels: List[str] = field(default_factory=list)
+    # Training only: each epoch, a fresh random draw of this many minutes of
+    # samples per recording (window_sec each) from its selected training
+    # samples, shuffled; 0 = every sample every epoch. Shorter epochs, same
+    # recordings and patients (labram/data/samplers.py).
+    train_minutes_per_epoch: Union[int, float] = 0.0
     # npy only: copy the recordings the run uses onto fast local storage before
     # training (labram/data/staging.py). "auto" = the instance NVMe
     # (/opt/dlami/nvme) when present, skipped inside SageMaker; "off" disables; any other value is a directory. Train is staged first, then
