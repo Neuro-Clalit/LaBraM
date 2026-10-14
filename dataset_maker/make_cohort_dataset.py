@@ -77,10 +77,13 @@ def label_of(row):
     return None
 
 
-def select(j, experiment, *, min_age, max_age, min_minutes):
-    """Boolean masks of the train/val candidates and of the test recordings."""
+def select(j, experiment, *, min_age, max_age, min_minutes, allow_missing=()):
+    """Boolean masks of the train/val candidates and of the test recordings.
+    A recording may lack only channels in ``allow_missing`` (zero-filled in the
+    npy; a model then drops them with data.drop_channels)."""
+    allowed = {c.upper() for c in allow_missing}
     usable = (j.age.between(min_age, max_age) & (j.duration_sec >= 60 * min_minutes)
-              & (j.missing_channels.map(len) == 0))
+              & j.missing_channels.map(lambda m: {c.upper() for c in m} <= allowed))
     healthy = (tc.normative_mask(j) & (j.abnormal.fillna(0).astype(int) != 1)).fillna(False).astype(bool)
     pool = usable & (healthy if experiment.startswith("normal") else True)
     test = (j.source_split == "eval") & j.age.notna()
@@ -149,7 +152,7 @@ def build(args):
     j = j[j.stem.isin(rows)].reset_index(drop=True)          # converted recordings only
     tuab_split = tuab_subject_split(args.tuab_split)
     pool, test = select(j, args.experiment, min_age=args.min_age, max_age=args.max_age,
-                        min_minutes=args.min_minutes)
+                        min_minutes=args.min_minutes, allow_missing=args.allow_missing)
     patient_split = (json.load(open(args.patient_split))["subjects"]
                      if args.patient_split else None)
     split = assign_splits(j, pool, test, args.experiment, tuab_split,
@@ -187,6 +190,7 @@ def build(args):
                 "cohort": {"experiment": args.experiment, "source": args.source,
                            "seed": args.seed, "val_fraction": args.val_fraction,
                            "patient_split": args.patient_split,
+                           "allow_missing": list(args.allow_missing),
                            "max_per_subject": args.max_per_subject,
                            "train_minutes": args.train_minutes, "min_age": args.min_age,
                            "max_age": args.max_age, "min_minutes": args.min_minutes,
@@ -245,6 +249,8 @@ def main(argv=None):
     p.add_argument("--min-age", type=int, default=18)
     p.add_argument("--max-age", type=int, default=89)
     p.add_argument("--min-minutes", type=float, default=5.0)
+    p.add_argument("--allow-missing", nargs="*", default=[], metavar="CHANNEL",
+                   help="channels a recording may lack, e.g. T1 T2 (v3: 21-channel cohorts)")
     p.add_argument("--link", action="store_true", help="hard-link the recordings from --source")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)

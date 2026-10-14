@@ -105,6 +105,9 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     if not window_qc:
         selection = dataclasses.replace(selection, max_abs_uv=0.0, min_std_uv=0.0)
     bundle = apply_window_selection(bundle, selection)
+    if cfg.data.drop_channels:
+        from labram.data.channel_selection import drop_channels
+        drop_channels(bundle, cfg.data.drop_channels)
     session = cfg.model.session_features != "off"
     if session:
         for split in splits:

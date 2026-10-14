@@ -68,6 +68,10 @@ class DataConfig(ConfigBase):
     # (dataset_maker/make_session_features.py), a file name inside data_path or
     # an absolute path; "" = none. Used by model.session_features.
     session_features: str = ""
+    # npy only: channels left out of every sample in every split (10-20 names),
+    # e.g. ["T1", "T2"] for a 21-channel model that can also use the TUEG
+    # recordings without them. The files keep all channels.
+    drop_channels: List[str] = field(default_factory=list)
     # npy only: copy the recordings the run uses onto fast local storage before
     # training (labram/data/staging.py). "auto" = the instance NVMe
     # (/opt/dlami/nvme) when present, skipped inside SageMaker; "off" disables; any other value is a directory. Train is staged first, then

@@ -136,6 +136,9 @@ def main(config: FinetuneRunConfig, bundle=None):
     # Case filter / start-end trimming / longer inputs / per-recording eval
     # budget. Idempotent, so it is safe on a reused split or a CV fold bundle.
     bundle = apply_window_selection(bundle, WindowSelection.from_data_config(config.data))
+    if config.data.drop_channels:
+        from labram.data.channel_selection import drop_channels
+        drop_channels(bundle, config.data.drop_channels)
     if config.data.random_crop:
         enable_random_crop(bundle.train)
     if not config.trainer.debug:

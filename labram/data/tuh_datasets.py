@@ -274,6 +274,8 @@ class NpyWindowsMixin:
         # Serve zeros instead of reading the EEG (a model that ignores it,
         # model.session_features=only).
         self.skip_signal = False
+        # Column indices served (data.drop_channels); None = every channel.
+        self.keep_channels = None
         self.sample_bounds = {}
         self._mmaps = OrderedDict()
         self._manifest = None
@@ -318,7 +320,9 @@ class NpyWindowsMixin:
         stem, k = os.path.basename(filename)[:-4].rsplit(self._recording_sep, 1)
         length = WINDOW_SAMPLES * self.windows_per_item
         if self.skip_signal:
-            X = torch.zeros(len(self.manifest().get("channels") or ()) or 23, length)
+            n_ch = (len(self.keep_channels) if self.keep_channels is not None
+                    else len(self.manifest().get("channels") or ()) or 23)
+            X = torch.zeros(n_ch, length)
             Y = self._label_fn(None, filename)
             return (X, Y, self.group_id(filename)) if self.return_id else (X, Y)
         start = int(k) * WINDOW_SAMPLES
@@ -327,7 +331,10 @@ class NpyWindowsMixin:
             lo, hi = max(lo, start - length // 2), min(hi - length, start + length // 2)
             if hi > lo:
                 start = int(torch.randint(lo, hi + 1, (1,)))
-        X = np.ascontiguousarray(self._recording(stem)[start:start + length].T, dtype=np.float32)
+        seg = self._recording(stem)[start:start + length]
+        if self.keep_channels is not None:
+            seg = seg[:, self.keep_channels]
+        X = np.ascontiguousarray(seg.T, dtype=np.float32)
         if X.shape[-1] != length:
             raise ValueError(f"{filename}: crop [{start}, {start + length}) is out of range")
         if self.sampling_rate != self.default_rate:

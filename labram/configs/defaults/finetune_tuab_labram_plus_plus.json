@@ -89,6 +89,7 @@
         "window_max_abs_uv": 0.0,
         "window_min_std_uv": 0.0,
         "session_features": "",
+        "drop_channels": [],
         "stage_dir": "auto",
         "stage_reserve_gb": 20.0
     },
