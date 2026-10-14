@@ -52,12 +52,13 @@ declare -A EPOCHS=([exp2]=4 [exp3]=4 [exp3b]=10 [exp3q]=4 [exp1t]=4 [exp1f]=4 [e
 declare -A WARMUP=([exp2]=1 [exp3]=1 [exp3b]=3 [exp3q]=1 [exp1t]=1 [exp1f]=1 [exp3cond]=1 [exp3clscond]=1 [exp4aug]=2 [exp4ctrl]=2 [exp4base]=2)
 declare -A VOLUME=([exp2]=120 [exp3]=590 [exp3b]=590 [exp3q]=590    # GB: File mode copies the cohort first
                    [exp1t]=200 [exp1f]=30 [exp3cond]=590 [exp3clscond]=590 [exp4aug]=590 [exp4ctrl]=590 [exp4base]=590)
-# exp3 (459 GB) exceeds the 450 GB local disk of ml.g5.2xlarge; ml.g5.4xlarge has the
+# exp4base runs on ml.g5.16xlarge (same single A10G, 64 vCPU, 600 GB) when the one
+# ml.g5.4xlarge on-demand slot is taken. exp3 (459 GB) exceeds the 450 GB local disk of ml.g5.2xlarge; ml.g5.4xlarge has the
 # same A10G GPU and 600 GB of NVMe.
 declare -A INSTANCE=([exp2]=ml.g5.2xlarge [exp3]=ml.g5.4xlarge [exp3b]=ml.g5.4xlarge [exp3q]=ml.g5.4xlarge
                      [exp1t]=ml.g5.2xlarge [exp1f]=ml.g5.2xlarge [exp3cond]=ml.g5.4xlarge
                      [exp3clscond]=ml.g5.4xlarge [exp4aug]=ml.g5.4xlarge
-                     [exp4ctrl]=ml.g5.4xlarge [exp4base]=ml.g5.4xlarge)
+                     [exp4ctrl]=ml.g5.4xlarge [exp4base]=ml.g5.16xlarge)
 # Extra --set overrides. SPOT (unused for now): exp3 ran 5.9 h, so a 10 h cap
 # and up to 24 h of queueing; an interrupted job resumes from its S3 checkpoint.
 SPOT="sagemaker.use_spot=true sagemaker.max_run_sec=36000 sagemaker.max_wait_min=2040"
