@@ -118,7 +118,7 @@ for exp in "$@"; do
     # Spot without checkpoint syncing (two checkpointed spot runs died at an
     # interruption with 'Too many files are written'); a reclaimed job restarts.
     extra+=(sagemaker.use_spot=true sagemaker.checkpoint_s3_uri=off
-            sagemaker.max_run_sec=28800 sagemaker.max_wait_min=2880)
+            sagemaker.max_run_sec=50400 sagemaker.max_wait_min=2880)
   fi
   "${PY}" -m labram.runs.submit_sagemaker --config labram/configs/defaults/finetune_tuab_age.json "${mode[@]}" --set \
     sagemaker.enabled=true sagemaker.role="${ROLE}" sagemaker.instance_type="${INSTANCE[$exp]}" \
