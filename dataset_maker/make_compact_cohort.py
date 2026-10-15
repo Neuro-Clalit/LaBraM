@@ -19,6 +19,13 @@ cohort, and so does ``data.random_crop``.
 The selection must match the runs that use the compact copy (trims, window
 length, eval budget, case filter); a different selection needs its own copy.
 
+``--cv``: cross-validation moves recordings between train, val and test, so
+for every recording store what *either* role selects from its listed windows
+-- the training selection (all listed windows inside the trim) and the
+evaluation selection (the first ``eval_minutes`` after the trim) -- and keep
+all listed files (restricted to stored windows, original order) in the age
+split, so the folds and every fold's samples match the full cohort's.
+
     python -m dataset_maker.make_compact_cohort --src .../cohorts/all_both_v3 \\
         --dst .../cohorts/all_both_v3_compact --verify 2000
 """
@@ -44,8 +51,10 @@ W = 2000
 COPY = ("age_metadata.json", "cohort.parquet")
 
 
-def selected_windows(root, selection):
+def selected_windows(root, selection, cv=False):
     """stem -> sorted window indices the selection uses, and split -> files."""
+    if cv:
+        return _cv_windows(root, selection)
     bundle = apply_window_selection(get_dataset_bundle("TUAB_AGE", root, data_format="npy"),
                                     selection)
     kept, files = {}, {}
@@ -59,6 +68,29 @@ def selected_windows(root, selection):
     return {s: sorted(v) for s, v in kept.items()}, files
 
 
+def _cv_windows(root, selection):
+    """Union of the training and the evaluation selection of every recording's
+    listed files; the files kept are the listed ones that are stored."""
+    from labram.data.window_selection import select_files
+    bundle = get_dataset_bundle("TUAB_AGE", root, data_format="npy")
+    kept, listed = {}, {}
+    k = selection.windows_per_sample
+    for split in ("train", "val", "test"):
+        for leaf in _leaves(getattr(bundle, split)):
+            n_windows, available = leaf.window_inventory()
+            for is_eval in (False, True):
+                for f in select_files(leaf.files, selection, n_windows=n_windows,
+                                      available=available, is_eval=is_eval):
+                    i = window_index(f)
+                    kept.setdefault(recording_stem(f), set()).update(range(i, i + k))
+            listed[split] = list(leaf.files)
+    kept = {s: sorted(v) for s, v in kept.items()}
+    sets = {s: set(v) for s, v in kept.items()}
+    files = {split: [f for f in fs if window_index(f) in sets.get(recording_stem(f), ())]
+             for split, fs in listed.items()}
+    return kept, files
+
+
 def _write(job):
     src, dst, ks = job
     x = np.load(src, mmap_mode="r")
@@ -69,9 +101,9 @@ def _write(job):
     return out.nbytes
 
 
-def build(src, dst, selection, threads=16):
+def build(src, dst, selection, threads=16, cv=False):
     manifest = json.load(open(os.path.join(src, "manifest.json")))
-    kept, files = selected_windows(src, selection)
+    kept, files = selected_windows(src, selection, cv=cv)
     os.makedirs(os.path.join(dst, "recordings"), exist_ok=True)
     rows = [dict(r) for r in manifest["recordings"] if r["stem"] in kept]
     jobs = [(os.path.join(src, "recordings", f"{r['stem']}.npy"),
@@ -91,7 +123,8 @@ def build(src, dst, selection, threads=16):
     out = {k: v for k, v in manifest.items() if k not in ("recordings", "n_recordings", "n_windows")}
     out.update(n_recordings=len(rows), n_windows=sum(r["n_windows"] for r in rows),
                n_stored_windows=sum(len(kept[r["stem"]]) for r in rows), recordings=rows,
-               compact={"source": os.path.abspath(src), "selection": selection.__dict__})
+               compact={"source": os.path.abspath(src), "selection": selection.__dict__,
+                        "mode": "cv" if cv else "fixed"})
     json.dump(out, open(os.path.join(dst, "manifest.json"), "w"))
     split = json.load(open(os.path.join(src, "age_split.json")))
     # Same order as the source's selected files: sample indices (hence the
@@ -132,13 +165,15 @@ def main(argv=None):
     p.add_argument("--set", nargs="*", default=[], help="config overrides, e.g. data.eval_minutes=5")
     p.add_argument("--threads", type=int, default=16)
     p.add_argument("--verify", type=int, default=0, help="bit-compare N random samples per split")
+    p.add_argument("--cv", action="store_true",
+                   help="store every recording's training and evaluation windows (cross-validation)")
     args = p.parse_args(argv)
     cfg = FinetuneRunConfig.load_config(args.config, **parse_overrides(args.set))
     selection = WindowSelection.from_data_config(cfg.data)
     if selection.quality_filter:
         raise SystemExit("compact copies do not carry window_stats.npz: drop the quality filter")
     print(f"selection: {selection}")
-    total, out = build(args.src, args.dst, selection, args.threads)
+    total, out = build(args.src, args.dst, selection, args.threads, cv=args.cv)
     print(f"{args.dst}: {out['n_recordings']} recordings, {out['n_stored_windows']} of "
           f"{out['n_windows']} windows stored, {total / 1e9:.1f} GB")
     if args.verify:
