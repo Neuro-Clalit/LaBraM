@@ -42,7 +42,9 @@
 #   exp4basec: exp4base on all_both_v3_compact (only the windows exp4base's
 #          selection uses, dataset_maker/make_compact_cohort.py; ~2.4x
 #          smaller), on ml.g5.2xlarge -- whose 450 GB disk cannot hold the full
-#          v3 -- to check the compact copy reproduces exp4base
+#          v3 -- to check the compact copy reproduces exp4base; it reuses
+#          exp4base's recorded data_split.json (data.split_json), so the
+#          train/val/test samples and their order are exp4base's
 #   exp1f: the same features with no EEG encoder: an MLP head on the features
 #          only (normal_both_v1_meta = the cohort's metadata + features, no EEG)
 #   DRY_RUN=1 scripts/submit_tuh_cohorts.sh exp2 exp3
@@ -81,7 +83,7 @@ declare -A EXTRA=([exp2]= [exp3]= [exp3b]=
                   [exp3clscond]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false"
                   [exp4aug]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.2 channel_drop.consistency_weight=1.0 ${FAST}"
                   [exp4base]="channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST}"
-                  [exp4basec]="channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST}"
+                  [exp4basec]="channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST} data.split_json=s3://eeg-data-public/TUH_EEG/cohorts/splits/exp4base_data_split.json"
                   [exp4ctrl]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST} trainer.early_stopping=true"
                   [exp1f]="${FEATS} model.session_features=only model.head_type=mlp model.mlp_head.hidden_dims=[256] model.mlp_head.drop=0.3 model.session_feature_drop=0.2")
 declare -A TAG=([exp2]= [exp3]= [exp3b]= [exp3q]=qc800-0.5 [exp1t]=feat-tokens [exp1f]=feat-only [exp3cond]=cond-status-pathology
