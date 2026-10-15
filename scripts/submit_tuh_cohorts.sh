@@ -32,8 +32,9 @@
 #          class token + conditions, missing channels left out per sample, 6
 #          epochs / 2 warmup, fast settings: fused attention, 6 loader workers,
 #          batch 128 at lr 2e-4, 5 min per recording per epoch) but no channel
-#          augmentation (prob 0); val still reports the T1/T2-dropped MAE. Spot,
-#          checkpointed: an interruption resumes from the last epoch
+#          augmentation (prob 0); val still reports the T1/T2-dropped MAE.
+#          On-demand, 10 epochs / 3 warmup with early stopping (k = 3): spot
+#          ml.g5.4xlarge had no capacity for 9 h (2026-10-14/15)
 #   exp4base: the full-data baseline -- exp3's model (mean of the patch
 #          tokens, no condition vectors, no channel augmentation) on all_both_v3
 #          (every TUEG recording, missing channels left out per sample), 6
@@ -49,12 +50,11 @@ declare -A COHORT=([exp2]=normal_tueg_v1 [exp3]=all_both_v1 [exp3b]=all_both_v1 
                    [exp1t]=normal_both_v1 [exp1f]=normal_both_v1_meta [exp3cond]=all_both_v2
                    [exp3clscond]=all_both_v2 [exp4aug]=all_both_v3
                    [exp4ctrl]=all_both_v3 [exp4base]=all_both_v3)
-declare -A EPOCHS=([exp2]=4 [exp3]=4 [exp3b]=10 [exp3q]=4 [exp1t]=4 [exp1f]=4 [exp3cond]=4 [exp3clscond]=4 [exp4aug]=6 [exp4ctrl]=6 [exp4base]=6)
-declare -A WARMUP=([exp2]=1 [exp3]=1 [exp3b]=3 [exp3q]=1 [exp1t]=1 [exp1f]=1 [exp3cond]=1 [exp3clscond]=1 [exp4aug]=2 [exp4ctrl]=2 [exp4base]=2)
+declare -A EPOCHS=([exp2]=4 [exp3]=4 [exp3b]=10 [exp3q]=4 [exp1t]=4 [exp1f]=4 [exp3cond]=4 [exp3clscond]=4 [exp4aug]=6 [exp4ctrl]=10 [exp4base]=6)
+declare -A WARMUP=([exp2]=1 [exp3]=1 [exp3b]=3 [exp3q]=1 [exp1t]=1 [exp1f]=1 [exp3cond]=1 [exp3clscond]=1 [exp4aug]=2 [exp4ctrl]=3 [exp4base]=2)
 declare -A VOLUME=([exp2]=120 [exp3]=590 [exp3b]=590 [exp3q]=590    # GB: File mode copies the cohort first
                    [exp1t]=200 [exp1f]=30 [exp3cond]=590 [exp3clscond]=590 [exp4aug]=590 [exp4ctrl]=590 [exp4base]=590)
-# exp4ctrl runs on spot (its own ml.g5.4xlarge spot quota), leaving the one
-# ml.g5.4xlarge on-demand slot to exp4base. exp3 (459 GB) exceeds the 450 GB local disk of ml.g5.2xlarge; ml.g5.4xlarge has the
+# exp3 (459 GB) exceeds the 450 GB local disk of ml.g5.2xlarge; ml.g5.4xlarge has the
 # same A10G GPU and 600 GB of NVMe.
 declare -A INSTANCE=([exp2]=ml.g5.2xlarge [exp3]=ml.g5.4xlarge [exp3b]=ml.g5.4xlarge [exp3q]=ml.g5.4xlarge
                      [exp1t]=ml.g5.2xlarge [exp1f]=ml.g5.2xlarge [exp3cond]=ml.g5.4xlarge
@@ -77,7 +77,7 @@ declare -A EXTRA=([exp2]= [exp3]= [exp3b]=
                   [exp3clscond]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false"
                   [exp4aug]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.2 channel_drop.consistency_weight=1.0 ${FAST}"
                   [exp4base]="channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST}"
-                  [exp4ctrl]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST} ${SPOT}"
+                  [exp4ctrl]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST} trainer.early_stopping=true"
                   [exp1f]="${FEATS} model.session_features=only model.head_type=mlp model.mlp_head.hidden_dims=[256] model.mlp_head.drop=0.3 model.session_feature_drop=0.2")
 declare -A TAG=([exp2]= [exp3]= [exp3b]= [exp3q]=qc800-0.5 [exp1t]=feat-tokens [exp1f]=feat-only [exp3cond]=cond-status-pathology
                 [exp3clscond]=cls-cond-status-pathology [exp4aug]=cls-cond-augT1T2-fast [exp4ctrl]=cls-cond-ctrl-fast
