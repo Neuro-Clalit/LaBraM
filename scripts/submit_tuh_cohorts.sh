@@ -45,6 +45,12 @@
 #          v3 -- to check the compact copy reproduces exp4base; it reuses
 #          exp4base's recorded data_split.json (data.split_json), so the
 #          train/val/test samples and their order are exp4base's
+#   cvbase / cvctrl / cvaug: 5-fold cross-validation (patients, pool =
+#          train+val; the TUAB test set stays out) of exp4base (4 epochs / 1
+#          warmup), exp4ctrl and exp4-augT1T2 (6 / 2) on all_both_v3_cvcompact
+#          (make_compact_cohort --cv) on ml.g5.2xlarge. One fold per call:
+#          CV_FOLD=k; MODE=spot (no checkpointing) or ondemand (default).
+#          scripts/cv_scheduler.py submits them, spot first.
 #   exp1f: the same features with no EEG encoder: an MLP head on the features
 #          only (normal_both_v1_meta = the cohort's metadata + features, no EEG)
 #   DRY_RUN=1 scripts/submit_tuh_cohorts.sh exp2 exp3
@@ -55,17 +61,19 @@ S3=s3://eeg-data-public/TUH_EEG/cohorts
 declare -A COHORT=([exp2]=normal_tueg_v1 [exp3]=all_both_v1 [exp3b]=all_both_v1 [exp3q]=all_both_v1
                    [exp1t]=normal_both_v1 [exp1f]=normal_both_v1_meta [exp3cond]=all_both_v2
                    [exp3clscond]=all_both_v2 [exp4aug]=all_both_v3
-                   [exp4ctrl]=all_both_v3 [exp4base]=all_both_v3 [exp4basec]=all_both_v3_compact)
-declare -A EPOCHS=([exp2]=4 [exp3]=4 [exp3b]=10 [exp3q]=4 [exp1t]=4 [exp1f]=4 [exp3cond]=4 [exp3clscond]=4 [exp4aug]=6 [exp4ctrl]=10 [exp4base]=6 [exp4basec]=6)
-declare -A WARMUP=([exp2]=1 [exp3]=1 [exp3b]=3 [exp3q]=1 [exp1t]=1 [exp1f]=1 [exp3cond]=1 [exp3clscond]=1 [exp4aug]=2 [exp4ctrl]=3 [exp4base]=2 [exp4basec]=2)
+                   [exp4ctrl]=all_both_v3 [exp4base]=all_both_v3 [exp4basec]=all_both_v3_compact
+                   [cvbase]=all_both_v3_cvcompact [cvctrl]=all_both_v3_cvcompact [cvaug]=all_both_v3_cvcompact)
+declare -A EPOCHS=([exp2]=4 [exp3]=4 [exp3b]=10 [exp3q]=4 [exp1t]=4 [exp1f]=4 [exp3cond]=4 [exp3clscond]=4 [exp4aug]=6 [exp4ctrl]=10 [exp4base]=6 [exp4basec]=6 [cvbase]=4 [cvctrl]=6 [cvaug]=6)
+declare -A WARMUP=([exp2]=1 [exp3]=1 [exp3b]=3 [exp3q]=1 [exp1t]=1 [exp1f]=1 [exp3cond]=1 [exp3clscond]=1 [exp4aug]=2 [exp4ctrl]=3 [exp4base]=2 [exp4basec]=2 [cvbase]=1 [cvctrl]=2 [cvaug]=2)
 declare -A VOLUME=([exp2]=120 [exp3]=590 [exp3b]=590 [exp3q]=590    # GB: File mode copies the cohort first
-                   [exp1t]=200 [exp1f]=30 [exp3cond]=590 [exp3clscond]=590 [exp4aug]=590 [exp4ctrl]=590 [exp4base]=590 [exp4basec]=300)
+                   [exp1t]=200 [exp1f]=30 [exp3cond]=590 [exp3clscond]=590 [exp4aug]=590 [exp4ctrl]=590 [exp4base]=590 [exp4basec]=300 [cvbase]=420 [cvctrl]=420 [cvaug]=420)
 # exp3 (459 GB) exceeds the 450 GB local disk of ml.g5.2xlarge; ml.g5.4xlarge has the
 # same A10G GPU and 600 GB of NVMe.
 declare -A INSTANCE=([exp2]=ml.g5.2xlarge [exp3]=ml.g5.4xlarge [exp3b]=ml.g5.4xlarge [exp3q]=ml.g5.4xlarge
                      [exp1t]=ml.g5.2xlarge [exp1f]=ml.g5.2xlarge [exp3cond]=ml.g5.4xlarge
                      [exp3clscond]=ml.g5.4xlarge [exp4aug]=ml.g5.4xlarge
-                     [exp4ctrl]=ml.g5.4xlarge [exp4base]=ml.g5.4xlarge [exp4basec]=ml.g5.2xlarge)
+                     [exp4ctrl]=ml.g5.4xlarge [exp4base]=ml.g5.4xlarge [exp4basec]=ml.g5.2xlarge
+                     [cvbase]=ml.g5.2xlarge [cvctrl]=ml.g5.2xlarge [cvaug]=ml.g5.2xlarge)
 # Extra --set overrides. SPOT (unused for now): exp3 ran 5.9 h, so a 10 h cap
 # and up to 24 h of queueing; an interrupted job resumes from its S3 checkpoint.
 SPOT="sagemaker.use_spot=true sagemaker.max_run_sec=36000 sagemaker.max_wait_min=2040"
@@ -83,23 +91,40 @@ declare -A EXTRA=([exp2]= [exp3]= [exp3b]=
                   [exp3clscond]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false"
                   [exp4aug]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.2 channel_drop.consistency_weight=1.0 ${FAST}"
                   [exp4base]="channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST}"
+                  [cvbase]="channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST}"
+                  [cvctrl]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST}"
+                  [cvaug]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.2 channel_drop.consistency_weight=0.1 ${FAST}"
                   [exp4basec]="channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST} data.split_json=s3://eeg-data-public/TUH_EEG/cohorts/splits/exp4base_data_split.json"
                   [exp4ctrl]="data.session_features=conditions_v1.npz model.session_features=head model.use_mean_pooling=false channel_drop.enabled=true channel_drop.channels=[\"T1\",\"T2\"] channel_drop.min_drop=1 channel_drop.max_drop=2 channel_drop.prob=0.0 channel_drop.consistency_weight=0.0 ${FAST} trainer.early_stopping=true"
                   [exp1f]="${FEATS} model.session_features=only model.head_type=mlp model.mlp_head.hidden_dims=[256] model.mlp_head.drop=0.3 model.session_feature_drop=0.2")
 declare -A TAG=([exp2]= [exp3]= [exp3b]= [exp3q]=qc800-0.5 [exp1t]=feat-tokens [exp1f]=feat-only [exp3cond]=cond-status-pathology
                 [exp3clscond]=cls-cond-status-pathology [exp4aug]=cls-cond-augT1T2-fast [exp4ctrl]=cls-cond-ctrl-fast
-                [exp4base]=base-fast [exp4basec]=base-fast-compact)
+                [exp4base]=base-fast [exp4basec]=base-fast-compact
+                [cvbase]=cv5-base [cvctrl]=cv5-ctrl [cvaug]=cv5-augT1T2)
 mode=(--detach); [[ "${DRY_RUN:-0}" == "1" ]] && mode=(--dry_run)
 for exp in "$@"; do
   cohort=${COHORT[$exp]}
   short=${cohort%_meta}; short=${short%_v1}
   name="tuh_${exp}_${short}_M1_ep${EPOCHS[$exp]}${TAG[$exp]:+_${TAG[$exp]}}"
   read -r -a extra <<< "${EXTRA[$exp]}"
+  jobprefix="labram-tuh-${exp}-${cohort//_/-}-ep${EPOCHS[$exp]}"
+  if [[ -n "${CV_FOLD:-}" ]]; then
+    # One cross-validation fold per job (5 folds, patient-disjoint, pool train+val).
+    extra+=(cross_validation.enabled=true cross_validation.n_folds=5 "cross_validation.fold=${CV_FOLD}"
+            cross_validation.split_by=subject cross_validation.pool=train_val)
+    jobprefix="labram-tuh-${exp}-ep${EPOCHS[$exp]}"
+  fi
+  if [[ "${MODE:-ondemand}" == "spot" ]]; then
+    # Spot without checkpoint syncing (two checkpointed spot runs died at an
+    # interruption with 'Too many files are written'); a reclaimed job restarts.
+    extra+=(sagemaker.use_spot=true sagemaker.checkpoint_s3_uri=off
+            sagemaker.max_run_sec=28800 sagemaker.max_wait_min=2880)
+  fi
   "${PY}" -m labram.runs.submit_sagemaker --config labram/configs/defaults/finetune_tuab_age.json "${mode[@]}" --set \
     sagemaker.enabled=true sagemaker.role="${ROLE}" sagemaker.instance_type="${INSTANCE[$exp]}" \
     sagemaker.input_mode=File sagemaker.volume_size_gb="${VOLUME[$exp]}" \
     sagemaker.wait=false sagemaker.stream_logs=false \
-    sagemaker.job_name_prefix="labram-tuh-${exp}-${cohort//_/-}-ep${EPOCHS[$exp]}" \
+    sagemaker.job_name_prefix="${jobprefix}" \
     data.data_format=npy data.data_path="${S3}/${cohort}/" \
     trainer.epochs="${EPOCHS[$exp]}" optimizer.warmup_epochs="${WARMUP[$exp]}" \
     mixup.enabled=true mixup.alpha=0.4 mixup.sigma=0.0 \
