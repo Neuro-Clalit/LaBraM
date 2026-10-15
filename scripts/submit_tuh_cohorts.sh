@@ -46,7 +46,7 @@
 #          exp4base's recorded data_split.json (data.split_json), so the
 #          train/val/test samples and their order are exp4base's
 #   cvbase / cvctrl / cvaug: 5-fold cross-validation (patients, pool =
-#          train+val; the TUAB test set stays out) of exp4base (4 epochs / 1
+#          train+val; the TUAB test set stays out) of exp4base (5 epochs / 1
 #          warmup), exp4ctrl and exp4-augT1T2 (6 / 2) on all_both_v3_cvcompact
 #          (make_compact_cohort --cv) on ml.g5.2xlarge. One fold per call:
 #          CV_FOLD=k; MODE=spot (no checkpointing) or ondemand (default).
@@ -63,7 +63,7 @@ declare -A COHORT=([exp2]=normal_tueg_v1 [exp3]=all_both_v1 [exp3b]=all_both_v1 
                    [exp3clscond]=all_both_v2 [exp4aug]=all_both_v3
                    [exp4ctrl]=all_both_v3 [exp4base]=all_both_v3 [exp4basec]=all_both_v3_compact
                    [cvbase]=all_both_v3_cvcompact [cvctrl]=all_both_v3_cvcompact [cvaug]=all_both_v3_cvcompact)
-declare -A EPOCHS=([exp2]=4 [exp3]=4 [exp3b]=10 [exp3q]=4 [exp1t]=4 [exp1f]=4 [exp3cond]=4 [exp3clscond]=4 [exp4aug]=6 [exp4ctrl]=10 [exp4base]=6 [exp4basec]=6 [cvbase]=4 [cvctrl]=6 [cvaug]=6)
+declare -A EPOCHS=([exp2]=4 [exp3]=4 [exp3b]=10 [exp3q]=4 [exp1t]=4 [exp1f]=4 [exp3cond]=4 [exp3clscond]=4 [exp4aug]=6 [exp4ctrl]=10 [exp4base]=6 [exp4basec]=6 [cvbase]=5 [cvctrl]=6 [cvaug]=6)
 declare -A WARMUP=([exp2]=1 [exp3]=1 [exp3b]=3 [exp3q]=1 [exp1t]=1 [exp1f]=1 [exp3cond]=1 [exp3clscond]=1 [exp4aug]=2 [exp4ctrl]=3 [exp4base]=2 [exp4basec]=2 [cvbase]=1 [cvctrl]=2 [cvaug]=2)
 declare -A VOLUME=([exp2]=120 [exp3]=590 [exp3b]=590 [exp3q]=590    # GB: File mode copies the cohort first
                    [exp1t]=200 [exp1f]=30 [exp3cond]=590 [exp3clscond]=590 [exp4aug]=590 [exp4ctrl]=590 [exp4base]=590 [exp4basec]=300 [cvbase]=420 [cvctrl]=420 [cvaug]=420)
