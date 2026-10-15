@@ -276,6 +276,7 @@ class NpyWindowsMixin:
         self.skip_signal = False
         # Column indices served (data.drop_channels); None = every channel.
         self.keep_channels = None
+        self._compact_rows = None
         self.sample_bounds = {}
         self._mmaps = OrderedDict()
         self._manifest = None
@@ -292,13 +293,32 @@ class NpyWindowsMixin:
 
     def window_inventory(self):
         """``(n_windows by (dir, stem), available window names)`` from the
-        manifest, so window selection never lists 409k names on disk."""
+        manifest, so window selection never lists 409k names on disk. A compact
+        dataset (``dataset_maker/make_compact_cohort.py``) stores only the
+        windows in each row's ``window_index``; ``n_windows`` stays the
+        original recording length, so trimming and eval budgets resolve as on
+        the full data."""
         n_windows, available = {}, set()
         for row in self.manifest()["recordings"]:
             n_windows[(row["source_split"], row["stem"])] = row["n_windows"]
+            ks = row.get("window_index")
             available.update(f"{row['source_split']}/{row['stem']}_{k}.pkl"
-                             for k in range(row["n_windows"]))
+                             for k in (ks if ks is not None else range(row["n_windows"])))
         return n_windows, available
+
+    def _compact_start(self, stem, k):
+        """Sample offset of original window ``k`` in a compact recording, or
+        ``None`` for a full one."""
+        if self._compact_rows is None:
+            self._compact_rows = {
+                r["stem"]: {int(w): i for i, w in enumerate(r["window_index"])}
+                for r in self.manifest()["recordings"] if r.get("window_index") is not None}
+        rows = self._compact_rows.get(stem)
+        if rows is None:
+            return None
+        if k not in rows:
+            raise KeyError(f"{stem}: window {k} is not stored in this compact dataset")
+        return rows[k] * WINDOW_SAMPLES
 
     def _recording(self, stem):
         rec = self._mmaps.pop(stem, None)
@@ -326,6 +346,13 @@ class NpyWindowsMixin:
             Y = self._label_fn(None, filename)
             return (X, Y, self.group_id(filename)) if self.return_id else (X, Y)
         start = int(k) * WINDOW_SAMPLES
+        compact = self._compact_start(stem, int(k))
+        if compact is not None:
+            # Stored windows are in ascending order, so a multi-window sample
+            # (all of whose windows are stored) is contiguous here too.
+            if self.random_crop:
+                raise ValueError("data.random_crop needs the full recordings, not a compact dataset")
+            start = compact
         if self.random_crop:
             lo, hi = self.sample_bounds.get(stem) or (0, self._n_samples(stem))
             lo, hi = max(lo, start - length // 2), min(hi - length, start + length // 2)
