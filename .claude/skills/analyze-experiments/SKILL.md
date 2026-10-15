@@ -6,9 +6,25 @@ description: How to analyze and compare LaBraM fine-tune experiments (brain age 
 # Analyzing fine-tune experiments
 
 A result is only useful if it says *why* a run is better and *what to do next*.
-For every run (or set of runs) report the five blocks below, in this order.
+For every run (or set of runs) report the five blocks below, in this order:
+headroom first (is the run finished?), then the comparison, overfitting,
+selection, and robustness / cost with the decision.
 
-## 1. Compare on the same, leakage-free sets
+## 1. Headroom: would more epochs help?
+
+* `still improving` = the last epoch is the best by > 0.02 y.
+* `headroom`: with >= 4 improving post-warm-up epochs, the remaining val gain
+  if improvements keep shrinking at ratio r: `d_last * r / (1 - r)`. NaN = too
+  few epochs to say ("train longer" if still improving).
+* Verdicts: *still improving / not bending* → longer schedule (more epochs,
+  longer warm-up; keep `trainer.early_stopping=true`); *slowing, small
+  headroom* → at most marginal; *plateau* → converged, change the recipe
+  instead; *overfitting / memorizing* → regularize (mixup, dropout, fewer
+  epochs, drop fingerprint features) — never just train longer.
+* Check the LR: a val gain in the last epochs of a cosine schedule is partly
+  annealing; a longer schedule moves it, it does not add it.
+
+## 2. Compare on the same, leakage-free sets
 
 * Score every model on **shared sets** with `scripts/eval_age_by_cohort.py`
   (`--train-data-path` = the model's own training cohort, so predictions are
@@ -28,7 +44,7 @@ For every run (or set of runs) report the five blocks below, in this order.
   most. Call a difference real only if it is larger than that, or consistent
   across all shared sets; otherwise "tie". Resolve close calls with CV.
 
-## 2. Overfitting and memorization
+## 3. Overfitting and memorization
 
 Run `scripts/overfit_report.py --run NAME=<log.txt>:<warmup> ...`
 (`labram/eval/overfit.py`; `--per-epoch` for the curves) and read:
@@ -46,20 +62,6 @@ can be small or negative — read the **trend**, and compare runs with the same
 augmentation. Per-recording inputs that are constant across a recording's
 windows (session features, condition vectors) act as fingerprints: expect a
 large gap and check val, not train.
-
-## 3. Headroom: would more epochs help?
-
-* `still improving` = the last epoch is the best by > 0.02 y.
-* `headroom`: with >= 4 improving post-warm-up epochs, the remaining val gain
-  if improvements keep shrinking at ratio r: `d_last * r / (1 - r)`. NaN = too
-  few epochs to say ("train longer" if still improving).
-* Verdicts: *still improving / not bending* → longer schedule (more epochs,
-  longer warm-up; keep `trainer.early_stopping=true`); *slowing, small
-  headroom* → at most marginal; *plateau* → converged, change the recipe
-  instead; *overfitting / memorizing* → regularize (mixup, dropout, fewer
-  epochs, drop fingerprint features) — never just train longer.
-* Check the LR: a val gain in the last epochs of a cosine schedule is partly
-  annealing; a longer schedule moves it, it does not add it.
 
 ## 4. Selection and val/test agreement
 
