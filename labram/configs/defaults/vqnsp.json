@@ -62,7 +62,10 @@
         "disable_weight_decay_on_rel_pos_bias": false,
         "eval": false,
         "enable_deepspeed": false,
-        "debug_samples": 16
+        "debug_samples": 16,
+        "early_stopping": false,
+        "early_stopping_patience": 3,
+        "early_stopping_min_delta": 0.0
     },
     "data": {
         "py/object": "labram.configs.data_config.DataConfig",

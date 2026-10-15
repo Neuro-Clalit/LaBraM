@@ -66,6 +66,13 @@ class TrainerConfig(ConfigBase):
     eval: bool = False
     enable_deepspeed: bool = False
     debug_samples: int = 16
+    # Stop when the validation selection metric has not improved over the last
+    # early_stopping_patience epochs by at least early_stopping_min_delta;
+    # never checked during warm-up or the first patience-1 epochs after it
+    # (labram/train/early_stopping.py). Off by default.
+    early_stopping: bool = False
+    early_stopping_patience: int = 3
+    early_stopping_min_delta: float = 0.0
 
 
 @dataclass

@@ -32,6 +32,7 @@ from labram.losses.regression import downstream_term_name
 from labram.losses.outputs import LossBreakdown
 from labram.train.augment import augment_batch
 from labram.train.channel_drop import ChannelDropper
+from labram.train.early_stopping import should_stop
 from labram.train.mixup import mixup_batch
 from labram.models.outputs import PredictorOutput
 from labram.optim_factory import (
@@ -1048,6 +1049,12 @@ def train_loop(
             logger.info("Resumed best-epoch state: best %s val %.4f at epoch %d",
                         select_metric, best_val, best_epoch)
 
+    # Validation selection-metric history for early stopping (restored on resume).
+    val_history: List[Optional[float]] = []
+    if config.trainer.start_epoch > 0 and config.output.output_dir:
+        val_history = list((utils.load_train_state(config.output.output_dir) or {})
+                           .get("val_history", []))
+    stopped_early = False
     for epoch in range(config.trainer.start_epoch, config.trainer.epochs):
         epoch_timer = utils.PhaseTimer(device)
         # Reshuffle (and, for RecordingSubsetSampler, redraw) every epoch --
@@ -1149,6 +1156,7 @@ def train_loop(
                 if test_stats:
                     _log_eval_stats(log_writer, test_stats, head="test", epoch=epoch)
             last_val_stats, last_test_stats = dict(val_stats), dict(test_stats)
+            val_history.append(float(val_stats[select_metric]))
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'val_{k}': v for k, v in val_stats.items()},
@@ -1189,7 +1197,19 @@ def train_loop(
             utils.save_train_state(config.output.output_dir, {
                 "epoch": epoch, "best_val": best_val, "best_test": best_test,
                 "best_epoch": best_epoch, "best_val_stats": best_val_stats,
-                "best_test_stats": best_test_stats, "best_train_stats": best_train_stats})
+                "best_test_stats": best_test_stats, "best_train_stats": best_train_stats,
+                "val_history": val_history})
+        if (config.trainer.early_stopping and loaders.val is not None
+                and should_stop(val_history, patience=config.trainer.early_stopping_patience,
+                                min_delta=config.trainer.early_stopping_min_delta,
+                                warmup_epochs=config.optimizer.warmup_epochs,
+                                lower_is_better=select_dir != 'max')):
+            k = config.trainer.early_stopping_patience
+            logger.info("Early stopping after epoch %d: %s val did not improve by %g over the "
+                        "last %d epochs (best %.4f at epoch %d)", epoch, select_metric,
+                        config.trainer.early_stopping_min_delta, k, best_val, best_epoch)
+            stopped_early = True
+            break
 
     # Save the final trained model. Always done at the end; it is the only
     # checkpoint written when save_only_final_model is set.
@@ -1222,6 +1242,8 @@ def train_loop(
         "best_metric_direction": select_dir,
         "task": task,
         "best_epoch": best_epoch,
+        "stopped_early": stopped_early,
+        "val_history": val_history,
         "best_val_stats": best_val_stats,
         "best_test_stats": best_test_stats,
         "best_train_stats": best_train_stats,
