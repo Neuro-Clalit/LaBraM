@@ -8,7 +8,10 @@ window selection (whose selected training targets give the age z-scoring
 stats), session features and channel handling -- predict every window of the
 val and test folds, average per recording, and report n / MAE / RMSE / R² per
 fold x split x source (TUAB / TUEG, from the TUH index) x cohort
-(all / normal / abnormal); then mean ± std over folds.
+(all / normal / abnormal); then mean ± std over folds. Split ``heldout`` is the
+cohort's own test set, which CV with pool=train_val leaves out (the official
+TUAB test set): every fold model is scored on the same recordings, with that
+fold's training-target stats.
 
     python scripts/eval_cv_folds.py --data-path .../cohorts/all_both_v3_cvcompact \\
         --run cvbase=/tmp/cv/cvbase_{0..4}/cv/fold_{0..4} ... --out cv_eval.csv
@@ -65,7 +68,11 @@ def main(argv=None):
     p.add_argument("--checkpoint", default="checkpoint-best.pth")
     p.add_argument("--batch-size", type=int, default=256)
     p.add_argument("--out", default=None)
+    p.add_argument("--splits", nargs="+", default=["val", "test", "heldout"])
+    p.add_argument("--preds-out", default=None,
+                   help="per-recording predictions (years) per exp/fold/split, JSON")
     args = p.parse_args(argv)
+    preds = {}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     idx = pd.read_parquet(INDEX, columns=["stem", "corpora"])
     tuab = set(idx.loc[idx.corpora.str.contains("tuab"), "stem"])
@@ -79,10 +86,17 @@ def main(argv=None):
         base = get_dataset_bundle(cfg.data.dataset, args.data_path, data_format="npy")
         bundle = materialize_fold(apply_cv_split(base, split), k, base)
         bundle = apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
+        held = apply_window_selection(
+            get_dataset_bundle(cfg.data.dataset, args.data_path, data_format="npy"),
+            WindowSelection.from_data_config(cfg.data)).test
+        for leaf in getattr(held, "datasets", [held]):
+            if hasattr(leaf, "target_stats"):
+                leaf.target_stats = bundle.target_stats        # the fold's z-scoring
+        bundle.heldout = held
         cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
         session = cfg.model.session_features != "off"
         if session:
-            for s in ("val", "test"):
+            for s in args.splits:
                 cfg.model.session_feature_groups = enable_session_features(
                     getattr(bundle, s), cfg.data.session_features,
                     skip_signal=cfg.model.session_features == "only")
@@ -90,15 +104,24 @@ def main(argv=None):
         state = torch.load(os.path.join(fold_dir, args.checkpoint), map_location="cpu", weights_only=False)
         model.load_state_dict(state["model"])
         model.to(device).eval()
-        for s in ("val", "test"):
+        # checkpoint-best.pth stores epoch="best"; the epoch index is in train_state.json
+        ts = os.path.join(fold_dir, "train_state.json")
+        best_epoch = json.load(open(ts)).get("best_epoch") if os.path.exists(ts) else state.get("epoch")
+        for s in args.splits:
             pred, true, recs = _predict(model, getattr(bundle, s), bundle.ch_names, device,
                                         args.batch_size, session=session,
                                         channel_drop=getattr(cfg, "channel_drop", None))
+            ids, py, ty = _per_recording(pred, true, recs, bundle.target_stats)
+            preds.setdefault(name, {}).setdefault(str(k), {})[s] = {
+                r: [float(a), float(b)] for r, a, b in zip(ids, py, ty)}
             for r in score(pred, true, recs, labels, tuab, bundle.target_stats):
-                rows.append({"exp": name, "fold": k, "epoch": state.get("epoch"), "split": s, **r})
+                rows.append({"exp": name, "fold": k, "epoch": best_epoch, "split": s, **r})
         print(f"{name} fold {k}: " + "  ".join(
-            f"{r['split']} {r['source']} {r['MAE']:.2f}" for r in rows[-18:] if r["cohort"] == "all"), flush=True)
+            f"{r['split']} {r['source']} {r['MAE']:.2f}" for r in rows
+            if r["exp"] == name and r["fold"] == k and r["cohort"] == "all"), flush=True)
     d = pd.DataFrame(rows)
+    if args.preds_out:
+        json.dump(preds, open(args.preds_out, "w"))
     if args.out:
         d.to_csv(args.out, index=False)
     agg = d.groupby(["exp", "split", "source", "cohort"]).agg(
