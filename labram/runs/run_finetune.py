@@ -16,12 +16,17 @@ import labram.runs.common as runner_common
 import labram.utils as utils
 from labram.utils.secrets import redacted_copy
 from labram.data import get_dataset_bundle
+from labram.data.staging import stage_bundle
 from labram.data.window_selection import (
-    WindowSelection, apply_window_selection, enable_random_crop, train_window_ages,
+    WindowSelection, apply_window_selection, enable_abnormal_target, enable_random_crop,
+    enable_session_features,
+    train_window_ages,
 )
 from labram.layers.lora import inject_lora, mark_only_lora_trainable
 from labram.losses import (
-    CodebookRegularizedCriterion, LossConfig, build_downstream_criterion, soft_label_n_bins)
+    AbnormalConditionedAgeCriterion, CodebookRegularizedCriterion, LossConfig, MultiTaskAgeCriterion,
+    SessionFeatureAgeCriterion,
+    build_downstream_criterion, soft_label_n_bins)
 from labram.losses.regression import downstream_term_name
 from labram.configs.run_configs import FinetuneRunConfig
 from labram.configs.utils_conf import add_override_arg, parse_overrides
@@ -66,11 +71,24 @@ def get_model(config: FinetuneRunConfig):
         use_mean_pooling=m.use_mean_pooling, init_scale=m.init_scale,
         concat_cls_token=m.concat_cls_token,
         head_type=m.head_type, attention_head=m.attention_head, mlp_head=m.mlp_head,
+        multitask_head=m.multitask_head,
+        condition_on_abnormal=m.condition_on_abnormal,
+        abnormal_embed_dim=m.abnormal_embed_dim,
+        session_features=m.session_features,
+        session_feature_groups=m.session_feature_groups,
+        session_feature_drop=m.session_feature_drop,
+        session_feature_norm=m.session_feature_norm,
+        session_token_gain=m.session_token_gain,
+        session_head_dim=m.session_head_dim,
         use_rel_pos_bias=m.rel_pos_bias, use_abs_pos_emb=m.abs_pos_emb,
         init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
         labram_plus=config.labram_plus, max_time_patches=time_patches,
         **({'depth': m.depth} if m.depth is not None else {}),
+        input_clip=m.input_clip_uv / 100,
     )
+    if m.fused_attention:
+        from labram.layers.attention import set_fused_attention
+        set_fused_attention(model, True)
     if m.lora.enabled:
         # Injected before the pretrained checkpoint loads: the base weights keep
         # their keys, the LoRA factors are new (B = 0, so the model is unchanged
@@ -121,8 +139,40 @@ def main(config: FinetuneRunConfig, bundle=None):
     # Case filter / start-end trimming / longer inputs / per-recording eval
     # budget. Idempotent, so it is safe on a reused split or a CV fold bundle.
     bundle = apply_window_selection(bundle, WindowSelection.from_data_config(config.data))
+    if config.data.drop_channels:
+        from labram.data.channel_selection import drop_channels
+        drop_channels(bundle, config.data.drop_channels)
     if config.data.random_crop:
         enable_random_crop(bundle.train)
+    if (config.model.session_features != "off") != bool(config.data.session_features):
+        raise ValueError("model.session_features and data.session_features go together: "
+                         "set both or neither")
+    if config.data.session_features:
+        # Every split yields [age, *features]; the model takes the features as
+        # extra tokens, or (only) instead of the EEG, which is then not read.
+        # Loaded before staging, which moves each loader's root to the stage
+        # mirror (a relative feature path resolves against the data root).
+        if config.loss.regression_loss == 'soft_label':
+            raise ValueError("model.session_features needs a scalar age loss, not soft_label")
+        for split in (bundle.train, bundle.val, bundle.test):
+            groups = enable_session_features(
+                split, config.data.session_features,
+                skip_signal=config.model.session_features == "only")
+            if groups is not None:
+                config.model.session_feature_groups = groups
+    if not config.trainer.debug:
+        # Only the selected recordings, train first; a no-op for pickles, on
+        # SageMaker, or with data.stage_dir=none.
+        stage_bundle(bundle, config.data.stage_dir, reserve_gb=config.data.stage_reserve_gb,
+                     splits=("val", "test") if config.trainer.eval else ("train", "val", "test"))
+    if config.model.head_type == 'multitask' or config.model.condition_on_abnormal:
+        # Age + normal/abnormal: every split yields [age, abnormal] targets --
+        # predicted by a multi-task head, or fed to a label-conditioned age head.
+        if config.loss.regression_loss == 'soft_label':
+            raise ValueError("model.head_type=multitask / model.condition_on_abnormal need a "
+                             "scalar age loss, not soft_label")
+        for split in (bundle.train, bundle.val, bundle.test):
+            enable_abnormal_target(split)
     # The bundle is the source of truth for the head size and the task: a scalar
     # regression head and a binary classifier both have nb_classes == 1, so the
     # task must travel with it.
@@ -174,6 +224,15 @@ def main(config: FinetuneRunConfig, bundle=None):
         dataset_train, dataset_val, dataset_test,
         num_tasks, global_rank, config.distributed.dist_eval,
     )
+    if config.data.train_minutes_per_epoch and not config.trainer.eval:
+        # A fresh random subset of each recording's training samples per epoch.
+        from labram.data.samplers import RecordingSubsetSampler
+        per_recording = max(1, int(config.data.train_minutes_per_epoch * 60
+                                   // config.data.window_sec))
+        sampler_train = RecordingSubsetSampler(
+            dataset_train, per_recording, num_replicas=num_tasks, rank=global_rank,
+            seed=config.distributed.seed)
+        logger.info("Sampler_train = %s", sampler_train)
 
     log_writer = runner_common.create_log_writer(
         config.output, global_rank, config.clearml, config)
@@ -232,7 +291,8 @@ def main(config: FinetuneRunConfig, bundle=None):
         config.logging, config.output, model_without_ddp, log_writer)
 
     total_batch_size = config.trainer.batch_size * config.trainer.update_freq * utils.get_world_size()
-    num_training_steps_per_epoch = len(dataset_train) // total_batch_size
+    # Samples per epoch across ranks: the dataset, or a per-epoch subset of it.
+    num_training_steps_per_epoch = len(sampler_train) * utils.get_world_size() // total_batch_size
     logger.info(f"LR={config.optimizer.lr:.8f}  batch={total_batch_size}  update_freq={config.trainer.update_freq}")
 
     num_layers = model_without_ddp.get_num_layers()
@@ -302,6 +362,12 @@ def main(config: FinetuneRunConfig, bundle=None):
             target_stats=config.model.target_stats,
             train_targets=train_window_ages(dataset_train)
             if task == 'regression' and config.loss.balance != 'none' else None)
+        if config.model.head_type == 'multitask':
+            criterion = MultiTaskAgeCriterion(criterion, config.loss.abnormal_weight)
+        elif config.model.condition_on_abnormal:
+            criterion = AbnormalConditionedAgeCriterion(criterion)
+        elif config.model.session_features != "off":
+            criterion = SessionFeatureAgeCriterion(criterion)
     logger.info("Downstream criterion (%s): %s", task, criterion)
 
     utils.auto_load_model(
@@ -328,7 +394,8 @@ def main(config: FinetuneRunConfig, bundle=None):
                                   nb_classes=nb_classes, eval_cfg=config.evaluation,
                                   log_writer=log_writer, head='test', epoch=0,
                                   task=task, target_stats=config.model.target_stats,
-                                  loss_cfg=config.loss)
+                                  loss_cfg=config.loss, criterion=criterion,
+                                  channel_drop_cfg=config.channel_drop)
             for k in summary_keys:
                 collected[k].append(test_stats[k])
         logger.info(", ".join(

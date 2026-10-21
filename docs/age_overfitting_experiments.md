@@ -505,9 +505,14 @@ effect. 30-s windows cost +0.44 on test (C vs. B).
 all channel × time patches (`model.head_type=attention`, Eqs. (15.1)–(15.4) of
 `age_regression.md`), extracts more age signal from the same encoder than the
 mean-pooled linear head. The MLP head is used only in the from-scratch S2 run
-(section 11).
+(section 11). A multi-task head (`model.head_type=multitask`, section 17 of
+`age_regression.md`) adds a normal/abnormal classifier: a shared MLP trunk
+feeds a dedicated age branch and a dedicated classification branch, trained
+with age loss + 0.5 × BCE. Its question is whether the second task costs (or
+helps) the age prediction.
 
-Table 10.1 lists the config diff and Table 10.2 the results.
+Table 10.1 lists the config diff, Table 10.2 the age results and Table 10.3
+the multi-task head's classification results.
 
 ### Table 10.1. Head runs: config diff
 
@@ -519,6 +524,9 @@ Table 10.1 lists the config diff and Table 10.2 the results.
 | N2L | D | `mixup.enabled`, `alpha`, `sigma` | true, 0.4, 0.0 | false |
 | N2L | D | `optimizer.clip_grad` | 1.0 | none |
 | N2L | D | `trainer.epochs`, `optimizer.warmup_epochs` | 12, 4 | 15, 2 |
+| MT1 | M1 | `model.head_type` (`multitask_head` shared `[256]`, age `[128]`, abnormal `[64]`) | `multitask` | `linear` |
+| MT1 | M1 | `loss.abnormal_weight` | 0.5 | – |
+| MT1-seed1 | MT1 | `distributed.seed` | 1 | 0 |
 
 N2L is `labram/configs/defaults/finetune_tuab_age_attn_head.json` with
 `trainer.epochs=12 optimizer.warmup_epochs=4` (`.run_attn_head_local.sh`). The
@@ -526,6 +534,12 @@ planned controlled pair N1/N2 (4 epochs; `scripts/submit_age_experiments.sh`)
 was never submitted: there is no ClearML task and no SageMaker job for it. The
 closest controls for N2L are therefore M1 (mixup, 4 epochs) and L1 (mixup +
 EMA, 12 epochs).
+
+MT1 is `labram/configs/defaults/finetune_tuab_age_multitask.json` (SageMaker job
+`labram-age-mt1-2026-10-10-23-34-54-406`); MT1-seed1 the same config run locally
+(`.run_multitask_local.sh`). Both use the seeding fixed in commit `7b9a5fe`; M1
+and every earlier ClearML run trained with ClearML's default seed 1337 (the
+bug that commit fixed), so MT1 vs. M1 also differs in seed.
 
 ### Table 10.2. Head runs: results
 
@@ -539,11 +553,34 @@ Columns as in section 2.
 | M1 | [`f7fb25cb`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/f7fb25cbdf0a427c8fa513f5abb48e1d/output/log) | 7.46 | 8.45 | 6.60 / 10.65 | −0.41 | 3 / 4 | 6.38† | C |
 | L1 | [`32c097a1`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/32c097a17ff84c98b3b9cfce5281a2da/output/log) | 7.51 | 8.47 | 6.65 / 10.63 | −0.42 | 3 / 12 | 6.54† | C |
 | N2L | [`74bf270f`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/74bf270fa9a44a7c9a4850b3f2be8e06/output/log) | 7.63 | 8.49 | 6.68 / 10.64 | −0.43 | 4 / 12 | 6.62† | C+L |
+| MT1 | [`4c46c8d7`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/4c46c8d786d045e99541291e2236dad4/output/log) | 7.54 | 8.38 | 6.73 / 10.35 | −0.40 | 3 / 4 | 6.47† | C |
+| MT1-seed1 | [`cd667cea`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/cd667ceab9b24dc3a5887684e64a35bc/output/log) | 7.62 | 8.54 | 6.75 / 10.69 | −0.41 | 3 / 4 | 6.46† | L |
+
+### Table 10.3. Multi-task head: normal/abnormal classification
+
+Case-level metrics of the classification branch at the run's $e^{\star}$
+(selected on val age MAE, not on classification): ROC-AUC, PR-AUC, accuracy and
+balanced accuracy, Eqs. (17.5)–(17.8) of `age_regression.md` (abnormal =
+positive, window probabilities averaged per recording, threshold 0.5). The last
+row is the mean ± sample std over the two seeds. The LaBraM paper's single-task
+TUAB classifier (LaBraM-base: balanced accuracy 0.814, AUROC 0.902) uses a
+different split and evaluation windows.
+
+| Run | val ROC-AUC | test ROC-AUC | test PR-AUC | test accuracy | test balanced accuracy | src |
+|---|---|---|---|---|---|---|
+| MT1 | 0.932 | 0.929 | 0.930 | 0.850 | 0.846 | C |
+| MT1-seed1 | 0.929 | 0.926 | 0.931 | 0.854 | 0.847 | L |
+| mean ± std | 0.931 ± 0.002 | 0.928 ± 0.002 | 0.930 ± 0.001 | 0.852 ± 0.003 | 0.847 ± 0.001 | |
 
 **Verdict.** No head helps. The class-token head gives +0.13 / −0.06 and the
 concatenated head +0.03 / +0.05 (vs. D). The attention head gives
 +0.12 / +0.02 (vs. L1) and +0.17 / +0.04 (vs. M1), and its best epoch moves to
 4. The class-token head moves $e^{\star}$ from 1 to 2 without changing the result.
+The multi-task head costs nothing on age: over two seeds it gives val
+7.58 ± 0.06 / test 8.46 ± 0.12, i.e. +0.12 / +0.01 vs. M1, within the noise
+floor (seed-0 test abnormal MAE 10.35 vs. M1's 10.65 does not repeat with seed
+1, 10.69). It adds a normal/abnormal classifier at test ROC-AUC 0.928 and
+balanced accuracy 0.847 (Table 10.3) from the same encoder and schedule.
 
 ## 11. From scratch
 
@@ -569,6 +606,8 @@ Keys that differ from D.
 | S2 | `data.random_crop` | true | false |
 | S2 | `optimizer.model_ema`, `model_ema_decay`, `evaluation.use_ema` | true, 0.9995, true | false, 0.9999, false |
 | S2-seed1 | S2 + `distributed.seed` | 1 | 0 |
+| S3 | S2 + `augment.enabled` (hemisphere flip, sign flip, FT surrogate, channel dropout, time masking; default probabilities) | true | false |
+| S3 | S2 + `model.input_clip_uv` | 800.0 | 0.0 |
 
 ### Table 11.2. From-scratch runs: results
 
@@ -584,12 +623,19 @@ numbers from its local `log.txt`.
 | S1 | [`f724ed15`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/f724ed1592c34ccdbb1cf6edb539de93/output/log) | 8.79 | 9.42 | 7.75 / 11.42 | −0.49 | 14 / 15 | 3.22 | C+L |
 | S2 | [`88ad5cff`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/88ad5cffb2a145baba5da39a0ce59b74/output/log) | 8.53 | 9.30 | 7.48 / 11.48 | −0.50 | 12 / 15 | 6.53† | W |
 | S2-seed1 | [`c3804cfb`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/c3804cfb0bed4435a00a9115803fea16/output/log) | 8.58 | 9.44 | 7.84 / 11.35 | −0.50 | 14 / 15 | 6.45† | L |
+| S3 | [`7d13f7e7`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/7d13f7e7c31e49e3b6148c3d70d0688d/output/log) | 8.93 | 9.59 | 7.91 / 11.59 | −0.52 | 9 / 15 | 7.87† | L |
 
 **Verdict.** Pretraining is worth about one year. S1 gives $\delta$ =
 +1.02 / +1.12 and the tuned S2 gives +0.76 / +1.00 (seed 1: +0.81 / +1.14).
 The from-scratch runs select a late epoch (12–14), so they are not
 memorization-limited within 15 epochs, but they stay well behind the fine-tune.
 The two S2 seeds supply the noise-floor estimate of section 2.
+The label-preserving augmentation of S3 (section 16 of `age_regression.md`)
+halves the train/val gap (1.1 vs. ≈ 2 years) but loses 0.37 / 0.22 against
+the S2 mean, about nine times the S2 val seed spread: it underfits rather than
+memorizes, with a stronger pull to the mean ($\beta$ −0.52 vs. −0.50) and a
+slightly better bias-corrected val MAE (6.01 vs. 6.19). Weaker settings or a
+leave-one-out over the five augmentations are untested.
 
 ## 12. All runs
 
@@ -645,14 +691,17 @@ are in Table 14.1.
 | D-cls | Head | D, CLS token instead of mean pooling | §10 | [`c48bc257`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/c48bc2571f694b119d4a2d94751c455a/output/log) | 7.90 | 8.24 | – | −0.38 | 2 / 15 | C |
 | D-clsmean | Head | D, [mean patch; CLS] concat | §10 | [`5eb6e379`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/5eb6e3799586403a851771cbf6f3f47d/output/log) | 7.80 | 8.35 | – | −0.41 | 1 / 15 | C |
 | N2L | Head | D + mixup 0.4 + clip 1 + attention head, 12 ep / 4 warmup | §10 | [`74bf270f`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/74bf270fa9a44a7c9a4850b3f2be8e06/output/log) | 7.63 | 8.49 | 6.68 / 10.64 | −0.43 | 4 / 12 | C+L |
+| MT1 | Head (multi-task) | M1 + age/abnormal multi-task head (seed 0) | §10 | [`4c46c8d7`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/4c46c8d786d045e99541291e2236dad4/output/log) | 7.54 | 8.38 | 6.73 / 10.35 | −0.40 | 3 / 4 | C |
+| MT1-seed1 | Head (multi-task) | MT1, seed 1 | §10 | [`cd667cea`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/cd667ceab9b24dc3a5887684e64a35bc/output/log) | 7.62 | 8.54 | 6.75 / 10.69 | −0.41 | 3 / 4 | L |
 | S1 | From scratch | D, no pretrained weights, ld 1.0 | §11 | [`f724ed15`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/f724ed1592c34ccdbb1cf6edb539de93/output/log) | 8.79 | 9.42 | 7.75 / 11.42 | −0.49 | 14 / 15 | C+L |
 | S2 | From scratch | scratch, 6 blocks + MLP head, tuned (seed 0) | §11 | [`88ad5cff`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/88ad5cffb2a145baba5da39a0ce59b74/output/log) | 8.53 | 9.30 | 7.48 / 11.48 | −0.50 | 12 / 15 | W |
 | S2-seed1 | From scratch | S2, seed 1 | §11 | [`c3804cfb`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/c3804cfb0bed4435a00a9115803fea16/output/log) | 8.58 | 9.44 | 7.84 / 11.35 | −0.50 | 14 / 15 | L |
+| S3 | From scratch | S2 + label-preserving augmentation + ±800 µV clip | §11 | [`7d13f7e7`](https://app.clear.ml/projects/c44d37fe41b1483481d5495d42b4ffdc/experiments/7d13f7e7c31e49e3b6148c3d70d0688d/output/log) | 8.93 | 9.59 | 7.91 / 11.59 | −0.52 | 9 / 15 | L |
 
 ## 13. Conclusions
 
 1. **Nothing tried so far closes the train/val gap at the selected epoch while
-   also improving test.** All 34 pretrained runs that did not collapse land in
+   also improving test.** All 36 pretrained runs that did not collapse land in
    val 7.46–8.40 and test 8.13–9.35. Excluding the pre-CAR runs (A, B, C, C2,
    D2) and LoRA, the range is 7.46–7.96 / 8.13–8.67.
 2. **Early stopping does most of the work.** Every pretrained run that did not
@@ -668,9 +717,13 @@ are in Table 14.1.
    +0.20 (Table 6.2). EMA (M2) and C-Mixup (M1c) are the most balanced, but by
    less than the noise floor.
 5. **Loss, codebook and head changes do not lower the MAE** (Tables 7.2, 8.2
-   and 10.2). The age-balanced loss lowers the bias slope at an MAE cost of
+   and 10.2). The multi-task head is the useful exception in kind, not in
+   MAE: it keeps the age error of M1 (two seeds, Table 10.2) and adds a
+   normal/abnormal classifier at test ROC-AUC 0.93 (Table 10.3). The age-balanced loss lowers the bias slope at an MAE cost of
    0.2–0.3 years.
-6. **Pretraining is worth about one year** (Table 11.2).
+6. **Pretraining is worth about one year** (Table 11.2). Spectrum-preserving
+   augmentation does not close that gap from scratch: S3 underfits and loses
+   0.37 years on val against S2.
 7. **The abnormal cohort carries the error.** Test abnormal MAE is
    10.29–11.09 against 6.31–6.92 for normal recordings, across every run with
    cohort metrics except the collapsed, LoRA and from-scratch ones; no method
@@ -679,7 +732,9 @@ are in Table 14.1.
    more subjects (TUEG ages), normal-only training, seed or fold ensembles, and
    channel-dropout augmentation.
 8. **Recommended configuration.** On val, which is the selection criterion,
-   that is M1 (scenario D + mixup 0.4, 4 epochs). The attention-head config
+   that is M1 (scenario D + mixup 0.4, 4 epochs); with a normal/abnormal
+   prediction wanted as well, MT1 (`finetune_tuab_age_multitask.json`) at no
+   measurable age cost. The attention-head config
    file adds a head that did not help (Table 10.2). Before any claim of a
    sub-0.15-year improvement, report a seed spread.
 

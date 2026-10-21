@@ -10,8 +10,9 @@ import torch
 import torch.nn as nn
 from timm.layers import trunc_normal_
 
-from labram.layers import Block, CLSAttentionHead, MLPHead, PatchEmbed, TemporalConv
-from labram.configs.model_config import AttentionHeadConfig, MLPHeadConfig, TransformerArchConfig
+from labram.layers import Block, CLSAttentionHead, MLPHead, MultiTaskHead, PatchEmbed, TemporalConv
+from labram.configs.model_config import (
+    AttentionHeadConfig, MLPHeadConfig, MultiTaskHeadConfig, TransformerArchConfig)
 
 
 def _cfg(url='', **kwargs):
@@ -67,6 +68,9 @@ class NeuralTransformerBase(nn.Module):
         self.init_std = init_std
         # LaBraM++ input preprocessing config (may be None on legacy arch configs).
         self.labram_plus = getattr(config, 'labram_plus', None)
+        # Symmetric amplitude clip of the raw input (model-input units, uV / 100);
+        # 0 = off. Model-owned so training and every eval path clip identically.
+        self.input_clip = getattr(config, 'input_clip', 0.0) or 0.0
 
         # patch embedding: TemporalConv on raw EEG (in_chans=1), else PatchEmbed
         # (decoder path with patch_size=1 used inside VQNSP).
@@ -150,7 +154,11 @@ class NeuralTransformerBase(nn.Module):
         ``labram_plus`` config returns ``x`` unchanged, so the default backbone
         matches the original LaBraM exactly.
         """
-        if self.in_chans != 1 or self.labram_plus is None or not self.labram_plus.preprocesses_input:
+        if self.in_chans != 1:
+            return x
+        if self.input_clip > 0:
+            x = x.clamp(-self.input_clip, self.input_clip)
+        if self.labram_plus is None or not self.labram_plus.preprocesses_input:
             return x
         from labram.data.preprocess import apply_labram_plus_preprocess
         return apply_labram_plus_preprocess(x, self.labram_plus)
@@ -241,12 +249,49 @@ class NeuralTransformer(NeuralTransformerBase):
         self._norm_layer = norm_layer
         self._attention_head_cfg = config.attention_head
         self._mlp_head_cfg = config.mlp_head
+        self._multitask_head_cfg = config.multitask_head
 
         self.fc_norm = norm_layer(config.embed_dim) if pool else None
         # Optional [mean patch token, cls token] head input (mean pooling only).
         self.cls_norm = norm_layer(config.embed_dim) if (
             pool and config.concat_cls_token) else None
         self.num_features = config.embed_dim * (2 if self.cls_norm is not None else 1)
+        # Known normal/abnormal label as an extra head input: [1 - a, a] -> R^d,
+        # concatenated to the pooled feature (a soft label stays well defined
+        # under mixup).
+        self.abnormal_embed = (nn.Linear(2, config.abnormal_embed_dim, bias=False)
+                               if config.condition_on_abnormal else None)
+        if self.abnormal_embed is not None:
+            self.num_features += config.abnormal_embed_dim
+        # Session-level classical features: "tokens" projects each group's
+        # [n, dim] features (LayerNorm -> Linear -> embed_dim) and adds a learned
+        # embedding per feature token; "only" hands the flattened features to
+        # the head instead of the encoder output.
+        self.session_mode = config.session_features
+        self.session_groups = [tuple(int(v) for v in g) for g in config.session_feature_groups]
+        if self.session_mode != "off" and not self.session_groups:
+            raise ValueError("model.session_features needs session_feature_groups "
+                             "(set from data.session_features)")
+        self.session_proj = self.session_token_embed = None
+        if self.session_mode == "tokens":
+            pre = config.session_feature_norm in ("pre", "both")
+            post = config.session_feature_norm in ("post", "both")
+            self.session_proj = nn.ModuleList(
+                nn.Sequential(norm_layer(dim) if pre else nn.Identity(),
+                              nn.Linear(dim, config.embed_dim),
+                              norm_layer(config.embed_dim) if post else nn.Identity())
+                for _, dim in self.session_groups)
+            self._session_token_gain = config.session_token_gain if post else None
+            self.session_token_embed = nn.Parameter(
+                torch.zeros(1, sum(n for n, _ in self.session_groups), config.embed_dim))
+        self.session_drop = nn.Dropout(config.session_feature_drop)
+        self.session_head_embed = None
+        if self.session_mode == "only":
+            self.num_features = sum(n * dim for n, dim in self.session_groups)
+        elif self.session_mode == "head":
+            self.session_head_embed = nn.Linear(sum(n * dim for n, dim in self.session_groups),
+                                                config.session_head_dim, bias=False)
+            self.num_features += config.session_head_dim
         self.head = self._build_head(config.num_classes)
 
         if isinstance(self.head, nn.Linear):
@@ -254,10 +299,26 @@ class NeuralTransformer(NeuralTransformerBase):
         self.apply(self._init_weights)
         self.fix_init_weight()
 
-        out_layer = self._head_output_layer()
-        if out_layer is not None:
+        for out_layer in self._head_output_layers():
             out_layer.weight.data.mul_(config.init_scale)
             out_layer.bias.data.mul_(config.init_scale)
+        if self.session_token_embed is not None:
+            trunc_normal_(self.session_token_embed, std=.02)
+            if self._session_token_gain is not None:      # after _init_weights reset it to 1
+                for proj in self.session_proj:
+                    proj[2].weight.data.fill_(self._session_token_gain)
+
+    def session_tokens(self, features):
+        """Flat session features ``(B, sum n*dim)`` -> tokens ``(B, sum n, embed_dim)``."""
+        if features is None:
+            raise ValueError("this model takes session features: call it with "
+                             "condition=<(B, n_features) tensor>")
+        features = self.session_drop(features.to(self.session_token_embed.dtype))
+        tokens, start = [], 0
+        for (n, dim), proj in zip(self.session_groups, self.session_proj):
+            tokens.append(proj(features[:, start:start + n * dim].reshape(-1, n, dim)))
+            start += n * dim
+        return torch.cat(tokens, dim=1) + self.session_token_embed
 
     def _build_head(self, num_classes):
         if num_classes <= 0:
@@ -275,13 +336,21 @@ class NeuralTransformer(NeuralTransformerBase):
             if isinstance(c, dict):
                 c = MLPHeadConfig(**c)
             return MLPHead(self.num_features, num_classes, hidden_dims=c.hidden_dims, drop=c.drop)
+        if self.head_type == 'multitask':
+            c = self._multitask_head_cfg
+            if isinstance(c, dict):
+                c = MultiTaskHeadConfig(**c)
+            return MultiTaskHead(self.num_features, num_classes, shared_dims=c.shared_dims,
+                                 age_dims=c.age_dims, abnormal_dims=c.abnormal_dims, drop=c.drop)
         return nn.Linear(self.num_features, num_classes)
 
-    def _head_output_layer(self):
-        """The head's final Linear (the one ``init_scale`` shrinks), or None."""
+    def _head_output_layers(self):
+        """The head's output Linear layer(s) -- the ones ``init_scale`` shrinks."""
+        if isinstance(self.head, MultiTaskHead):
+            return [self.head.age_fc, self.head.abnormal_fc]
         if isinstance(self.head, (CLSAttentionHead, MLPHead)):
-            return self.head.fc
-        return self.head if isinstance(self.head, nn.Linear) else None
+            return [self.head.fc]
+        return [self.head] if isinstance(self.head, nn.Linear) else []
 
     def get_classifier(self):
         return self.head
@@ -291,7 +360,12 @@ class NeuralTransformer(NeuralTransformerBase):
         self.head = self._build_head(num_classes)
 
     def forward_features(self, x, channel_indices=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
+        session = kwargs.pop('session', None)
         x = self._embed_inputs(x, channel_indices=channel_indices)
+        if self.session_mode == "tokens":
+            # Appended after the patch tokens: they join the mean pool / the
+            # attention head like any other token.
+            x = torch.cat((x, self.session_tokens(session)), dim=1)
 
         for blk in self.blocks:
             x = blk(x, rel_pos_bias=None)
@@ -321,9 +395,43 @@ class NeuralTransformer(NeuralTransformerBase):
         x: [batch size, number of electrodes, number of patches, patch size]
         For example, for an EEG sample of 4 seconds with 64 electrodes, x will be [batch size, 64, 4, 200]
         '''
+        condition = kwargs.pop('condition', None)
+        # (output, head-input feature) -- the pooled / class-token feature
+        # before any condition embedding; None for a features-only model.
+        return_features = kwargs.pop('return_features', False)
+        if self.session_mode == "only":
+            # No EEG encoder: the head sees just the session features.
+            if condition is None:
+                raise ValueError("this model takes session features: call it with "
+                                 "condition=<(B, n_features) tensor>")
+            out = self.head(self.session_drop(condition.to(self.head_dtype())))
+            return (out, None) if return_features else out
+        if self.session_mode == "tokens":
+            kwargs['session'] = condition
         x = self.forward_features(x, channel_indices=channel_indices, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
+        feature = x
+        if self.session_mode == "head":
+            if condition is None:
+                raise ValueError("this model takes session features: call it with "
+                                 "condition=<(B, n_features) tensor>")
+            c = self.session_drop(condition.to(self.session_head_embed.weight.dtype))
+            x = torch.cat((x, self.session_head_embed(c)), dim=-1)
+        if self.abnormal_embed is not None:
+            x = torch.cat((x, self.embed_abnormal(condition)), dim=-1)
         x = self.head(x)
-        return x
+        return (x, feature) if return_features else x
+
+    def head_dtype(self):
+        return next(self.head.parameters()).dtype
+
+    def embed_abnormal(self, abnormal):
+        """``condition_on_abnormal``: the label feature for ``abnormal`` (B,) in
+        [0, 1] (1 = abnormal; soft under mixup)."""
+        if abnormal is None:
+            raise ValueError("this model conditions on the normal/abnormal label: call it "
+                             "with condition=<(B,) tensor, 1 = abnormal>")
+        a = abnormal.reshape(-1, 1).to(self.abnormal_embed.weight.dtype)
+        return self.abnormal_embed(torch.cat((1 - a, a), dim=-1))
 
     def forward_with_attention(self, x, channel_indices=None):
         """``head_type="attention"`` only: ``(prediction, cls_attention)``, where

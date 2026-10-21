@@ -58,3 +58,29 @@ class DataConfig(ConfigBase):
     # sample length of its grid position (inside the trimmed range), redrawn
     # every epoch. Evaluation always uses the fixed grid.
     random_crop: bool = False
+    # npy only: drop every sample with a 10 s window that has any sample beyond
+    # +-window_max_abs_uv µV, or any channel whose std is below window_min_std_uv
+    # µV (a flat channel), in train, val and test; 0 turns a test off. Needs the
+    # dataset's window_stats.npz (python -m labram.data.window_qc).
+    window_max_abs_uv: Union[int, float] = 0.0
+    window_min_std_uv: Union[int, float] = 0.0
+    # TUAB_AGE only: per-recording classical EEG features
+    # (dataset_maker/make_session_features.py), a file name inside data_path or
+    # an absolute path; "" = none. Used by model.session_features.
+    session_features: str = ""
+    # npy only: channels left out of every sample in every split (10-20 names),
+    # e.g. ["T1", "T2"] for a 21-channel model that can also use the TUEG
+    # recordings without them. The files keep all channels.
+    drop_channels: List[str] = field(default_factory=list)
+    # Training only: each epoch, a fresh random draw of this many minutes of
+    # samples per recording (window_sec each) from its selected training
+    # samples, shuffled; 0 = every sample every epoch. Shorter epochs, same
+    # recordings and patients (labram/data/samplers.py).
+    train_minutes_per_epoch: Union[int, float] = 0.0
+    # npy only: copy the recordings the run uses onto fast local storage before
+    # training (labram/data/staging.py). "auto" = the instance NVMe
+    # (/opt/dlami/nvme) when present, skipped inside SageMaker; "off" disables; any other value is a directory. Train is staged first, then
+    # val, then test; what does not fit (keeping stage_reserve_gb free) is read
+    # from data_path. Debug runs never stage.
+    stage_dir: str = "auto"
+    stage_reserve_gb: float = 20.0

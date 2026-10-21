@@ -14,6 +14,7 @@
 
 import argparse
 import contextlib
+import datetime
 import io
 import os
 import re
@@ -27,7 +28,7 @@ from urllib.parse import urlparse
 
 import labram.utils as utils
 from labram.utils.secrets import redacted_copy
-from labram.aws.sagemaker import SageMakerJobSpec, SageMakerLauncher, role_account
+from labram.aws.sagemaker import CHECKPOINT_ENV, SageMakerJobSpec, SageMakerLauncher, role_account
 from labram.configs.defaults import SAGEMAKER_INPUT_MODES
 from labram.configs.run_configs import (
     FinetuneRunConfig,
@@ -644,6 +645,33 @@ def channel_input_modes(input_mode: str,
     return {channel: 'File' for channel in sorted(channels)}
 
 
+CHECKPOINT_PREFIX = "labram/checkpoints"
+
+
+def resolve_checkpoint_uri(sm, base_job_name: str, region: str = "",
+                           stamp: Optional[str] = None) -> str:
+    """S3 prefix for a job's checkpoints, '' when checkpointing is off.
+
+    ``sagemaker.checkpoint_s3_uri``: ``auto`` checkpoints spot jobs only, under
+    ``s3://sagemaker-<region>-<account>/labram/checkpoints`` (the account comes
+    from the role ARN); ``off`` never; any other value is the prefix. The job's
+    folder is ``<base_job_name>-<UTC time>`` so every submission (and every CV
+    fold, whose base name carries the fold) gets its own, and a spot restart of
+    the same job finds its checkpoints again."""
+    value = (sm.checkpoint_s3_uri or "").strip()
+    if value.lower() in ("", "off", "none", "false"):
+        return ""
+    if value == "auto":
+        if not sm.use_spot:
+            return ""
+        account = role_account(sm.role or "")
+        if not account or not region:
+            return ""
+        value = f"s3://sagemaker-{region}-{account}/{CHECKPOINT_PREFIX}"
+    stamp = stamp or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
+    return f"{value.rstrip('/')}/{base_job_name}-{stamp}/"
+
+
 def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
                    phase: str = 'finetune',
                    extra_inputs: Optional[Dict[str, str]] = None,
@@ -660,6 +688,12 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
     modes = channel_input_modes(sm.input_mode, object_channels)
     # Only channels this job actually has.
     modes = {c: m for c, m in modes.items() if c in inputs}
+    base_job_name = fold_job_name(sm.job_name_prefix, fold)
+    region = sm.region or _default_region()
+    checkpoint_uri = resolve_checkpoint_uri(sm, base_job_name, region)
+    environment = dict(sm.environment)
+    if checkpoint_uri:
+        environment[CHECKPOINT_ENV] = "1"
     return SageMakerJobSpec(
         entry_point=sm.entry_point,
         source_dir=source_dir or sm.source_dir or '.',
@@ -674,7 +708,7 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
         py_version=sm.py_version,
         image_uri=sm.image_uri,
         hyperparameters={**sm.hyperparameters, **build_hyperparameters(config_uri, fold, phase)},
-        environment=dict(sm.environment),
+        environment=environment,
         tags=tags,
         inputs=inputs,
         input_mode=validate_input_mode(sm.input_mode),
@@ -682,8 +716,17 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
         output_path=sm.output_path,
         code_location=sm.code_location,
         output_kms_key=sm.output_kms_key,
-        base_job_name=fold_job_name(sm.job_name_prefix, fold),
+        base_job_name=base_job_name,
+        checkpoint_s3_uri=checkpoint_uri,
     )
+
+
+def _default_region() -> str:
+    try:
+        import boto3
+        return boto3.session.Session().region_name or ""
+    except Exception:
+        return ""
 
 
 @dataclass

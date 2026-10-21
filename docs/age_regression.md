@@ -494,6 +494,7 @@ The `data.*` window-selection options: class default, the value in
 | `trim_start_sec` / `trim_end_sec` | `0` (`60` / `60`) | Drop the first/last seconds of every recording, rounded up to whole 10 s windows |
 | `window_sec` | `10` | Model input length: `window_sec/10` consecutive pickles concatenated (multiple of 10, 10–60) |
 | `eval_minutes` | `0` (`5`) | Val/test use only the first N minutes after the trimmed start (`0` = whole recording); train always uses everything |
+| `window_max_abs_uv` / `window_min_std_uv` | `0` | npy only: drop samples with a 10 s window that has a sample beyond ±`window_max_abs_uv` µV or a channel with std below `window_min_std_uv` µV, in train, val and test (Eq. (8.3)); `0` turns a test off |
 
 **How samples are chosen.** Window `i` of a recording covers `[10i, 10i+10)` s.
 Sample starts lie on a fixed grid per recording, every `window_sec` seconds from
@@ -532,6 +533,31 @@ Recording length is read from the window directories, not the split's file list,
 so the selection is idempotent: re-applying it to a reused `data_split.json` or a
 CV fold changes nothing. Recordings too short for one sample after trimming drop
 out, and the run logs per-split sample/recording counts.
+
+**Signal-quality rejection.** `window_max_abs_uv` = $A$ and `window_min_std_uv` = $\sigma_\text{min}$
+(µV; npy format only) drop windows with an artifact or a flat channel. For window
+$i$ with samples $x_{c,t}$ (µV, channel $c$ among the channels the manifest's
+`channel_mask` marks present, $t = 1,\dots,2000$), `labram/data/window_qc.py::recording_window_stats`
+stores in `window_stats.npz` (next to `manifest.json`)
+
+$$
+a_i=\max_{c,t}\lvert x_{c,t}\rvert,
+\qquad
+\sigma_i=\min_c \sqrt{\tfrac{1}{2000}\sum_t \bigl(x_{c,t}-\bar x_c\bigr)^2},
+\tag{8.3}
+$$
+
+and window $i$ passes iff $a_i \le A$ and $\sigma_i \ge \sigma_\text{min}$
+(`window_passes`; a zero threshold skips its test). A sample is kept only when all
+its $k$ windows pass, on top of Eq. (8.2). For val/test the budget $B$ then counts
+passing samples: the first $\lfloor B/k \rfloor$ passing samples after the
+trimmed start, so rejected windows do not use it up. A recording with no passing
+sample leaves that split. Build the stats once per dataset (fetching recordings
+that are only on S3 with `--s3`), then copy the file next to the S3 copy:
+
+```bash
+python -m labram.data.window_qc --root <npy dir> --s3 s3://.../<npy dir>/
+```
 
 **Labels.** `case_filter` reads TUAB's normal/abnormal label from the metadata
 sidecar, derived from the EDF folder (`.../train/abnormal/...`). Sidecars written
@@ -586,10 +612,13 @@ edf/processed_npy/
 the loader already applied to every pickle, so the model sees bit-identical
 input (verified on 1,000 sampled windows).
 
-`finetune_tuab_age.json` reads this format by default (`data.data_format=npy`;
-the class default, and every other config, stays `pickle`). Pass
-`data.data_format=pickle` to read the window pickles instead. `data.data_path`
-may point at `edf/` or straight at `processed_npy/`. Items keep the pickle names, so
+Every TUAB config reads this format (`data.data_format=npy`): the age config
+and, since 2026-10-11, the normal/abnormal configs too (`TUABNpyLoader`; the
+label is the manifest's `label`, identical to the pickles' `y` on every
+recording). The window pickles were removed from local disk; their only copy is
+the S3 backup `s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed/`, kept
+for reference and not used. `data.data_path` may point at `edf/`, `processed/`
+(the old TUAB path; its sibling `processed_npy/` is used) or `processed_npy/`. Items keep the pickle names, so
 window selection, cross-validation and split reuse work unchanged.
 `data.random_crop=true` (npy only, training only) moves each training sample to
 a random start within half a sample length of its grid position, inside the
@@ -615,7 +644,7 @@ writing the npy files back; re-runs skip finished recordings):
 ```bash
 python scripts/submit_tuab_npy_conversion.py --instances 4          # convert
 python -m dataset_maker.make_TUAB_npy merge \
-  --dst s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed_npy \
+  --dst s3://eeg-data-public/TUH_EEG/tuab/v3.0.1/edf/processed_npy \
   --sidecar-dir /path/to/edf/processed --expect 2990                # manifest
 ```
 
@@ -630,7 +659,7 @@ epoch) with identical metrics, per-epoch curves and data split.
 ## Usage
 
 ```bash
-TUAB=/path/to/TUH_Abnormal/v3.0.0/edf
+TUAB=/path/to/tuab/v3.0.1/edf
 ```
 
 Extract the demographics (prints a summary to cross-check against the corpus
@@ -959,7 +988,7 @@ re-run, so it takes minutes on CPU:
 
 ```bash
 python scripts/age_artifact_pooling.py \
-  --data-path /data/datasets/EEG-public/TAUB/TUH_Abnormal/v3.0.0/edf \
+  --data-path /data/datasets/EEG-public/TUH_EEG/tuab/v3.0.1/edf \
   --run M1=checkpoints/age_M1_... --run M2=path/to/extracted/M2 \
   --out artifact_pooling.json
 ```
@@ -1172,6 +1201,267 @@ OMP_NUM_THREADS=1 torchrun --nnodes=1 --nproc_per_node=8 -m labram.runs.run_fine
         finetune_checkpoint.finetune=./checkpoints/labram-base.pth
 ```
 
+## Label-preserving augmentation
+
+The from-scratch runs stop improving on validation while they keep fitting the
+training recordings (S2: val flat from epoch 9, train still falling), so the
+remaining lever is making each recording look different every epoch. Brain age
+is carried by the spectrum (the alpha peak slows and total power falls with
+age), so every augmentation in `labram/train/augment.py` keeps each channel's
+power spectrum and amplitude scale. Frequency or time stretching, global
+amplitude scaling and band-stop filters are deliberately not offered.
+Table 16.1 lists the options; Eqs. (16.1)–(16.6) define them.
+
+### Table 16.1. Augmentation options
+
+`augment.*` (training only, off by default; defaults in parentheses) and
+`model.input_clip_uv` (train and eval). Each `*_prob` is the per-sample
+probability; 0 disables that augmentation.
+
+| Option | Config | Eq. |
+|---|---|---|
+| Hemisphere flip | `hemisphere_flip_prob` (0.5) | (16.1) |
+| Sign flip | `sign_flip_prob` (0.5) | (16.2) |
+| Fourier-transform surrogate | `ft_surrogate_prob` (0.5), `ft_phase_noise` (1.0) | (16.3) |
+| Channel dropout | `channel_dropout_prob` (0.5), `channel_dropout_p` (0.1) | (16.4) |
+| Time masking | `time_mask_prob` (0.5), `time_mask_max_count` (2), `time_mask_min_sec` (0.5), `time_mask_max_sec` (1.0) | (16.5) |
+| Amplitude clip | `model.input_clip_uv` (0 = off; 800 in S3) | (16.6) |
+
+Let $x\in\mathbb{R}^{N\times T}$ be one training sample (channels $c$ in the
+bundle's order, $T$ samples at 200 Hz, model-input units µV/100), drawn
+independently per sample and per augmentation. They run in the order of the
+table, before mixup (Eq. (12.1)); the surrogate comes before the two blanking
+steps so it never smears a blanked segment.
+
+**Hemisphere flip** (`hemisphere_flip`). With $\pi$ the permutation that swaps
+each odd-numbered (left) electrode with the next even-numbered (right) one --
+FP1/FP2, F3/F4, C3/C4, P3/P4, O1/O2, F7/F8, T3/T4, T5/T6, A1/A2, T1/T2 -- and
+fixes FZ, CZ, PZ (`hemisphere_permutation`, an involution), Eq. (16.1):
+
+$$
+\tilde x_c=x_{\pi(c)} .
+\tag{16.1}
+$$
+
+**Sign flip** (`sign_flip`), Eq. (16.2); $\lvert\hat x_c(f)\rvert$ is unchanged:
+
+$$
+\tilde x=-x .
+\tag{16.2}
+$$
+
+**Fourier-transform surrogate** (`ft_surrogate`, Rommel et al. 2022). With
+$\hat x_c(f)$ the real FFT of channel $c$ (`torch.fft.rfft`) and one phase
+$\varphi_f\sim\mathcal{U}[0,\,2\pi\rho)$ per frequency shared by all channels
+($\rho$ = `ft_phase_noise`; $\varphi_0=0$, and $\varphi_{T/2}=0$ for even $T$, so
+the result is real), Eq. (16.3):
+
+$$
+\tilde x_c=\mathcal{F}^{-1}\bigl[\hat x_c(f)\,e^{\,i\varphi_f}\bigr] .
+\tag{16.3}
+$$
+
+$\lvert\hat{\tilde x}_c(f)\rvert=\lvert\hat x_c(f)\rvert$ (the power spectrum) and
+$\hat{\tilde x}_c\,\overline{\hat{\tilde x}_{c'}}=\hat x_c\,\overline{\hat x_{c'}}$
+(the cross-spectrum, hence coherence) are both preserved; only the waveform
+changes.
+
+**Channel dropout** (`channel_dropout`). $m_c\sim\operatorname{Bernoulli}(1-p)$,
+$p$ = `channel_dropout_p`, redrawn so that at least one channel is kept,
+Eq. (16.4):
+
+$$
+\tilde x_c=m_c\,x_c .
+\tag{16.4}
+$$
+
+**Time masking** (`time_mask`). $K\sim\mathcal{U}\{1,\dots,K_\text{max}\}$
+segments $S_k=[s_k,\,s_k+\ell_k)$ with
+$\ell_k\sim\mathcal{U}\{\ell_\text{min},\dots,\ell_\text{max}\}$ samples
+($\ell$ = seconds $\times$ 200) and $s_k$ uniform over the valid starts,
+Eq. (16.5):
+
+$$
+\tilde x_c(t)=x_c(t)\,\Bigl[\,t\notin\textstyle\bigcup_{k=1}^{K}S_k\Bigr] .
+\tag{16.5}
+$$
+
+**Amplitude clip** (`NeuralTransformerBase.maybe_preprocess_input`, before the
+CAR of the LaBraM++ mode) with $a$ = `input_clip_uv`/100, Eq. (16.6). It is part
+of the model, so training, `evaluate` and the offline eval tools all clip the
+same way. On TUAB it touches 0.15 % of samples (60 random recordings; median
+99.9th-percentile amplitude 191 µV), i.e. artifacts only.
+
+$$
+\tilde x_c(t)=\min\bigl(\max\bigl(x_c(t),\,-a\bigr),\,a\bigr) .
+\tag{16.6}
+$$
+
+S3 in `scripts/submit_age_experiments.sh` is the from-scratch S2 (6 blocks + MLP
+head, no pretrained weights; the MLP-head paragraph of section 15) with all six
+enabled at the defaults above.
+
+## Multi-task: brain age + normal/abnormal
+
+`model.head_type=multitask` (`labram/layers/mlp_head.py::MultiTaskHead`) predicts
+the age and the TUAB normal/abnormal label from the same pooled encoder
+feature: a shared MLP trunk feeds two dedicated branches. Every age metric, the
+cohort metrics and model selection (on val age MAE) are unchanged; the
+classifier adds the metrics of Eqs. (17.5)–(17.8). Table 17.1 lists the
+options.
+
+### Table 17.1. Multi-task options
+
+Config keys (defaults in parentheses). Each `*_dims` entry is one
+`Linear -> GELU -> Dropout(drop)` layer.
+
+| Option | Config | Eq. |
+|---|---|---|
+| Head | `model.head_type=multitask` | (17.1)–(17.3) |
+| Shared trunk | `model.multitask_head.shared_dims` (`[256]`) | (17.1) |
+| Age branch | `model.multitask_head.age_dims` (`[128]`) | (17.2) |
+| Abnormal branch | `model.multitask_head.abnormal_dims` (`[64]`) | (17.3) |
+| Dropout | `model.multitask_head.drop` (0.0) | — |
+| Classification weight | `loss.abnormal_weight` (0.5) | (17.4) |
+
+Regression task (`TUAB_AGE`) only; not combinable with `model.codebook_reg`,
+`model.lora` or `loss.regression_loss=soft_label`.
+
+**Head.** With $u\in\mathbb{R}^{D}$ the pooled feature (`fc_norm` of the mean
+patch token, as for the linear head) and $\phi_\theta(\cdot)$ a stack of
+`Linear -> GELU -> Dropout` layers, Eqs. (17.1)–(17.3):
+
+$$
+h=\phi_\text{shared}(u),
+\tag{17.1}
+$$
+
+$$
+\hat z=W_\text{age}\,\phi_\text{age}(h)+b_\text{age},
+\tag{17.2}
+$$
+
+$$
+\ell=W_\text{abn}\,\phi_\text{abn}(h)+b_\text{abn},
+\qquad
+\hat p=\sigma(\ell),
+\tag{17.3}
+$$
+
+where $\hat z$ is the z-scored age prediction of Eq. (5.3), $\ell$ the abnormal
+logit and $\sigma$ the logistic function. `init_scale` shrinks both output layers
+$W_\text{age}$ and $W_\text{abn}$. The head emits $[\hat z,\ell]$.
+
+**Targets and loss** (`labram/losses/regression.py::MultiTaskAgeCriterion`). The
+loader returns $[z_i,a_i]$, with $z_i$ the z-scored age (Eq. (5.1)) and
+$a_i=1$ for an abnormal recording, $0$ for a normal one (the `label` of
+`age_metadata.json`, `window_selection.enable_abnormal_target`). Mixup
+(Eq. (12.1)) blends $a_i$ like $z_i$, giving a soft target in $[0,1]$; C-Mixup
+pairs on $z_i$ only. For a batch of $N$ windows, Eq. (17.4):
+
+$$
+\mathcal{L}
+=\mathcal{L}_\text{age}\bigl(\hat z,z\bigr)
++w\,\frac{1}{N}\sum_{i=1}^{N}
+-\Bigl[a_i\log\sigma(\ell_i)+(1-a_i)\log\bigl(1-\sigma(\ell_i)\bigr)\Bigr],
+\tag{17.4}
+$$
+
+with $\mathcal{L}_\text{age}$ the configured age loss (Huber by default, Eq. (5.4))
+and $w$ = `loss.abnormal_weight`. Both terms are logged unweighted
+(`regression_loss`, `abnormal_loss`).
+
+**Classification metrics** (`train_finetune.py::_abnormal_metrics`, val/test).
+Per case $c$, the abnormal probability is the window mean
+$\bar p_c=\tfrac1{|c|}\sum_{i\in c}\hat p_i$ (`evaluation.agg_windows`) and the
+label $a_c$ that of its windows; $\hat a_c=[\bar p_c\ge 0.5]$. With TP, TN, FP,
+FN counted over cases (abnormal = positive), Eqs. (17.5)–(17.8):
+
+$$
+\text{abnormal\_accuracy}=\frac{\text{TP}+\text{TN}}{\text{TP}+\text{TN}+\text{FP}+\text{FN}},
+\tag{17.5}
+$$
+
+$$
+\text{abnormal\_balanced\_accuracy}=\frac12\Bigl(\frac{\text{TP}}{\text{TP}+\text{FN}}+\frac{\text{TN}}{\text{TN}+\text{FP}}\Bigr),
+\tag{17.6}
+$$
+
+$$
+\text{abnormal\_roc\_auc}=P\bigl(\bar p_{c^+}>\bar p_{c^-}\bigr)
+\quad\text{(+ half the ties)},
+\tag{17.7}
+$$
+
+$$
+\text{abnormal\_pr\_auc}=\sum_k (R_k-R_{k-1})\,P_k ,
+\tag{17.8}
+$$
+
+where $c^+$ / $c^-$ range over abnormal / normal cases, and $P_k$, $R_k$ are
+precision and recall at the $k$-th threshold (average precision). The same
+four per window are logged as `window_abnormal_*`. For reference, LaBraM-base
+fine-tuned for TUAB classification alone reports balanced accuracy 0.814 and
+AUROC 0.902 (Jiang et al. 2024; their split and evaluation windows differ).
+
+The run MT1 in `scripts/submit_age_experiments.sh`
+(`labram/configs/defaults/finetune_tuab_age_multitask.json`) is the best brain-age
+run M1 (pretrained, scenario D + mixup 0.4, 4 epochs / 1 warmup) with this head.
+
+## Age head conditioned on the normal/abnormal label
+
+`model.condition_on_abnormal=true` gives the age head the recording's **known**
+normal/abnormal label (the clinical label in `age_metadata.json`) as an extra
+input, next to the encoder feature; nothing is predicted for the label. It
+tests how much of the age error is the abnormal-cohort shift (test MAE ≈ 10.5
+on abnormal vs. ≈ 6.7 on normal recordings for M1 and MT1,
+`age_overfitting_experiments.md` Table 10.2) once the diagnosis is given. The label is then needed at inference too. Table 18.1 lists the options.
+
+### Table 18.1. Label-conditioning options
+
+Config keys (defaults in parentheses).
+
+| Option | Config | Eq. |
+|---|---|---|
+| Switch | `model.condition_on_abnormal` (false) | (18.1)–(18.2) |
+| Label-feature width | `model.abnormal_embed_dim` (16) | (18.1) |
+| Head on the joint feature | `model.head_type` = `linear` or `mlp` | (18.2) |
+
+Regression only; not combinable with `head_type` `attention` or `multitask`,
+`model.codebook_reg`, `model.lora` or `loss.regression_loss=soft_label`.
+
+With $u\in\mathbb{R}^{D}$ the pooled feature, $a\in[0,1]$ the label (1 =
+abnormal; a mixup blend of two labels in training, Eq. (12.1)) and
+$E\in\mathbb{R}^{d\times 2}$ the bias-free label embedding
+(`NeuralTransformer.abnormal_embed`, $d$ = `abnormal_embed_dim`), Eq. (18.1):
+
+$$
+e(a)=E\begin{bmatrix}1-a\\ a\end{bmatrix},
+\qquad
+\tilde u=\bigl[\,u\,;\,e(a)\,\bigr]\in\mathbb{R}^{D+d}.
+\tag{18.1}
+$$
+
+$e$ is linear in $a$, so a mixed sample's label feature is the same blend as its
+input. The head then predicts the z-scored age from $\tilde u$, Eq. (18.2):
+
+$$
+\hat z=g(\tilde u),
+\tag{18.2}
+$$
+
+with $g$ the linear head or the MLP head of section 15. With a linear $g$ the
+label can only shift the prediction by a per-cohort constant; the MLP lets it
+interact with the EEG feature. The loss is the age loss of section 5 on
+$\hat z$ alone (`labram/losses/regression.py::AbnormalConditionedAgeCriterion`,
+which hands the label column to the model as `condition` and scores only the
+age column), so every metric of section 6 is unchanged.
+
+The run LC1 (`scripts/submit_age_experiments.sh`,
+`labram/configs/defaults/finetune_tuab_age_label_cond.json`) is M1 (pretrained,
+scenario D + mixup 0.4, 4 epochs / 1 warmup) with the MLP head (256) on
+$[u;e(a)]$, $d=16$.
+
 ## Next steps
 
 The default config (`finetune_tuab_age.json`) is scenario D of the October 2026
@@ -1183,9 +1473,9 @@ improvement plan is in [`brain_age_improvement_plan.md`](brain_age_improvement_p
 
 ## Files
 
-Table 17.1 maps each file to its role.
+Table 20.1 maps each file to its role.
 
-### Table 17.1. Files
+### Table 20.1. Files
 
 The files that implement age regression and its analysis.
 
@@ -1206,3 +1496,6 @@ The files that implement age regression and its analysis.
 | `labram/configs/defaults/finetune_tuab_age.json` | ready-to-run config |
 | `labram/layers/cls_attention_head.py` | `CLSAttentionHead` (`model.head_type=attention`) |
 | `labram/configs/defaults/finetune_tuab_age_attn_head.json` | best run (M1) + `clip_grad` 1.0 + attention head |
+| `labram/train/augment.py` | label-preserving training augmentations (`augment.*`) |
+| `labram/configs/defaults/finetune_tuab_age_multitask.json` | best run (M1) with the multi-task (age + normal/abnormal) head |
+| `labram/configs/defaults/finetune_tuab_age_label_cond.json` | best run (M1) with an age head conditioned on the known normal/abnormal label |

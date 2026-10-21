@@ -15,7 +15,7 @@ The threshold is a quantile of the EMG index over val windows and is chosen on
 val; read its test MAE as the honest estimate.
 
     python scripts/age_artifact_pooling.py \\
-        --data-path /data/datasets/EEG-public/TAUB/TUH_Abnormal/v3.0.0/edf \\
+        --data-path /data/datasets/EEG-public/TUH_EEG/tuab/v3.0.1/edf \\
         --run M1=checkpoints/age_M1_... --run M2=path/to/extracted/M2 \\
         --out artifact_pooling.json
 """

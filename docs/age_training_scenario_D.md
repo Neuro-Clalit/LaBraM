@@ -277,15 +277,15 @@ Local, single GPU (each run writes to a fresh timestamped output directory):
 ```bash
 python -m labram.runs.run_finetune \
   --config labram/configs/defaults/finetune_tuab_age.json \
-  --set data.data_path=/data/datasets/EEG-public/TAUB/TUH_Abnormal/v3.0.0/edf \
+  --set data.data_path=/data/datasets/EEG-public/TUH_EEG/tuab/v3.0.1/edf \
         clearml.enabled=true
 ```
 
 The config reads the per-recording npy format (`data.data_format=npy`, under
 `edf/processed_npy/`; see `age_regression.md`). It gives the same samples as the
 window pickles: re-running D on it reproduced every metric and per-epoch curve
-exactly, in 3:20 instead of 9:47. Add `data.data_format=pickle` to read
-`edf/processed/` instead.
+exactly, in 3:20 instead of 9:47. The window pickles are no longer kept
+locally (S3 backup only).
 
 SageMaker (spot; File mode copies the ~75 GB npy dataset to the instance):
 
@@ -294,7 +294,7 @@ python -m labram.runs.submit_sagemaker \
   --config labram/configs/defaults/finetune_tuab_age.json --detach \
   --set sagemaker.enabled=true sagemaker.use_spot=true sagemaker.max_wait_min=2880 \
         sagemaker.role=arn:aws:iam::574441342949:role/SageMakerExecutionRole \
-        data.data_path=s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed_npy/ \
+        data.data_path=s3://eeg-data-public/TUH_EEG/tuab/v3.0.1/edf/processed_npy/ \
         output.output_dir= output.log_dir= clearml.enabled=true
 ```
 

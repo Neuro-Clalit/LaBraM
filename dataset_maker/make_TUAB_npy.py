@@ -163,9 +163,12 @@ def npy_bytes(array):
 
 
 def resolve_shard(args):
-    """Explicit --shard, else the SageMaker host index, else 0 of 1."""
+    """Explicit --shard, else the AWS Batch array index, else the SageMaker host
+    index, else 0 of 1."""
     if args.shard is not None:
         return args.shard, args.num_shards
+    if "AWS_BATCH_JOB_ARRAY_INDEX" in os.environ:          # AWS Batch array child
+        return int(os.environ["AWS_BATCH_JOB_ARRAY_INDEX"]), args.num_shards
     cfg = "/opt/ml/config/resourceconfig.json"
     if os.path.exists(cfg):
         rc = json.load(open(cfg))

@@ -72,6 +72,10 @@ class LossConfig(ConfigBase):
     balance_lds_sigma: float = 2.0
     balance_max_weight: float = 10.0
 
+    # Multi-task brain age (model.head_type=multitask): weight of the auxiliary
+    # normal/abnormal BCE term next to the age loss, total = age + w * BCE.
+    abnormal_weight: float = 0.5
+
     # Codebook-regularized fine-tuning: weight on the classification term when
     # the spectral (amplitude/phase) and quantization losses regularize the
     # downstream task. Reuses amplitude_weight / phase_weight / embedding_weight

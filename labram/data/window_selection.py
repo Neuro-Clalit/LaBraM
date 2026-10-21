@@ -1,8 +1,8 @@
 # --------------------------------------------------------
 # Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
 # Recording/window selection for the TUAB-family fine-tuning loaders: case-type
-# filter, start/end trimming, longer model inputs and a per-recording evaluation
-# budget. See docs/age_regression.md.
+# filter, start/end trimming, longer model inputs, a per-recording evaluation
+# budget and signal-quality rejection. See docs/age_regression.md.
 # ---------------------------------------------------------
 
 import logging
@@ -14,6 +14,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 import torch.utils.data
 
 from labram.data.tuh_metadata import CASE_LABELS, load_label_lookup_for, recording_stem
+from labram.data.window_qc import load_window_stats, window_passes
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,11 @@ class WindowSelection:
     trim_end_sec: float = 0.0
     window_sec: int = PICKLE_WINDOW_SEC
     eval_minutes: float = 0.0
+    # Signal-quality rejection (npy only, from window_stats.npz; 0 = off): a
+    # sample is dropped when any of its 10 s windows has a sample beyond
+    # +-max_abs_uv or a channel whose std is below min_std_uv.
+    max_abs_uv: float = 0.0
+    min_std_uv: float = 0.0
 
     def __post_init__(self):
         if self.case_filter not in CASE_FILTERS:
@@ -52,6 +58,8 @@ class WindowSelection:
                 f"data.window_sec must be a multiple of {PICKLE_WINDOW_SEC} in "
                 f"[{PICKLE_WINDOW_SEC}, {MAX_WINDOW_SEC}] (the pickles are "
                 f"{PICKLE_WINDOW_SEC} s windows), got {self.window_sec}")
+        if self.max_abs_uv < 0 or self.min_std_uv < 0:
+            raise ValueError("data.window_max_abs_uv / window_min_std_uv must be >= 0")
         if 0 < self.eval_minutes * 60 < self.window_sec:
             raise ValueError(f"data.eval_minutes={self.eval_minutes} is shorter than "
                              f"one {self.window_sec} s sample")
@@ -64,11 +72,17 @@ class WindowSelection:
             trim_end_sec=float(getattr(data_cfg, "trim_end_sec", 0.0)),
             window_sec=int(getattr(data_cfg, "window_sec", PICKLE_WINDOW_SEC)),
             eval_minutes=float(getattr(data_cfg, "eval_minutes", 0.0)),
+            max_abs_uv=float(getattr(data_cfg, "window_max_abs_uv", 0.0)),
+            min_std_uv=float(getattr(data_cfg, "window_min_std_uv", 0.0)),
         )
 
     @property
     def is_default(self) -> bool:
         return self == WindowSelection()
+
+    @property
+    def quality_filter(self) -> bool:
+        return self.max_abs_uv > 0 or self.min_std_uv > 0
 
     @property
     def windows_per_sample(self) -> int:
@@ -134,6 +148,7 @@ def select_files(
     labels: Optional[Dict[str, str]] = None,
     is_eval: bool = False,
     sep: str = "_",
+    window_ok: Optional[Dict[str, "object"]] = None,
 ) -> List[str]:
     """The sample-start files of ``files`` that ``selection`` keeps.
 
@@ -141,10 +156,18 @@ def select_files(
     the sample grid inside the trimmed recording, the sample's windows all exist
     on disk, and -- for an evaluation split -- the sample ends within the first
     ``eval_minutes`` after the trimmed start.
+
+    With a quality filter (``window_ok``: stem -> boolean mask per 10 s window)
+    a sample is also dropped when any of its windows fails, and the evaluation
+    budget becomes the *first* ``eval_minutes`` worth of passing samples, so
+    rejected windows do not use it up.
     """
     k = selection.windows_per_sample
     start = selection.trim_start_windows
     budget = selection.eval_windows if is_eval else 0
+    if window_ok is not None:
+        return _select_quality(files, selection, k, start, budget, n_windows, available,
+                               labels, sep, window_ok)
     kept = []
     for f in files:
         stem = recording_stem(f, sep=sep)
@@ -159,6 +182,33 @@ def select_files(
         if all(_window_path(f, i + j, sep) in available for j in range(k)):
             kept.append(f)
     return kept
+
+
+def _select_quality(files, selection, k, start, budget, n_windows, available, labels, sep,
+                    window_ok):
+    candidates = []
+    for f in files:
+        stem = recording_stem(f, sep=sep)
+        if selection.case_filter != "all" and (labels or {}).get(stem) != selection.case_filter:
+            continue
+        i = window_index(f, sep)
+        if i < start or (i - start) % k:
+            continue
+        if i + k > n_windows.get((os.path.dirname(f), stem), 0) - selection.trim_end_windows:
+            continue
+        ok = window_ok.get(stem)
+        if ok is None or i + k > len(ok) or not ok[i:i + k].all():
+            continue
+        if all(_window_path(f, i + j, sep) in available for j in range(k)):
+            candidates.append((stem, i, f))
+    if not budget:
+        return [f for _, _, f in candidates]
+    per_recording = budget // k
+    starts: Dict[str, List[int]] = {}
+    for stem, i, _ in candidates:
+        starts.setdefault(stem, []).append(i)
+    first = {stem: set(sorted(v)[:per_recording]) for stem, v in starts.items()}
+    return [f for stem, i, f in candidates if i in first[stem]]
 
 
 def _select_leaf(leaf, selection: WindowSelection, is_eval: bool, split: str) -> None:
@@ -176,10 +226,17 @@ def _select_leaf(leaf, selection: WindowSelection, is_eval: bool, split: str) ->
             stem: (selection.trim_start_windows * step,
                    (n - selection.trim_end_windows) * step)
             for (_, stem), n in n_windows.items()}
+    window_ok = None
+    if selection.quality_filter:
+        if not hasattr(leaf, "window_inventory"):
+            raise ValueError("data.window_max_abs_uv / window_min_std_uv need the npy "
+                             "data format (data.data_format=npy)")
+        window_ok = {stem: window_passes(mx, sd, selection.max_abs_uv, selection.min_std_uv)
+                     for stem, (mx, sd) in load_window_stats(leaf.root).items()}
     before_files = leaf.files
     leaf.files = select_files(before_files, selection, n_windows=n_windows,
                               available=available, labels=labels,
-                              is_eval=is_eval, sep=sep)
+                              is_eval=is_eval, sep=sep, window_ok=window_ok)
     leaf.windows_per_item = selection.windows_per_sample
     recordings = lambda fs: len({recording_stem(f, sep=sep) for f in fs})
     logger.info(
@@ -216,6 +273,50 @@ def enable_random_crop(dataset) -> None:
         raise ValueError("data.random_crop needs the npy data format (data.data_format=npy)")
     for leaf in leaves:
         leaf.random_crop = True
+
+
+def enable_abnormal_target(dataset) -> None:
+    """Make every age leaf of ``dataset`` return ``[age, abnormal]`` targets
+    (abnormal = 1) for the multi-task head, from the labelled sidecar. Raises if
+    any recording has no normal/abnormal label: a missing key would otherwise be
+    swallowed by ``TUHLoader.__getitem__``, which substitutes another window."""
+    for leaf in _leaves(dataset):
+        if not hasattr(leaf, "age_lookup"):
+            raise ValueError("model.head_type=multitask needs the TUAB_AGE dataset")
+        labels = load_label_lookup_for(leaf.root)
+        stems = {recording_stem(f) for f in leaf.files}
+        missing = sorted(s for s in stems if labels.get(s) not in CASE_LABELS)
+        if missing:
+            raise ValueError(f"{len(missing)} recording(s) in {leaf.root} have no "
+                             f"normal/abnormal label (e.g. {missing[:3]})")
+        leaf.abnormal_lookup = {s: int(labels[s] == "abnormal") for s in stems}
+
+
+def enable_session_features(dataset, path: str, skip_signal: bool = False):
+    """Make every age leaf of ``dataset`` return ``[age, *features]`` targets
+    from a session-feature file (``dataset_maker/make_session_features.py``);
+    ``path`` is absolute or relative to each leaf's data root. Returns the
+    feature groups ``[[n_tokens, dim], ...]``. Raises if a recording has no
+    features. ``skip_signal`` makes npy leaves serve zeros instead of the EEG."""
+    from labram.data.session_features import load_session_features
+    groups = None
+    for leaf in _leaves(dataset):
+        if not hasattr(leaf, "age_lookup"):
+            raise ValueError("data.session_features needs the TUAB_AGE dataset")
+        feats = load_session_features(path if os.path.isabs(path)
+                                      else os.path.join(leaf.root, path))
+        stems = {recording_stem(f) for f in leaf.files}
+        missing = sorted(stems - set(feats.rows))
+        if missing:
+            raise ValueError(f"{len(missing)} recording(s) in {leaf.root} have no session "
+                             f"features in {path} (e.g. {missing[:3]})")
+        leaf.session_features = (feats.rows, feats.matrix)
+        if skip_signal:
+            if not hasattr(leaf, "skip_signal"):
+                raise ValueError("model.session_features=only needs data.data_format=npy")
+            leaf.skip_signal = True
+        groups = feats.groups
+    return groups
 
 
 def _leaves(dataset) -> list:

@@ -238,3 +238,27 @@ def create_ds_config(output_cfg, trainer_cfg, optim_cfg):
         }
         writer.write(json.dumps(ds_config, indent=2))
     return deepspeed_config_path
+
+
+TRAIN_STATE_FILE = "train_state.json"
+
+
+def save_train_state(output_dir, state: dict) -> None:
+    """Persist the training loop's best-epoch bookkeeping next to the rolling
+    checkpoint, so a resumed run (e.g. after a spot interruption) keeps
+    selecting the best epoch over *all* epochs, not just the resumed ones."""
+    import json
+    path = Path(output_dir) / TRAIN_STATE_FILE
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as fh:
+        json.dump(state, fh, default=float)
+    os.replace(tmp, path)
+
+
+def load_train_state(output_dir) -> dict:
+    import json
+    path = Path(output_dir) / TRAIN_STATE_FILE
+    if not path.is_file():
+        return {}
+    with open(path) as fh:
+        return json.load(fh)

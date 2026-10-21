@@ -51,7 +51,7 @@ python -m labram.runs.submit_sagemaker \
         sagemaker.max_wait_min=1500 sagemaker.wait=true \
         sagemaker.job_name_prefix=labram-abnormal \
         data.dataset=TUAB \
-        data.data_path=s3://<bucket>/TUH_Abnormal/v3.0.0/edf/processed/ \
+        data.data_path=s3://<bucket>/TUH_EEG/tuab/v3.0.1/edf/processed_npy/ \
         output.output_dir= output.log_dir= \
         clearml.enabled=true clearml.project_name=eeg/abnormal \
         clearml.task_name=finetune_tuab_abnormal \
@@ -147,6 +147,20 @@ python -m labram.runs.submit_sagemaker --phase finetune \
         sagemaker.max_wait_min=1800 sagemaker.on_demand_fallback=true
 ```
 
+**Spot interruptions resume, they do not restart.** With
+`sagemaker.checkpoint_s3_uri=auto` (the default), every spot job gets an S3
+checkpoint folder, `s3://sagemaker-<region>-<account>/labram/checkpoints/<job>-<UTC time>/`
+(one per submission and per CV fold), which SageMaker keeps in sync with
+`/opt/ml/checkpoints` in the container and restores there when it restarts an
+interrupted job. The entry point then trains into that folder with
+`output.auto_resume=true`: the run continues after the last saved epoch, and
+`train_state.json` carries the best-epoch bookkeeping across the restart, so
+model selection still covers every epoch. At the end the folder is copied into
+the model dir, so `model.tar.gz` keeps its usual layout. An interruption costs at
+most the epoch in progress plus the data download. `checkpoint_s3_uri=off`
+disables it; any other value is an S3 prefix to use instead; on-demand jobs are
+not checkpointed unless a prefix is given.
+
 With `on_demand_fallback=true`, a `MaxWaitTimeExceeded` spot result submits the
 same job again on-demand. It cannot work with `--detach`, because the local
 submitter must wait long enough to observe the spot result. This fallback only
@@ -172,7 +186,7 @@ python -m labram.runs.submit_sagemaker \
         sagemaker.input_mode=File sagemaker.use_spot=true \
         sagemaker.max_wait_min=1530 sagemaker.on_demand_fallback=true \
         sagemaker.job_name_prefix=labram-brain-age sagemaker.wait=true \
-        data.data_path=s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed_npy/ \
+        data.data_path=s3://eeg-data-public/TUH_EEG/tuab/v3.0.1/edf/processed_npy/ \
         output.output_dir= output.log_dir= \
         clearml.enabled=true clearml.project_name=eeg/brain_age \
         clearml.task_name=finetune_tuab_age

@@ -193,6 +193,11 @@ class ConfigBase(ABC):
         #  must raise_exception = TRUE always
         for field_ in self.get_fields():
             value_ = getattr(self, field_.name)
+            # A whole number for a float field (``--set x.lr=1``, JSON ``800``)
+            # is that float, not a type error.
+            if field_.type is float and isinstance(value_, int) and not isinstance(value_, bool):
+                value_ = float(value_)
+                setattr(self, field_.name, value_)
             if not correct_type(value_, field_.type):
                 err_message = (f"Object: '{type(self)}', "
                                f"Field '{field_.name}', "

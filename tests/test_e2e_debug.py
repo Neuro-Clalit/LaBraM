@@ -145,6 +145,7 @@ def run_pipeline(base_dir, device="cpu", real_tuab_path=None, verbose=False):
     finetune_config.update(**{
         "data.dataset": "TUAB",
         "data.data_path": str(tuab_root),
+        "data.data_format": "pickle",          # synthetic window pickles
         "trainer.debug": True,
         "trainer.epochs": 2,
         "optimizer.warmup_epochs": 1,
