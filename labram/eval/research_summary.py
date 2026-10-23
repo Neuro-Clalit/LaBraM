@@ -867,3 +867,42 @@ def agreement_summary(wide: pd.DataFrame, true: pd.Series, status: pd.Series,
                          **f[["r_pred", "r_err", "agree_2y", "agree_5y", "sign_agree"]].mean().to_dict(),
                          "dMAE": float(f.dMAE.abs().mean())})
     return pd.DataFrame(rows)
+
+
+def bias_fit_check(sets: pd.DataFrame,
+                   fit_on: Sequence[str] = ("TUAB out-of-fold", "TUEG out-of-fold")) -> pd.DataFrame:
+    """Per experiment, what :func:`bias_corrected_test` fits on: the number of
+    recordings and patients of the out-of-fold sets, and how many of them are
+    TUAB test recordings or share a patient with the TUAB test set (both must
+    be 0). The patient is the recording stem's first field."""
+    rows = []
+    for exp, g in sets.groupby("exp", sort=False):
+        fit = g[g.set.isin(fit_on)]
+        test = g[g.set == PREDICTION_SETS[0]]
+        fit_pat, test_pat = set(fit.stem.str.split("_").str[0]), set(test.stem.str.split("_").str[0])
+        rows.append({"exp": exp, "fit recordings": fit.stem.nunique(), "fit patients": len(fit_pat),
+                     "test recordings": test.stem.nunique(),
+                     "fit ∩ test recordings": len(set(fit.stem) & set(test.stem)),
+                     "fit ∩ test patients": len(fit_pat & test_pat)})
+    return pd.DataFrame(rows)
+
+
+def cole_corrected_test(sets: pd.DataFrame,
+                        fit_on: Sequence[str] = ("TUAB out-of-fold", "TUEG out-of-fold"),
+                        fit_status: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    """The deployable linear correction of Cole et al.: fit $\\hat y \\approx a\\,y + c$
+    on the out-of-fold predictions (``fit_on`` / ``fit_status`` as in
+    :func:`bias_corrected_test`) and invert it on the TUAB test predictions,
+    $\\hat y' = (\\hat y - c)/a$. Unlike Eq. (3.9) it uses only the prediction,
+    never the test recording's true age."""
+    out = []
+    for exp, g in sets.groupby("exp", sort=False):
+        fit = g[g.set.isin(fit_on)]
+        if fit_status is not None:
+            fit = fit[fit.status.isin(fit_status)]
+        a, c = np.polyfit(fit.true, fit.pred, 1)
+        t = g[g.set == PREDICTION_SETS[0]].copy()
+        t["pred"] = (t.pred - c) / a
+        t["err"] = t.pred - t.true
+        out.append(t)
+    return pd.concat(out, ignore_index=True)

@@ -237,3 +237,13 @@ def test_agreement_summary_pairs():
     assert set(s.status) == {"all", "normal", "abnormal"}
     assert (s.pair == "a vs b (ensembles)").sum() == 3
     assert s.agree_5y.between(0, 1).all() and s.r_pred.le(1).all()
+
+
+def test_bias_fit_check_and_deployable_correction():
+    d = _toy_sets()
+    chk = rs.bias_fit_check(d).iloc[0]
+    assert chk["fit ∩ test recordings"] == 0 and chk["fit ∩ test patients"] == 0
+    leaky = pd.concat([d, d[d.set == "TUAB test, ensemble"].assign(set="TUEG out-of-fold")], ignore_index=True)
+    assert rs.bias_fit_check(leaky).iloc[0]["fit ∩ test recordings"] == 3   # a leak is detected
+    c = rs.cole_corrected_test(d)                       # inverts pred = 0.6 y + 20 using the prediction only
+    assert np.allclose(c.pred, c.true)
