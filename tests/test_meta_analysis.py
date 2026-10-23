@@ -5,8 +5,11 @@ import pytest
 
 from labram.eval.meta_analysis import (
     COHORT_FEATURE_GROUPS,
+    FEATURE_DESCRIPTIONS,
+    FEATURE_GROUPS,
     add_derived_columns,
     available_features,
+    feature_inventory,
     metadata_age_baseline,
     metadata_baseline,
     report_reason_flags,
@@ -126,3 +129,25 @@ def test_report_reason_flags_are_multi_label():
     assert flags.loc[2, "suppression"] and flags.loc[3, "excess_beta"]
     assert flags.loc[4, "reason_unmatched"]
     assert not flags.loc[5].any()                          # no text: nothing, not "unmatched"
+
+
+def test_feature_inventory_types_ranges_and_category_lists(table):
+    table = table.assign(sfreq=np.resize([250.0, 256.0, 512.0, 1000.0, 400.0, 200.0], len(table)))
+    groups = {"demographics": ["age", "sex_male"], "acquisition": ["sfreq", "has_emg"],
+              "physiology": ["ekg_hr_bpm"]}
+    inv = feature_inventory(table, groups).set_index("feature")
+    assert inv.loc["age", "type"] == "quantitative" and inv.loc["age", "active_range"]
+    assert inv.loc["sex_male", "type"] == "categorical" and inv.loc["sex_male", "n_categories"] == 2
+    assert inv.loc["sfreq", "type"] == "categorical"                   # a device setting, not a scale
+    assert inv.loc["sfreq", "n_categories"] == 6
+    assert inv.loc["sfreq", "categories"].count("%") == 5               # at most 5 listed
+    assert inv.loc["sfreq", "categories"].endswith("+1 more")
+    assert inv.loc["ekg_hr_bpm", "coverage_%"] < 100
+    assert inv.loc["sfreq", "meaning"] and inv.loc["ekg_hr_bpm", "meaning"]
+    assert inv.loc["age", "meaning"] == ""                             # demographics: not described
+
+
+def test_every_described_group_feature_has_a_meaning():
+    for group in ("acquisition", "physiology", "qeeg"):
+        for col in FEATURE_GROUPS[group] + COHORT_FEATURE_GROUPS.get(group, []):
+            assert col in FEATURE_DESCRIPTIONS, col

@@ -126,6 +126,118 @@ def report_reason_flags(text: pd.Series) -> pd.DataFrame:
     return out
 
 
+# Plain-language meaning of the acquisition, physiology and qEEG columns, for
+# the inventory tables (feature_inventory). Units in brackets.
+FEATURE_DESCRIPTIONS: Dict[str, str] = {
+    # acquisition: how the EEG was recorded (EDF headers, auxiliary channels)
+    "duration_min": "Length of the recording [min]",
+    "sfreq": "Native sampling rate of the EEG channels [Hz]; set by the amplifier / acquisition software",
+    "physical_max_uv": "Amplifier input range from the EDF header [±µV]; identifies the amplifier family",
+    "n_signals": "Channels stored in the EDF (EEG + auxiliary); a montage / amplifier fingerprint",
+    "n_signals_header": "Channels stored in the EDF (EEG + auxiliary); a montage / amplifier fingerprint",
+    "has_ekg": "An EKG (heart) lead was recorded",
+    "has_emg": "An EMG (muscle) channel was recorded",
+    "has_eog": "Both eye-movement channels (LOC, ROC) were recorded",
+    "has_photic_channel": "The photic-stimulator trigger channel is present",
+    "has_sphenoidal": "Sphenoidal electrodes (SP1/SP2), placed for temporal-lobe epilepsy work-ups",
+    "has_numbered_extra": "Spare numbered amplifier inputs are stored (e.g. '26'...'32')",
+    "has_trend_channels": "The device wrote burst-suppression trend channels (SUPPR/BURSTS/IBI)",
+    "photic_performed": "Photic stimulation was actually delivered (stimulator channel not constant)",
+    "photic_stim_sec": "Seconds during which the stimulator flashed [s]",
+    "montage_le": "Linked-ears reference montage (02_tcp_le) instead of average reference",
+    "montage_reduced": "Reduced channel-set montage (*_a)",
+    "n_missing_channels": "Standard 10-20 channels absent from the EDF (in practice T1/T2)",
+    "equip_compact_32ch": "Amplifier family from the EDF machine tag: Compact 32-channel",
+    "equip_compact_64ch": "Amplifier family from the EDF machine tag: Compact 64-channel",
+    "equip_intution_ultrasom": "Amplifier family from the EDF machine tag: Intuition/Ultrasom",
+    "equip_alliance": "Amplifier family from the EDF machine tag: Alliance",
+    "equip_bravo": "Amplifier family from the EDF machine tag: Bravo (400 Hz, 2002-2003)",
+    "equip_b545": "Amplifier family from the EDF machine tag: B545",
+    # physiology: auxiliary non-EEG signals
+    "ekg_hr_bpm": "Heart rate from R-peaks of the EKG lead (median R-R interval) [beats/min]",
+    "ekg_rr_std_ms": "Standard deviation of the R-R intervals, a heart-rate-variability measure [ms]",
+    "trend_suppr_mean": "Mean of the device's SUPPR trend [%]; semantics unclear (higher in normals), "
+                        "not a clinical burst-suppression ratio",
+    "trend_suppr_gt50_frac": "Share of seconds with the SUPPR trend above 50%",
+    "trend_bursts_mean": "Mean of the device's BURSTS trend [bursts/min]",
+    # qEEG: spectral summaries of the scalp EEG (common average, 0.5-45 Hz,
+    # Welch spectra of 10-s epochs, median over epochs, mean over channels)
+    "qeeg_rel_delta": "Delta (1-4 Hz) power / total 1-30 Hz power; high = slowing",
+    "qeeg_rel_theta": "Theta (4-8 Hz) power / total 1-30 Hz power; high = slowing / drowsiness",
+    "qeeg_rel_alpha": "Alpha (8-13 Hz) power / total 1-30 Hz power; the normal awake rhythm",
+    "qeeg_rel_beta": "Beta (13-30 Hz) power / total 1-30 Hz power; raised by sedating drugs",
+    "qeeg_log_total_power": "log10 of the 1-30 Hz power [µV²]; low = low-voltage EEG",
+    "qeeg_theta_alpha_ratio": "log10(relative theta / relative alpha); rises as the background slows",
+    "qeeg_slowing_ratio": "log10((delta + theta) / (alpha + beta)); diffuse-slowing index",
+    "qeeg_pdr_freq": "Posterior dominant rhythm: frequency of the largest 5-14 Hz peak above the 1/f fit "
+                     "over O1/O2/P3/P4 [Hz]; < 8 Hz in adults = slow",
+    "qeeg_pdr_prominence": "Height of that peak above the 1/f fit [log10 power]; ~0 = no distinct PDR",
+    "qeeg_aperiodic_slope": "Slope of log power vs log frequency, 2-30 Hz, posterior channels (the 1/f "
+                            "exponent); flatter with age",
+    "qeeg_max_asymmetry": "Largest |log10(left / right)| total power over 8 homologous pairs; "
+                          "hemispheric asymmetry",
+    "qeeg_max_delta_asymmetry": "Same for delta power only; focal (one-sided) slowing",
+    "qeeg_median_kurtosis": "Median over channels of the excess kurtosis of the signal; spikes, sharp "
+                            "waves (and eye blinks) make it heavy-tailed",
+}
+# Features that are categorical although stored as numbers (besides 0/1 flags):
+# a handful of discrete device settings, not a measurement on a scale.
+CATEGORICAL_FEATURES = {"sfreq", "physical_max_uv"}
+
+
+def feature_type(series: pd.Series, name: str = "") -> str:
+    """'categorical' for 0/1 flags, strings and :data:`CATEGORICAL_FEATURES`, else 'quantitative'."""
+    values = series.dropna()
+    if name in CATEGORICAL_FEATURES or not pd.api.types.is_numeric_dtype(values):
+        return "categorical"
+    return "categorical" if set(values.unique()) <= {0, 1} else "quantitative"
+
+
+def _fmt(value) -> str:
+    """Compact number: whole numbers from 100 up (years, ranges in uV), else 3 significant digits."""
+    if not isinstance(value, (int, float, np.integer, np.floating)):
+        return str(value)
+    return f"{value:.0f}" if abs(value) >= 100 else f"{value:.3g}"
+
+
+def feature_inventory(df: pd.DataFrame, feature_groups: Optional[Dict[str, List[str]]] = None,
+                      describe: Iterable[str] = ("acquisition", "physiology", "qeeg"),
+                      max_categories: int = 5) -> pd.DataFrame:
+    """One row per feature: group, type, coverage and what values it takes.
+
+    * ``coverage_%``: share of rows with a value.
+    * categorical: ``n_categories`` and ``categories``, the ``max_categories``
+      most frequent values with their share of the non-missing rows
+      ("... +k more" when there are more).
+    * quantitative: ``active_range``, the 1st-99th percentile of the values, so
+      a few outliers do not set it.
+    * ``meaning``: :data:`FEATURE_DESCRIPTIONS` for the groups in ``describe``.
+    """
+    feature_groups = feature_groups or FEATURE_GROUPS
+    describe = set(describe)
+    rows = []
+    for group, cols in feature_groups.items():
+        for col in cols:
+            if col not in df:
+                continue
+            s = df[col]
+            kind = feature_type(s, col)
+            row = {"group": group, "feature": col, "type": kind, "coverage_%": 100 * s.notna().mean(),
+                   "n_categories": np.nan, "categories": "", "active_range": ""}
+            if kind == "categorical":
+                share = s.value_counts(normalize=True)
+                shown = ", ".join(f"{_fmt(v)} ({p:.0%})" for v, p in share.head(max_categories).items())
+                more = len(share) - max_categories
+                row["n_categories"] = len(share)
+                row["categories"] = shown + (f", ... +{more} more" if more > 0 else "")
+            elif s.notna().any():
+                lo, hi = s.quantile([0.01, 0.99])
+                row["active_range"] = f"{_fmt(lo)} – {_fmt(hi)}"
+            row["meaning"] = FEATURE_DESCRIPTIONS.get(col, "") if group in describe else ""
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def add_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Numeric encodings the analyses share (``is_abnormal``, ``sex_male``, age bins).
 
