@@ -564,6 +564,55 @@ def tuab_split_summary(split_json: str, metadata_json: str) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Data splits: which recordings each run trained, validated and tested on
+
+SPLITS = ("train", "val", "test")
+
+
+def split_fingerprint(data_split: dict) -> List[Dict[str, object]]:
+    """One row per split of a run's recorded ``data_split.json`` (the
+    ``data_split`` ClearML artifact): recordings, patients, windows and
+    ``digest``, the first 12 hex digits of the SHA-1 of the sorted recording
+    stems. Two runs used the same recordings in a split iff the digests match;
+    the window count also reflects the window length and evaluation budget."""
+    import hashlib
+    rows = []
+    for split in SPLITS:
+        if split not in data_split:
+            continue
+        d = data_split[split]
+        recs = sorted(d["recordings"])
+        rows.append({"split": split, "recordings": len(recs), "patients": int(d["n_subjects"]),
+                     "windows": int(d["n_windows"]),
+                     "digest": hashlib.sha1("\n".join(recs).encode()).hexdigest()[:12]})
+    return rows
+
+
+def fetch_run_splits(runs: pd.DataFrame) -> pd.DataFrame:
+    """:func:`split_fingerprint` of every ClearML task in ``runs`` (rows of
+    :func:`load_clearml_runs` with ``kind == "task"``), downloading each task's
+    ``data_split`` artifact. Writes the rows that
+    ``docs/data/brain_age_run_splits.csv`` holds."""
+    from clearml import Task
+    rows = []
+    for run, r in runs[runs.kind == "task"].iterrows():
+        art = Task.get_task(task_id=r.id).artifacts.get("data_split")
+        path = art.get_local_copy() if art is not None else None
+        if path is None:
+            raise KeyError(f"{run}: no data_split artifact")
+        with open(path) as f:
+            rows += [{"run": run, **row} for row in split_fingerprint(json.load(f))]
+    return pd.DataFrame(rows)
+
+
+def split_signature(splits: pd.DataFrame) -> pd.Series:
+    """Per run, the concatenated train/val/test recording digests: equal
+    signatures mean the same recordings in every split."""
+    d = splits.pivot(index="run", columns="split", values="digest").reindex(columns=list(SPLITS))
+    return d.fillna("-").agg("/".join, axis=1)
+
+
+# ---------------------------------------------------------------------------
 # TUEG, the source corpus
 
 #: The other TUH corpora that are subsets of TUEG, with the label each adds.

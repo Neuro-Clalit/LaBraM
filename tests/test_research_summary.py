@@ -152,3 +152,24 @@ def test_tueg_overview_and_status_counts():
     assert s.loc[("abnormal", "all"), "recordings"] == 2 and s.loc[("abnormal", "all"), "age mean"] == 51.0
     assert s.loc[("total", "all"), "recordings"] == 4 and s.loc[("total", "all"), "age n"] == 3
     assert s.loc[("total", "all"), "% of TUEG"] == 100.0
+
+
+def test_split_fingerprint_compares_recordings_not_windows():
+    a = {"train": {"recordings": ["r2", "r1"], "n_subjects": 2, "n_windows": 10},
+         "val": {"recordings": ["r3"], "n_subjects": 1, "n_windows": 3}}
+    b = {"train": {"recordings": ["r1", "r2"], "n_subjects": 2, "n_windows": 99},
+         "val": {"recordings": ["r4"], "n_subjects": 1, "n_windows": 3}}
+    rows = [{"run": run, **r} for run, d in (("a", a), ("b", b)) for r in rs.split_fingerprint(d)]
+    sig = rs.split_signature(pd.DataFrame(rows))
+    ta, va, xa = sig["a"].split("/")
+    tb, vb, xb = sig["b"].split("/")
+    assert ta == tb and va != vb and xa == xb == "-"
+
+
+def test_phase1_runs_share_one_split():
+    splits = pd.read_csv(os.path.join(ROOT, "docs", "data", "brain_age_run_splits.csv"))
+    sig = rs.split_signature(splits)
+    reg = rs.registry_master_table(REGISTRY)
+    assert sig.loc[list(reg.run)].nunique() == 1
+    test = {s.split("/")[2] for s in sig if s.split("/")[2] != "-"}
+    assert len(test) == 1                      # every run tests on the same TUAB recordings
