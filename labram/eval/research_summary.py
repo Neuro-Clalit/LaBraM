@@ -242,6 +242,52 @@ PHASE2: Tuple[Experiment, ...] = (
 EXPERIMENTS: Dict[str, Experiment] = {e.name: e for e in PHASE2}
 
 # ---------------------------------------------------------------------------
+# Training loss of every run
+
+#: Loss labels; the numbers are the notebook's Section-2 equations.
+LOSSES = {
+    "huber": "Huber δ 1 (2.3)",
+    "huber_mixup": "Huber δ 1 + mixup (2.3, 2.5)",
+    "huber_cmixup": "Huber δ 1 + C-Mixup σ 5 y (2.3, 2.5, 2.6)",
+    "huber2": "Huber δ 2 (2.3)",
+    "l1": "L1 (2.4)",
+    "soft_label": "soft-label KL, σ 2.5 y (2.7)",
+    "balance_sqrt": "Huber δ 1, age weights ρ^-1/2 (2.8)",
+    "balance_inv": "Huber δ 1, age weights ρ^-1 (2.8)",
+    "codebook_amp": "Huber δ 1 + amplitude reconstruction, w 1 (2.9)",
+    "codebook_quant": "Huber δ 1 + quantization, w 1 (2.9)",
+    "codebook_quant50": "Huber δ 1 + quantization, w 50 (2.9)",
+    "multitask": "Huber δ 1 + mixup + 0.5 BCE abnormal (2.3, 2.5, 2.10)",
+    "consistency": "Huber δ 1 + mixup + 0.1 consistency (2.3, 2.5, 2.11)",
+}
+#: Loss of each phase-1 run, read from its ClearML configuration
+#: (``loss.regression_loss`` / ``huber_delta`` / ``balance``,
+#: ``mixup.enabled`` / ``sigma``, the ``model.codebook_reg`` weights and
+#: ``loss.abnormal_weight``); keys of :data:`LOSSES`.
+PHASE1_LOSS: Dict[str, str] = {
+    **dict.fromkeys(["A", "B", "D", "D-npy", "D-cohorts", "E2", "C2", "DX3", "F1", "F2", "F3", "F4", "G1",
+                     "H1", "H2", "C2-head", "C2-last", "M3", "M2", "C", "D-clip1", "E1", "E1c", "E2c",
+                     "D-cls", "D-clsmean", "S1"], "huber"),
+    **dict.fromkeys(["L1", "M1", "M12", "N2L", "S2", "S2-seed1", "S3"], "huber_mixup"),
+    "M1c": "huber_cmixup", "DX2": "huber2", "D2": "l1", "M4": "soft_label",
+    "B1": "balance_sqrt", "B2": "balance_inv",
+    "DX1": "codebook_amp", "DX4": "codebook_quant", "DX4b": "codebook_quant50",
+    "MT1": "multitask", "MT1-seed1": "multitask",
+}
+
+
+def run_loss(run: str) -> str:
+    """The training loss of a run as a :data:`LOSSES` label: phase 1 from
+    :data:`PHASE1_LOSS`, phase 2 / CV from its overrides (every one is M1,
+    Huber + mixup; a channel-dropout consistency weight adds Eq. (2.11))."""
+    if run in PHASE1_LOSS:
+        return LOSSES[PHASE1_LOSS[run]]
+    extra = EXPERIMENTS[run].extra
+    weight = [o.split("=", 1)[1] for o in extra if o.startswith("channel_drop.consistency_weight=")]
+    return LOSSES["consistency" if weight and float(weight[0]) > 0 else "huber_mixup"]
+
+
+# ---------------------------------------------------------------------------
 # ClearML experiments
 
 CLEARML_WEB = "https://app.clear.ml"
@@ -515,3 +561,143 @@ def tuab_split_summary(split_json: str, metadata_json: str) -> pd.DataFrame:
                      "abnormal": int((m.label == "abnormal").sum()), "no label": 0,
                      "age mean": float(m.age.mean()), "age sd": float(m.age.std(ddof=1))})
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# TUEG, the source corpus
+
+#: The other TUH corpora that are subsets of TUEG, with the label each adds.
+TUEG_SUBSETS = {
+    "tuab": "normal / abnormal (TUAB folder)",
+    "tusz": "seizure events",
+    "tuep": "epilepsy / no epilepsy (patient)",
+    "tuar": "artifact events",
+    "tusl": "slowing events",
+}
+STATUS = ("normal", "abnormal", "no label")
+
+
+def tueg_recordings(index_parquet: str, sheet_xlsx: str) -> pd.DataFrame:
+    """The TUEG recordings of the TUH recording index (one row per EDF, from
+    ``dataset_maker/tuh_index.py``) joined with NEDC's clinical sheet
+    (``dataset_maker/tuh_clinical.py``), plus ``status``: the TUAB folder label
+    where there is one, else the report finding, else ``"no label"`` (the rule
+    of ``dataset_maker/make_cohort_dataset.py::label_of``)."""
+    from dataset_maker import tuh_clinical as tc
+    j = tc.join_index(pd.read_parquet(index_parquet), tc.load_sheet(sheet_xlsx))
+    t = j[j.corpora.str.split(",").map(lambda cs: "tueg" in cs)].reset_index(drop=True)
+    report = t.abnormal_report.astype("boolean")
+    status = pd.Series("no label", index=t.index, dtype=object)
+    status[t.in_sheet & report.eq(False).fillna(False)] = "normal"
+    status[t.in_sheet & report.eq(True).fillna(False)] = "abnormal"
+    tuab = t.abnormal.notna()
+    status[tuab] = np.where(t.abnormal[tuab].astype(int) == 1, "abnormal", "normal")
+    t["status"] = status
+    t["status_source"] = np.where(tuab, "TUAB folder", np.where(status != "no label", "NEDC report", "–"))
+    return t
+
+
+def _share(n: int, total: int) -> str:
+    return f"{n:,} ({100.0 * n / total:.1f} %)"
+
+
+def tueg_overview(t: pd.DataFrame) -> pd.DataFrame:
+    """TUEG at a glance: size, hours, demographics and recording properties
+    (one row per quantity, values as display strings)."""
+    n = len(t)
+    minutes = t.duration_sec / 60
+    year = t.year[t.year.between(1990, 2025)]                 # a few headers carry 1899 / 2064
+    missing = t.missing_channels.map(lambda m: {c.upper() for c in m})
+    rows = [
+        ("size", "recordings (EDF files)", f"{n:,}"),
+        ("size", "patients", f"{t.subject.nunique():,}"),
+        ("size", "sessions", f"{t[['subject', 'session']].drop_duplicates().shape[0]:,}"),
+        ("size", "hours of EEG", f"{t.duration_sec.sum() / 3600:,.0f}"),
+        ("size", "recordings per patient, median (max)",
+         f"{t.groupby('subject').size().median():.0f} ({t.groupby('subject').size().max()})"),
+        ("recording", "length (min), median [IQR]",
+         f"{minutes.median():.1f} [{minutes.quantile(.25):.1f}, {minutes.quantile(.75):.1f}]"),
+        ("recording", "year, median [5 %, 95 %]",
+         f"{year.median():.0f} [{year.quantile(.05):.0f}, {year.quantile(.95):.0f}]"),
+        ("recording", "sampling rate (Hz)",
+         ", ".join(f"{int(k)}: {v / n:.0%}" for k, v in t.sfreq.value_counts().head(3).items())),
+        ("recording", "montage", ", ".join(f"{k}: {v / n:.0%}" for k, v in t.montage.value_counts().head(3).items())),
+        ("channels", "all 23 channels", _share(int(missing.map(len).eq(0).sum()), n)),
+        ("channels", "missing only T1/T2", _share(int(missing.map(lambda m: bool(m) and m <= {"T1", "T2"}).sum()), n)),
+        ("channels", "missing other channels",
+         _share(int(missing.map(lambda m: bool(m - {"T1", "T2"})).sum()), n)),
+        ("patient", "sex F / M / unknown (recordings)",
+         " / ".join(f"{int((t.sex == s).sum()):,}" for s in ("F", "M")) + f" / {int(t.sex.isna().sum()):,}"),
+        ("patient", "age known (1–89 y)", _share(int(t.age.notna().sum()), n)),
+        ("patient", "age 90+ (redacted as 999)", _share(int((t.raw_age == 999).sum()), n)),
+        ("patient", "age missing", _share(int((t.age.isna() & (t.raw_age != 999)).sum()), n)),
+        ("patient", "age (y), mean ± sd; median [IQR]",
+         f"{t.age.mean():.1f} ± {t.age.std(ddof=1):.1f}; {t.age.median():.0f} "
+         f"[{t.age.quantile(.25):.0f}, {t.age.quantile(.75):.0f}]"),
+    ]
+    return pd.DataFrame(rows, columns=["group", "quantity", "value"])
+
+
+def tueg_subsets(t: pd.DataFrame) -> pd.DataFrame:
+    """Subsets of TUEG: the other TUH corpora inside it (a recording can be in
+    several) and the subsets the brain-age cohorts select from."""
+    from dataset_maker import tuh_clinical as tc
+    n = len(t)
+    corpora = t.corpora.str.split(",")
+    masks = [(f"in {c.upper()}", lab, corpora.map(lambda cs, c=c: c in cs)) for c, lab in TUEG_SUBSETS.items()]
+    masks += [
+        ("TUEG only", "–", corpora.map(len).eq(1)),
+        ("in the NEDC clinical sheet", "report finding, 15 diagnosis flags, medications", t.in_sheet),
+        ("adult age (18–89 y)", "age", t.age.between(18, 89)),
+        ("normative", "report-normal, no neurological diagnosis, not sedated, 18–89 y",
+         tc.normative_mask(t).fillna(False).astype(bool)),
+    ]
+    rows = [{"subset": name, "label it carries": lab, "recordings": int(m.sum()),
+             "% of TUEG": 100.0 * m.sum() / n, "patients": int(t.subject[m].nunique()),
+             "hours": t.duration_sec[m].sum() / 3600} for name, lab, m in masks]
+    return pd.DataFrame(rows)
+
+
+def age_stats(age: pd.Series) -> Dict[str, float]:
+    """n, mean, sample sd, median and quartiles of the known ages (years)."""
+    a = age.dropna()
+    return {"age n": len(a), "age mean": a.mean(), "age sd": a.std(ddof=1), "age median": a.median(),
+            "age Q1": a.quantile(.25), "age Q3": a.quantile(.75)}
+
+
+def tueg_status(t: pd.DataFrame) -> pd.DataFrame:
+    """Recordings and patients per normal / abnormal / no-label status and per
+    label source, with each group's age distribution (:func:`age_stats`); the
+    last row is all of TUEG."""
+    rows = []
+    for status in STATUS:
+        s = t[t.status == status]
+        for source in sorted(s.status_source.unique()):
+            g = s[s.status_source == source]
+            rows.append({"status": status, "source": source, "recordings": len(g),
+                         "patients": g.subject.nunique(), **age_stats(g.age)})
+        if s.status_source.nunique() > 1:
+            rows.append({"status": status, "source": "all", "recordings": len(s),
+                         "patients": s.subject.nunique(), **age_stats(s.age)})
+    rows.append({"status": "total", "source": "all", "recordings": len(t), "patients": t.subject.nunique(),
+                 **age_stats(t.age)})
+    out = pd.DataFrame(rows)
+    out["% of TUEG"] = 100.0 * out.recordings / len(t)
+    return out
+
+
+def tueg_diagnoses(t: pd.DataFrame) -> pd.DataFrame:
+    """The clinical sheet's diagnosis flags over the TUEG recordings in the
+    sheet: recordings, patients, prevalence (% of sheet recordings), mean age
+    and the share whose status is abnormal."""
+    from dataset_maker import tuh_clinical as tc
+    s = t[t.in_sheet]
+    names = {v: k for k, v in tc.DIAGNOSES.items()}
+    names.update({"any_neuro_dx": "any neurological diagnosis", "sedated": "sedating medication"})
+    rows = []
+    for col, name in names.items():
+        m = s[col].fillna(False).astype(bool)
+        rows.append({"flag": name, "recordings": int(m.sum()), "patients": int(s.subject[m].nunique()),
+                     "% of sheet": 100.0 * m.mean(), "age mean": s.age[m].mean(),
+                     "% abnormal": 100.0 * (s.status[m] == "abnormal").mean()})
+    return pd.DataFrame(rows).sort_values("recordings", ascending=False)

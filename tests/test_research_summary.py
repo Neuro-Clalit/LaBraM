@@ -118,3 +118,37 @@ def test_clearml_csv_covers_every_run_and_matches_the_registry():
     assert (have.loc[want.index, ["kind", "id"]] == want[["kind", "id"]]).all().all()
     assert have.name.str.len().gt(0).all()
     assert have.loc["D", "url"] == reg.set_index("run").loc["D", "clearml_url"]
+
+
+def test_every_run_has_a_training_loss():
+    reg = rs.registry_master_table(REGISTRY)
+    assert set(reg.run) == set(rs.PHASE1_LOSS)
+    assert set(rs.PHASE1_LOSS.values()) <= set(rs.LOSSES)
+    assert rs.run_loss("D2") == rs.LOSSES["l1"] and rs.run_loss("M1c") == rs.LOSSES["huber_cmixup"]
+    for e in rs.PHASE2:
+        aug = "channel_drop.consistency_weight=0.1" in e.extra
+        assert rs.run_loss(e.name) == rs.LOSSES["consistency" if aug else "huber_mixup"]
+
+
+def _tueg_frame():
+    return pd.DataFrame({
+        "subject": ["a", "a", "b", "c"], "session": ["s1", "s2", "s1", "s1"],
+        "duration_sec": [600.0, 1200.0, 1800.0, 3600.0], "year": [2010, 2012, 1899, 2015],
+        "missing_channels": [[], ["T1", "T2"], ["A1"], []], "sfreq": [256.0, 256.0, 250.0, 256.0],
+        "montage": ["01_tcp_ar"] * 3 + ["02_tcp_le"], "sex": ["F", "F", "M", None],
+        "age": [30.0, 32.0, 70.0, float("nan")], "raw_age": [30.0, 32.0, 70.0, 999.0],
+        "status": ["normal", "abnormal", "abnormal", "no label"],
+        "status_source": ["NEDC report", "TUAB folder", "NEDC report", "–"]})
+
+
+def test_tueg_overview_and_status_counts():
+    t = _tueg_frame()
+    o = rs.tueg_overview(t).set_index("quantity").value
+    assert o["recordings (EDF files)"] == "4" and o["patients"] == "3" and o["sessions"] == "4"
+    assert o["hours of EEG"] == "2"
+    assert o["missing only T1/T2"].startswith("1 ") and o["missing other channels"].startswith("1 ")
+    assert o["age 90+ (redacted as 999)"].startswith("1 ") and o["age missing"].startswith("0 ")
+    s = rs.tueg_status(t).set_index(["status", "source"])
+    assert s.loc[("abnormal", "all"), "recordings"] == 2 and s.loc[("abnormal", "all"), "age mean"] == 51.0
+    assert s.loc[("total", "all"), "recordings"] == 4 and s.loc[("total", "all"), "age n"] == 3
+    assert s.loc[("total", "all"), "% of TUEG"] == 100.0
