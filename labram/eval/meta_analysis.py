@@ -169,7 +169,7 @@ FEATURE_DESCRIPTIONS: Dict[str, str] = {
     "qeeg_rel_delta": "Delta (1-4 Hz) power / total 1-30 Hz power; high = slowing",
     "qeeg_rel_theta": "Theta (4-8 Hz) power / total 1-30 Hz power; high = slowing / drowsiness",
     "qeeg_rel_alpha": "Alpha (8-13 Hz) power / total 1-30 Hz power; the normal awake rhythm",
-    "qeeg_rel_beta": "Beta (13-30 Hz) power / total 1-30 Hz power; raised by sedating drugs",
+    "qeeg_rel_beta": "Beta (13-30 Hz) power / total 1-30 Hz power; fast activity",
     "qeeg_log_total_power": "log10 of the 1-30 Hz power [µV²]; low = low-voltage EEG",
     "qeeg_theta_alpha_ratio": "log10(relative theta / relative alpha); rises as the background slows",
     "qeeg_slowing_ratio": "log10((delta + theta) / (alpha + beta)); diffuse-slowing index",
@@ -177,7 +177,7 @@ FEATURE_DESCRIPTIONS: Dict[str, str] = {
                      "over O1/O2/P3/P4 [Hz]; < 8 Hz in adults = slow",
     "qeeg_pdr_prominence": "Height of that peak above the 1/f fit [log10 power]; ~0 = no distinct PDR",
     "qeeg_aperiodic_slope": "Slope of log power vs log frequency, 2-30 Hz, posterior channels (the 1/f "
-                            "exponent); flatter with age",
+                            "exponent); more negative = steeper",
     "qeeg_max_asymmetry": "Largest |log10(left / right)| total power over 8 homologous pairs; "
                           "hemispheric asymmetry",
     "qeeg_max_delta_asymmetry": "Same for delta power only; focal (one-sided) slowing",

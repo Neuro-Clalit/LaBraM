@@ -42,6 +42,7 @@ EPOCH_SEC = 10.0
 FLAT_STD_UV = 0.5           # a 10-s epoch flatter than this is a dead electrode
 HIGH_AMP_P2P_UV = 500.0     # peak-to-peak beyond this (0.5-45 Hz) is artifact, not brain
 CLIP_FRACTION_OF_RANGE = 0.99
+NO_SIGNAL_POWER = 1e-6       # 1-30 Hz power left after the common average, below which there is no EEG
 
 
 @dataclass(frozen=True)
@@ -335,6 +336,10 @@ def qeeg_features(raw_uv: np.ndarray, sfreq: float, channels: Sequence[str]) -> 
     # Excess kurtosis of the filtered trace: sharp transients (spikes, sharp
     # waves -- and some artifacts) make the amplitude distribution heavy-tailed.
     out["qeeg_median_kurtosis"] = float(np.median(kurtosis(data, axis=-1)))
+    if float(total.mean()) <= NO_SIGNAL_POWER:
+        # The common average removed everything: every scalp channel carries the
+        # same trace (a corrupted export). No spectrum to summarise -> NaN, not +-inf.
+        out = {key: float("nan") for key in out}
     return out
 
 

@@ -227,3 +227,12 @@ def test_npy_features_skip_zero_filled_channels_and_unmeasurable_columns():
     assert out["analysed_min"] == pytest.approx(1.5)
     assert 9.0 <= out["qeeg_pdr_freq"] <= 11.0
     assert not {"q_clip_frac", "q_line60_log_ratio", "q_line50_log_ratio"} & set(out)
+
+
+def test_qeeg_of_identical_channels_is_nan_not_infinite():
+    # Every electrode carrying the same trace leaves nothing after the common average.
+    trace = 15.0 * RNG.standard_normal(int(120 * SFREQ))
+    data = np.tile(trace, (len(SCALP_CHANNELS), 1))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = qeeg_features(data, SFREQ, SCALP_CHANNELS)
+    assert out and all(np.isnan(v) for v in out.values())
