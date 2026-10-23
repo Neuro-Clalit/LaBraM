@@ -126,9 +126,13 @@ def report_reason_flags(text: pd.Series) -> pd.DataFrame:
     return out
 
 
-# Plain-language meaning of the acquisition, physiology and qEEG columns, for
+# Plain-language meaning of the history, acquisition, physiology and qEEG columns, for
 # the inventory tables (feature_inventory). Units in brackets.
 FEATURE_DESCRIPTIONS: Dict[str, str] = {
+    # history: where this recording sits in the patient's TUH record
+    "session_number": "Which EEG session of the patient this is: n-th TUH EEG session, in date order over "
+                      "the whole TUH archive (s003 -> 3). NOT the patient's total number of sessions",
+    "year": "Recording year (the date is anonymised to 01-JAN-YYYY); 1899 and 2000 are placeholders",
     # acquisition: how the EEG was recorded (EDF headers, auxiliary channels)
     "duration_min": "Length of the recording [min]",
     "sfreq": "Native sampling rate of the EEG channels [Hz]; set by the amplifier / acquisition software",
@@ -201,7 +205,7 @@ def _fmt(value) -> str:
 
 
 def feature_inventory(df: pd.DataFrame, feature_groups: Optional[Dict[str, List[str]]] = None,
-                      describe: Iterable[str] = ("acquisition", "physiology", "qeeg"),
+                      describe: Iterable[str] = ("history", "acquisition", "physiology", "qeeg"),
                       max_categories: int = 5) -> pd.DataFrame:
     """One row per feature: group, type, coverage and what values it takes.
 

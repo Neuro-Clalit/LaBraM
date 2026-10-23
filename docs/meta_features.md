@@ -19,7 +19,7 @@ aborting the run.
 |---|---|---|
 | Directory layout | `label`, `tuh_split` | the only clinical label TUAB ships |
 | EDF patient field | `age`, `raw_age`, `sex`, `subject` | via `tuh_metadata.py`; `Age:999` = redacted 90+ (see `age_regression.md`) |
-| EDF recording field | `session_number`, `token_number`, `year`, `equipment_tag` | the date is anonymised to 01-JAN-YYYY 00:00, so only the year survives; the session number is the patient's n-th TUH EEG |
+| EDF recording field | `session_number`, `token_number`, `year`, `equipment_tag` | the date is anonymised to 01-JAN-YYYY 00:00, so only the year survives; the session number says *which* TUH EEG session of the patient this is (n-th, in date order over all of TUH), not how many sessions the patient has |
 | EDF signal headers | `sfreq`, `physical_max_uv`, `n_signals`, `has_emg`, `has_eog`, `has_photic_channel`, `has_sphenoidal`, `has_numbered_extra`, `duration_min` | amplifier and montage fingerprint |
 | EKG lead | `ekg_hr_bpm`, `ekg_rr_std_ms`, `ekg_valid_frac` | R-peak detection on the 5–30 Hz band-passed lead, polarity-agnostic |
 | Photic channel | `photic_performed`, `photic_stim_sec` | stimulator pulse train |

@@ -148,6 +148,6 @@ def test_feature_inventory_types_ranges_and_category_lists(table):
 
 
 def test_every_described_group_feature_has_a_meaning():
-    for group in ("acquisition", "physiology", "qeeg"):
+    for group in ("history", "acquisition", "physiology", "qeeg"):
         for col in FEATURE_GROUPS[group] + COHORT_FEATURE_GROUPS.get(group, []):
             assert col in FEATURE_DESCRIPTIONS, col
