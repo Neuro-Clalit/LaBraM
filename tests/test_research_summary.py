@@ -173,3 +173,28 @@ def test_phase1_runs_share_one_split():
     assert sig.loc[list(reg.run)].nunique() == 1
     test = {s.split("/")[2] for s in sig if s.split("/")[2] != "-"}
     assert len(test) == 1                      # every run tests on the same TUAB recordings
+
+
+def test_age_fit_metrics_bias_and_slope():
+    true = pd.Series([20.0, 40.0, 60.0, 80.0])
+    m = rs.age_fit_metrics(true + 2.0, true)              # constant offset: bias 2, no slope
+    assert m["MAE"] == pytest.approx(2.0) and m["bias"] == pytest.approx(2.0) and m["β"] == pytest.approx(0.0)
+    m = rs.age_fit_metrics(pd.Series([50.0] * 4), true)  # constant prediction: β = -1
+    assert m["β"] == pytest.approx(-1.0)
+
+
+def test_prediction_sets_split_tuab_tueg_and_status():
+    preds = pd.DataFrame({
+        "exp": ["x"] * 6, "fold": [0, 1, 0, 1, 0, 0],
+        "split": ["heldout", "heldout", "heldout", "heldout", "test", "test"],
+        "stem": ["t1", "t1", "t2", "t2", "a1", "g1"],
+        "pred": [30.0, 34.0, 60.0, 62.0, 40.0, 50.0], "true": [32.0, 32.0, 61.0, 61.0, 41.0, 55.0]})
+    preds["err"] = preds.pred - preds.true
+    recs = pd.DataFrame({"stem": ["t1", "t2", "a1", "g1"], "status": ["normal", "abnormal", "normal", "no label"],
+                         "corpora": ["tuab,tueg", "tuab,tueg", "tuab,tueg", "tueg"]})
+    s = rs.prediction_sets(preds, recs).set_index(["set", "stem"])
+    assert s.loc[("TUAB test, ensemble", "t1"), "pred"] == 32.0          # median of the fold models
+    assert ("TUAB out-of-fold", "a1") in s.index and ("TUEG out-of-fold", "g1") in s.index
+    assert s.loc[("TUEG out-of-fold", "g1"), "status"] == "no label"
+    m = rs.prediction_metrics(s.reset_index())
+    assert set(m.status) >= {"all", "normal", "abnormal", "no label"}

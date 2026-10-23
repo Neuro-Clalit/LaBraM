@@ -750,3 +750,57 @@ def tueg_diagnoses(t: pd.DataFrame) -> pd.DataFrame:
                      "% of sheet": 100.0 * m.mean(), "age mean": s.age[m].mean(),
                      "% abnormal": 100.0 * (s.status[m] == "abnormal").mean()})
     return pd.DataFrame(rows).sort_values("recordings", ascending=False)
+
+
+# ---------------------------------------------------------------------------
+# Per-recording predictions of the CV runs, by subcohort and status
+
+PREDICTION_SETS = ("TUAB test, ensemble", "TUAB out-of-fold", "TUEG out-of-fold")
+
+
+def prediction_sets(preds: pd.DataFrame, recordings: pd.DataFrame) -> pd.DataFrame:
+    """Per CV experiment, one row per scored recording in each of
+    :data:`PREDICTION_SETS`:
+
+    * ``TUAB test, ensemble``: the TUAB test set, predicted by the median of the
+      fold models (``labram/eval/cv_compare.py::ensemble``);
+    * ``TUAB out-of-fold`` / ``TUEG out-of-fold``: every recording of the CV
+      pool, predicted by the one fold model that held it out, split by whether
+      the recording is in TUAB.
+
+    ``preds`` is ``cv_compare.long_frame`` of the CV predictions; ``recordings``
+    is :func:`tueg_recordings` (``stem``, ``status``, ``corpora``). Columns
+    ``exp``, ``set``, ``stem``, ``pred``, ``true``, ``err``, ``status``."""
+    from labram.eval import cv_compare as cc
+    info = recordings.drop_duplicates("stem").set_index("stem")
+    ens = cc.ensemble(preds, "heldout", "median")[["exp", "stem", "pred", "true"]].assign(set=PREDICTION_SETS[0])
+    oof = preds[preds.split == "test"][["exp", "stem", "pred", "true"]].copy()
+    in_tuab = oof.stem.map(info.corpora).fillna("").str.split(",").map(lambda cs: "tuab" in cs)
+    oof["set"] = np.where(in_tuab, PREDICTION_SETS[1], PREDICTION_SETS[2])
+    out = pd.concat([ens, oof], ignore_index=True)
+    out["err"] = out.pred - out.true
+    out["status"] = out.stem.map(info.status).fillna("no label")
+    return out
+
+
+def age_fit_metrics(pred: pd.Series, true: pd.Series) -> Dict[str, float]:
+    """n, MAE (Eq. (0.1)), mean error (Eq. (0.3)), R² (Eq. (0.2)) and the bias
+    slope β (Eq. (0.5), population moments) of one set of recordings."""
+    p, t = np.asarray(pred, float), np.asarray(true, float)
+    e = p - t
+    var = float(np.var(t))
+    return {"n": len(t), "MAE": float(np.mean(np.abs(e))), "bias": float(np.mean(e)),
+            "R²": 1.0 - float(np.sum(e ** 2)) / float(np.sum((t - t.mean()) ** 2)) if len(t) > 1 else float("nan"),
+            "β": float(np.mean((t - t.mean()) * (e - e.mean()))) / var if var > 0 else float("nan")}
+
+
+def prediction_metrics(sets: pd.DataFrame) -> pd.DataFrame:
+    """:func:`age_fit_metrics` per experiment, prediction set and status
+    (``all`` plus each status present)."""
+    rows = []
+    for (exp, name), g in sets.groupby(["exp", "set"], sort=False):
+        for status in ("all", *STATUS):
+            s = g if status == "all" else g[g.status == status]
+            if len(s):
+                rows.append({"exp": exp, "set": name, "status": status, **age_fit_metrics(s.pred, s.true)})
+    return pd.DataFrame(rows)
