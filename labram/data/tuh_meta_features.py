@@ -10,10 +10,11 @@
 
 import logging
 import os
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from glob import glob
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence
 
 import numpy as np
 from scipy import signal as sps
@@ -41,6 +42,7 @@ EPOCH_SEC = 10.0
 FLAT_STD_UV = 0.5           # a 10-s epoch flatter than this is a dead electrode
 HIGH_AMP_P2P_UV = 500.0     # peak-to-peak beyond this (0.5-45 Hz) is artifact, not brain
 CLIP_FRACTION_OF_RANGE = 0.99
+NO_SIGNAL_POWER = 1e-6       # 1-30 Hz power left after the common average, below which there is no EEG
 
 
 @dataclass(frozen=True)
@@ -132,6 +134,13 @@ def header_features(path: str) -> Dict[str, object]:
         "sfreq": hdr.sfreq(eeg_index),
         "physical_max_uv": hdr.physical_max[eeg_index],
         "equipment_tag": equipment,
+        **channel_inventory(names),
+    }
+
+
+def channel_inventory(names: Sequence[str]) -> Dict[str, object]:
+    """Which auxiliary channels a recording has, from its canonical channel names."""
+    return {
         "n_signals": len(names),
         "has_ekg": any("EKG" in n or "ECG" in n for n in names),
         "has_emg": "EMG" in names,
@@ -140,8 +149,82 @@ def header_features(path: str) -> Dict[str, object]:
         # Sphenoidal electrodes are placed for temporal-lobe epilepsy work-ups.
         "has_sphenoidal": "SP1" in names or "SP2" in names,
         "has_numbered_extra": any(n.isdigit() for n in names),
+        # Device-computed burst-suppression trends (see auxiliary_features).
+        "has_trend_channels": "SUPPR" in names,
         "n_scalp_channels": sum(n in names for n in SCALP_CHANNELS),
     }
+
+
+# --------------------------------------------------------------------------- #
+# NEDC header dump. TUEG ships DOCS/headers.tar.gz: the output of NEDC's EDF
+# header printer for all 70k recordings, so the header features of a recording
+# are known without downloading its EDF (TUEG is 1.75 TB).
+# --------------------------------------------------------------------------- #
+
+# Amplifier families seen in the TUEG ``lrci_machine`` field. Everything else
+# ('X', '#####', '#a#######', ...) is an anonymised or unset tag.
+EQUIPMENT_FAMILIES = ("Compact_32ch", "Compact_64ch", "Intution/Ultrasom", "Alliance",
+                      "Bravo", "B545")
+_DUMP_FILE = re.compile(r"^\s*\d+: (\S+\.edf)\s*$")
+_DUMP_FIELD = re.compile(r"^\s*(\w+)(?: \(\d+\))? = (.*)$")
+
+
+def equipment_family(tag: Optional[str]) -> str:
+    return tag if tag in EQUIPMENT_FAMILIES else "unknown"
+
+
+def _dump_values(text: str) -> List[str]:
+    """'[EEG FP1-REF], [EEG FP2-REF]' -> ['EEG FP1-REF', 'EEG FP2-REF']."""
+    return [v.strip() for v in re.findall(r"\[([^\]]*)\]", text)]
+
+
+def parse_header_dump(lines: Iterable[str]) -> Iterator[Dict[str, object]]:
+    """One header-feature row per EDF in an NEDC header dump (``headers.txt``).
+
+    Yields the same acquisition columns as :func:`header_features` (machine,
+    sampling rate, amplifier range, duration, channel inventory) keyed by
+    ``stem`` and the corpus-relative ``path``.
+    """
+    block: Dict[str, str] = {}
+    path: Optional[str] = None
+
+    def finish() -> Optional[Dict[str, object]]:
+        if path is None or "chan_labels" not in block:
+            return None
+        labels = _dump_values(block["chan_labels"])
+        names = [canonical_channel(label) for label in labels]
+        eeg_index = names.index("FP1") if "FP1" in names else 0
+        phys_max = _dump_values(block.get("chan_phys_max", ""))
+        rec_size = _dump_values(block.get("chan_rec_size", ""))
+        dur_rec = float(_dump_values(block["ghdi_dur_rec"])[0])
+        n_recs = int(_dump_values(block["ghdi_num_recs"])[0])
+        machine = (_dump_values(block.get("lrci_machine", "[]")) or [""])[0]
+        rel = path.lstrip("./")
+        return {
+            "stem": os.path.splitext(os.path.basename(rel))[0],
+            "path": rel,
+            "equipment_tag": machine,
+            "equipment_family": equipment_family(machine),
+            "duration_min": n_recs * dur_rec / 60.0,
+            "sfreq": float(rec_size[eeg_index]) / dur_rec if rec_size else float("nan"),
+            "physical_max_uv": float(phys_max[eeg_index]) if phys_max else float("nan"),
+            **channel_inventory(names),
+        }
+
+    for line in lines:
+        start = _DUMP_FILE.match(line)
+        if start:
+            row = finish()
+            if row is not None:
+                yield row
+            block, path = {}, start.group(1)
+            continue
+        field = _DUMP_FIELD.match(line)
+        if field and path is not None:
+            block.setdefault(field.group(1), field.group(2))
+    row = finish()
+    if row is not None:
+        yield row
 
 
 # --------------------------------------------------------------------------- #
@@ -253,6 +336,10 @@ def qeeg_features(raw_uv: np.ndarray, sfreq: float, channels: Sequence[str]) -> 
     # Excess kurtosis of the filtered trace: sharp transients (spikes, sharp
     # waves -- and some artifacts) make the amplitude distribution heavy-tailed.
     out["qeeg_median_kurtosis"] = float(np.median(kurtosis(data, axis=-1)))
+    if float(total.mean()) <= NO_SIGNAL_POWER:
+        # The common average removed everything: every scalp channel carries the
+        # same trace (a corrupted export). No spectrum to summarise -> NaN, not +-inf.
+        out = {key: float("nan") for key in out}
     return out
 
 
@@ -311,6 +398,44 @@ def auxiliary_features(aux: Dict[str, np.ndarray], sfreq: float) -> Dict[str, fl
     suppr = aux.get("SUPPR")
     out["trend_suppr_gt50_frac"] = (
         float((suppr > 50).mean()) if suppr is not None and np.any(suppr) else float("nan"))
+    return out
+
+
+# Quality columns that cannot be measured on the processed npy: the signal has
+# been band-passed, resampled and had its 50/60 Hz lines removed, so clipping
+# against the amplifier range and the mains ratio no longer mean the same thing.
+NPY_UNMEASURABLE = ("q_clip_frac", "q_line60_log_ratio", "q_line50_log_ratio")
+
+
+def npy_signal_features(
+    data: np.ndarray,
+    channels: Sequence[str],
+    channel_mask: Optional[Sequence[bool]] = None,
+    *,
+    sfreq: float,
+    max_minutes: Optional[float] = None,
+) -> Dict[str, float]:
+    """Quality + qEEG features of a processed recording (``[samples, channels]``, uV).
+
+    The counterpart of the EDF path in :func:`extract_recording_features` for
+    corpora that are only kept as per-recording npy (TUEG): the same
+    :func:`quality_features` and :func:`qeeg_features` over the scalp channels
+    that were actually recorded (zero-filled channels, ``channel_mask`` False,
+    are left out), minus :data:`NPY_UNMEASURABLE`. ``max_minutes`` reads only the
+    start of very long (ICU) recordings.
+    """
+    channels = [c.upper() for c in channels]
+    mask = list(channel_mask) if channel_mask is not None else [True] * len(channels)
+    scalp = [c for c in SCALP_CHANNELS if c in channels and mask[channels.index(c)]]
+    if max_minutes is not None:
+        data = data[: int(max_minutes * 60 * sfreq)]
+    scalp_uv = np.asarray(data[:, [channels.index(c) for c in scalp]], dtype=np.float64).T
+    out = quality_features(scalp_uv, sfreq, physical_max_uv=float("inf"))
+    for key in NPY_UNMEASURABLE:
+        out.pop(key, None)
+    out.update(qeeg_features(scalp_uv, sfreq, scalp))
+    out["n_scalp_recorded"] = len(scalp)
+    out["analysed_min"] = scalp_uv.shape[1] / sfreq / 60.0
     return out
 
 

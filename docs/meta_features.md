@@ -1,8 +1,9 @@
-# TUAB meta features: what we know besides the EEG windows
+# TUH meta features: what we know besides the EEG windows
 
-The fine-tune only sees EEG windows and a binary normal/abnormal label. This page
+The fine-tune only sees EEG windows and a label (normal/abnormal, or age). This page
 covers what *else* is known per recording, how it is extracted, and what the
-analysis in `notebooks/tuab_meta_features.ipynb` found.
+analysis in `notebooks/tuab_meta_features.ipynb` found: Part I for TUAB, Part II for
+the TUEG brain-age cohort `all_both_v3` ([below](#tueg-cohort-all_both_v3)).
 
 ```bash
 python dataset_maker/make_TUAB_meta.py --root /path/to/TUH_Abnormal/v3.0.0/edf --n_jobs 8
@@ -19,7 +20,7 @@ aborting the run.
 |---|---|---|
 | Directory layout | `label`, `tuh_split` | the only clinical label TUAB ships |
 | EDF patient field | `age`, `raw_age`, `sex`, `subject` | via `tuh_metadata.py`; `Age:999` = redacted 90+ (see `age_regression.md`) |
-| EDF recording field | `session_number`, `token_number`, `year`, `equipment_tag` | the date is anonymised to 01-JAN-YYYY 00:00, so only the year survives; the session number is the patient's n-th TUH EEG |
+| EDF recording field | `session_number`, `token_number`, `year`, `equipment_tag` | the date is anonymised to 01-JAN-YYYY 00:00, so only the year survives; the session number says *which* TUH EEG session of the patient this is (n-th, in date order over all of TUH), not how many sessions the patient has |
 | EDF signal headers | `sfreq`, `physical_max_uv`, `n_signals`, `has_emg`, `has_eog`, `has_photic_channel`, `has_sphenoidal`, `has_numbered_extra`, `duration_min` | amplifier and montage fingerprint |
 | EKG lead | `ekg_hr_bpm`, `ekg_rr_std_ms`, `ekg_valid_frac` | R-peak detection on the 5–30 Hz band-passed lead, polarity-agnostic |
 | Photic channel | `photic_performed`, `photic_stim_sec` | stimulator pulse train |
@@ -38,7 +39,11 @@ feature falls outside the 95th (or 5th) percentile of **normal training
 recordings in the same age group**. So about 5% of normals are flagged per
 signature by construction. The signatures are diffuse slowing, slow PDR, absent
 PDR, asymmetry, focal (delta) asymmetry, sharp transients (kurtosis) and low
-voltage. They are screening phenotypes, not diagnoses. Epileptiform discharges
+voltage. They are screening phenotypes, not diagnoses, and they do **not** come from
+medical records (TUAB has none). The categories and the feature behind each are a rule taken
+from clinical EEG practice; whether a recording has a signature is computed from its EEG. The
+TUEG cohort's NEDC sheet *does* state the report's reason ("abnormal due to"), which is used
+there to check the signatures. Epileptiform discharges
 are brief and seldom move a whole-recording statistic, so they are under-detected.
 
 ## Findings
@@ -115,12 +120,69 @@ Numbers are from the full TUAB v3.0.0 sweep (2,993 recordings, 2,329 subjects, 0
 5. **Clean the data.** Drop or down-weight the 86 poor-tier recordings, or mask their bad epochs. Add a 60 Hz notch: this needs a reprocessing pass, and should be checked against the pre-trained checkpoint, which saw the same 60 Hz residue. Treat years 1899/2000 as missing.
 6. **To get real abnormality reasons,** request the annotated TUH subcorpora (TUEV events, TUSZ seizures, TUSL slowing, TUEP epilepsy, TUAR artifacts) and join them to TUAB by subject id. They are not on disk or in S3 today, and the id overlap still has to be verified once they are downloaded.
 
+## TUEG cohort (`all_both_v3`)
+
+The brain-age cohort: 29,309 recordings of 13,801 patients (TUEG + TUAB, ages 18–89).
+TUEG is on local disk only as processed npy files (its EDFs are in S3), so the table is
+assembled from read-only sources rather than an EDF sweep:
+
+```bash
+python -m dataset_maker.make_cohort_meta \
+    --cohort /data/datasets/EEG-public/TUH_EEG/cohorts/all_both_v3 --n_jobs 8
+# -> <cohort>/meta_features.parquet  (~85 min on 8 cores; resumable parts in <cohort>/_meta_parts/)
+```
+
+| Source | Columns |
+|---|---|
+| cohort files | `split`, `age`, `sex`, `label` (TUAB folder label, else the NEDC report), `n_windows` |
+| recording index (`tuh_index.py`) | `session_number`, `year`, `montage`, `sfreq`, `missing_channels`, `corpora` |
+| NEDC clinical sheet (`tuh_clinical.py`) | 15 `dx_*` diagnoses, 6 `med_*` drug classes, `f_*` report findings, `abnormal_due_to` text (91.5% coverage; NaN, never False, when missing) |
+| TUEG `DOCS/headers.tar.gz` (`parse_header_dump`) | `equipment_family`, `physical_max_uv`, channel inventory (`has_ekg/emg/eog/photic_channel/sphenoidal/trend_channels`) |
+| cohort npy (`npy_signal_features`) | Part I's `q_*` quality and `qeeg_*` features on the processed signal (first ≤ 60 min, recorded scalp channels; no clipping/mains columns, no EKG/photic/trend signals) |
+
+### Findings
+
+* **Label shortcut, not an age shortcut.** Recordings from 2002–2003, and the Bravo amplifier
+  (400 Hz, ±29,483 µV), are only 4–9% abnormal against 54–68% in later years. Setup explains
+  at most 1.1% of the age variance, and an acquisition + history model predicts age barely
+  better than the mean (MAE 13.2 vs 13.7 years).
+* **Clinical population.** Half the recordings list an antiseizure drug and a third a
+  sedating one. Stroke patients are 11 years and dementia patients 23 years older than the
+  rest. The TUAB folder label and the NEDC report agree on 95.5% of shared recordings.
+* **Quality.** 7–8% of labelled recordings are *poor* (TUAB: 3%), equally for normal and
+  abnormal; unlabelled recordings are worst (14%). **Two train recordings are corrupt**:
+  every electrode carries the identical trace (the qEEG features are NaN; drop them).
+* **Report reasons vs the qEEG signatures.** The keyword categories of the "abnormal due to"
+  text (`meta_analysis.report_reason_flags`) are: diffuse slowing 61%, focal slowing 44%,
+  epileptiform 33%, suppression 20%. The qEEG signatures are much weaker here than in TUAB.
+  35% of abnormal vs 24% of normal recordings carry one (TUAB: 72% vs 27%), and the matching
+  signature fires on only 18% of "diffuse slowing" reports and 2% of epileptiform ones.
+* **Medication changes normal EEGs.** On report-normal EEGs, anaesthetics nearly triple the
+  slowing ratio; benzodiazepines, barbiturates and opioids also raise it. Sedation can
+  therefore look like an older brain.
+* **Metadata-only models.** Normal/abnormal: qEEG alone reaches AUROC 0.767 on the TUEG
+  val split, and the same model scores 0.907 on TUAB eval (Part I's TUAB-trained: 0.890).
+  Age: qEEG + sex reaches MAE 12.2 years ($R^2$ 0.18), against about 6.3–6.5 for the LaBraM
+  brain-age fine-tunes. Nearly all the age information is in the raw EEG.
+
+### Recommendations
+
+1. Drop the 2 identical-channel recordings and add that check to the cohort builder.
+2. Stratify brain-age evaluation by medication (sedated or not) and by diagnosis (stroke,
+   dementia, TBI).
+3. Treat 2002–2003 / Bravo as a label shortcut: evaluate within amplifier families, or
+   exclude them from label-supervised training.
+4. Use the report reasons, not the qEEG signatures, for abnormal-detection error analysis.
+5. Benchmark brain age against the richer handcrafted features
+   (`eeg_feature_extraction_tuab.ipynb`), not the 13 qEEG summaries.
+
 ## Files
 
 | Path | Role |
 |---|---|
 | `labram/data/tuh_meta_features.py` | full EDF header parse + per-recording quality / qEEG / EKG / auxiliary features |
 | `dataset_maker/make_TUAB_meta.py` | corpus sweep CLI → `meta_features.csv` |
-| `labram/eval/meta_analysis.py` | feature groups, univariate AUC, signature flags, metadata-only baseline |
+| `dataset_maker/make_cohort_meta.py` | TUEG cohort table → `<cohort>/meta_features.parquet` (no EDFs needed) |
+| `labram/eval/meta_analysis.py` | feature groups (TUAB + cohort), `feature_inventory`, univariate AUC, signature flags, report-reason categories, signature-by-diagnosis lift, metadata-only classifier and age regressor |
 | `notebooks/tuab_meta_features.ipynb` | the statistics and figures |
-| `tests/test_tuh_meta_features.py`, `tests/test_meta_analysis.py` | synthetic-signal tests |
+| `tests/test_tuh_meta_features.py`, `tests/test_meta_analysis.py`, `tests/test_make_cohort_meta.py` | synthetic-signal and join tests |
