@@ -5,7 +5,8 @@
         "output_dir": "./checkpoints/finetune_tuab_base/",
         "log_dir": "./log/finetune_tuab_base",
         "resume": "",
-        "auto_resume": true,
+        "auto_resume": false,
+        "append_timestamp": true,
         "save_ckpt": true,
         "save_ckpt_freq": 5,
         "save_only_final_model": false
@@ -58,7 +59,10 @@
         "eval": false,
         "enable_deepspeed": false,
         "debug": false,
-        "debug_samples": 16
+        "debug_samples": 16,
+        "early_stopping": false,
+        "early_stopping_patience": 3,
+        "early_stopping_min_delta": 0.0
     },
     "data": {
         "py/object": "labram.configs.data_config.DataConfig",
@@ -77,7 +81,26 @@
         "robust_test": "",
         "split_json": "",
         "dataset": "TUAB",
-        "data_path": "./datasets/TUAB"
+        "data_path": "./datasets/TUAB",
+        "case_filter": "all",
+        "age_range": [],
+        "trim_start_sec": 0.0,
+        "trim_end_sec": 0.0,
+        "window_sec": 10,
+        "eval_minutes": 0.0,
+        "data_format": "npy",
+        "random_crop": false,
+        "window_max_abs_uv": 0.0,
+        "window_min_std_uv": 0.0,
+        "session_features": "",
+        "drop_channels": [],
+        "train_minutes_per_epoch": 0.0,
+        "stage_dir": "auto",
+        "stage_reserve_gb": 20.0,
+        "data_format": "pickle",
+        "random_crop": false,
+        "age_bin_sampling": false,
+        "age_bin_width": 5.0
     },
     "clearml": {
         "py/object": "labram.configs.train_config.ClearMLConfig",
@@ -105,10 +128,52 @@
         "attn_drop_rate": 0.0,
         "drop_path": 0.1,
         "use_mean_pooling": true,
+        "concat_cls_token": false,
+        "head_type": "linear",
+        "attention_head": {
+            "py/object": "labram.configs.model_config.AttentionHeadConfig",
+            "num_heads": 4,
+            "attn_dim": null,
+            "mlp_hidden_dim": 256,
+            "drop": 0.0,
+            "attn_drop": 0.0
+        },
+        "mlp_head": {
+            "py/object": "labram.configs.model_config.MLPHeadConfig",
+            "hidden_dims": [
+                256
+            ],
+            "drop": 0.0
+        },
+        "multitask_head": {
+            "py/object": "labram.configs.model_config.MultiTaskHeadConfig",
+            "shared_dims": [
+                256
+            ],
+            "age_dims": [
+                128
+            ],
+            "abnormal_dims": [
+                64
+            ],
+            "drop": 0.0
+        },
+        "condition_on_abnormal": false,
+        "abnormal_embed_dim": 16,
+        "session_features": "off",
+        "session_feature_groups": [],
+        "session_feature_drop": 0.0,
+        "session_feature_norm": "post",
+        "session_token_gain": 0.5,
+        "session_head_dim": 32,
+        "depth": null,
+        "input_clip_uv": 0.0,
+        "fused_attention": false,
         "init_scale": 0.001,
         "nb_classes": 0,
         "task": "classification",
         "target_stats": null,
+        "trainable_prefixes": [],
         "codebook_reg": {
             "py/object": "labram.configs.model_config.CodebookRegConfig",
             "enabled": false,
@@ -143,6 +208,23 @@
             "amplitude_weight": 1.0,
             "phase_weight": 0.1,
             "embedding_weight": 1.0
+        },
+        "lora": {
+            "enabled": false,
+            "rank": 16,
+            "alpha": 32.0,
+            "dropout": 0.0,
+            "targets": [
+                "qkv",
+                "proj",
+                "fc1",
+                "fc2"
+            ],
+            "train_prefixes": [
+                "head",
+                "fc_norm",
+                "cls_norm"
+            ]
         }
     },
     "finetune_checkpoint": {
@@ -164,7 +246,16 @@
         "regression_loss": "huber",
         "huber_delta": 1.0,
         "classifier_weight": 1.0,
-        "phase_loss": "angle"
+        "phase_loss": "angle",
+        "soft_label_sigma": 2.5,
+        "soft_label_min": 1.0,
+        "soft_label_max": 89.0,
+        "soft_label_bin_width": 1.0,
+        "balance": "none",
+        "balance_bin_width": 1.0,
+        "balance_lds_sigma": 2.0,
+        "balance_max_weight": 10.0,
+        "abnormal_weight": 0.5
     },
     "shutdown": {
         "py/object": "labram.configs.train_config.ShutdownConfig",
@@ -180,7 +271,8 @@
         "log_grad_components": false,
         "log_grad_freq": 50,
         "agg_windows": "mean",
-        "agg_case_by": "recording"
+        "agg_case_by": "recording",
+        "use_ema": false
     },
     "logging": {
         "py/object": "labram.configs.train_config.LoggingConfig",
@@ -223,6 +315,7 @@
         "use_spot": false,
         "max_wait_min": 0.0,
         "on_demand_fallback": false,
+        "checkpoint_s3_uri": "auto",
         "framework_version": "2.4.0",
         "py_version": "py311",
         "image_uri": "",
@@ -241,9 +334,41 @@
         },
         "input_mode": "File",
         "environment": {},
+        "clearml_secret": "labram/clearml",
         "hyperparameters": {},
         "tags": {},
         "wait": false,
         "stream_logs": true
+    },
+    "mixup": {
+        "enabled": false,
+        "alpha": 0.4,
+        "prob": 1.0,
+        "sigma": 0.0
+    },
+    "augment": {
+        "py/object": "labram.configs.train_config.AugmentConfig",
+        "enabled": false,
+        "hemisphere_flip_prob": 0.5,
+        "sign_flip_prob": 0.5,
+        "ft_surrogate_prob": 0.5,
+        "ft_phase_noise": 1.0,
+        "channel_dropout_prob": 0.5,
+        "channel_dropout_p": 0.1,
+        "time_mask_prob": 0.5,
+        "time_mask_max_count": 2,
+        "time_mask_min_sec": 0.5,
+        "time_mask_max_sec": 1.0
+    },
+    "channel_drop": {
+        "py/object": "labram.configs.train_config.ChannelDropConfig",
+        "enabled": false,
+        "channels": [],
+        "min_drop": 1,
+        "max_drop": 1,
+        "prob": 0.2,
+        "consistency_weight": 1.0,
+        "detach_full": true,
+        "eval_consistency": true
     }
 }

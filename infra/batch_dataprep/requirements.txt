@@ -1,0 +1,7 @@
+# Same MNE as the training environment: identical filter design to the TUAB npy.
+mne==1.4.2
+numpy==1.26.4
+scipy==1.15.3
+pandas<2.2.0
+pyarrow
+boto3

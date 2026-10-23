@@ -40,14 +40,18 @@ GIT_INFO_ENV_VAR = 'LABRAM_GIT_INFO'
 MAX_DIFF_BYTES = 256 * 1024
 
 
-def _git(root: str, *args: str) -> str:
-    """``git <args>`` in *root*, or ``''`` when git/the repo is unavailable."""
+def _git(root: str, *args: str, strip: bool = True) -> str:
+    """``git <args>`` in *root*, or ``''`` when git/the repo is unavailable.
+
+    ``strip=False`` keeps leading whitespace, which is significant in
+    ``git status --porcelain`` (`` M path`` = modified in the work tree)."""
     try:
         out = subprocess.run(('git',) + args, cwd=root, check=True,
                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     except (OSError, subprocess.CalledProcessError):
         return ''
-    return out.stdout.decode('utf-8', 'replace').strip()
+    text = out.stdout.decode('utf-8', 'replace')
+    return text.strip() if strip else text.rstrip('\n')
 
 
 def _sanitize_remote(url: str) -> str:
@@ -71,7 +75,7 @@ def collect_git_info(root: str) -> Optional[Dict[str, Any]]:
     if not commit:
         return None
 
-    status = _git(root, 'status', '--porcelain')
+    status = _git(root, 'status', '--porcelain', strip=False)
     modified, untracked = [], []
     for line in status.splitlines():
         if not line[:2].strip():

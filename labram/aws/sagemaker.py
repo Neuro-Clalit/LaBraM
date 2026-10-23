@@ -48,6 +48,13 @@ SPOT_INSTANCE_ALTERNATIVES: Dict[str, List[str]] = {
 }
 
 
+# Where SageMaker mirrors ``checkpoint_s3_uri`` inside the container.
+CHECKPOINT_LOCAL_PATH = "/opt/ml/checkpoints"
+# Set in the job environment when checkpointing is on, so the entry point trains
+# into CHECKPOINT_LOCAL_PATH and resumes from it.
+CHECKPOINT_ENV = "LABRAM_SM_CHECKPOINTS"
+
+
 @dataclass
 class SageMakerJobSpec:
     """Everything needed to launch one SageMaker PyTorch training job.
@@ -84,6 +91,9 @@ class SageMakerJobSpec:
     code_location: str = ""
     output_kms_key: str = ""
     base_job_name: str = "training-job"
+    # S3 prefix SageMaker syncs with /opt/ml/checkpoints in the container and
+    # restores into it when a (spot) job restarts; '' = no checkpointing.
+    checkpoint_s3_uri: str = ""
 
 
 def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
@@ -123,6 +133,9 @@ def estimator_kwargs(spec: SageMakerJobSpec) -> Dict[str, Any]:
         kwargs["code_location"] = spec.code_location
     if spec.output_kms_key:
         kwargs["output_kms_key"] = spec.output_kms_key
+    if spec.checkpoint_s3_uri:
+        kwargs["checkpoint_s3_uri"] = spec.checkpoint_s3_uri
+        kwargs["checkpoint_local_path"] = CHECKPOINT_LOCAL_PATH
     if spec.tags:
         kwargs["tags"] = [{"Key": k, "Value": v} for k, v in spec.tags.items()]
     if spec.use_spot:

@@ -118,6 +118,11 @@ class SageMakerConfig(ConfigBase):
     # fractional-minute support (``1.5`` = 90 seconds).
     max_wait_min: Union[int, float] = DEFAULT_SAGEMAKER_MAX_WAIT_MIN
     on_demand_fallback: bool = DEFAULT_SAGEMAKER_ON_DEMAND_FALLBACK
+    # Checkpoints synced to S3 so an interrupted (spot) job resumes instead of
+    # restarting: "auto" = on for spot jobs, under
+    # s3://sagemaker-<region>-<account>/labram/checkpoints/<job>-<UTC time>/;
+    # "off" = never; any other value is the S3 prefix to use instead.
+    checkpoint_s3_uri: str = "auto"
     framework_version: str = DEFAULT_SAGEMAKER_FRAMEWORK_VERSION
     py_version: str = DEFAULT_SAGEMAKER_PY_VERSION
     image_uri: str = DEFAULT_SAGEMAKER_IMAGE_URI
@@ -134,6 +139,11 @@ class SageMakerConfig(ConfigBase):
         default_factory=lambda: dict(DEFAULT_SAGEMAKER_WEIGHT_S3_URIS))
     input_mode: str = DEFAULT_SAGEMAKER_INPUT_MODE
     environment: Dict[str, str] = field(default_factory=dict)
+    # Secrets Manager secret holding the ClearML credentials (create it with
+    # `python -m labram.aws.clearml_secret put`). The job gets only this name and
+    # reads the values with its execution role. '' falls back to passing the
+    # credentials as job environment variables (visible in the job definition).
+    clearml_secret: str = "labram/clearml"
     hyperparameters: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)
     wait: bool = DEFAULT_SAGEMAKER_WAIT

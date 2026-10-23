@@ -84,10 +84,19 @@ def build_config(cli: argparse.Namespace):
     # sagemaker.output_path when the job ends — so checkpoints and TensorBoard
     # event files survive the container.
     model_dir = os.environ.get('SM_MODEL_DIR', '/opt/ml/model')
+    # With checkpointing on (spot jobs, see submit_sagemaker), train into the
+    # folder SageMaker syncs to S3 and restores after an interruption, and resume
+    # from whatever is there; the outputs are copied to model_dir at the end.
+    work_dir = checkpoint_dir() or model_dir
+    if checkpoint_dir():
+        config.output.auto_resume = True
     if not config.output.output_dir:
-        config.output.output_dir = os.path.join(model_dir, cli.phase)
+        config.output.output_dir = os.path.join(work_dir, cli.phase)
     if not config.output.log_dir:
         config.output.log_dir = os.path.join(config.output.output_dir, 'tensorboard')
+    # Each job runs in a fresh container and its uploaded model dir keeps a
+    # fixed layout, so the per-run timestamp suffix is not wanted here.
+    config.output.append_timestamp = False
 
     # Cross-validation applies to fine-tuning only.
     if cli.phase == 'finetune':
@@ -97,12 +106,59 @@ def build_config(cli: argparse.Namespace):
         if config.cross_validation.enabled and not config.cross_validation.base_dir:
             # Keep every fold's outputs under the SageMaker model dir so they are
             # uploaded to S3 when the job completes.
-            config.cross_validation.base_dir = os.path.join(model_dir, 'cv')
+            config.cross_validation.base_dir = os.path.join(work_dir, 'cv')
     return config
+
+
+def checkpoint_dir() -> str:
+    """The SageMaker checkpoint folder when the submitter enabled checkpointing
+    (``$LABRAM_SM_CHECKPOINTS``), else ''."""
+    from labram.aws.sagemaker import CHECKPOINT_ENV, CHECKPOINT_LOCAL_PATH
+    if os.environ.get(CHECKPOINT_ENV) != "1":
+        return ""
+    os.makedirs(CHECKPOINT_LOCAL_PATH, exist_ok=True)
+    return CHECKPOINT_LOCAL_PATH
+
+
+def publish_checkpoint_outputs() -> None:
+    """Copy what was trained in the checkpoint folder into the model dir, which
+    SageMaker uploads as model.tar.gz, so the job's outputs keep their layout."""
+    src = checkpoint_dir()
+    if not src:
+        return
+    import shutil
+    dst = os.environ.get('SM_MODEL_DIR', '/opt/ml/model')
+    # SageMaker's checkpoint sync leaves <file>.sagemaker-uploaded/-uploading
+    # markers next to every file; they are not outputs.
+    markers = shutil.ignore_patterns('*.sagemaker-uploaded', '*.sagemaker-uploading')
+    for name in os.listdir(src):
+        path = os.path.join(src, name)
+        if os.path.isdir(path):
+            shutil.copytree(path, os.path.join(dst, name), dirs_exist_ok=True, ignore=markers)
+        elif not markers(src, [name]):
+            shutil.copy2(path, os.path.join(dst, name))
+
+
+def load_clearml_credentials() -> None:
+    """Export the ClearML credentials from the Secrets Manager secret named by
+    ``$LABRAM_CLEARML_SECRET`` (set by the submitter) before any ClearML use.
+    Fails the job with a clear message rather than running without tracking."""
+    from labram.utils.secrets import CLEARML_SECRET_ENV, load_clearml_secret_into_env
+    name = os.environ.get(CLEARML_SECRET_ENV)
+    if not name:
+        return
+    try:
+        loaded = load_clearml_secret_into_env(name)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not read ClearML credentials from Secrets Manager secret {name!r}: {exc}. "
+            f"The execution role needs secretsmanager:GetSecretValue on it.") from exc
+    print(f"Loaded ClearML credentials from secret {name!r}: {sorted(loaded)}", flush=True)
 
 
 def main(argv: Optional[List[str]] = None) -> None:
     cli = parse_cli(argv)
+    load_clearml_credentials()
     config = build_config(cli)
     if cli.phase == 'vqnsp':
         from labram.runs.run_vqnsp import main as vqnsp_main
@@ -116,7 +172,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     else:
         from labram.runs.run_finetune import main as finetune_main
         finetune_main(config)
+    publish_checkpoint_outputs()
 
 
 if __name__ == '__main__':
-    main()
+    from labram.utils.exit_guard import run_and_exit
+    run_and_exit(main)

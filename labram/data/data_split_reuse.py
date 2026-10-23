@@ -102,9 +102,10 @@ def apply_data_split(bundle: DatasetBundle, split: Dict[str, Any]) -> DatasetBun
         task=bundle.task, target_stats=bundle.target_stats)
 
 
-def bundle_from_data_split(dataset_name: str, data_path: str, split_json: str) -> DatasetBundle:
+def bundle_from_data_split(dataset_name: str, data_path: str, split_json: str,
+                           data_format: str = "pickle") -> DatasetBundle:
     """Build the dataset's default bundle, then re-partition it to match the
     recorded ``split_json``."""
     from labram.data.bundles import get_dataset_bundle
-    base = get_dataset_bundle(dataset_name, data_path)
+    base = get_dataset_bundle(dataset_name, data_path, data_format=data_format)
     return apply_data_split(base, load_data_split_json(split_json))

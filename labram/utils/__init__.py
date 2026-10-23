@@ -11,8 +11,10 @@ from labram.utils.checkpoint import (
     create_ds_config,
     load_pretrained_weights,
     load_state_dict,
+    load_train_state,
     save_model,
     save_nan_model,
+    save_train_state,
 )
 from labram.data.tuh_datasets import (
     TUABLoader,
@@ -96,6 +98,8 @@ __all__ = [
     'all_gather_batch_with_grad',
     'all_reduce',
     'auto_load_model',
+    'load_train_state',
+    'save_train_state',
     'bool_flag',
     'build_pretraining_dataset',
     'configure_logging',

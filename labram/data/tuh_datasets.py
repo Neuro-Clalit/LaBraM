@@ -3,9 +3,11 @@
 # TUH-EEG (TUAB / TUEV) torch.utils.data.Dataset wrappers and split assembly.
 # ---------------------------------------------------------
 
+import json
 import logging
 import os
 import pickle
+from collections import OrderedDict
 from typing import Callable
 
 import numpy as np
@@ -72,6 +74,10 @@ class TUHLoader(torch.utils.data.Dataset):
         self._recording_sep = recording_sep
         self.return_id = return_id
         self.group_by = group_by
+        # Consecutive windows concatenated into one sample, starting at each
+        # listed file (set by labram.data.window_selection for inputs longer
+        # than one pickle).
+        self.windows_per_item = 1
 
     def __len__(self) -> int:
         return len(self.files)
@@ -90,14 +96,25 @@ class TUHLoader(torch.utils.data.Dataset):
             return base.split("_")[0]
         return base.rsplit(self._recording_sep, 1)[0]
 
+    def _window_files(self, filename: str) -> list:
+        """``filename`` plus the ``windows_per_item - 1`` windows after it."""
+        if self.windows_per_item <= 1:
+            return [filename]
+        directory, base = os.path.split(filename)
+        stem, index = base[:-4].rsplit(self._recording_sep, 1)
+        return [os.path.join(directory, f"{stem}{self._recording_sep}{int(index) + j}.pkl")
+                for j in range(self.windows_per_item)]
+
     def _load(self, index):
         filename = self.files[index]
-        path = os.path.join(self.root, filename)
-        with open(path, "rb") as fh:
-            sample = pickle.load(fh)
-        X = sample[self._signal_key]
+        samples = []
+        for name in self._window_files(filename):
+            with open(os.path.join(self.root, name), "rb") as fh:
+                samples.append(pickle.load(fh))
+        sample = samples[0]
+        X = np.concatenate([s[self._signal_key] for s in samples], axis=-1)
         if self.sampling_rate != self.default_rate:
-            X = resample(X, self._duration_sec * self.sampling_rate, axis=-1)
+            X = resample(X, self._duration_sec * len(samples) * self.sampling_rate, axis=-1)
         Y = self._label_fn(sample, filename)
         if self.return_id:
             return torch.FloatTensor(X), Y, self.group_id(filename)
@@ -164,6 +181,14 @@ class TUABAgeLoader(TUHLoader):
     """
 
     _lookup_cache = {}
+    # recording stem -> 1 (abnormal) / 0 (normal); set by
+    # window_selection.enable_abnormal_target for the multi-task head, which
+    # turns the target into ``[age, abnormal]``.
+    abnormal_lookup = None
+    # (stem -> row, [n_recordings, n_features] float32) of session-level
+    # features; set by window_selection.enable_session_features, which turns the
+    # target into ``[age, *features]`` (the model takes the features as input).
+    session_features = None
 
     def __init__(
         self,
@@ -203,10 +228,17 @@ class TUABAgeLoader(TUHLoader):
         return cls._lookup_cache[key]
 
     def _age_target(self, _sample, filename: str) -> torch.Tensor:
-        age = self.age_lookup[recording_stem(filename)]
+        stem = recording_stem(filename)
+        age = self.age_lookup[stem]
         if self.target_stats is not None:
             mean, std = self.target_stats
             age = (age - mean) / std
+        if self.abnormal_lookup is not None:
+            return torch.tensor([age, self.abnormal_lookup[stem]], dtype=torch.float32)
+        if self.session_features is not None:
+            rows, matrix = self.session_features
+            return torch.cat((torch.tensor([age], dtype=torch.float32),
+                              torch.from_numpy(matrix[rows[stem]])))
         return torch.tensor(age, dtype=torch.float32)
 
     def ages(self) -> list:
@@ -214,7 +246,185 @@ class TUABAgeLoader(TUHLoader):
         return [self.age_lookup[recording_stem(f)] for f in self.files]
 
 
-def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True):
+NPY_MANIFEST = "manifest.json"
+WINDOW_SAMPLES = 2000   # one 10 s window at 200 Hz
+
+
+class NpyWindowsMixin:
+    """Window reads from the per-recording ``.npy`` format
+    (``dataset_maker/make_TUAB_npy.py`` / ``make_TUH_npy.py``).
+
+    Items keep the pickle loaders' names (``<split>/<stem>_<k>.pkl``), so
+    splits, window selection, cross-validation and split reuse work unchanged;
+    only the read differs: window ``k`` is the contiguous slice
+    ``[2000 k, 2000 k + L)`` of a memory-mapped ``recordings/<stem>.npy``
+    (``[T, 23]``), bit-identical to the pickle cast to float32. float16 files
+    are upcast to float32.
+
+    ``random_crop`` (training only) moves each sample to a uniformly random
+    start within half a sample length of its grid position, kept inside
+    ``sample_bounds[stem]`` (the trimmed range set by window selection), so
+    every epoch sees different crops of the same recordings.
+    """
+
+    MMAP_CACHE = 256   # open memory maps per process (each holds a file descriptor)
+
+    def _init_npy(self):
+        self.random_crop = False
+        # Serve zeros instead of reading the EEG (a model that ignores it,
+        # model.session_features=only).
+        self.skip_signal = False
+        # Column indices served (data.drop_channels); None = every channel.
+        self.keep_channels = None
+        self._compact_rows = None
+        self.sample_bounds = {}
+        self._mmaps = OrderedDict()
+        self._manifest = None
+
+    def manifest(self):
+        if self._manifest is None:
+            self._manifest = _read_manifest(self.root)
+        return self._manifest
+
+    def _n_samples(self, stem):
+        if not hasattr(self, "_lengths"):
+            self._lengths = {r["stem"]: r["n_samples"] for r in self.manifest()["recordings"]}
+        return self._lengths[stem]
+
+    def window_inventory(self):
+        """``(n_windows by (dir, stem), available window names)`` from the
+        manifest, so window selection never lists 409k names on disk. A compact
+        dataset (``dataset_maker/make_compact_cohort.py``) stores only the
+        windows in each row's ``window_index``; ``n_windows`` stays the
+        original recording length, so trimming and eval budgets resolve as on
+        the full data."""
+        n_windows, available = {}, set()
+        for row in self.manifest()["recordings"]:
+            n_windows[(row["source_split"], row["stem"])] = row["n_windows"]
+            ks = row.get("window_index")
+            available.update(f"{row['source_split']}/{row['stem']}_{k}.pkl"
+                             for k in (ks if ks is not None else range(row["n_windows"])))
+        return n_windows, available
+
+    def _compact_start(self, stem, k):
+        """Sample offset of original window ``k`` in a compact recording, or
+        ``None`` for a full one."""
+        if self._compact_rows is None:
+            self._compact_rows = {
+                r["stem"]: {int(w): i for i, w in enumerate(r["window_index"])}
+                for r in self.manifest()["recordings"] if r.get("window_index") is not None}
+        rows = self._compact_rows.get(stem)
+        if rows is None:
+            return None
+        if k not in rows:
+            raise KeyError(f"{stem}: window {k} is not stored in this compact dataset")
+        return rows[k] * WINDOW_SAMPLES
+
+    def _recording(self, stem):
+        rec = self._mmaps.pop(stem, None)
+        if rec is None:
+            rec = np.load(os.path.join(self.root, "recordings", f"{stem}.npy"), mmap_mode="r")
+            if len(self._mmaps) >= self.MMAP_CACHE:
+                self._mmaps.popitem(last=False)
+        self._mmaps[stem] = rec
+        return rec
+
+    def __getstate__(self):
+        # DataLoader workers each open their own memory maps.
+        state = dict(self.__dict__)
+        state["_mmaps"] = OrderedDict()
+        return state
+
+    def _load(self, index):
+        filename = self.files[index]
+        stem, k = os.path.basename(filename)[:-4].rsplit(self._recording_sep, 1)
+        length = WINDOW_SAMPLES * self.windows_per_item
+        if self.skip_signal:
+            n_ch = (len(self.keep_channels) if self.keep_channels is not None
+                    else len(self.manifest().get("channels") or ()) or 23)
+            X = torch.zeros(n_ch, length)
+            Y = self._label_fn(None, filename)
+            return (X, Y, self.group_id(filename)) if self.return_id else (X, Y)
+        start = int(k) * WINDOW_SAMPLES
+        compact = self._compact_start(stem, int(k))
+        if compact is not None:
+            # Stored windows are in ascending order, so a multi-window sample
+            # (all of whose windows are stored) is contiguous here too.
+            if self.random_crop:
+                raise ValueError("data.random_crop needs the full recordings, not a compact dataset")
+            start = compact
+        if self.random_crop:
+            lo, hi = self.sample_bounds.get(stem) or (0, self._n_samples(stem))
+            lo, hi = max(lo, start - length // 2), min(hi - length, start + length // 2)
+            if hi > lo:
+                start = int(torch.randint(lo, hi + 1, (1,)))
+        seg = self._recording(stem)[start:start + length]
+        if self.keep_channels is not None:
+            seg = seg[:, self.keep_channels]
+        X = np.ascontiguousarray(seg.T, dtype=np.float32)
+        if X.shape[-1] != length:
+            raise ValueError(f"{filename}: crop [{start}, {start + length}) is out of range")
+        if self.sampling_rate != self.default_rate:
+            X = resample(X, self._duration_sec * self.windows_per_item * self.sampling_rate,
+                         axis=-1)
+        Y = self._label_fn(None, filename)
+        if self.return_id:
+            return torch.from_numpy(X), Y, self.group_id(filename)
+        return torch.from_numpy(X), Y
+
+
+_MANIFEST_CACHE = {}
+
+
+def _read_manifest(root):
+    key = os.path.abspath(root)
+    if key not in _MANIFEST_CACHE:
+        with open(os.path.join(root, NPY_MANIFEST)) as fh:
+            _MANIFEST_CACHE[key] = json.load(fh)
+    return _MANIFEST_CACHE[key]
+
+
+class TUABAgeNpyLoader(NpyWindowsMixin, TUABAgeLoader):
+    """:class:`TUABAgeLoader` over the per-recording ``.npy`` format."""
+
+    def __init__(self, root, files, sampling_rate=200, *, age_lookup=None,
+                 target_stats=None):
+        super().__init__(root, files, sampling_rate, age_lookup=age_lookup,
+                         target_stats=target_stats)
+        self._init_npy()
+
+
+class TUABNpyLoader(NpyWindowsMixin, TUHLoader):
+    """TUAB normal (0) / abnormal (1) classification over the ``.npy`` format.
+
+    The label is the recording's TUAB folder (``label`` in the manifest), which
+    is what ``make_TUAB.py`` stored as ``y`` in every window pickle.
+    """
+
+    def __init__(self, root: str, files: list, sampling_rate: int = 200):
+        labels = {r["stem"]: r["label"] for r in _read_manifest(root)["recordings"]}
+        unknown = {labels.get(recording_stem(f)) for f in files} - {"normal", "abnormal"}
+        if unknown:
+            raise ValueError(f"{root}: recordings without a normal/abnormal label: {unknown}")
+        self.case_labels = {stem: int(lab == "abnormal") for stem, lab in labels.items()}
+        super().__init__(
+            root, files, sampling_rate,
+            signal_key="X",
+            duration_sec=10,
+            label_fn=lambda _s, filename: self.case_labels[recording_stem(filename)],
+        )
+        self._init_npy()
+
+
+def _age_data_dir(root, data_format):
+    """The window directory for a format: ``<root>/processed[_npy]`` when it
+    exists, else ``root`` itself (a data_path pointing straight at it)."""
+    sub = "processed_npy" if data_format == "npy" else "processed"
+    return os.path.join(root, sub) if os.path.isdir(os.path.join(root, sub)) else root
+
+
+def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True,
+                             data_format: str = "pickle"):
     """Build subject-disjoint TUAB age-regression splits.
 
     Reuses the window pickles produced by ``dataset_maker/make_TUAB.py`` -- only
@@ -224,8 +434,14 @@ def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True):
     Returns ``(train, test, val, target_stats)``; the tuple order matches
     :func:`prepare_TUAB_dataset`.
     """
-    processed = os.path.join(root, "processed") if os.path.isdir(
-        os.path.join(root, "processed")) else root
+    if data_format not in ("pickle", "npy"):
+        raise ValueError(f"data.data_format must be 'pickle' or 'npy', got {data_format!r}")
+    processed = _age_data_dir(root, data_format)
+    if data_format == "npy" and not os.path.isfile(os.path.join(processed, NPY_MANIFEST)):
+        raise FileNotFoundError(
+            f"No {NPY_MANIFEST} under {processed}; build it with "
+            f"dataset_maker/make_TUAB_npy.py convert + merge")
+    loader_cls = TUABAgeNpyLoader if data_format == "npy" else TUABAgeLoader
     ages = load_age_lookup_for(processed)
 
     split_path = find_age_split(processed)
@@ -237,7 +453,7 @@ def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True):
         split = build_age_split(processed, ages)
 
     def loader(name, stats):
-        return TUABAgeLoader(
+        return loader_cls(
             processed, split.files[name], age_lookup=ages, target_stats=stats)
 
     train_ages = [ages[recording_stem(f)] for f in split.files["train"]]
@@ -248,9 +464,12 @@ def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True):
         target_stats = (mean, max(var ** 0.5, 1e-6))
         logger.info("Age target normalization: mean=%.2f std=%.2f", *target_stats)
 
+    # A cohort may have no test split (e.g. train + validate only); the trainer
+    # then skips test evaluation.
+    test = loader("test", target_stats) if split.files.get("test") else None
     return (
         loader("train", target_stats),
-        loader("test", target_stats),
+        test,
         loader("val", target_stats),
         target_stats,
     )
@@ -271,7 +490,23 @@ def prepare_TUEV_dataset(root):
     return train_dataset, test_dataset, val_dataset
 
 
-def prepare_TUAB_dataset(root):
+def prepare_TUAB_dataset(root, data_format: str = "pickle"):
+    """TUAB normal/abnormal splits as produced by ``make_TUAB.py`` (train / val
+    / test = the published LaBraM/BIOT protocol). ``data_format="npy"`` reads
+    the same windows from ``processed_npy/`` (``root`` may be the corpus
+    ``edf`` dir or the ``processed``/``processed_npy`` dir itself)."""
+    if data_format == "npy":
+        npy = _npy_root(root)
+        split = {"train": [], "val": [], "test": []}
+        for row in _read_manifest(npy)["recordings"]:
+            split[row["source_split"]] += [f"{row['source_split']}/{row['stem']}_{k}.pkl"
+                                           for k in range(row["n_windows"])]
+        print(len(split["train"]), len(split["val"]), len(split["test"]))
+        return (TUABNpyLoader(npy, split["train"]), TUABNpyLoader(npy, split["test"]),
+                TUABNpyLoader(npy, split["val"]))
+    if data_format != "pickle":
+        raise ValueError(f"data.data_format must be 'pickle' or 'npy', got {data_format!r}")
+
     seed = 12345
     np.random.seed(seed)
 
@@ -287,3 +522,15 @@ def prepare_TUAB_dataset(root):
     val_dataset = TUABLoader(os.path.join(root, "val"), val_files)
     print(len(train_files), len(val_files), len(test_files))
     return train_dataset, test_dataset, val_dataset
+
+
+def _npy_root(root):
+    """``processed_npy`` for a data_path that is the corpus ``edf`` dir, its
+    ``processed`` dir (the pickle-era TUAB data_path), or the npy dir itself."""
+    for cand in (root, os.path.join(root, "processed_npy"),
+                 os.path.join(os.path.dirname(os.path.normpath(root)), "processed_npy")):
+        if os.path.isfile(os.path.join(cand, NPY_MANIFEST)):
+            return cand
+    raise FileNotFoundError(
+        f"No {NPY_MANIFEST} in {root}, {root}/processed_npy or a sibling processed_npy; "
+        f"build it with dataset_maker/make_TUAB_npy.py convert + merge")

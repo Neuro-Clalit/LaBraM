@@ -235,6 +235,7 @@ def test_cv_runner_end_to_end(tmp_path, fold_arg):
     config.update(**{
         "data.dataset": "TUAB",
         "data.data_path": str(tmp_path / "data"),
+        "data.data_format": "pickle",          # synthetic window pickles
         "trainer.debug": True,
         "trainer.epochs": 1,
         "trainer.debug_samples": 4,

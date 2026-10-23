@@ -1,0 +1,375 @@
+{
+    "py/object": "labram.configs.runner_configs.FinetuneRunConfig",
+    "output": {
+        "py/object": "labram.configs.train_config.OutputConfig",
+        "output_dir": "./checkpoints/finetune_tuab_age_attn_head/",
+        "log_dir": "./log/finetune_tuab_age_attn_head",
+        "resume": "",
+        "auto_resume": false,
+        "append_timestamp": true,
+        "save_ckpt": true,
+        "save_ckpt_freq": 5,
+        "save_only_final_model": false
+    },
+    "distributed": {
+        "py/object": "labram.configs.train_config.DistributedConfig",
+        "world_size": 1,
+        "local_rank": -1,
+        "dist_on_itp": false,
+        "dist_url": "env://",
+        "device": "auto",
+        "seed": 0,
+        "dist_eval": false,
+        "distributed": false,
+        "gpu": 0
+    },
+    "optimizer": {
+        "py/object": "labram.configs.optim_config.OptimizerConfig",
+        "opt": "adamw",
+        "opt_eps": 1e-08,
+        "opt_betas": null,
+        "momentum": 0.9,
+        "weight_decay": 0.05,
+        "weight_decay_end": null,
+        "lr": 0.0001,
+        "warmup_lr": 1e-06,
+        "min_lr": 1e-06,
+        "warmup_epochs": 1,
+        "warmup_steps": -1,
+        "sched": "cosine",
+        "decay_epochs": 30,
+        "decay_rate": 0.1,
+        "decay_milestones": null,
+        "clip_grad": 1.0,
+        "layer_decay": 0.65,
+        "smoothing": 0.1,
+        "model_ema": false,
+        "model_ema_decay": 0.9999,
+        "model_ema_force_cpu": false
+    },
+    "trainer": {
+        "py/object": "labram.configs.train_config.TrainerConfig",
+        "batch_size": 64,
+        "epochs": 4,
+        "start_epoch": 0,
+        "gradient_accumulation_steps": 1,
+        "update_freq": 1,
+        "disable_eval_during_finetuning": false,
+        "disable_weight_decay_on_rel_pos_bias": false,
+        "eval": false,
+        "enable_deepspeed": false,
+        "debug": false,
+        "debug_samples": 16,
+        "early_stopping": false,
+        "early_stopping_patience": 3,
+        "early_stopping_min_delta": 0.0
+    },
+    "data": {
+        "py/object": "labram.configs.data_config.DataConfig",
+        "num_workers": 10,
+        "pin_mem": true,
+        "datasets_train": [],
+        "datasets_val": [],
+        "time_window": [
+            4,
+            8
+        ],
+        "val_time_window": [],
+        "stride": 800,
+        "start_percentage": 0.0,
+        "end_percentage": 1.0,
+        "robust_test": "",
+        "split_json": "",
+        "dataset": "TUAB_AGE",
+        "data_path": "./datasets/TUAB",
+        "case_filter": "all",
+        "age_range": [],
+        "trim_start_sec": 60.0,
+        "trim_end_sec": 60.0,
+        "window_sec": 10,
+        "eval_minutes": 5.0,
+        "data_format": "npy",
+        "random_crop": false,
+        "window_max_abs_uv": 0.0,
+        "window_min_std_uv": 0.0,
+        "session_features": "",
+        "drop_channels": [],
+        "train_minutes_per_epoch": 0.0,
+        "stage_dir": "auto",
+        "stage_reserve_gb": 20.0,
+        "age_bin_sampling": false,
+        "age_bin_width": 5.0
+    },
+    "clearml": {
+        "py/object": "labram.configs.train_config.ClearMLConfig",
+        "enabled": false,
+        "project_name": "LaBraM",
+        "task_name": "",
+        "append_timestamp": true,
+        "tags": [
+            "brain_age",
+            "attention_head"
+        ],
+        "output_uri": "",
+        "offline": false,
+        "continue_last_task": false,
+        "auto_connect_frameworks": true,
+        "upload_model_artifact": true,
+        "artifact_name": ""
+    },
+    "model": {
+        "py/object": "labram.configs.model_config.FinetuneModelConfig",
+        "model": "labram_base_patch200_200",
+        "input_size": 200,
+        "qkv_bias": false,
+        "rel_pos_bias": false,
+        "abs_pos_emb": true,
+        "layer_scale_init_value": 0.1,
+        "drop": 0.0,
+        "attn_drop_rate": 0.0,
+        "drop_path": 0.1,
+        "use_mean_pooling": true,
+        "concat_cls_token": false,
+        "head_type": "attention",
+        "attention_head": {
+            "py/object": "labram.configs.model_config.AttentionHeadConfig",
+            "num_heads": 4,
+            "attn_dim": null,
+            "mlp_hidden_dim": 256,
+            "drop": 0.0,
+            "attn_drop": 0.0
+        },
+        "mlp_head": {
+            "py/object": "labram.configs.model_config.MLPHeadConfig",
+            "hidden_dims": [
+                256
+            ],
+            "drop": 0.0
+        },
+        "multitask_head": {
+            "py/object": "labram.configs.model_config.MultiTaskHeadConfig",
+            "shared_dims": [
+                256
+            ],
+            "age_dims": [
+                128
+            ],
+            "abnormal_dims": [
+                64
+            ],
+            "drop": 0.0
+        },
+        "condition_on_abnormal": false,
+        "abnormal_embed_dim": 16,
+        "session_features": "off",
+        "session_feature_groups": [],
+        "session_feature_drop": 0.0,
+        "session_feature_norm": "post",
+        "session_token_gain": 0.5,
+        "session_head_dim": 32,
+        "depth": null,
+        "input_clip_uv": 0.0,
+        "fused_attention": false,
+        "init_scale": 0.001,
+        "nb_classes": 0,
+        "task": "regression",
+        "target_stats": null,
+        "trainable_prefixes": [],
+        "codebook_reg": {
+            "py/object": "labram.configs.model_config.CodebookRegConfig",
+            "enabled": false,
+            "tokenizer_model": "vqnsp_encoder_base_decoder_3x200x12",
+            "tokenizer_weight": "",
+            "feature_sources": [
+                "encoder_mean"
+            ],
+            "features_emb_dim": 128,
+            "linear_embedding": true,
+            "norm_embedding": true,
+            "classifier_type": "linear",
+            "encoder": {
+                "py/object": "labram.configs.model_config.ComponentTrainConfig",
+                "trainable": true,
+                "lr_scale": 0.1,
+                "n_last_trainable_layers": 2
+            },
+            "decoder": {
+                "py/object": "labram.configs.model_config.ComponentTrainConfig",
+                "trainable": false,
+                "lr_scale": 0.1,
+                "n_last_trainable_layers": null
+            },
+            "codebook": {
+                "py/object": "labram.configs.model_config.ComponentTrainConfig",
+                "trainable": false,
+                "lr_scale": 0.1,
+                "n_last_trainable_layers": null
+            },
+            "classifier_weight": 1.0,
+            "amplitude_weight": 1.0,
+            "phase_weight": 0.1,
+            "embedding_weight": 1.0
+        },
+        "lora": {
+            "enabled": false,
+            "rank": 16,
+            "alpha": 32.0,
+            "dropout": 0.0,
+            "targets": [
+                "qkv",
+                "proj",
+                "fc1",
+                "fc2"
+            ],
+            "train_prefixes": [
+                "head",
+                "fc_norm",
+                "cls_norm"
+            ]
+        }
+    },
+    "finetune_checkpoint": {
+        "py/object": "labram.configs.model_config.FinetuneCheckpointConfig",
+        "finetune": "./checkpoints/labram-base.pth",
+        "model_key": "model|module",
+        "model_prefix": "",
+        "model_filter_name": "gzp"
+    },
+    "loss": {
+        "py/object": "labram.configs.loss_config.LossConfig",
+        "amplitude_weight": 1.0,
+        "phase_weight": 0.1,
+        "embedding_weight": 1.0,
+        "use_smooth_l1": false,
+        "vq_commitment_beta": 1.0,
+        "freq_fraction": 1.0,
+        "classification_label_smoothing": 0.1,
+        "regression_loss": "huber",
+        "huber_delta": 1.0,
+        "classifier_weight": 1.0,
+        "phase_loss": "angle",
+        "soft_label_sigma": 2.5,
+        "soft_label_min": 1.0,
+        "soft_label_max": 89.0,
+        "soft_label_bin_width": 1.0,
+        "balance": "none",
+        "balance_bin_width": 1.0,
+        "balance_lds_sigma": 2.0,
+        "balance_max_weight": 10.0,
+        "abnormal_weight": 0.5
+    },
+    "shutdown": {
+        "py/object": "labram.configs.train_config.ShutdownConfig",
+        "stop_instance_on_finish": false,
+        "stop_delay_minutes": 5,
+        "stop_method": "ec2"
+    },
+    "evaluation": {
+        "py/object": "labram.configs.train_config.EvaluationConfig",
+        "detailed_metrics": true,
+        "log_confusion_matrix": false,
+        "log_curves": true,
+        "log_grad_components": false,
+        "log_grad_freq": 50,
+        "agg_windows": "mean",
+        "agg_case_by": "recording",
+        "use_ema": false
+    },
+    "logging": {
+        "py/object": "labram.configs.train_config.LoggingConfig",
+        "log_model_graph": true,
+        "model_graph_format": "svg",
+        "log_data_split": true,
+        "relative_loss_components": true,
+        "relative_step_axis": true,
+        "relative_step_scale": 1000,
+        "precise_cuda_timing": false
+    },
+    "labram_plus": {
+        "py/object": "labram.configs.labram_plus_config.LaBraMPlusConfig",
+        "enabled": true,
+        "common_average_reference": true,
+        "z_score_patches": false,
+        "z_score_eps": 1e-05,
+        "phase_loss": "sincos"
+    },
+    "cross_validation": {
+        "py/object": "labram.configs.cv_config.CrossValidationConfig",
+        "enabled": false,
+        "n_folds": 5,
+        "fold": -1,
+        "split_by": "subject",
+        "shuffle": true,
+        "seed": 42,
+        "pool": "train_val",
+        "split_json": "",
+        "base_dir": ""
+    },
+    "sagemaker": {
+        "py/object": "labram.configs.sagemaker_config.SageMakerConfig",
+        "enabled": false,
+        "role": "",
+        "instance_type": "ml.g5.2xlarge",
+        "instance_count": 1,
+        "volume_size_gb": 150,
+        "max_run_sec": 86400,
+        "use_spot": false,
+        "max_wait_min": 0.0,
+        "on_demand_fallback": false,
+        "checkpoint_s3_uri": "auto",
+        "framework_version": "2.4.0",
+        "py_version": "py311",
+        "image_uri": "",
+        "entry_point": "labram/runs/sagemaker_entry.py",
+        "source_dir": "",
+        "job_name_prefix": "labram-finetune",
+        "region": "",
+        "profile": "",
+        "output_path": "",
+        "code_location": "",
+        "output_kms_key": "",
+        "config_channel": "",
+        "weight_s3_uris": {
+            "./checkpoints/labram-base.pth": "s3://eeg-data-public/models/labram/labram-base.pth",
+            "./checkpoints/vqnsp.pth": "s3://eeg-data-public/models/labram/vqnsp.pth"
+        },
+        "input_mode": "File",
+        "environment": {},
+        "clearml_secret": "labram/clearml",
+        "hyperparameters": {},
+        "tags": {},
+        "wait": false,
+        "stream_logs": true
+    },
+    "mixup": {
+        "enabled": true,
+        "alpha": 0.4,
+        "prob": 1.0,
+        "sigma": 0.0
+    },
+    "augment": {
+        "py/object": "labram.configs.train_config.AugmentConfig",
+        "enabled": false,
+        "hemisphere_flip_prob": 0.5,
+        "sign_flip_prob": 0.5,
+        "ft_surrogate_prob": 0.5,
+        "ft_phase_noise": 1.0,
+        "channel_dropout_prob": 0.5,
+        "channel_dropout_p": 0.1,
+        "time_mask_prob": 0.5,
+        "time_mask_max_count": 2,
+        "time_mask_min_sec": 0.5,
+        "time_mask_max_sec": 1.0
+    },
+    "channel_drop": {
+        "py/object": "labram.configs.train_config.ChannelDropConfig",
+        "enabled": false,
+        "channels": [],
+        "min_drop": 1,
+        "max_drop": 1,
+        "prob": 0.2,
+        "consistency_weight": 1.0,
+        "detach_full": true,
+        "eval_consistency": true
+    }
+}

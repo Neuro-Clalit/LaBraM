@@ -66,7 +66,10 @@ class ConfigBase(ABC):
         for field in cls.get_fields():
             try:
                 field_name = field.name
-                if  cls.is_dataclass(field_name) and isinstance(dict_obj[field_name], dict):
+                # A field missing from an older saved config keeps its default
+                # (reported by the mismatch warning above).
+                if field_name in dict_obj and cls.is_dataclass(field_name) \
+                        and isinstance(dict_obj[field_name], dict):
                     dict_obj[field_name] = field.type.from_dict(dict_obj[field_name])
             except TypeError as err:
                 # TODO backward compatibility: must raise exception
@@ -110,7 +113,7 @@ class ConfigBase(ABC):
     def load_from(cls, data_obj: DATA_OBJ, raise_exception: bool = True) -> 'ConfigBase':
         if isinstance(data_obj, str):
             data_obj = hyper_utils.from_data_file(data_obj)
-        data_obj = cls._parse_data_obj(data_obj)
+        data_obj = cls._parse_data_obj(data_obj, raise_exception=raise_exception)
         data_obj.validate_type_fields(raise_exception)
         return data_obj
 
@@ -190,6 +193,11 @@ class ConfigBase(ABC):
         #  must raise_exception = TRUE always
         for field_ in self.get_fields():
             value_ = getattr(self, field_.name)
+            # A whole number for a float field (``--set x.lr=1``, JSON ``800``)
+            # is that float, not a type error.
+            if field_.type is float and isinstance(value_, int) and not isinstance(value_, bool):
+                value_ = float(value_)
+                setattr(self, field_.name, value_)
             if not correct_type(value_, field_.type):
                 err_message = (f"Object: '{type(self)}', "
                                f"Field '{field_.name}', "

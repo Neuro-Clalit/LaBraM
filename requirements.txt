@@ -9,6 +9,8 @@ blobfile
 mypy
 numpy<2
 pandas<2.2.0
+pyarrow
+openpyxl
 pytest
 requests
 einops
