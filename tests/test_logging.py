@@ -221,6 +221,7 @@ class TestMultiWriter:
         mw.flush()
         # ClearML received the scalar; TensorBoard wrote its event file.
         assert fake.scalars[0] == ("loss", "loss", 0.25, 0)
+        assert any((tmp_path / "tb").iterdir())
 
 
 class _FakeTask:
