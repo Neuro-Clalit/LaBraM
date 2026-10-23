@@ -373,12 +373,29 @@ def test_apply_git_info_never_raises_on_a_broken_task(tmp_path, monkeypatch):
 
 def test_git_diff_is_capped(monkeypatch):
     from labram.utils import git_info as gi
-    monkeypatch.setattr(gi, '_git', lambda root, *a: (
+    monkeypatch.setattr(gi, '_git', lambda root, *a, **kw: (
         'x' * (gi.MAX_DIFF_BYTES * 2) if a[0] == 'diff' else
         'd' * 40 if a[0] == 'rev-parse' and a[1] == 'HEAD' else 'main'))
     info = gi.collect_git_info('/anywhere')
     assert info['diff_truncated'] is True
     assert len(info['diff'].encode()) < gi.MAX_DIFF_BYTES + 200
+
+
+def test_git_status_keeps_the_first_file_name(monkeypatch):
+    # `git status --porcelain` starts with a space for a work-tree change
+    # (" M a.py"); stripping it used to record the file as ".py".
+    from labram.utils import git_info as gi
+    monkeypatch.setattr(gi, '_git', lambda root, *a, **kw: (
+        ' M a.py\n?? new.txt' if a[0] == 'status' else
+        'd' * 40 if a[:2] == ('rev-parse', 'HEAD') else ''))
+    info = gi.collect_git_info('/anywhere')
+    assert info['modified_files'] == ['a.py'] and info['untracked_files'] == ['new.txt']
+
+
+def test_validate_s3_uri_rejects_upper_case_bucket():
+    # urlparse(...).hostname lower-cases, which let an invalid bucket through.
+    with pytest.raises(ValueError, match='invalid bucket'):
+        sub.validate_s3_uri('s3://My-Bucket/key')
 
 
 def test_entry_missing_config_in_channel_raises_diagnostic(tmp_path, monkeypatch):

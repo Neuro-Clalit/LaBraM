@@ -441,7 +441,10 @@ estimator gets an `s3://` `source_dir` and skips its KMS upload), so a plain
 these ways:
 
 - **Submit with MFA-backed credentials** — assume a role / get session-token
-  credentials that satisfy the MFA condition, then submit.
+  credentials that satisfy the MFA condition, then submit. On the project's EC2
+  machines this is `aws-mfa-session` followed by `AWS_PROFILE=mfa` (machine-level
+  tooling from [gugas81/common](https://github.com/gugas81/common), `machine/`;
+  LaBraM itself contains no MFA code).
 - **Use a key you are allowed to use** — `--set sagemaker.output_kms_key=arn:aws:kms:…:key/…`.
   It is applied to *all* the submission's S3 writes (code, config, weights, and
   the job's model output).

@@ -13,9 +13,13 @@ Each (experiment, fold) is submitted with ``scripts/submit_tuh_cohorts.sh``
 * a failed on-demand job is retried once.
 
 State (job name, mode, status per fold) is kept in ``--state`` so the
-scheduler can be restarted. The MFA session is refreshed every poll.
+scheduler can be restarted. AWS credentials are the ambient ones (``--profile``,
+default ``$AWS_PROFILE``); ``--refresh-cmd`` runs before every poll to renew a
+short-lived session -- on an MFA-enforced account the machine's
+``aws-mfa-session`` (common repo, machine/bin).
 
-    nohup python scripts/cv_scheduler.py --exp cvbase cvctrl cvaug --folds 5 &
+    nohup python scripts/cv_scheduler.py --exp cvbase cvctrl cvaug --folds 5 \
+        --profile mfa --refresh-cmd aws-mfa-session &
 """
 import argparse
 import json
@@ -39,8 +43,10 @@ def log(msg):
     print(f"[{now():%Y-%m-%dT%H:%M:%SZ}] {msg}", flush=True)
 
 
-def submit(exp, fold, mode, python):
-    env = dict(os.environ, CV_FOLD=str(fold), MODE=mode, TAIL="5", PY=python, AWS_PROFILE="mfa")
+def submit(exp, fold, mode, python, profile=""):
+    env = dict(os.environ, CV_FOLD=str(fold), MODE=mode, TAIL="5", PY=python)
+    if profile:
+        env["AWS_PROFILE"] = profile
     out = subprocess.run(["bash", "scripts/submit_tuh_cohorts.sh", exp], cwd=REPO, env=env,
                          capture_output=True, text=True, timeout=1800).stdout
     names = [line.split()[0] for line in out.splitlines() if line.startswith("labram-") and "(fold=" in line]
@@ -60,6 +66,10 @@ def main(argv=None):
     p.add_argument("--poll", type=int, default=300)
     p.add_argument("--state", default="/data/datasets/EEG-public/TUH_EEG/_state/cohort_runs/cv_scheduler_state.json")
     p.add_argument("--python", default=sys.executable)
+    p.add_argument("--profile", default=os.environ.get("AWS_PROFILE", ""),
+                   help="AWS profile for status calls and submissions (default $AWS_PROFILE)")
+    p.add_argument("--refresh-cmd", default="",
+                   help="command run before every poll to renew credentials, e.g. aws-mfa-session")
     args = p.parse_args(argv)
 
     state = json.load(open(args.state)) if os.path.exists(args.state) else {}
@@ -71,8 +81,9 @@ def main(argv=None):
         json.dump(state, open(args.state, "w"), indent=1)
 
     while True:
-        subprocess.run(["aws-mfa-session"], capture_output=True)
-        sm = boto3.Session(profile_name="mfa").client("sagemaker")
+        if args.refresh_cmd:
+            subprocess.run(args.refresh_cmd, shell=True, capture_output=True)
+        sm = boto3.Session(profile_name=args.profile or None).client("sagemaker")
         # refresh the status of every in-flight attempt
         for key, item in state.items():
             att = item["attempts"][-1] if item["attempts"] else None
@@ -121,7 +132,7 @@ def main(argv=None):
                 continue
             item = state[key]
             try:
-                job = submit(item["exp"], item["fold"], mode, args.python)
+                job = submit(item["exp"], item["fold"], mode, args.python, args.profile)
             except Exception as exc:                     # quota / transient: retry next poll
                 log(f"{key}: {mode} submission failed: {exc}")
                 continue

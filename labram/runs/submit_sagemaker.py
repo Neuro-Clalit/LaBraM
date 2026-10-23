@@ -82,7 +82,7 @@ def validate_s3_uri(uri: str, label: str = '') -> None:
     message; does NOT check reachability (that needs AWS credentials).
     """
     parsed = urlparse(uri)
-    bucket = parsed.hostname or ''
+    bucket = parsed.netloc or ''          # not .hostname: that lower-cases the bucket
     key = parsed.path.lstrip('/')
     ctx = f" ({label})" if label else ''
     if not bucket:

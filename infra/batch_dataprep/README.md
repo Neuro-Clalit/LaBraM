@@ -22,12 +22,19 @@ SageMaker price premium. TUEG (~20k hours of EEG) is about 100 vCPU-hours.
 ## Deploy (needs an MFA session)
 
 The account's `Admin-MFA-Enforcement` policy denies CloudFormation and the IAM/ECR/EC2
-calls it makes on the caller's behalf unless the session has MFA:
+calls it makes on the caller's behalf unless the session has MFA. MFA is machine-level
+tooling, not part of this repo: `aws-mfa-session` from the common repo
+([gugas81/common](https://github.com/gugas81/common), `machine/`) refreshes the `mfa`
+profile.
 
 ```bash
-MFA_SERIAL=arn:aws:iam::574441342949:mfa/<device> infra/batch_dataprep/deploy.sh
-IMAGE_ONLY=1 infra/batch_dataprep/deploy.sh      # after converter code changes
+aws-mfa-session
+AWS_PROFILE=mfa infra/batch_dataprep/deploy.sh
+AWS_PROFILE=mfa IMAGE_ONLY=1 infra/batch_dataprep/deploy.sh      # after converter code changes
 ```
+
+The project-agnostic version of this stack (any image, any bucket) is
+`common/infra/aws_batch_spot`.
 
 ## Run
 

@@ -4,21 +4,15 @@
 #   ./deploy.sh MaxVcpus=128         # template parameter overrides
 #   IMAGE_ONLY=1 ./deploy.sh         # rebuild/push the image only (code changed)
 #
-# The account's Admin-MFA-Enforcement policy denies CloudFormation (and the IAM /
-# ECR / EC2 calls it makes for you) unless the session has MFA. Set MFA_SERIAL to
-# your MFA device ARN and you are prompted for a code; the deploy then runs on a
-# one-hour MFA session:
-#   MFA_SERIAL=arn:aws:iam::<account>:mfa/<device> ./deploy.sh
+# Uses the ambient AWS credentials. The account's MFA-enforcement policy denies
+# CloudFormation (and the IAM / ECR / EC2 calls it makes for you) without MFA, so
+# run it with an MFA session -- machine-level tooling from the common repo
+# (github.com/gugas81/common, machine/bin/aws-mfa-session):
+#   aws-mfa-session && AWS_PROFILE=mfa ./deploy.sh
+# The generic version of this stack is common/infra/aws_batch_spot.
 set -euo pipefail
 cd "$(dirname "$0")"
 REGION="${AWS_REGION:-us-east-1}"
-if [[ -n "${MFA_SERIAL:-}" ]]; then
-  read -r -p "MFA code for ${MFA_SERIAL}: " MFA_CODE
-  read -r AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN < <(aws sts get-session-token \
-    --serial-number "$MFA_SERIAL" --token-code "$MFA_CODE" --duration-seconds 3600 \
-    --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)
-  export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
-fi
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 REPO="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/labram-dataprep"
 
