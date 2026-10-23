@@ -38,7 +38,11 @@ feature falls outside the 95th (or 5th) percentile of **normal training
 recordings in the same age group**. So about 5% of normals are flagged per
 signature by construction. The signatures are diffuse slowing, slow PDR, absent
 PDR, asymmetry, focal (delta) asymmetry, sharp transients (kurtosis) and low
-voltage. They are screening phenotypes, not diagnoses. Epileptiform discharges
+voltage. They are screening phenotypes, not diagnoses, and they do **not** come from
+medical records (TUAB has none). The categories and the feature behind each are a rule taken
+from clinical EEG practice; whether a recording has a signature is computed from its EEG. The
+TUEG cohort's NEDC sheet *does* state the report's reason ("abnormal due to"), which is used
+there to check the signatures. Epileptiform discharges
 are brief and seldom move a whole-recording statistic, so they are under-detected.
 
 ## Findings
