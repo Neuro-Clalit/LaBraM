@@ -804,3 +804,66 @@ def prediction_metrics(sets: pd.DataFrame) -> pd.DataFrame:
             if len(s):
                 rows.append({"exp": exp, "set": name, "status": status, **age_fit_metrics(s.pred, s.true)})
     return pd.DataFrame(rows)
+
+
+def bias_corrected_test(sets: pd.DataFrame, degree: int = 1,
+                        fit_on: Sequence[str] = ("TUAB out-of-fold", "TUEG out-of-fold"),
+                        fit_status: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    """The TUAB test ensemble of each experiment with its age bias removed.
+
+    Per experiment, fit the brain-age gap $e = \\hat y - y$ as a polynomial of
+    degree ``degree`` in the true age $y$ on that experiment's out-of-fold
+    predictions (``fit_on``; never the test recordings), then subtract it from
+    the TUAB test predictions: $\\hat y^{c} = \\hat y - p(y)$. ``fit_status``
+    restricts the fit to recordings of those statuses (e.g. ``("normal",)``, as
+    Gemein et al. 2024 fit theirs on normal recordings). The correction uses
+    each test recording's true age, so the corrected error is a brain-age-gap
+    quantity, not a prediction error. Returns the test rows of
+    :func:`prediction_sets` with ``pred`` / ``err`` corrected."""
+    out = []
+    for exp, g in sets.groupby("exp", sort=False):
+        fit = g[g.set.isin(fit_on)]
+        if fit_status is not None:
+            fit = fit[fit.status.isin(fit_status)]
+        coef = np.polyfit(fit.true, fit.err, degree)
+        t = g[g.set == PREDICTION_SETS[0]].copy()
+        t["pred"] = t.pred - np.polyval(coef, t.true)
+        t["err"] = t.pred - t.true
+        out.append(t)
+    return pd.concat(out, ignore_index=True)
+
+
+def test_predictors(preds: pd.DataFrame) -> pd.DataFrame:
+    """TUAB test predictions as recordings x predictors: every fold model
+    (``<exp> f<k>``) and every experiment's median ensemble (``<exp> ens``)."""
+    h = preds[preds.split == "heldout"]
+    folds = h.assign(col=h.exp + " f" + h.fold.astype(str)).pivot(index="stem", columns="col", values="pred")
+    ens = h.groupby(["exp", "stem"]).pred.median().unstack(0)
+    ens.columns = [f"{c} ens" for c in ens.columns]
+    cols = []
+    for exp in dict.fromkeys(h.exp):
+        cols += sorted(c for c in folds.columns if c.startswith(exp + " ")) + [f"{exp} ens"]
+    return pd.concat([folds, ens], axis=1)[cols]
+
+
+def agreement_summary(wide: pd.DataFrame, true: pd.Series, status: pd.Series,
+                      exps: Sequence[str]) -> pd.DataFrame:
+    """Agreement on the TUAB test recordings, per status (all / normal /
+    abnormal): every pair of experiment ensembles, and per experiment the mean
+    over its 10 pairs of fold models (how much the fold models of one
+    configuration agree with each other, the reference for the ensemble pairs).
+    Columns from ``cv_compare.pairwise``."""
+    from labram.eval import cv_compare as cc
+    rows = []
+    for st in ("all", "normal", "abnormal"):
+        idx = wide.index if st == "all" else wide.index[status.loc[wide.index] == st]
+        ens = cc.pairwise(wide.loc[idx, [f"{e} ens" for e in exps]], true)
+        for r in ens.itertuples():
+            rows.append({"pair": f"{r.a.split()[0]} vs {r.b.split()[0]} (ensembles)", "status": st,
+                         **{k: getattr(r, k) for k in ("r_pred", "r_err", "agree_2y", "agree_5y", "sign_agree", "dMAE")}})
+        for e in exps:
+            f = cc.pairwise(wide.loc[idx, [c for c in wide.columns if c.startswith(e + " f")]], true)
+            rows.append({"pair": f"{e}: fold model vs fold model (mean of {len(f)} pairs)", "status": st,
+                         **f[["r_pred", "r_err", "agree_2y", "agree_5y", "sign_agree"]].mean().to_dict(),
+                         "dMAE": float(f.dMAE.abs().mean())})
+    return pd.DataFrame(rows)

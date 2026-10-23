@@ -1,6 +1,7 @@
 """Tests for labram/eval/research_summary.py (the research-summary notebook's helpers)."""
 import os
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -198,3 +199,41 @@ def test_prediction_sets_split_tuab_tueg_and_status():
     assert s.loc[("TUEG out-of-fold", "g1"), "status"] == "no label"
     m = rs.prediction_metrics(s.reset_index())
     assert set(m.status) >= {"all", "normal", "abnormal", "no label"}
+
+
+def _toy_sets():
+    true_oof = np.arange(20.0, 81.0, 5.0)
+    true_test = np.array([25.0, 50.0, 75.0])
+    shrink = lambda y: 50.0 + 0.6 * (y - 50.0)              # regression to the mean, beta = -0.4
+    rows = [{"exp": "x", "set": "TUEG out-of-fold", "stem": f"o{i}", "true": y, "pred": shrink(y),
+             "status": "normal"} for i, y in enumerate(true_oof)]
+    rows += [{"exp": "x", "set": "TUAB test, ensemble", "stem": f"t{i}", "true": y, "pred": shrink(y),
+              "status": "abnormal"} for i, y in enumerate(true_test)]
+    d = pd.DataFrame(rows)
+    d["err"] = d.pred - d.true
+    return d
+
+
+def test_bias_correction_is_fitted_out_of_sample():
+    c = rs.bias_corrected_test(_toy_sets(), degree=1)
+    assert set(c.set) == {"TUAB test, ensemble"}
+    assert np.allclose(c.err, 0.0)                         # the linear trend fitted on OOF removes it exactly
+    d = _toy_sets()
+    d.loc[d.set == "TUEG out-of-fold", "pred"] += 3.0     # shift only the OOF rows ...
+    d["err"] = d.pred - d.true
+    c = rs.bias_corrected_test(d, degree=1)
+    assert np.allclose(c.err, -3.0)                        # ... so the fit comes from them, not from the test rows
+
+
+def test_agreement_summary_pairs():
+    idx = [f"s{i}" for i in range(6)]
+    true = pd.Series([20.0, 30.0, 40.0, 50.0, 60.0, 70.0], index=idx)
+    status = pd.Series(["normal", "abnormal"] * 3, index=idx)
+    rng = np.random.default_rng(0)
+    wide = pd.DataFrame({f"{e} f{k}": true + rng.normal(0, 2, 6) for e in ("a", "b") for k in range(3)}, index=idx)
+    for e in ("a", "b"):
+        wide[f"{e} ens"] = wide[[f"{e} f{k}" for k in range(3)]].median(axis=1)
+    s = rs.agreement_summary(wide, true, status, ("a", "b"))
+    assert set(s.status) == {"all", "normal", "abnormal"}
+    assert (s.pair == "a vs b (ensembles)").sum() == 3
+    assert s.agree_5y.between(0, 1).all() and s.r_pred.le(1).all()
