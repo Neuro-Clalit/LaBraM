@@ -13,6 +13,8 @@ from labram.data.tuh_meta_features import (
     ekg_features,
     extract_recording_features,
     header_features,
+    npy_signal_features,
+    parse_header_dump,
     qeeg_features,
     quality_features,
     read_edf_signal_header,
@@ -169,3 +171,59 @@ def test_extraction_records_errors_instead_of_raising(tmp_path):
     bad.write_bytes(b"0" * 100)
     row = extract_recording_features(str(bad))
     assert row["error"]
+
+
+def _dump_block(i, path, labels, *, machine="Compact_32ch", n_recs=600, rec_size=256):
+    n = len(labels)
+    return [
+        f"       {i}: {path}",
+        "\tBlock 3: Local Recording Information",
+        f"\t lrci_machine = [{machine}]",
+        f"\t ghdi_num_recs = [{n_recs}]",
+        "\t ghdi_dur_rec = [1.000000]",
+        f"\t chan_labels ({n}) = " + ", ".join(f"[{lab}]" for lab in labels),
+        f"\t chan_phys_max ({n}) = " + ", ".join("[  5482.288]" for _ in labels),
+        f"\t chan_rec_size ({n}) = " + ", ".join(f"[       {rec_size}]" for _ in labels),
+        "\t duration of recording (secs) =      600.0",
+        "\t  channel[   0]:      256.0 Hz (EEG FP1-REF)",
+    ]
+
+
+def test_parse_header_dump_gives_acquisition_columns():
+    scalp = [f"EEG {c}-REF" for c in SCALP_CHANNELS]
+    lines = (["beginning argument processing..."]
+             + _dump_block(1, "../edf/000/aaaaaaaa/s001_2015/01_tcp_ar/aaaaaaaa_s001_t000.edf",
+                           scalp + ["EEG EKG1-REF", "EEG SP1-REF", "PHOTIC-REF", "SUPPR"])
+             + _dump_block(2, "../edf/000/aaaaaaab/s002_2004/02_tcp_le/aaaaaaab_s002_t001.edf",
+                           scalp + ["EMG-REF"], machine="#####", n_recs=1200, rec_size=250)
+             + ["processed 2 out of 2 files successfully"])
+    rows = list(parse_header_dump(lines))
+    assert [r["stem"] for r in rows] == ["aaaaaaaa_s001_t000", "aaaaaaab_s002_t001"]
+    first, second = rows
+    assert first["path"].startswith("edf/000/aaaaaaaa")
+    assert first["equipment_family"] == "Compact_32ch" and second["equipment_family"] == "unknown"
+    assert first["has_ekg"] and first["has_sphenoidal"] and first["has_photic_channel"]
+    assert first["has_trend_channels"] and not first["has_emg"]
+    assert second["has_emg"] and not second["has_ekg"]
+    assert first["n_scalp_channels"] == 19 and first["n_signals"] == 23
+    assert first["sfreq"] == 256.0 and second["sfreq"] == 250.0
+    assert first["duration_min"] == pytest.approx(10.0) and second["duration_min"] == pytest.approx(20.0)
+    assert first["physical_max_uv"] == pytest.approx(5482.288)
+
+
+def test_npy_features_skip_zero_filled_channels_and_unmeasurable_columns():
+    sfreq, seconds = 200.0, 120
+    channels = list(SCALP_CHANNELS) + ["A1", "A2"]
+    t = np.arange(int(seconds * sfreq)) / sfreq
+    data = 10.0 * RNG.standard_normal((len(t), len(channels)))
+    data[:, channels.index("O1")] += 30.0 * np.sin(2 * np.pi * 10.0 * t)
+    data[:, channels.index("O2")] += 30.0 * np.sin(2 * np.pi * 10.0 * t)
+    mask = [True] * len(channels)
+    data[:, channels.index("T3")] = 0.0                  # missing, zero-filled by the converter
+    mask[channels.index("T3")] = False
+    out = npy_signal_features(data.astype(np.float16), channels, mask, sfreq=sfreq, max_minutes=1.5)
+    assert out["n_scalp_recorded"] == 18
+    assert out["q_n_flat_channels"] == 0                 # the zero-filled T3 is not "flat"
+    assert out["analysed_min"] == pytest.approx(1.5)
+    assert 9.0 <= out["qeeg_pdr_freq"] <= 11.0
+    assert not {"q_clip_frac", "q_line60_log_ratio", "q_line50_log_ratio"} & set(out)
