@@ -13,6 +13,7 @@ SCRIPT = os.path.join(ROOT, "scripts", "submit_tuh_cohorts.sh")
 REGISTRY = os.path.join(ROOT, "docs", "age_overfitting_experiments.md")
 AB = os.path.join(ROOT, "docs", "data", "line_removal_ab.json")
 COHORT_CSV = os.path.join(ROOT, "docs", "data", "tuh_cohort_eval_v1.csv")
+CLEARML_CSV = os.path.join(ROOT, "docs", "data", "brain_age_clearml_runs.csv")
 
 
 def _key(override: str):
@@ -91,3 +92,29 @@ def test_parse_markdown_table_strips_links():
     text = "x\n### Table 1.1. T\n\n| a | b |\n|---|---|\n| [`ab`](http://x) | $−0.4$ |\n\nafter"
     t = rs.parse_markdown_table(text, "### Table 1.1.")
     assert t.to_dict("records") == [{"a": "ab", "b": "−0.4"}]
+
+
+def test_parse_markdown_table_keeps_link_targets_on_request():
+    text = "### Table 1.1. T\n\n| a | b |\n|---|---|\n| [`ab`](http://x/1) | 2 |\n| c | 3 |\n"
+    t = rs.parse_markdown_table(text, "### Table 1.1.", link_columns=("a",))
+    assert list(t["a"]) == ["ab", "c"] and list(t["a url"]) == ["http://x/1", ""]
+
+
+def test_clearml_link_shows_the_name_not_the_url():
+    url = rs.clearml_url("task", "f" * 32)
+    assert url == f"{rs.CLEARML_WEB}/projects/{rs.CLEARML_PROJECT}/experiments/{'f' * 32}/output/log"
+    assert rs.clearml_url("project", "e" * 32) == f"{rs.CLEARML_WEB}/projects/{'e' * 32}/experiments"
+    assert rs.clearml_link("age_<D>", url) == f'<a href="{url}" target="_blank">age_<wbr>&lt;D&gt;</a>'
+    assert rs.clearml_link("x", "") == "–"
+
+
+def test_clearml_csv_covers_every_run_and_matches_the_registry():
+    """docs/data/brain_age_clearml_runs.csv names every phase-1 run of the
+    registry (with the task id of its registry link) and every phase-2 / CV run."""
+    reg = rs.registry_master_table(REGISTRY)
+    want = rs.clearml_targets(reg).set_index("run")
+    have = rs.load_clearml_runs(CLEARML_CSV)
+    assert set(have.index) == set(want.index) == set(reg.run) | set(rs.EXPERIMENTS)
+    assert (have.loc[want.index, ["kind", "id"]] == want[["kind", "id"]]).all().all()
+    assert have.name.str.len().gt(0).all()
+    assert have.loc["D", "url"] == reg.set_index("run").loc["D", "clearml_url"]

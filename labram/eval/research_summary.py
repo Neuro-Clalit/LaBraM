@@ -11,11 +11,16 @@ turns the brain-age study's records into tables.
   with; :func:`experiment_overrides` / :func:`resolve_config` rebuild a run's
   full :class:`FinetuneRunConfig` from them.
 * :func:`config_diff` lists every scientific field two configs disagree on.
+* :func:`load_clearml_runs` reads ``docs/data/brain_age_clearml_runs.csv``
+  (run -> ClearML experiment id and name; regenerated from ClearML by
+  :func:`fetch_clearml_runs`) and :func:`clearml_link` renders a run as a
+  clickable link labelled with its ClearML experiment name.
 * :func:`seed_noise` and :func:`verdict` implement the noise floor and the
   significance rule of the notebook's Section 5.
 """
 from __future__ import annotations
 
+import html
 import json
 import math
 import re
@@ -43,31 +48,40 @@ def _md_number(s: str) -> float:
         return float("nan")
 
 
-def parse_markdown_table(text: str, heading: str) -> pd.DataFrame:
+def parse_markdown_table(text: str, heading: str, link_columns: Sequence[str] = ()) -> pd.DataFrame:
     """The first pipe table after the line that starts with ``heading`` (e.g.
     ``"### Table 12.1."``), as strings with links, backticks and math markup
-    stripped."""
+    stripped. Each column named in ``link_columns`` gets a companion column
+    ``"<name> url"`` with the cell's link target ("" when it has none)."""
     lines = text.splitlines()
     start = next(i for i, ln in enumerate(lines) if ln.startswith(heading))
-    rows: List[List[str]] = []
+    raw: List[List[str]] = []
     for ln in lines[start + 1:]:
         if ln.startswith("|"):
-            rows.append([_md_cell(c) for c in ln.strip().strip("|").split("|")])
-        elif rows:
+            raw.append(ln.strip().strip("|").split("|"))
+        elif raw:
             break
-    header, body = rows[0], [r for r in rows[1:] if not set("".join(r)) <= set("-: ")]
-    return pd.DataFrame(body, columns=header)
+    rows = [[_md_cell(c) for c in r] for r in raw]
+    header = rows[0]
+    keep = [i for i, r in enumerate(rows) if i > 0 and not set("".join(r)) <= set("-: ")]
+    out = pd.DataFrame([rows[i] for i in keep], columns=header)
+    for name in link_columns:
+        j = header.index(name)
+        out[f"{name} url"] = [(re.search(r"\]\(([^)]*)\)", raw[i][j]) or [None, ""])[1] for i in keep]
+    return out
 
 
 def registry_master_table(path: str) -> pd.DataFrame:
-    """Table 12.1 of the experiment registry with numeric columns: ``val``,
+    """Table 12.1 of the experiment registry (``clearml``: the short task id,
+    ``clearml_url``: its link) with numeric columns: ``val``,
     ``test``, ``test_normal``, ``test_abnormal``, ``beta``, ``best_epoch``,
     ``epochs`` (years / epochs)."""
     with open(path) as f:
-        t = parse_markdown_table(f.read(), "### Table 12.1.")
+        t = parse_markdown_table(f.read(), "### Table 12.1.", link_columns=("ClearML",))
     change = next(c for c in t.columns if c.startswith("Change"))
     out = pd.DataFrame({
         "run": t["Run"], "family": t["Family"], "change": t[change], "clearml": t["ClearML"],
+        "clearml_url": t["ClearML url"],
         "val": t["val MAE"].map(_md_number), "test": t["test MAE"].map(_md_number)})
     na = t[[c for c in t.columns if "normal" in c][0]].str.split("/")
     out["test_normal"] = na.map(lambda p: _md_number(p[0]) if len(p) == 2 else float("nan"))
@@ -226,6 +240,104 @@ PHASE2: Tuple[Experiment, ...] = (
                script="cvaug", conditions=True),
 )
 EXPERIMENTS: Dict[str, Experiment] = {e.name: e for e in PHASE2}
+
+# ---------------------------------------------------------------------------
+# ClearML experiments
+
+CLEARML_WEB = "https://app.clear.ml"
+#: ClearML project ``LaBraM/brain_age``, which holds every single-split run.
+CLEARML_PROJECT = "c44d37fe41b1483481d5495d42b4ffdc"
+#: ClearML task id of each phase-2 run, and for a cross-validation run the id
+#: of the sub-project ``LaBraM/brain_age/<study>`` holding its fold tasks.
+PHASE2_CLEARML: Dict[str, str] = {
+    "Control": "0e7e86c90b9741189fec7608a7cfd427",
+    "Exp1": "9dc76b4d4b794e8980aa92668d993b77",
+    "Exp2": "e41add850a7342d6a1d83c1e22db8343",
+    "Exp1b": "908bad3a40aa4a84b02a69a6a70f40b8",
+    "Exp1t": "be184e5a20364008a3e540f87d592207",
+    "Exp1f": "2071d005ecdf4b53808dea946376aefb",
+    "Exp3": "86f1c7488c3e4edd9b8891deb6b9a515",
+    "Exp3b": "746e9d9c7fe548999e9b974a1654f861",
+    "Exp3q": "ae431763b552447ba178c2d392246fea",
+    "Exp3c": "bf41ca7ca0304c03844c55d73e063674",
+    "Exp3v2": "ab96236c80234c6c9c92851df33ef3ee",
+    "Exp3cond": "7642dde596ed42a6a32a664482260aa4",
+    "Exp3clscond": "2fba9690f0dd46909b061ca2847eb422",
+    "Exp4drop": "441f3b9920254cefa46075c7372b9033",
+    "Exp4base": "33a926503fb347248dbc56252c53e609",
+    "Exp4basec": "a28aa90b1eb8419d8db7b9b5eb3f2e75",
+    "Exp4ctrl": "bb15c54792f24626b81ac3eac8b97661",
+    "Exp4aug": "d15337ba1fe8412a83c386d7ddf69bb3",
+    "Exp4aug15": "692b86d6f2ca4f4898488988722c7bc9",
+    "cvbase": "d0379910d1e748d1ba2250b0e2157103",
+    "cvctrl": "efe8b8525ed248ae968f24d6840e76bc",
+    "cvaug": "d538fd4c7b1c484fa2f94438aecdc418",
+}
+_CV_RUNS = ("cvbase", "cvctrl", "cvaug")
+
+
+def clearml_url(kind: str, ident: str, project_id: str = CLEARML_PROJECT) -> str:
+    """Web-UI link of a ClearML task (``kind="task"``: its console log) or of a
+    project's experiment list (``kind="project"``)."""
+    if kind == "project":
+        return f"{CLEARML_WEB}/projects/{ident}/experiments"
+    return f"{CLEARML_WEB}/projects/{project_id}/experiments/{ident}/output/log"
+
+
+def clearml_link(text: str, url: str) -> str:
+    """An HTML anchor showing ``text`` (the ClearML experiment name) instead of
+    the URL, opening in a new tab; ``"–"`` without a URL. The name may wrap
+    after each ``_`` (``<wbr>``), so a long name does not widen its table
+    past the page in the PDF export."""
+    if not url:
+        return "–"
+    label = html.escape(text).replace("_", "_<wbr>")
+    return f'<a href="{html.escape(url, quote=True)}" target="_blank">{label}</a>'
+
+
+def clearml_targets(registry: pd.DataFrame) -> pd.DataFrame:
+    """Every run of the study with its ClearML ``kind`` (task / project) and
+    ``id``: the phase-1 runs from the registry links, the phase-2 and CV runs
+    from :data:`PHASE2_CLEARML`."""
+    rows = []
+    for r in registry.itertuples():
+        m = re.search(r"/experiments/([0-9a-f]{32})", r.clearml_url or "")
+        if m:
+            rows.append({"run": r.run, "phase": "1", "kind": "task", "id": m.group(1)})
+    for name, ident in PHASE2_CLEARML.items():
+        cv = name in _CV_RUNS
+        rows.append({"run": name, "phase": "3" if cv else "2", "kind": "project" if cv else "task", "id": ident})
+    return pd.DataFrame(rows)
+
+
+def fetch_clearml_runs(registry: pd.DataFrame) -> pd.DataFrame:
+    """:func:`clearml_targets` with each experiment's ClearML ``name`` (the
+    task name, or the project's leaf name), queried from the ClearML server
+    (needs the ``clearml`` package and credentials). Writes the rows that
+    ``docs/data/brain_age_clearml_runs.csv`` holds."""
+    from clearml.backend_api.session.client import APIClient
+    client = APIClient()
+    t = clearml_targets(registry)
+    tasks = t[t.kind == "task"].id.tolist()
+    names = {x.id: x.name for x in client.tasks.get_all(id=tasks, only_fields=["id", "name"])}
+    projects = t[t.kind == "project"].id.tolist()
+    names.update({x.id: x.name.rsplit("/", 1)[-1]
+                  for x in client.projects.get_all(id=projects, only_fields=["id", "name"])})
+    t["name"] = t.id.map(names)
+    missing = t[t.name.isna()].run.tolist()
+    if missing:
+        raise KeyError(f"not found in ClearML: {missing}")
+    return t
+
+
+def load_clearml_runs(path: str) -> pd.DataFrame:
+    """``docs/data/brain_age_clearml_runs.csv`` indexed by run, with a ``url``
+    column (:func:`clearml_url`) and a ``link`` column (:func:`clearml_link`,
+    the experiment name as a clickable link)."""
+    t = pd.read_csv(path, dtype=str).set_index("run")
+    t["url"] = [clearml_url(k, i) for k, i in zip(t.kind, t.id)]
+    t["link"] = [clearml_link(n, u) for n, u in zip(t.name, t.url)]
+    return t
 
 
 def experiment_overrides(exp: Experiment, data_root: str = "") -> List[str]:
