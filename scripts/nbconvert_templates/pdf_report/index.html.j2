@@ -1,0 +1,21 @@
+{#- Print layout for scripts/notebook_to_pdf.py: the JupyterLab HTML view with
+    compact tables (wide comparison tables fit the page width), headings kept
+    with what follows, figures kept on one page, and page margins.
+    The rules go in html_head_css (the last head block) with !important,
+    because JupyterLab's own stylesheet is emitted after extra_css. -#}
+{%- extends 'lab/index.html.j2' -%}
+{% block html_head_css %}
+{{ super() }}
+<style>
+@page { margin: 12mm 10mm; }
+@media print {
+  .jp-RenderedHTMLCommon table { font-size: 8px !important; line-height: 1.25 !important;
+                                 table-layout: auto !important; width: 100% !important; }
+  .jp-RenderedHTMLCommon td, .jp-RenderedHTMLCommon th, .jp-RenderedHTMLCommon tr {
+    padding: 2px 4px !important; overflow-wrap: break-word; hyphens: auto; }
+  .jp-RenderedHTMLCommon h1, .jp-RenderedHTMLCommon h2, .jp-RenderedHTMLCommon h3,
+  .jp-RenderedHTMLCommon h4 { break-after: avoid-page; }
+  .jp-RenderedImage, .jp-RenderedImage img { break-inside: avoid-page; max-width: 100% !important; }
+}
+</style>
+{% endblock html_head_css %}

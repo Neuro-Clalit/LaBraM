@@ -19,3 +19,7 @@ dist/
 .air/
 .claude/settings.local.json
 .aws-profile
+
+# Local Claude Code worktrees and e2e debug-run output
+.claude/worktrees/
+debug_e2e_out/

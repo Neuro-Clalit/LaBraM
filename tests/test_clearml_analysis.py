@@ -284,3 +284,194 @@ def test_load_clearml_experiment_missing_task_raises(monkeypatch):
     monkeypatch.setitem(sys.modules, 'clearml', mod)
     with pytest.raises(ValueError):
         load_clearml_experiment(task_id='missing')
+
+
+# ---------------------------------------------------------------------------
+# Regression (EEG brain age) analysis
+# ---------------------------------------------------------------------------
+
+_AGE_HPARAMS = {
+    'config/model/task': 'regression',
+    'config/data/dataset': 'TUAB_AGE',
+    'config/trainer/epochs': '5',
+    'config/logging/relative_step_axis': 'True',
+    'config/logging/relative_step_scale': '1000',
+    'config/loss/regression_loss': 'huber',
+    'config/loss/huber_delta': '1.0',
+}
+# Epoch e of 5 lands at round((e + 1) / 5 * 1000) on the relative axis.
+_REL_X = [200, 400, 600, 800, 1000]
+
+
+def _age_snap(hparams=None, **metrics):
+    """Regression snapshot on the relative axis; ``metrics`` maps
+    ``'<title>__<series>'`` to five per-epoch values (or one, repeated)."""
+    snap = ExperimentSnapshot(task_id='age', task_name='tuab-age',
+                              status='completed', tags=['brain_age'])
+    snap.hyperparameters = dict(_AGE_HPARAMS if hparams is None else hparams)
+    for name, values in metrics.items():
+        title, series = name.split('__')
+        values = values if isinstance(values, list) else [values] * len(_REL_X)
+        s = _series(title, series, values, _REL_X)
+        snap.scalars[s.key] = s
+    return snap
+
+
+def _by_cat(snap, category):
+    return [i for i in analyze_experiment(snap) if i.category == category]
+
+
+def test_regression_checkpoint_selection_minimises_mae_on_epoch_axis():
+    snap = _age_snap(val_err__mae=[12.0, 10.0, 9.0, 9.6, 10.2])
+    ins = _by_cat(snap, 'checkpoint-selection')
+    assert ins and ins[0].evidence['best_epoch'] == 2      # x=600 -> epoch 2
+    assert ins[0].evidence['best_value'] == pytest.approx(9.0)
+    assert 'epoch 4' in ins[0].message                     # final, not "1000"
+
+
+def test_regression_run_is_not_judged_on_classification_metrics():
+    # Falling MAE would read as "best at epoch 0" if maximised like accuracy.
+    snap = _age_snap(val_err__mae=[12.0, 11.0, 10.0, 9.5, 9.0])
+    assert not _by_cat(snap, 'checkpoint-selection')
+
+
+def test_task_inferred_from_err_plot_without_hparams():
+    snap = _age_snap(hparams={}, val_err__mae=[12.0, 10.0, 9.0, 9.6, 10.2])
+    assert _by_cat(snap, 'checkpoint-selection')[0].evidence['best_epoch'] == 600
+
+
+def test_mean_collapse_is_critical():
+    # sqrt(2/pi) * 16 ~= 12.77; MAE 12.5 barely beats predicting the mean.
+    snap = _age_snap(val_err__mae=12.5, val_err__target_std=16.0,
+                     val_err__pred_std=1.0)
+    ins = _by_cat(snap, 'mean-collapse')
+    assert ins and ins[0].severity == 'critical'
+    assert ins[0].evidence['mean_predictor_mae'] == pytest.approx(12.766, abs=1e-3)
+
+
+def test_no_mean_collapse_for_a_trained_model():
+    snap = _age_snap(val_err__mae=8.0, val_err__target_std=16.0)
+    assert not _by_cat(snap, 'mean-collapse')
+
+
+def test_calibration_flags_compressed_predictions():
+    # r=0.8, std_y=16, std_pred=8 -> slope 1.6; best linear RMSE 16*0.6 = 9.6.
+    snap = _age_snap(val_err__mae=9.0, val__pearson_r=0.8, val_err__rmse=12.0,
+                     val_err__pred_std=8.0, val_err__target_std=16.0,
+                     val_err__pred_mean=49.0, val_err__target_mean=49.0)
+    ins = _by_cat(snap, 'calibration')
+    assert ins and ins[0].severity == 'warning'
+    assert ins[0].evidence['rmse_recalibrated'] == pytest.approx(9.6)
+    assert ins[0].evidence['slope_true_on_pred'] == pytest.approx(1.6)
+    assert 'compressed' in ins[0].message
+
+
+def test_calibrated_predictions_have_no_calibration_insight():
+    # std_pred = r * std_y and RMSE already at the linear optimum.
+    snap = _age_snap(val_err__mae=7.5, val__pearson_r=0.8, val_err__rmse=9.6,
+                     val_err__pred_std=12.8, val_err__target_std=16.0,
+                     val_err__pred_mean=49.0, val_err__target_mean=49.0)
+    assert not _by_cat(snap, 'calibration')
+
+
+def test_age_bias_explained_by_correlation():
+    # r=0.7 -> r^2 - 1 = -0.51, observed -0.52: expected, not a defect.
+    snap = _age_snap(val_err__mae=9.0, val__age_bias_slope=-0.52,
+                     val__pearson_r=0.7, val_err__target_std=16.0,
+                     val_err__mae_corrected=7.1)
+    ins = _by_cat(snap, 'age-bias')
+    assert ins and ins[0].severity == 'warning'
+    assert 'expected consequence' in ins[0].message
+    assert 'val 7.10 vs raw 9.00' in ins[0].recommendation
+
+
+def test_age_bias_beyond_correlation_points_at_calibration():
+    snap = _age_snap(val_err__mae=9.0, val__age_bias_slope=-0.7,
+                     val__pearson_r=0.8)                  # r^2 - 1 = -0.36
+    ins = _by_cat(snap, 'age-bias')
+    assert ins and 'compressed beyond' in ins[0].message
+
+
+def test_val_test_gap_on_a_wider_test_cohort_is_info():
+    # Same skill over each split's mean predictor, just wider test ages.
+    snap = _age_snap(val_err__mae=8.0, test_err__mae=9.5,
+                     val_err__target_std=15.8, test_err__target_std=17.8)
+    ins = _by_cat(snap, 'val-test-gap')
+    assert ins and ins[0].severity == 'info'
+
+
+def test_val_test_gap_warns_when_skill_drops():
+    snap = _age_snap(val_err__mae=8.0, test_err__mae=11.0,
+                     val_err__target_std=16.0, test_err__target_std=16.0)
+    ins = _by_cat(snap, 'val-test-gap')
+    assert ins and ins[0].severity == 'warning'
+
+
+def test_classification_val_test_gap():
+    snap = _snap(va=_series('val', 'balanced_accuracy', [0.7, 0.82, 0.8]),
+                 te=_series('test', 'balanced_accuracy', [0.68, 0.72, 0.74]))
+    ins = _by_cat(snap, 'val-test-gap')
+    assert ins and ins[0].evidence['test'] == pytest.approx(0.72)
+
+
+def test_age_benchmark_gap():
+    snap = _age_snap(val_err__mae=[13.0, 11.0, 10.5, 10.6, 10.7],
+                     test_err__mae=11.2, val_window_err__mae=11.8)
+    ins = _by_cat(snap, 'age-benchmark')
+    assert ins and ins[0].severity == 'warning'
+    assert '2.5 y above' in ins[0].message
+    assert 'from 11.80 to 10.50' in ins[0].message
+
+
+def test_age_benchmark_only_for_age_runs():
+    hparams = dict(_AGE_HPARAMS, **{'config/data/dataset': 'OTHER'})
+    snap = _age_snap(hparams=hparams, val_err__mae=10.5)
+    snap.tags = []
+    assert not _by_cat(snap, 'age-benchmark')
+
+
+def test_huber_delta_in_z_units_flagged():
+    snap = _age_snap(val_err__mae=9.0, val_err__target_std=16.0)
+    ins = _by_cat(snap, 'loss-config')
+    assert ins and '≈16 y' in ins[0].message
+    snap.hyperparameters['config/loss/huber_delta'] = '0.3'
+    assert not _by_cat(snap, 'loss-config')
+
+
+def test_regression_generalization_gap_compares_windows():
+    snap = _age_snap(train_err__mae=[10.0, 8.0, 6.0, 5.0, 4.0],
+                     val_window_err__mae=[11.0, 10.0, 9.5, 9.4, 9.4],
+                     val_err__mae=[10.0, 9.0, 8.5, 8.4, 8.4])
+    ins = _by_cat(snap, 'generalization-gap')
+    assert ins and ins[0].evidence['val_mae'] == pytest.approx(9.4)
+
+
+def test_report_has_selected_epoch_table():
+    snap = _age_snap(val_err__mae=[12.0, 10.0, 9.0, 9.6, 10.2],
+                     test_err__mae=[12.5, 10.4, 9.8, 10.0, 10.5],
+                     val__r2=[0.1, 0.3, 0.45, 0.4, 0.35])
+    text = render_report(snap)
+    assert '## Selected epoch' in text
+    assert 'Best val `mae` (lower is better): 9 at epoch 2.' in text
+    assert '| mae | 9 | 9.8 |' in text
+    assert '| r2 | 0.45 | - |' in text
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def test_task_id_from_clearml_url():
+    from labram.eval.clearml_report import task_id_from
+    url = ('https://app.clear.ml/projects/*/tasks/'
+           '3700b75684684aba845480a50735018d/scalars?columns=name&deep=true')
+    assert task_id_from(url) == '3700b75684684aba845480a50735018d'
+    assert task_id_from(' abc ') == 'abc'
+
+
+def test_cli_analyses_saved_snapshot(tmp_path, capsys):
+    from labram.eval.clearml_report import main
+    path = tmp_path / 'snapshot.json'
+    _age_snap(val_err__mae=12.5, val_err__target_std=16.0).save_json(str(path))
+    assert main(['--snapshot', str(path), '--print']) == 0
+    assert 'mean-collapse' in capsys.readouterr().out

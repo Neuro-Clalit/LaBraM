@@ -7,7 +7,6 @@
 import argparse
 import numpy as np
 import torch
-from pathlib import Path
 
 from timm.models import create_model
 from timm.utils import ModelEma
@@ -15,8 +14,21 @@ from timm.utils import ModelEma
 import labram.models.registry  # noqa: F401
 import labram.runs.common as runner_common
 import labram.utils as utils
+from labram.utils.secrets import redacted_copy
 from labram.data import get_dataset_bundle
-from labram.losses import CodebookRegularizedCriterion, LossConfig, build_downstream_criterion
+from labram.data.staging import stage_bundle
+from labram.data.age_sampling import build_age_bin_sampler
+from labram.data.window_selection import (
+    WindowSelection, apply_window_selection, enable_abnormal_target, enable_random_crop,
+    enable_session_features,
+    train_window_ages,
+)
+from labram.layers.lora import inject_lora, mark_only_lora_trainable
+from labram.losses import (
+    AbnormalConditionedAgeCriterion, CodebookRegularizedCriterion, LossConfig, MultiTaskAgeCriterion,
+    SessionFeatureAgeCriterion,
+    build_downstream_criterion, soft_label_n_bins)
+from labram.losses.regression import downstream_term_name
 from labram.configs.run_configs import FinetuneRunConfig
 from labram.configs.utils_conf import add_override_arg, parse_overrides
 from labram.train.train_finetune import evaluate, train_loop
@@ -24,8 +36,8 @@ from labram.runs.codebook_setup import (
     CodebookRegLayerAssigner, build_codebook_classifier, loss_config_from_codebook_reg,
 )
 from labram.runs.finetune_setup import (
-    build_dataloaders, build_samplers, enable_window_ids, load_finetune_checkpoint,
-    subset_for_debug,
+    build_dataloaders, build_samplers, enable_window_ids, freeze_except,
+    load_finetune_checkpoint, required_time_patches, subset_for_debug,
 )
 from labram.optim_factory import (
     LayerDecayValueAssigner, create_optimizer, get_parameter_groups,
@@ -45,18 +57,48 @@ def parse_cli() -> argparse.Namespace:
 
 
 def get_model(config: FinetuneRunConfig):
+    time_patches = required_time_patches(config.data)
     if config.model.codebook_reg.enabled:
+        if time_patches > 16:
+            raise ValueError(
+                "data.window_sec > 16 is not supported with model.codebook_reg: the "
+                "grafted VQNSP decoder has a fixed 16-patch time embedding")
         return build_codebook_classifier(config)
     m = config.model
-    return create_model(
+    model = create_model(
         m.model, pretrained=False,
         num_classes=m.nb_classes, drop_rate=m.drop,
         drop_path_rate=m.drop_path, attn_drop_rate=m.attn_drop_rate,
         use_mean_pooling=m.use_mean_pooling, init_scale=m.init_scale,
+        concat_cls_token=m.concat_cls_token,
+        head_type=m.head_type, attention_head=m.attention_head, mlp_head=m.mlp_head,
+        multitask_head=m.multitask_head,
+        condition_on_abnormal=m.condition_on_abnormal,
+        abnormal_embed_dim=m.abnormal_embed_dim,
+        session_features=m.session_features,
+        session_feature_groups=m.session_feature_groups,
+        session_feature_drop=m.session_feature_drop,
+        session_feature_norm=m.session_feature_norm,
+        session_token_gain=m.session_token_gain,
+        session_head_dim=m.session_head_dim,
         use_rel_pos_bias=m.rel_pos_bias, use_abs_pos_emb=m.abs_pos_emb,
         init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
-        labram_plus=config.labram_plus,
+        labram_plus=config.labram_plus, max_time_patches=time_patches,
+        **({'depth': m.depth} if m.depth is not None else {}),
+        input_clip=m.input_clip_uv / 100,
     )
+    if m.fused_attention:
+        from labram.layers.attention import set_fused_attention
+        set_fused_attention(model, True)
+    if m.lora.enabled:
+        # Injected before the pretrained checkpoint loads: the base weights keep
+        # their keys, the LoRA factors are new (B = 0, so the model is unchanged
+        # until training), and only they + the head remain trainable.
+        n_layers = inject_lora(model, m.lora.targets, m.lora.rank, m.lora.alpha, m.lora.dropout)
+        n_trainable = mark_only_lora_trainable(model, m.lora.train_prefixes)
+        logger.info("LoRA: rank %d (alpha %.1f) on %d linears; %d trainable parameters",
+                    m.lora.rank, m.lora.alpha, n_layers, n_trainable)
+    return model
 
 
 def main(config: FinetuneRunConfig, bundle=None):
@@ -84,22 +126,77 @@ def main(config: FinetuneRunConfig, bundle=None):
         if config.output.output_dir:
             config.output.log_dir = config.output.log_dir or config.output.output_dir
 
-    logger.info("%s", config)
+    logger.info("%s", redacted_copy(config))
 
     if bundle is None:
-        bundle = get_dataset_bundle(config.data.dataset, config.data.data_path)
+        bundle = get_dataset_bundle(config.data.dataset, config.data.data_path,
+                                    data_format=config.data.data_format)
         # Optionally pin the train/val/test split to a recorded data_split.json
         # (local or s3://) so several models train on an identical split.
         if config.data.split_json:
             from labram.data.data_split_reuse import apply_data_split, load_data_split_json
             logger.info("Reusing recorded data split from %s", config.data.split_json)
             bundle = apply_data_split(bundle, load_data_split_json(config.data.split_json))
+    # Case filter / start-end trimming / longer inputs / per-recording eval
+    # budget. Idempotent, so it is safe on a reused split or a CV fold bundle.
+    bundle = apply_window_selection(bundle, WindowSelection.from_data_config(config.data))
+    if config.data.drop_channels:
+        from labram.data.channel_selection import drop_channels
+        drop_channels(bundle, config.data.drop_channels)
+    if config.data.random_crop:
+        enable_random_crop(bundle.train)
+    if (config.model.session_features != "off") != bool(config.data.session_features):
+        raise ValueError("model.session_features and data.session_features go together: "
+                         "set both or neither")
+    if config.data.session_features:
+        # Every split yields [age, *features]; the model takes the features as
+        # extra tokens, or (only) instead of the EEG, which is then not read.
+        # Loaded before staging, which moves each loader's root to the stage
+        # mirror (a relative feature path resolves against the data root).
+        if config.loss.regression_loss == 'soft_label':
+            raise ValueError("model.session_features needs a scalar age loss, not soft_label")
+        for split in (bundle.train, bundle.val, bundle.test):
+            groups = enable_session_features(
+                split, config.data.session_features,
+                skip_signal=config.model.session_features == "only")
+            if groups is not None:
+                config.model.session_feature_groups = groups
+    if not config.trainer.debug:
+        # Only the selected recordings, train first; a no-op for pickles, on
+        # SageMaker, or with data.stage_dir=none.
+        stage_bundle(bundle, config.data.stage_dir, reserve_gb=config.data.stage_reserve_gb,
+                     splits=("val", "test") if config.trainer.eval else ("train", "val", "test"))
+    if config.model.head_type == 'multitask' or config.model.condition_on_abnormal:
+        # Age + normal/abnormal: every split yields [age, abnormal] targets --
+        # predicted by a multi-task head, or fed to a label-conditioned age head.
+        if config.loss.regression_loss == 'soft_label':
+            raise ValueError("model.head_type=multitask / model.condition_on_abnormal need a "
+                             "scalar age loss, not soft_label")
+        for split in (bundle.train, bundle.val, bundle.test):
+            enable_abnormal_target(split)
     # The bundle is the source of truth for the head size and the task: a scalar
     # regression head and a binary classifier both have nb_classes == 1, so the
     # task must travel with it.
     config.model.nb_classes = bundle.nb_classes
     config.model.task = bundle.task
     config.model.target_stats = bundle.target_stats
+    is_regression_task = bundle.task == 'regression'
+    if is_regression_task and config.loss.regression_loss == 'soft_label':
+        # The head predicts a distribution over age bins; the criterion turns
+        # it back into the scalar every metric expects.
+        if config.model.codebook_reg.enabled:
+            raise ValueError("loss.regression_loss=soft_label is not supported with model.codebook_reg")
+        config.model.nb_classes = soft_label_n_bins(config.loss)
+        logger.info("Soft-label regression: %d bins of %.1f years, sigma %.1f years",
+                    config.model.nb_classes, config.loss.soft_label_bin_width,
+                    config.loss.soft_label_sigma)
+    if config.loss.balance != 'none' and (not is_regression_task or config.model.codebook_reg.enabled):
+        raise ValueError("loss.balance applies to the plain regression head only "
+                         "(not classification or model.codebook_reg)")
+    if config.mixup.enabled and not is_regression_task:
+        raise ValueError("mixup is only supported for the regression task")
+    if config.evaluation.use_ema and not config.optimizer.model_ema:
+        raise ValueError("evaluation.use_ema requires optimizer.model_ema=true")
     config.model.validate()
     dataset_train, dataset_val, dataset_test = bundle.train, bundle.val, bundle.test
     ch_names, metrics = bundle.ch_names, bundle.metrics
@@ -113,20 +210,40 @@ def main(config: FinetuneRunConfig, bundle=None):
     if config.trainer.disable_eval_during_finetuning:
         dataset_val = dataset_test = None
 
-    # Per-case window aggregation needs each eval dataset to surface a per-window
-    # case id (recording/subject). Enable it for val *and* test whenever an
-    # aggregation mode is configured — both during training (so per-epoch eval
-    # reports case-level metrics alongside per-window ones) and in eval-only mode.
+    # Per-case window aggregation needs each dataset to surface a per-window case
+    # id (recording/subject). Enable it for train, val *and* test whenever an
+    # aggregation mode is configured — so every split reports case-level metrics
+    # alongside per-window ones (train pools the predictions made during the
+    # epoch), both during training and in eval-only mode.
     if config.evaluation.agg_windows != 'none':
-        for eval_ds in (dataset_val, dataset_test):
-            if eval_ds is not None:
-                enable_window_ids(eval_ds, config.evaluation.agg_case_by)
+        for split_ds in (dataset_train, dataset_val, dataset_test):
+            if split_ds is not None:
+                enable_window_ids(split_ds, config.evaluation.agg_case_by)
 
     num_tasks, global_rank = utils.get_world_size(), utils.get_rank()
     sampler_train, sampler_val, sampler_test = build_samplers(
         dataset_train, dataset_val, dataset_test,
         num_tasks, global_rank, config.distributed.dist_eval,
     )
+    if config.data.age_bin_sampling and config.data.train_minutes_per_epoch:
+        raise ValueError("data.age_bin_sampling and data.train_minutes_per_epoch both replace the "
+                         "train sampler; set only one of them")
+    if config.data.age_bin_sampling:
+        if not is_regression_task:
+            raise ValueError("data.age_bin_sampling is meant for age regression (TUAB_AGE)")
+        sampler_train = build_age_bin_sampler(
+            dataset_train, config.data.age_bin_width, config.data.age_range,
+            num_replicas=num_tasks, rank=global_rank, seed=config.distributed.seed)
+        logger.info("Sampler_train = %s", sampler_train)
+    elif config.data.train_minutes_per_epoch and not config.trainer.eval:
+        # A fresh random subset of each recording's training samples per epoch.
+        from labram.data.samplers import RecordingSubsetSampler
+        per_recording = max(1, int(config.data.train_minutes_per_epoch * 60
+                                   // config.data.window_sec))
+        sampler_train = RecordingSubsetSampler(
+            dataset_train, per_recording, num_replicas=num_tasks, rank=global_rank,
+            seed=config.distributed.seed)
+        logger.info("Sampler_train = %s", sampler_train)
 
     log_writer = runner_common.create_log_writer(
         config.output, global_rank, config.clearml, config)
@@ -160,6 +277,8 @@ def main(config: FinetuneRunConfig, bundle=None):
         load_finetune_checkpoint(model.encoder, config.finetune_checkpoint)
     else:
         load_finetune_checkpoint(model, config.finetune_checkpoint)
+    if config.model.trainable_prefixes:
+        freeze_except(model, config.model.trainable_prefixes)
     model.to(device)
 
     model_ema = None
@@ -183,7 +302,8 @@ def main(config: FinetuneRunConfig, bundle=None):
         config.logging, config.output, model_without_ddp, log_writer)
 
     total_batch_size = config.trainer.batch_size * config.trainer.update_freq * utils.get_world_size()
-    num_training_steps_per_epoch = len(dataset_train) // total_batch_size
+    # Samples per epoch across ranks: the dataset, or a per-epoch subset of it.
+    num_training_steps_per_epoch = len(sampler_train) * utils.get_world_size() // total_batch_size
     logger.info(f"LR={config.optimizer.lr:.8f}  batch={total_batch_size}  update_freq={config.trainer.update_freq}")
 
     num_layers = model_without_ddp.get_num_layers()
@@ -229,9 +349,10 @@ def main(config: FinetuneRunConfig, bundle=None):
     if config.model.codebook_reg.enabled:
         loss_cfg = loss_config_from_codebook_reg(
             config.model.codebook_reg, config.optimizer.smoothing,
-            phase_loss=config.labram_plus.resolved_phase_loss)
+            phase_loss=config.labram_plus.resolved_phase_loss, base=config.loss)
         criterion = CodebookRegularizedCriterion(
-            build_downstream_criterion(task, nb_classes, loss_cfg), loss_cfg)
+            build_downstream_criterion(task, nb_classes, loss_cfg), loss_cfg,
+            term_name=downstream_term_name(task))
     else:
         # Dispatched on the task, not on nb_classes: a scalar regression head is
         # also nb_classes == 1, and cross-entropy on a raw age is meaningless
@@ -240,7 +361,24 @@ def main(config: FinetuneRunConfig, bundle=None):
             task, nb_classes,
             LossConfig(classification_label_smoothing=config.optimizer.smoothing,
                        regression_loss=config.loss.regression_loss,
-                       huber_delta=config.loss.huber_delta))
+                       huber_delta=config.loss.huber_delta,
+                       soft_label_sigma=config.loss.soft_label_sigma,
+                       soft_label_min=config.loss.soft_label_min,
+                       soft_label_max=config.loss.soft_label_max,
+                       soft_label_bin_width=config.loss.soft_label_bin_width,
+                       balance=config.loss.balance,
+                       balance_bin_width=config.loss.balance_bin_width,
+                       balance_lds_sigma=config.loss.balance_lds_sigma,
+                       balance_max_weight=config.loss.balance_max_weight),
+            target_stats=config.model.target_stats,
+            train_targets=train_window_ages(dataset_train)
+            if task == 'regression' and config.loss.balance != 'none' else None)
+        if config.model.head_type == 'multitask':
+            criterion = MultiTaskAgeCriterion(criterion, config.loss.abnormal_weight)
+        elif config.model.condition_on_abnormal:
+            criterion = AbnormalConditionedAgeCriterion(criterion)
+        elif config.model.session_features != "off":
+            criterion = SessionFeatureAgeCriterion(criterion)
     logger.info("Downstream criterion (%s): %s", task, criterion)
 
     utils.auto_load_model(
@@ -267,7 +405,8 @@ def main(config: FinetuneRunConfig, bundle=None):
                                   nb_classes=nb_classes, eval_cfg=config.evaluation,
                                   log_writer=log_writer, head='test', epoch=0,
                                   task=task, target_stats=config.model.target_stats,
-                                  loss_cfg=config.loss)
+                                  loss_cfg=config.loss, criterion=criterion,
+                                  channel_drop_cfg=config.channel_drop)
             for k in summary_keys:
                 collected[k].append(test_stats[k])
         logger.info(", ".join(
@@ -292,6 +431,8 @@ def main(config: FinetuneRunConfig, bundle=None):
     # Persist the best-epoch metrics as ClearML single values (comparable in
     # compare mode) + a final_metrics config section before finishing.
     runner_common.log_summary_metrics(log_writer, summary, config)
+    # Best-vs-last epoch tables, one per split (train / val / test).
+    runner_common.log_summary_tables(log_writer, summary)
 
     runner_common.finalize_run(config, log_writer)
     return summary
@@ -305,8 +446,5 @@ def build_config(cli: argparse.Namespace) -> FinetuneRunConfig:
 if __name__ == '__main__':
     cli = parse_cli()
     config = build_config(cli)
-    if config.output.output_dir:
-        out_dir = Path(config.output.output_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        config.save_to(str(out_dir / 'run_config.yaml'))
-    main(config)
+    from labram.utils.exit_guard import run_and_exit
+    run_and_exit(main, config)

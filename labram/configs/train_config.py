@@ -4,6 +4,7 @@ from typing import List
 from labram.configs.base_configs import ConfigBase
 from labram.configs.defaults import (
     DEFAULT_AUTO_RESUME,
+    DEFAULT_OUTPUT_APPEND_TIMESTAMP,
     DEFAULT_BATCH_SIZE,
     DEFAULT_CLEARML_APPEND_TIMESTAMP,
     DEFAULT_CLEARML_ARTIFACT_NAME,
@@ -65,6 +66,13 @@ class TrainerConfig(ConfigBase):
     eval: bool = False
     enable_deepspeed: bool = False
     debug_samples: int = 16
+    # Stop when the validation selection metric has not improved over the last
+    # early_stopping_patience epochs by at least early_stopping_min_delta;
+    # never checked during warm-up or the first patience-1 epochs after it
+    # (labram/train/early_stopping.py). Off by default.
+    early_stopping: bool = False
+    early_stopping_patience: int = 3
+    early_stopping_min_delta: float = 0.0
 
 
 @dataclass
@@ -73,6 +81,10 @@ class OutputConfig(ConfigBase):
     log_dir: str = DEFAULT_LOG_DIR
     resume: str = DEFAULT_RESUME
     auto_resume: bool = DEFAULT_AUTO_RESUME
+    # Append the run's timestamp to output_dir and log_dir (``<dir>_YYYYmmdd_
+    # HHMMSS_fff``) so every run writes to a fresh directory. Skipped when
+    # resuming; switched off once applied so a saved run_config never re-stamps.
+    append_timestamp: bool = DEFAULT_OUTPUT_APPEND_TIMESTAMP
     save_ckpt: bool = DEFAULT_SAVE_CKPT
     save_ckpt_freq: int = DEFAULT_PRETRAIN_SAVE_CKPT_FREQ
     # Skip periodic/rolling per-epoch checkpoints; save only the final model.
@@ -182,6 +194,84 @@ class EvaluationConfig(ConfigBase):
     log_grad_freq: int = DEFAULT_EVAL_LOG_GRAD_FREQ
     agg_windows: str = DEFAULT_EVAL_AGG_WINDOWS
     agg_case_by: str = DEFAULT_EVAL_AGG_CASE_BY
+    # Score val/test (and select the best epoch) with the EMA weights instead
+    # of the raw ones. Requires ``optimizer.model_ema``.
+    use_ema: bool = False
+
+
+@dataclass
+class MixupConfig(ConfigBase):
+    """Mixup for regression fine-tuning (brain age), off by default.
+
+    Each training batch is mixed with a permuted copy of itself,
+    ``x = lam * x_i + (1 - lam) * x_j`` with the targets mixed the same way and
+    ``lam ~ Beta(alpha, alpha)`` drawn once per batch. No window then belongs to
+    a single recording, which is what stops the encoder from learning a
+    recording -> age lookup. ``sigma > 0`` turns it into C-Mixup (Yao et al.
+    2022): partner ``j`` is drawn with probability ``exp(-(y_i - y_j)^2 /
+    (2 sigma^2))``, ``sigma`` in target units (years), so a window is mixed
+    with one of similar age. ``prob`` is the fraction of batches mixed.
+    """
+    enabled: bool = False
+    alpha: float = 0.4
+    prob: float = 1.0
+    sigma: float = 0.0
+
+
+@dataclass
+class AugmentConfig(ConfigBase):
+    """Label-preserving EEG augmentations for training (``labram/train/augment.py``),
+    off by default. Applied per sample, each with its own probability (``*_prob``;
+    0 disables that one), to the training batch before mixup -- never at eval.
+    All keep each channel's power spectrum, which carries the age signal.
+
+    * ``hemisphere_flip_prob``: swap left/right homologous electrodes (FP1<->FP2, ...).
+    * ``sign_flip_prob``: multiply the sample by -1.
+    * ``ft_surrogate_prob``: add a random phase per frequency, shared across
+      channels (``ft_phase_noise`` scales it, 1 = uniform over 2 pi).
+    * ``channel_dropout_prob``: zero each channel with probability ``channel_dropout_p``.
+    * ``time_mask_prob``: zero 1..``time_mask_max_count`` segments of
+      ``time_mask_min_sec``..``time_mask_max_sec`` seconds across all channels.
+    """
+    enabled: bool = False
+    hemisphere_flip_prob: float = 0.5
+    sign_flip_prob: float = 0.5
+    ft_surrogate_prob: float = 0.5
+    ft_phase_noise: float = 1.0
+    channel_dropout_prob: float = 0.5
+    channel_dropout_p: float = 0.1
+    time_mask_prob: float = 0.5
+    time_mask_max_count: int = 2
+    time_mask_min_sec: float = 0.5
+    time_mask_max_sec: float = 1.0
+
+
+@dataclass
+class ChannelDropConfig(ConfigBase):
+    """Channel-dropout augmentation with a consistency loss, and per-sample
+    handling of missing (all-zero) channels in training and evaluation
+    (``labram/train/channel_drop.py``). Off unless ``enabled``.
+
+    * ``channels``: candidate channels to drop; empty = any channel.
+    * ``min_drop`` / ``max_drop``: per augmented batch, n ~ U{min..max} of the
+      candidates are dropped from every sample.
+    * ``prob``: probability that a training batch is augmented; its loss is
+      computed on the dropped pass.
+    * ``consistency_weight`` (lambda): weight of mean (f_full - f_dropped)^2 on
+      the head-input feature, over the samples that lost a channel.
+    * ``detach_full``: the all-channels pass is a frozen target (no gradient,
+      eval mode).
+    * ``eval_consistency``: val/test also report the consistency and the MAE
+      with a drop drawn by the same rule (seeded per batch).
+    """
+    enabled: bool = False
+    channels: List[str] = field(default_factory=list)
+    min_drop: int = 1
+    max_drop: int = 1
+    prob: float = 0.2
+    consistency_weight: float = 1.0
+    detach_full: bool = True
+    eval_consistency: bool = True
 
 
 @dataclass

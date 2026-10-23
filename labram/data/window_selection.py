@@ -1,0 +1,401 @@
+# --------------------------------------------------------
+# Large Brain Model for Learning Generic Representations with Tremendous EEG Data in BCI
+# Recording/window selection for the TUAB-family fine-tuning loaders: case-type
+# filter, start/end trimming, longer model inputs, a per-recording evaluation
+# budget and signal-quality rejection. See docs/age_regression.md.
+# ---------------------------------------------------------
+
+import logging
+import math
+import os
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Set, Tuple
+
+import torch.utils.data
+
+from labram.data.tuh_metadata import CASE_LABELS, load_label_lookup_for, recording_stem
+from labram.data.window_qc import load_window_stats, window_passes
+
+logger = logging.getLogger(__name__)
+
+# Every TUAB window pickle (dataset_maker/make_TUAB.py) holds 10 s; window ``i``
+# of a recording covers [10 i, 10 i + 10) s.
+PICKLE_WINDOW_SEC = 10
+MAX_WINDOW_SEC = 60
+CASE_FILTERS = ("all",) + CASE_LABELS
+
+
+@dataclass(frozen=True)
+class WindowSelection:
+    """Which windows of each recording a split uses, and how many per sample.
+
+    A sample is ``window_sec / 10`` consecutive pickles. Sample starts lie on a
+    fixed grid per recording -- every ``window_sec`` seconds from the end of the
+    trimmed start -- so applying a selection to an already-selected file list
+    (a reused ``data_split.json``, a cross-validation fold) is a no-op.
+    """
+
+    case_filter: str = "all"
+    trim_start_sec: float = 0.0
+    trim_end_sec: float = 0.0
+    window_sec: int = PICKLE_WINDOW_SEC
+    eval_minutes: float = 0.0
+    # Signal-quality rejection (npy only, from window_stats.npz; 0 = off): a
+    # sample is dropped when any of its 10 s windows has a sample beyond
+    # +-max_abs_uv or a channel whose std is below min_std_uv.
+    max_abs_uv: float = 0.0
+    min_std_uv: float = 0.0
+    # (min, max) recording age in years, inclusive; () keeps every age.
+    age_range: Tuple[float, ...] = ()
+
+    def __post_init__(self):
+        if self.case_filter not in CASE_FILTERS:
+            raise ValueError(f"data.case_filter must be one of {CASE_FILTERS}, "
+                             f"got {self.case_filter!r}")
+        if self.age_range and (len(self.age_range) != 2
+                               or self.age_range[0] > self.age_range[1]):
+            raise ValueError(f"data.age_range must be [] or [min, max] with min <= max, "
+                             f"got {list(self.age_range)}")
+        if self.trim_start_sec < 0 or self.trim_end_sec < 0 or self.eval_minutes < 0:
+            raise ValueError("data.trim_start_sec / trim_end_sec / eval_minutes must be >= 0")
+        if (self.window_sec % PICKLE_WINDOW_SEC
+                or not PICKLE_WINDOW_SEC <= self.window_sec <= MAX_WINDOW_SEC):
+            raise ValueError(
+                f"data.window_sec must be a multiple of {PICKLE_WINDOW_SEC} in "
+                f"[{PICKLE_WINDOW_SEC}, {MAX_WINDOW_SEC}] (the pickles are "
+                f"{PICKLE_WINDOW_SEC} s windows), got {self.window_sec}")
+        if self.max_abs_uv < 0 or self.min_std_uv < 0:
+            raise ValueError("data.window_max_abs_uv / window_min_std_uv must be >= 0")
+        if 0 < self.eval_minutes * 60 < self.window_sec:
+            raise ValueError(f"data.eval_minutes={self.eval_minutes} is shorter than "
+                             f"one {self.window_sec} s sample")
+
+    @classmethod
+    def from_data_config(cls, data_cfg) -> "WindowSelection":
+        return cls(
+            case_filter=getattr(data_cfg, "case_filter", "all"),
+            trim_start_sec=float(getattr(data_cfg, "trim_start_sec", 0.0)),
+            trim_end_sec=float(getattr(data_cfg, "trim_end_sec", 0.0)),
+            window_sec=int(getattr(data_cfg, "window_sec", PICKLE_WINDOW_SEC)),
+            eval_minutes=float(getattr(data_cfg, "eval_minutes", 0.0)),
+            max_abs_uv=float(getattr(data_cfg, "window_max_abs_uv", 0.0)),
+            min_std_uv=float(getattr(data_cfg, "window_min_std_uv", 0.0)),
+            age_range=tuple(float(a) for a in (getattr(data_cfg, "age_range", None) or ())),
+        )
+
+    @property
+    def is_default(self) -> bool:
+        return self == WindowSelection()
+
+    @property
+    def quality_filter(self) -> bool:
+        return self.max_abs_uv > 0 or self.min_std_uv > 0
+
+    @property
+    def windows_per_sample(self) -> int:
+        return self.window_sec // PICKLE_WINDOW_SEC
+
+    @property
+    def trim_start_windows(self) -> int:
+        return math.ceil(self.trim_start_sec / PICKLE_WINDOW_SEC)
+
+    @property
+    def trim_end_windows(self) -> int:
+        return math.ceil(self.trim_end_sec / PICKLE_WINDOW_SEC)
+
+    @property
+    def eval_windows(self) -> int:
+        """Per-recording evaluation budget in 10 s windows (0 = unlimited)."""
+        return int(self.eval_minutes * 60 // PICKLE_WINDOW_SEC)
+
+
+def window_index(filename: str, sep: str = "_") -> int:
+    """Window index of ``<stem><sep><index>.pkl`` (a bare name or a relative path)."""
+    base = os.path.basename(filename)
+    base = base[:-4] if base.endswith(".pkl") else base
+    return int(base.rsplit(sep, 1)[1])
+
+
+def _window_path(filename: str, index: int, sep: str = "_") -> str:
+    """The sibling window ``index`` of ``filename``, keeping its directory."""
+    directory = os.path.dirname(filename)
+    name = f"{recording_stem(filename, sep=sep)}{sep}{index}.pkl"
+    return os.path.join(directory, name) if directory else name
+
+
+def scan_recordings(root: str, files: Iterable[str],
+                    sep: str = "_") -> Tuple[Dict[Tuple[str, str], int], Set[str]]:
+    """List the window directories ``files`` live in (relative to ``root``).
+
+    Returns ``(n_windows, available)``: windows per ``(directory, stem)`` --
+    one past the highest index on disk, i.e. the recording length in 10 s
+    windows -- and the set of window files that exist. Read from disk rather
+    than from ``files`` so trimming the end stays correct (and idempotent) on an
+    already-trimmed list.
+    """
+    n_windows: Dict[Tuple[str, str], int] = {}
+    available: Set[str] = set()
+    for directory in sorted({os.path.dirname(f) for f in files}):
+        for name in os.listdir(os.path.join(root, directory)):
+            if not name.endswith(".pkl"):
+                continue
+            rel = os.path.join(directory, name) if directory else name
+            available.add(rel)
+            key = (directory, recording_stem(name, sep=sep))
+            n_windows[key] = max(n_windows.get(key, 0), window_index(name, sep) + 1)
+    return n_windows, available
+
+
+def select_files(
+    files: Iterable[str],
+    selection: WindowSelection,
+    *,
+    n_windows: Dict[Tuple[str, str], int],
+    available: Set[str],
+    labels: Optional[Dict[str, str]] = None,
+    ages: Optional[Dict[str, float]] = None,
+    is_eval: bool = False,
+    sep: str = "_",
+    window_ok: Optional[Dict[str, "object"]] = None,
+) -> List[str]:
+    """The sample-start files of ``files`` that ``selection`` keeps.
+
+    A file starts a sample when its recording passes the case filter and the
+    age range (``ages``: recording stem -> age, needed when one is set), it lies on
+    the sample grid inside the trimmed recording, the sample's windows all exist
+    on disk, and -- for an evaluation split -- the sample ends within the first
+    ``eval_minutes`` after the trimmed start.
+
+    With a quality filter (``window_ok``: stem -> boolean mask per 10 s window)
+    a sample is also dropped when any of its windows fails, and the evaluation
+    budget becomes the *first* ``eval_minutes`` worth of passing samples, so
+    rejected windows do not use it up.
+    """
+    k = selection.windows_per_sample
+    start = selection.trim_start_windows
+    budget = selection.eval_windows if is_eval else 0
+
+    def case_ok(stem: str) -> bool:
+        # the recording passes the case filter and the age range
+        if selection.case_filter != "all" and (labels or {}).get(stem) != selection.case_filter:
+            return False
+        if selection.age_range:
+            age = (ages or {}).get(stem)
+            if age is None or not selection.age_range[0] <= age <= selection.age_range[1]:
+                return False
+        return True
+
+    if window_ok is not None:
+        return _select_quality(files, selection, k, start, budget, n_windows, available,
+                               case_ok, sep, window_ok)
+    kept = []
+    for f in files:
+        stem = recording_stem(f, sep=sep)
+        if not case_ok(stem):
+            continue
+        i = window_index(f, sep)
+        if i < start or (i - start) % k:
+            continue
+        end = n_windows.get((os.path.dirname(f), stem), 0) - selection.trim_end_windows
+        if i + k > end or (budget and i + k > start + budget):
+            continue
+        if all(_window_path(f, i + j, sep) in available for j in range(k)):
+            kept.append(f)
+    return kept
+
+
+def _select_quality(files, selection, k, start, budget, n_windows, available, case_ok, sep,
+                    window_ok):
+    candidates = []
+    for f in files:
+        stem = recording_stem(f, sep=sep)
+        if not case_ok(stem):
+            continue
+        i = window_index(f, sep)
+        if i < start or (i - start) % k:
+            continue
+        if i + k > n_windows.get((os.path.dirname(f), stem), 0) - selection.trim_end_windows:
+            continue
+        ok = window_ok.get(stem)
+        if ok is None or i + k > len(ok) or not ok[i:i + k].all():
+            continue
+        if all(_window_path(f, i + j, sep) in available for j in range(k)):
+            candidates.append((stem, i, f))
+    if not budget:
+        return [f for _, _, f in candidates]
+    per_recording = budget // k
+    starts: Dict[str, List[int]] = {}
+    for stem, i, _ in candidates:
+        starts.setdefault(stem, []).append(i)
+    first = {stem: set(sorted(v)[:per_recording]) for stem, v in starts.items()}
+    return [f for stem, i, f in candidates if i in first[stem]]
+
+
+def _select_leaf(leaf, selection: WindowSelection, is_eval: bool, split: str) -> None:
+    """Narrow one loader's ``files`` in place and set its samples' length."""
+    sep = getattr(leaf, "_recording_sep", "_")
+    labels = (load_label_lookup_for(leaf.root)
+              if selection.case_filter != "all" else None)
+    ages = getattr(leaf, "age_lookup", None)
+    if selection.age_range and ages is None:
+        raise ValueError(f"data.age_range needs age loaders (TUAB_AGE); got "
+                         f"{type(leaf).__name__}")
+    if hasattr(leaf, "window_inventory"):          # npy: counts come from the manifest
+        n_windows, available = leaf.window_inventory()
+    else:
+        n_windows, available = scan_recordings(leaf.root, leaf.files, sep)
+    if hasattr(leaf, "sample_bounds"):             # where random crops may start/end
+        step = PICKLE_WINDOW_SEC * 200
+        leaf.sample_bounds = {
+            stem: (selection.trim_start_windows * step,
+                   (n - selection.trim_end_windows) * step)
+            for (_, stem), n in n_windows.items()}
+    window_ok = None
+    if selection.quality_filter:
+        if not hasattr(leaf, "window_inventory"):
+            raise ValueError("data.window_max_abs_uv / window_min_std_uv need the npy "
+                             "data format (data.data_format=npy)")
+        window_ok = {stem: window_passes(mx, sd, selection.max_abs_uv, selection.min_std_uv)
+                     for stem, (mx, sd) in load_window_stats(leaf.root).items()}
+    before_files = leaf.files
+    leaf.files = select_files(before_files, selection, n_windows=n_windows,
+                              available=available, labels=labels, ages=ages,
+                              is_eval=is_eval, sep=sep, window_ok=window_ok)
+    leaf.windows_per_item = selection.windows_per_sample
+    recordings = lambda fs: len({recording_stem(f, sep=sep) for f in fs})
+    logger.info(
+        "window selection [%s]: %d -> %d sample(s) of %d s, %d -> %d recording(s)",
+        split, len(before_files), len(leaf.files), selection.window_sec,
+        recordings(before_files), recordings(leaf.files))
+    if not leaf.files:
+        raise ValueError(f"window selection left the {split} split empty "
+                         f"(selection={selection})")
+
+
+def _apply_to_dataset(dataset, selection: WindowSelection, is_eval: bool, split: str):
+    if dataset is None:
+        return None
+    if isinstance(dataset, list):
+        return [_apply_to_dataset(d, selection, is_eval, split) for d in dataset]
+    if isinstance(dataset, torch.utils.data.ConcatDataset):
+        # Rebuilt: ConcatDataset caches its children's lengths at construction.
+        return torch.utils.data.ConcatDataset(
+            [_apply_to_dataset(d, selection, is_eval, split) for d in dataset.datasets])
+    if (not hasattr(dataset, "windows_per_item")
+            or getattr(dataset, "_duration_sec", None) != PICKLE_WINDOW_SEC):
+        raise TypeError(
+            f"window selection needs TUAB {PICKLE_WINDOW_SEC} s window loaders; got "
+            f"{type(dataset).__name__} (and apply it before any Subset wrapping)")
+    _select_leaf(dataset, selection, is_eval, split)
+    return dataset
+
+
+def enable_random_crop(dataset) -> None:
+    """Turn on random crops for every leaf of a (training) dataset."""
+    leaves = _leaves(dataset)
+    if not leaves or not all(hasattr(leaf, "random_crop") for leaf in leaves):
+        raise ValueError("data.random_crop needs the npy data format (data.data_format=npy)")
+    for leaf in leaves:
+        leaf.random_crop = True
+
+
+def enable_abnormal_target(dataset) -> None:
+    """Make every age leaf of ``dataset`` return ``[age, abnormal]`` targets
+    (abnormal = 1) for the multi-task head, from the labelled sidecar. Raises if
+    any recording has no normal/abnormal label: a missing key would otherwise be
+    swallowed by ``TUHLoader.__getitem__``, which substitutes another window."""
+    for leaf in _leaves(dataset):
+        if not hasattr(leaf, "age_lookup"):
+            raise ValueError("model.head_type=multitask needs the TUAB_AGE dataset")
+        labels = load_label_lookup_for(leaf.root)
+        stems = {recording_stem(f) for f in leaf.files}
+        missing = sorted(s for s in stems if labels.get(s) not in CASE_LABELS)
+        if missing:
+            raise ValueError(f"{len(missing)} recording(s) in {leaf.root} have no "
+                             f"normal/abnormal label (e.g. {missing[:3]})")
+        leaf.abnormal_lookup = {s: int(labels[s] == "abnormal") for s in stems}
+
+
+def enable_session_features(dataset, path: str, skip_signal: bool = False):
+    """Make every age leaf of ``dataset`` return ``[age, *features]`` targets
+    from a session-feature file (``dataset_maker/make_session_features.py``);
+    ``path`` is absolute or relative to each leaf's data root. Returns the
+    feature groups ``[[n_tokens, dim], ...]``. Raises if a recording has no
+    features. ``skip_signal`` makes npy leaves serve zeros instead of the EEG."""
+    from labram.data.session_features import load_session_features
+    groups = None
+    for leaf in _leaves(dataset):
+        if not hasattr(leaf, "age_lookup"):
+            raise ValueError("data.session_features needs the TUAB_AGE dataset")
+        feats = load_session_features(path if os.path.isabs(path)
+                                      else os.path.join(leaf.root, path))
+        stems = {recording_stem(f) for f in leaf.files}
+        missing = sorted(stems - set(feats.rows))
+        if missing:
+            raise ValueError(f"{len(missing)} recording(s) in {leaf.root} have no session "
+                             f"features in {path} (e.g. {missing[:3]})")
+        leaf.session_features = (feats.rows, feats.matrix)
+        if skip_signal:
+            if not hasattr(leaf, "skip_signal"):
+                raise ValueError("model.session_features=only needs data.data_format=npy")
+            leaf.skip_signal = True
+        groups = feats.groups
+    return groups
+
+
+def _leaves(dataset) -> list:
+    if dataset is None:
+        return []
+    if isinstance(dataset, list):
+        return [leaf for d in dataset for leaf in _leaves(d)]
+    if isinstance(dataset, torch.utils.data.ConcatDataset):
+        return [leaf for d in dataset.datasets for leaf in _leaves(d)]
+    return [dataset]
+
+
+def train_window_ages(train) -> List[float]:
+    """Raw age of every sample in ``train`` (``TUABAgeLoader.ages`` leaves)."""
+    return [a for leaf in _leaves(train) if hasattr(leaf, "ages") for a in leaf.ages()]
+
+
+def _train_target_stats(train) -> Optional[Tuple[float, float]]:
+    """(mean, sample std) of the train samples' raw targets, when the loaders
+    expose them (``TUABAgeLoader.ages``)."""
+    ages = train_window_ages(train)
+    if len(ages) < 2:
+        return None
+    mean = sum(ages) / len(ages)
+    var = sum((a - mean) ** 2 for a in ages) / (len(ages) - 1)
+    return mean, max(var ** 0.5, 1e-6)
+
+
+def apply_window_selection(bundle, selection: WindowSelection):
+    """Apply ``selection`` to a :class:`DatasetBundle` in place and return it.
+
+    Case filter, age range and trimming apply to every split; ``eval_minutes``
+    to val and test only. A regression bundle's target z-scoring stats are
+    recomputed from the selected train samples, since the filter can shift the
+    age distribution (e.g. normal-only skews younger).
+    """
+    if selection.is_default:
+        return bundle
+    if selection.case_filter != "all" and not bundle.is_regression:
+        raise ValueError(
+            f"data.case_filter={selection.case_filter!r} would leave a classification "
+            f"task with a single class; it is meant for age regression (TUAB_AGE)")
+    if selection.age_range and not bundle.is_regression:
+        raise ValueError("data.age_range is meant for age regression (TUAB_AGE)")
+    bundle.train = _apply_to_dataset(bundle.train, selection, False, "train")
+    bundle.val = _apply_to_dataset(bundle.val, selection, True, "val")
+    bundle.test = _apply_to_dataset(bundle.test, selection, True, "test")
+    if bundle.target_stats is not None:
+        stats = _train_target_stats(bundle.train)
+        if stats is not None:
+            bundle.target_stats = stats
+            for split in (bundle.train, bundle.val, bundle.test):
+                for leaf in _leaves(split):
+                    if hasattr(leaf, "target_stats"):
+                        leaf.target_stats = stats
+            logger.info("Age target normalization (selected train): mean=%.2f std=%.2f",
+                        *stats)
+    return bundle

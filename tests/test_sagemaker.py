@@ -373,12 +373,29 @@ def test_apply_git_info_never_raises_on_a_broken_task(tmp_path, monkeypatch):
 
 def test_git_diff_is_capped(monkeypatch):
     from labram.utils import git_info as gi
-    monkeypatch.setattr(gi, '_git', lambda root, *a: (
+    monkeypatch.setattr(gi, '_git', lambda root, *a, **kw: (
         'x' * (gi.MAX_DIFF_BYTES * 2) if a[0] == 'diff' else
         'd' * 40 if a[0] == 'rev-parse' and a[1] == 'HEAD' else 'main'))
     info = gi.collect_git_info('/anywhere')
     assert info['diff_truncated'] is True
     assert len(info['diff'].encode()) < gi.MAX_DIFF_BYTES + 200
+
+
+def test_git_status_keeps_the_first_file_name(monkeypatch):
+    # `git status --porcelain` starts with a space for a work-tree change
+    # (" M a.py"); stripping it used to record the file as ".py".
+    from labram.utils import git_info as gi
+    monkeypatch.setattr(gi, '_git', lambda root, *a, **kw: (
+        ' M a.py\n?? new.txt' if a[0] == 'status' else
+        'd' * 40 if a[:2] == ('rev-parse', 'HEAD') else ''))
+    info = gi.collect_git_info('/anywhere')
+    assert info['modified_files'] == ['a.py'] and info['untracked_files'] == ['new.txt']
+
+
+def test_validate_s3_uri_rejects_upper_case_bucket():
+    # urlparse(...).hostname lower-cases, which let an invalid bucket through.
+    with pytest.raises(ValueError, match='invalid bucket'):
+        sub.validate_s3_uri('s3://My-Bucket/key')
 
 
 def test_entry_missing_config_in_channel_raises_diagnostic(tmp_path, monkeypatch):
@@ -1023,6 +1040,7 @@ def test_forward_clearml_env(monkeypatch):
     monkeypatch.setenv('CLEARML_API_SECRET_KEY', 'SK')
     c = FinetuneRunConfig()
     c.clearml.enabled = True
+    c.sagemaker.clearml_secret = ''        # legacy path: credentials as job env vars
     forwarded = sub.forward_clearml_env(c)
     assert forwarded['CLEARML_API_ACCESS_KEY'] == 'AK'
     assert c.sagemaker.environment['CLEARML_API_SECRET_KEY'] == 'SK'
@@ -1078,6 +1096,7 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
         # Submitted as an s3:// uri, so the run really goes through channel
         # staging; the fake container below maps the mount back to `data`.
         "data.dataset": "TUAB", "data.data_path": "s3://fake-bucket/data/TUAB",
+        "data.data_format": "pickle",          # synthetic window pickles
         "finetune_checkpoint.finetune": "",   # train from scratch, no weights to ship
         "trainer.debug": True, "trainer.epochs": 1, "trainer.debug_samples": 4,
         "optimizer.warmup_epochs": 0, "distributed.device": "cpu",
@@ -1161,3 +1180,48 @@ def test_submit_e2e_debug_runs_training(tmp_path, monkeypatch):
         assert "pytorch-training:2.4.0-gpu-py311" in image
         assert (Path(model_dir) / "cv" / f"fold_{fold}" / "fold_metrics.json").exists()
         assert (Path(model_dir) / "cv" / "cv_split.json").exists()
+
+
+# ------------------------------------------------------- spot checkpoint resume
+def test_checkpoint_uri_auto_is_spot_only_and_unique_per_fold():
+    from labram.runs.submit_sagemaker import resolve_checkpoint_uri
+    from labram.configs.run_configs import FinetuneRunConfig
+    sm = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_age.json").sagemaker
+    sm.role = "arn:aws:iam::123456789012:role/SM"
+    assert resolve_checkpoint_uri(sm, "job", "us-east-1") == ""            # on-demand: off
+    sm.use_spot = True
+    a = resolve_checkpoint_uri(sm, "job-fold-1", "us-east-1", stamp="T1")
+    b = resolve_checkpoint_uri(sm, "job-fold-2", "us-east-1", stamp="T1")
+    assert a == "s3://sagemaker-us-east-1-123456789012/labram/checkpoints/job-fold-1-T1/" and a != b
+    sm.checkpoint_s3_uri = "off"
+    assert resolve_checkpoint_uri(sm, "job", "us-east-1") == ""
+    sm.checkpoint_s3_uri = "s3://bucket/ckpt"
+    assert resolve_checkpoint_uri(sm, "job", "us-east-1", stamp="T") == "s3://bucket/ckpt/job-T/"
+
+
+def test_estimator_kwargs_carry_checkpoint_location():
+    from labram.aws.sagemaker import SageMakerJobSpec, estimator_kwargs
+    kw = estimator_kwargs(SageMakerJobSpec(entry_point="e.py", checkpoint_s3_uri="s3://b/c/"))
+    assert kw["checkpoint_s3_uri"] == "s3://b/c/" and kw["checkpoint_local_path"] == "/opt/ml/checkpoints"
+    assert "checkpoint_s3_uri" not in estimator_kwargs(SageMakerJobSpec(entry_point="e.py"))
+
+
+def test_entry_trains_into_checkpoint_dir_and_publishes(tmp_path, monkeypatch):
+    from labram.aws import sagemaker as sm_mod
+    from labram.runs import sagemaker_entry as entry
+    ckpt, model = tmp_path / "ckpt", tmp_path / "model"
+    model.mkdir()
+    monkeypatch.setattr(sm_mod, "CHECKPOINT_LOCAL_PATH", str(ckpt))
+    monkeypatch.setenv("LABRAM_SM_CHECKPOINTS", "1")
+    monkeypatch.setenv("SM_MODEL_DIR", str(model))
+    cli = entry.parse_cli(["--config", "labram/configs/defaults/finetune_tuab_age.json", "--phase", "finetune",
+                           "--set", "output.output_dir=", "output.log_dir="])   # as the submitter does
+    config = entry.build_config(cli)
+    assert config.output.output_dir == str(ckpt / "finetune") and config.output.auto_resume
+    os.makedirs(config.output.output_dir)
+    (ckpt / "finetune" / "log.txt").write_text("{}\n")
+    (ckpt / "finetune" / "log.txt.sagemaker-uploaded").write_text("")   # sync markers
+    (ckpt / "stray.sagemaker-uploading").write_text("")
+    entry.publish_checkpoint_outputs()
+    assert (model / "finetune" / "log.txt").read_text() == "{}\n"
+    assert sorted(p.name for p in model.rglob("*")) == ["finetune", "log.txt"]

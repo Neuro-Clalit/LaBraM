@@ -177,7 +177,11 @@ def auto_load_model(output_cfg, trainer_cfg, model, model_without_ddp, optimizer
             if 'optimizer' in checkpoint and 'epoch' in checkpoint:
                 optimizer.load_state_dict(checkpoint['optimizer'])
                 print(f"Resume checkpoint at epoch {checkpoint['epoch']}")
-                trainer_cfg.start_epoch = 1
+                # Continue after the saved epoch, so the LR/WD schedules pick up
+                # where they stopped. Named checkpoints ('best'/'final') carry no
+                # epoch number; the configured start_epoch stands for those.
+                if isinstance(checkpoint['epoch'], int):
+                    trainer_cfg.start_epoch = checkpoint['epoch'] + 1
                 if model_ema_enabled and model_ema is not None:
                     _load_checkpoint_for_ema(model_ema, checkpoint['model_ema'])
                 if 'scaler' in checkpoint:
@@ -234,3 +238,27 @@ def create_ds_config(output_cfg, trainer_cfg, optim_cfg):
         }
         writer.write(json.dumps(ds_config, indent=2))
     return deepspeed_config_path
+
+
+TRAIN_STATE_FILE = "train_state.json"
+
+
+def save_train_state(output_dir, state: dict) -> None:
+    """Persist the training loop's best-epoch bookkeeping next to the rolling
+    checkpoint, so a resumed run (e.g. after a spot interruption) keeps
+    selecting the best epoch over *all* epochs, not just the resumed ones."""
+    import json
+    path = Path(output_dir) / TRAIN_STATE_FILE
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as fh:
+        json.dump(state, fh, default=float)
+    os.replace(tmp, path)
+
+
+def load_train_state(output_dir) -> dict:
+    import json
+    path = Path(output_dir) / TRAIN_STATE_FILE
+    if not path.is_file():
+        return {}
+    with open(path) as fh:
+        return json.load(fh)

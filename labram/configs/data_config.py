@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Union
 
 from labram.configs.base_configs import ConfigBase
 from labram.configs.defaults import (
@@ -36,3 +36,61 @@ class DataConfig(ConfigBase):
     stride: int = DEFAULT_PRETRAIN_STRIDE
     start_percentage: float = DEFAULT_DATASET_START_PERCENTAGE
     end_percentage: float = DEFAULT_DATASET_END_PERCENTAGE
+    # --- Recording/window selection (TUAB-family fine-tuning; see
+    # labram/data/window_selection.py). The defaults keep every window. ---
+    # Which TUAB cases to train *and* evaluate on: "all", "normal" or "abnormal".
+    case_filter: str = "all"
+    # Age regression only: keep the recordings whose age is in [min, max]
+    # (inclusive, years) in train, val *and* test. [] keeps every age.
+    age_range: List[Union[int, float]] = field(default_factory=list)
+    # Seconds dropped from the start / end of every recording (rounded up to
+    # whole 10 s windows), e.g. 60 to skip set-up and wind-down artifacts.
+    trim_start_sec: Union[int, float] = 0.0
+    trim_end_sec: Union[int, float] = 0.0
+    # Model input length in seconds: consecutive 10 s windows are concatenated,
+    # so this must be a multiple of 10 in [10, 60].
+    window_sec: int = 10
+    # Evaluate (val/test) on only the first N minutes of each recording, after
+    # trimming. 0 keeps the whole recording. Training always uses everything.
+    eval_minutes: Union[int, float] = 0.0
+    # Storage format of the TUAB windows: "pickle" (one file per 10 s window,
+    # processed/) or "npy" (one float32 file per recording, processed_npy/,
+    # built by dataset_maker/make_TUAB_npy.py). Same samples either way.
+    data_format: str = "pickle"
+    # npy only: move each training sample to a random start within half a
+    # sample length of its grid position (inside the trimmed range), redrawn
+    # every epoch. Evaluation always uses the fixed grid.
+    random_crop: bool = False
+    # npy only: drop every sample with a 10 s window that has any sample beyond
+    # +-window_max_abs_uv µV, or any channel whose std is below window_min_std_uv
+    # µV (a flat channel), in train, val and test; 0 turns a test off. Needs the
+    # dataset's window_stats.npz (python -m labram.data.window_qc).
+    window_max_abs_uv: Union[int, float] = 0.0
+    window_min_std_uv: Union[int, float] = 0.0
+    # TUAB_AGE only: per-recording classical EEG features
+    # (dataset_maker/make_session_features.py), a file name inside data_path or
+    # an absolute path; "" = none. Used by model.session_features.
+    session_features: str = ""
+    # npy only: channels left out of every sample in every split (10-20 names),
+    # e.g. ["T1", "T2"] for a 21-channel model that can also use the TUEG
+    # recordings without them. The files keep all channels.
+    drop_channels: List[str] = field(default_factory=list)
+    # Training only: each epoch, a fresh random draw of this many minutes of
+    # samples per recording (window_sec each) from its selected training
+    # samples, shuffled; 0 = every sample every epoch. Shorter epochs, same
+    # recordings and patients (labram/data/samplers.py).
+    train_minutes_per_epoch: Union[int, float] = 0.0
+    # npy only: copy the recordings the run uses onto fast local storage before
+    # training (labram/data/staging.py). "auto" = the instance NVMe
+    # (/opt/dlami/nvme) when present, skipped inside SageMaker; "off" disables; any other value is a directory. Train is staged first, then
+    # val, then test; what does not fit (keeping stage_reserve_gb free) is read
+    # from data_path. Debug runs never stage.
+    stage_dir: str = "auto"
+    stage_reserve_gb: float = 20.0
+    # Age regression only: draw training samples so every ``age_bin_width``-year
+    # age bin is equally likely, then a case (recording) uniformly within the
+    # bin, then one of its samples (labram/data/age_sampling.py). With
+    # ``age_range`` set the bins start at its minimum and the last bin also
+    # holds the maximum.
+    age_bin_sampling: bool = False
+    age_bin_width: Union[int, float] = 5.0

@@ -72,10 +72,26 @@ class RecordingMetadata:
     sex: Optional[str]
     year: Optional[int]
     raw_age: Optional[int]
+    # TUAB's ``normal`` / ``abnormal`` folder the EDF sits in (None when the
+    # path names neither, e.g. a non-TUAB corpus or a pre-label sidecar).
+    label: Optional[str] = None
 
     @property
     def is_redacted(self) -> bool:
         return self.raw_age == REDACTED_AGE
+
+
+CASE_LABELS = ("normal", "abnormal")
+
+
+def label_from_path(path: str) -> Optional[str]:
+    """TUAB's normal/abnormal label from an EDF path's folder names
+    (``.../train/abnormal/01_tcp_ar/x.edf`` -> ``abnormal``)."""
+    parts = os.path.normpath(path).split(os.sep)
+    for label in CASE_LABELS:
+        if label in parts:
+            return label
+    return None
 
 
 def _split_stem(stem: str) -> Tuple[str, Optional[str], Optional[str]]:
@@ -126,6 +142,7 @@ def parse_edf_header_metadata(
         sex=sex_match.group(1) if sex_match else None,
         year=int(year_match.group(1)) if year_match else None,
         raw_age=raw_age,
+        label=label_from_path(path),
     )
 
 
@@ -180,6 +197,7 @@ def summarize_metadata(meta: Dict[str, RecordingMetadata]) -> Dict[str, object]:
         "age_min": min(ages) if ages else None,
         "age_max": max(ages) if ages else None,
         "sex_counts": dict(Counter(m.sex for m in meta.values())),
+        "label_counts": dict(Counter(m.label for m in meta.values())),
         "age_decades": {f"{d}-{d + 10}": decades[d] for d in sorted(decades)},
     }
 
@@ -208,6 +226,11 @@ def load_metadata_sidecar(path: str) -> Dict[str, RecordingMetadata]:
 def age_lookup(meta: Dict[str, RecordingMetadata]) -> Dict[str, float]:
     """``stem -> age in years`` for recordings with a usable age."""
     return {stem: float(m.age) for stem, m in meta.items() if m.age is not None}
+
+
+def label_lookup(meta: Dict[str, RecordingMetadata]) -> Dict[str, str]:
+    """``stem -> 'normal' | 'abnormal'`` for recordings with a known label."""
+    return {stem: m.label for stem, m in meta.items() if m.label is not None}
 
 
 def find_metadata_sidecar(start: str, *, filename: str = SIDECAR_FILENAME) -> Optional[str]:
@@ -248,6 +271,23 @@ def load_age_lookup_for(root: str, *, filename: str = SIDECAR_FILENAME) -> Dict[
     return age_lookup(load_metadata_sidecar(path))
 
 
+def load_label_lookup_for(root: str, *, filename: str = SIDECAR_FILENAME) -> Dict[str, str]:
+    """Resolve and load the normal/abnormal labels covering *root*.
+
+    Raises when the sidecar predates the ``label`` field, since an empty lookup
+    would otherwise silently filter every recording out."""
+    path = find_metadata_sidecar(root, filename=filename)
+    if path is None:
+        raise FileNotFoundError(f"No {filename} found in {root} or any parent directory.")
+    labels = label_lookup(load_metadata_sidecar(path))
+    if not labels:
+        raise ValueError(
+            f"{path} has no normal/abnormal labels (written before the 'label' field "
+            f"existed). Regenerate it with:\n"
+            f"  python dataset_maker/make_TUAB_age.py scan --root <corpus edf dir>")
+    return labels
+
+
 def recording_stem(filename: str, *, sep: str = "_") -> str:
     """Recording stem of a window file (``<stem><sep><window index>.pkl``).
 
@@ -274,3 +314,164 @@ def filter_files_with_age(
     would otherwise corrupt the targets invisibly.
     """
     return [f for f in files if recording_stem(f, sep=sep) in ages]
+
+
+# ------------------------------------------------------------------------------
+# Whole-corpus scan: signal header, montage and per-corpus labels.
+#
+# TUEG mixes "over 40 channel configurations" and 250-1024 Hz sampling, so the
+# demographics alone do not say whether a recording can feed the 23-channel
+# model. The rest of the EDF header (one 256-byte block per signal) does: labels,
+# samples per data record, record count and length -- still header-only, so a
+# 70k-file corpus scans in minutes.
+
+# The 23 channels the TUAB pipeline keeps, in model order (FP1 ... T2).
+TUH_CHANNELS = ("FP1", "FP2", "F3", "F4", "C3", "C4", "P3", "P4", "O1", "O2", "F7", "F8",
+                "T3", "T4", "T5", "T6", "A1", "A2", "FZ", "CZ", "PZ", "T1", "T2")
+_TUH_CHANNEL_SET = frozenset(TUH_CHANNELS)
+# 'EEG FP1-REF' (average reference) / 'EEG FP1-LE' (linked ears).
+_CHANNEL_RE = re.compile(r"^EEG\s+(?P<name>[A-Z0-9]+)-(?:REF|LE)$")
+# '01_tcp_ar', '02_tcp_le', '03_tcp_ar_a' (no A1/A2), '04_tcp_le_a'.
+_MONTAGE_RE = re.compile(r"^\d{2}_tcp_(?:ar|le)(?:_a)?$")
+# TUEG session dirs carry the date: 's001_2015_12_30'.
+_SESSION_DIR_RE = re.compile(r"^s\d+_(\d{4})_(\d{2})_(\d{2})$")
+# TUEP's subject-level label: '00_epilepsy' / '01_no_epilepsy'.
+_EPILEPSY_DIRS = {"00_epilepsy": 1, "01_no_epilepsy": 0}
+
+
+@dataclass(frozen=True)
+class EdfSignalHeader:
+    labels: Tuple[str, ...]
+    sfreqs: Tuple[float, ...]
+    n_records: int
+    record_duration: float
+    # Per signal: physical unit ('uV', 'mV', ...), physical range and the
+    # free-text hardware prefiltering ('HP:0.5Hz LP:70Hz N:60Hz' style).
+    units: Tuple[str, ...] = ()
+    physical_min: Tuple[float, ...] = ()
+    physical_max: Tuple[float, ...] = ()
+    prefilters: Tuple[str, ...] = ()
+
+    @property
+    def duration_sec(self) -> float:
+        return self.n_records * self.record_duration
+
+
+def read_edf_signal_header(path: str) -> EdfSignalHeader:
+    """Signal labels, per-signal sampling rate and duration from an EDF header."""
+    with open(path, "rb") as fh:
+        head = fh.read(EDF_HEADER_BYTES)
+        if len(head) < EDF_HEADER_BYTES:
+            raise ValueError(f"{path}: truncated EDF header ({len(head)} bytes)")
+        n_signals = int(head[252:256])
+        block = fh.read(n_signals * 256)
+    if len(block) < n_signals * 256:
+        raise ValueError(f"{path}: truncated signal header")
+    n_records = int(head[236:244])
+    record_duration = float(head[244:252])
+
+    def field(offset, width):
+        start = offset * n_signals
+        return [block[start + i * width:start + (i + 1) * width].decode("latin-1").strip()
+                for i in range(n_signals)]
+
+    # Per-signal fields, each stored for all signals before the next one:
+    # label 16, transducer 80, dimension 8, phys min/max 8+8, dig min/max 8+8,
+    # prefiltering 80, samples per record 8, reserved 32.
+    labels = field(0, 16)
+    samples = [int(s) for s in field(16 + 80 + 8 * 5 + 80, 8)]
+    sfreqs = tuple(s / record_duration if record_duration > 0 else 0.0 for s in samples)
+
+    def floats(values):
+        out = []
+        for v in values:
+            try:
+                out.append(float(v))
+            except ValueError:
+                out.append(float("nan"))
+        return tuple(out)
+
+    return EdfSignalHeader(
+        tuple(labels), sfreqs, n_records, record_duration,
+        units=tuple(field(16 + 80, 8)),
+        physical_min=floats(field(16 + 80 + 8, 8)),
+        physical_max=floats(field(16 + 80 + 16, 8)),
+        prefilters=tuple(field(16 + 80 + 8 * 5, 80)))
+
+
+def canonical_channel(label: str) -> Optional[str]:
+    """'EEG FP1-REF' / 'EEG FP1-LE' -> 'FP1' if it is one of the 23 TUH channels."""
+    match = _CHANNEL_RE.match(label.strip().upper())
+    if match and match["name"] in _TUH_CHANNEL_SET:
+        return match["name"]
+    return None
+
+
+def channel_map(labels: Iterable[str]) -> Dict[str, str]:
+    """``{canonical name: raw EDF label}`` for the TUH channels present (first wins)."""
+    found: Dict[str, str] = {}
+    for label in labels:
+        name = canonical_channel(label)
+        if name is not None and name not in found:
+            found[name] = label
+    return found
+
+
+def path_component(path: str, pattern: "re.Pattern") -> Optional[str]:
+    for part in os.path.normpath(path).split(os.sep):
+        if pattern.match(part):
+            return part
+    return None
+
+
+def corpus_labels(path: str) -> Dict[str, Optional[int]]:
+    """Pathology labels encoded in a TUH path: TUAB's normal/abnormal folder and
+    TUEP's epilepsy/no-epilepsy folder (None where the path carries neither)."""
+    case = label_from_path(path)
+    parts = os.path.normpath(path).split(os.sep)
+    epilepsy = next((_EPILEPSY_DIRS[p] for p in parts if p in _EPILEPSY_DIRS), None)
+    return {"abnormal": None if case is None else int(case == "abnormal"),
+            "epilepsy": epilepsy}
+
+
+def recording_row(path: str, root: str, corpus: str, *,
+                  min_age: int = DEFAULT_MIN_AGE, max_age: int = DEFAULT_MAX_AGE) -> Dict[str, object]:
+    """One flat, JSON-able index row for an EDF file (header-only read)."""
+    meta = parse_edf_header_metadata(path, min_age=min_age, max_age=max_age)
+    sig = read_edf_signal_header(path)
+    present = channel_map(sig.labels)
+    eeg_sfreqs = [sig.sfreqs[sig.labels.index(raw)] for raw in present.values()]
+    session_dir = path_component(path, _SESSION_DIR_RE)
+    date = None
+    if session_dir:
+        y, m, d = _SESSION_DIR_RE.match(session_dir).groups()
+        date = f"{y}-{m}-{d}"
+    row = asdict(meta)
+    row.update(
+        corpus=corpus,
+        path=os.path.relpath(path, root),
+        montage=path_component(path, _MONTAGE_RE),
+        session_date=date,
+        sfreq=max(eeg_sfreqs) if eeg_sfreqs else None,
+        mixed_sfreq=len(set(eeg_sfreqs)) > 1,
+        n_signals=len(sig.labels),
+        duration_sec=round(sig.duration_sec, 3),
+        missing_channels=[c for c in TUH_CHANNELS if c not in present],
+        **corpus_labels(path),
+    )
+    return row
+
+
+def scan_recordings(root: str, *, corpus: str, pattern: str = "**/*.edf",
+                    min_age: int = DEFAULT_MIN_AGE, max_age: int = DEFAULT_MAX_AGE) -> list:
+    """``recording_row`` for every EDF under *root*; unreadable files are logged
+    and returned as rows with an ``error`` field so they stay countable."""
+    rows = []
+    for path in sorted(iglob(os.path.join(root, pattern), recursive=True)):
+        try:
+            rows.append(recording_row(path, root, corpus, min_age=min_age, max_age=max_age))
+        except (OSError, ValueError) as exc:
+            logger.warning("Could not read EDF header %s: %s", path, exc)
+            rows.append({"corpus": corpus, "path": os.path.relpath(path, root),
+                         "stem": os.path.splitext(os.path.basename(path))[0], "error": str(exc)})
+    return rows

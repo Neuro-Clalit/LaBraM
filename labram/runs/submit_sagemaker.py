@@ -14,6 +14,7 @@
 
 import argparse
 import contextlib
+import datetime
 import io
 import os
 import re
@@ -26,7 +27,8 @@ from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 import labram.utils as utils
-from labram.aws.sagemaker import SageMakerJobSpec, SageMakerLauncher, role_account
+from labram.utils.secrets import redacted_copy
+from labram.aws.sagemaker import CHECKPOINT_ENV, SageMakerJobSpec, SageMakerLauncher, role_account
 from labram.configs.defaults import SAGEMAKER_INPUT_MODES
 from labram.configs.run_configs import (
     FinetuneRunConfig,
@@ -80,7 +82,7 @@ def validate_s3_uri(uri: str, label: str = '') -> None:
     message; does NOT check reachability (that needs AWS credentials).
     """
     parsed = urlparse(uri)
-    bucket = parsed.hostname or ''
+    bucket = parsed.netloc or ''          # not .hostname: that lower-cases the bucket
     key = parsed.path.lstrip('/')
     ctx = f" ({label})" if label else ''
     if not bucket:
@@ -477,17 +479,43 @@ def clearml_conf_credentials() -> Dict[str, str]:
     return found
 
 
-def forward_clearml_env(config: RunConfig) -> Dict[str, str]:
-    """When ClearML tracking is on, copy the submitter's ClearML credentials into
-    ``sagemaker.environment`` so the in-container run logs to the same server.
+def forward_clearml_env(config: RunConfig, boto_session=None) -> Dict[str, str]:
+    """Give the SageMaker job access to the submitter's ClearML server.
 
-    Precedence: values already in ``sagemaker.environment`` win, then the
-    submitter's ``CLEARML_*`` env vars, then their ``clearml.conf``. Returns the
+    With ``sagemaker.clearml_secret`` set (the default), only the secret's
+    *name* goes into the job environment (``LABRAM_CLEARML_SECRET``); the
+    container reads the credentials from Secrets Manager with its execution
+    role, so they never appear in the config, S3, the job definition, ClearML or
+    logs. With ``boto_session`` the secret's existence is checked first.
+
+    With ``clearml_secret=''`` the legacy path copies the credentials into
+    ``sagemaker.environment`` (job env vars; the uploaded config and every
+    logged copy are still redacted). Precedence: values already there, then the
+    submitter's ``CLEARML_*`` env vars, then ``clearml.conf``. Returns the
     names forwarded. No-op when clearml is disabled.
     """
     if not config.clearml.enabled:
         return {}
     env = config.sagemaker.environment
+    secret = config.sagemaker.clearml_secret
+    if secret:
+        from labram.utils.secrets import CLEARML_SECRET_ENV, secret_exists
+        if boto_session is not None and not secret_exists(secret, boto_session):
+            raise SystemExit(
+                f"clearml.enabled but the Secrets Manager secret {secret!r} does not exist. "
+                f"Create it from this machine's clearml.conf with:\n"
+                f"  python -m labram.aws.clearml_secret put --name {secret}")
+        leaked = [n for n in CLEARML_REQUIRED_ENV_VARS if n in env and n != 'CLEARML_API_HOST']
+        if leaked:
+            logger.warning("Ignoring %s in sagemaker.environment: credentials come from the "
+                           "secret %r", leaked, secret)
+            for n in leaked:
+                env.pop(n)
+        env[CLEARML_SECRET_ENV] = secret
+        logger.info("ClearML credentials: job reads Secrets Manager secret %r", secret)
+        return {CLEARML_SECRET_ENV: secret}
+    logger.warning("sagemaker.clearml_secret is empty: ClearML credentials are passed as job "
+                   "environment variables and are visible in the SageMaker job definition")
     from_conf = clearml_conf_credentials()
     forwarded = {}
     for name in CLEARML_ENV_VARS:
@@ -617,6 +645,33 @@ def channel_input_modes(input_mode: str,
     return {channel: 'File' for channel in sorted(channels)}
 
 
+CHECKPOINT_PREFIX = "labram/checkpoints"
+
+
+def resolve_checkpoint_uri(sm, base_job_name: str, region: str = "",
+                           stamp: Optional[str] = None) -> str:
+    """S3 prefix for a job's checkpoints, '' when checkpointing is off.
+
+    ``sagemaker.checkpoint_s3_uri``: ``auto`` checkpoints spot jobs only, under
+    ``s3://sagemaker-<region>-<account>/labram/checkpoints`` (the account comes
+    from the role ARN); ``off`` never; any other value is the prefix. The job's
+    folder is ``<base_job_name>-<UTC time>`` so every submission (and every CV
+    fold, whose base name carries the fold) gets its own, and a spot restart of
+    the same job finds its checkpoints again."""
+    value = (sm.checkpoint_s3_uri or "").strip()
+    if value.lower() in ("", "off", "none", "false"):
+        return ""
+    if value == "auto":
+        if not sm.use_spot:
+            return ""
+        account = role_account(sm.role or "")
+        if not account or not region:
+            return ""
+        value = f"s3://sagemaker-{region}-{account}/{CHECKPOINT_PREFIX}"
+    stamp = stamp or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
+    return f"{value.rstrip('/')}/{base_job_name}-{stamp}/"
+
+
 def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
                    phase: str = 'finetune',
                    extra_inputs: Optional[Dict[str, str]] = None,
@@ -633,6 +688,12 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
     modes = channel_input_modes(sm.input_mode, object_channels)
     # Only channels this job actually has.
     modes = {c: m for c, m in modes.items() if c in inputs}
+    base_job_name = fold_job_name(sm.job_name_prefix, fold)
+    region = sm.region or _default_region()
+    checkpoint_uri = resolve_checkpoint_uri(sm, base_job_name, region)
+    environment = dict(sm.environment)
+    if checkpoint_uri:
+        environment[CHECKPOINT_ENV] = "1"
     return SageMakerJobSpec(
         entry_point=sm.entry_point,
         source_dir=source_dir or sm.source_dir or '.',
@@ -647,7 +708,7 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
         py_version=sm.py_version,
         image_uri=sm.image_uri,
         hyperparameters={**sm.hyperparameters, **build_hyperparameters(config_uri, fold, phase)},
-        environment=dict(sm.environment),
+        environment=environment,
         tags=tags,
         inputs=inputs,
         input_mode=validate_input_mode(sm.input_mode),
@@ -655,8 +716,17 @@ def build_job_spec(config: RunConfig, config_uri: str, fold: Optional[int],
         output_path=sm.output_path,
         code_location=sm.code_location,
         output_kms_key=sm.output_kms_key,
-        base_job_name=fold_job_name(sm.job_name_prefix, fold),
+        base_job_name=base_job_name,
+        checkpoint_s3_uri=checkpoint_uri,
     )
+
+
+def _default_region() -> str:
+    try:
+        import boto3
+        return boto3.session.Session().region_name or ""
+    except Exception:
+        return ""
 
 
 @dataclass
@@ -738,7 +808,7 @@ def upload_run_config(launcher: SageMakerLauncher, config: RunConfig,
     sm = config.sagemaker
     with tempfile.TemporaryDirectory() as tmp:
         local = os.path.join(tmp, 'run_config.yaml')
-        config.save_to(local)
+        redacted_copy(config).save_to(local)   # credentials never go to S3
         key_prefix = sanitize_job_name(sm.job_name_prefix) + '/config'
         uri = _upload_data(session, local, key_prefix, source_upload_extra_args(config))
     logger.info("Uploaded run config -> %s", uri)
@@ -1004,13 +1074,12 @@ def submit(config: RunConfig, dry_run: bool = False, phase: str = 'finetune',
                         p.spec.channel_input_modes)
         return plans
 
-    # Make ClearML credentials available in-container before the config/env is
-    # packaged, so clearml.enabled runs can log from inside SageMaker.
-    forward_clearml_env(config)
-
     profile = resolve_aws_profile(config)
     launcher = SageMakerLauncher(region=sm.region or None, default_role=sm.role,
                                  profile=profile or None)
+    # Make ClearML credentials available in-container before the config/env is
+    # packaged, so clearml.enabled runs can log from inside SageMaker.
+    forward_clearml_env(config, getattr(launcher._get_session(), 'boto_session', None))
     # Fail fast with an actionable message if no usable execution role.
     role = launcher.resolve_role(sm.role)
     logger.info("SageMaker execution role: %s", role)

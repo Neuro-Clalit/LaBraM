@@ -51,7 +51,7 @@ python -m labram.runs.submit_sagemaker \
         sagemaker.max_wait_min=1500 sagemaker.wait=true \
         sagemaker.job_name_prefix=labram-abnormal \
         data.dataset=TUAB \
-        data.data_path=s3://<bucket>/TUH_Abnormal/v3.0.0/edf/processed/ \
+        data.data_path=s3://<bucket>/TUH_EEG/tuab/v3.0.1/edf/processed_npy/ \
         output.output_dir= output.log_dir= \
         clearml.enabled=true clearml.project_name=eeg/abnormal \
         clearml.task_name=finetune_tuab_abnormal \
@@ -147,6 +147,20 @@ python -m labram.runs.submit_sagemaker --phase finetune \
         sagemaker.max_wait_min=1800 sagemaker.on_demand_fallback=true
 ```
 
+**Spot interruptions resume, they do not restart.** With
+`sagemaker.checkpoint_s3_uri=auto` (the default), every spot job gets an S3
+checkpoint folder, `s3://sagemaker-<region>-<account>/labram/checkpoints/<job>-<UTC time>/`
+(one per submission and per CV fold), which SageMaker keeps in sync with
+`/opt/ml/checkpoints` in the container and restores there when it restarts an
+interrupted job. The entry point then trains into that folder with
+`output.auto_resume=true`: the run continues after the last saved epoch, and
+`train_state.json` carries the best-epoch bookkeeping across the restart, so
+model selection still covers every epoch. At the end the folder is copied into
+the model dir, so `model.tar.gz` keeps its usual layout. An interruption costs at
+most the epoch in progress plus the data download. `checkpoint_s3_uri=off`
+disables it; any other value is an S3 prefix to use instead; on-demand jobs are
+not checkpointed unless a prefix is given.
+
 With `on_demand_fallback=true`, a `MaxWaitTimeExceeded` spot result submits the
 same job again on-demand. It cannot work with `--detach`, because the local
 submitter must wait long enough to observe the spot result. This fallback only
@@ -169,10 +183,10 @@ python -m labram.runs.submit_sagemaker \
   --set sagemaker.enabled=true \
         sagemaker.role=arn:aws:iam::574441342949:role/SageMakerExecutionRole \
         sagemaker.instance_type=ml.g5.2xlarge \
-        sagemaker.input_mode=FastFile sagemaker.use_spot=true \
+        sagemaker.input_mode=File sagemaker.use_spot=true \
         sagemaker.max_wait_min=1530 sagemaker.on_demand_fallback=true \
         sagemaker.job_name_prefix=labram-brain-age sagemaker.wait=true \
-        data.data_path=s3://eeg-data-public/TUH_Abnormal/v3.0.0/edf/processed/ \
+        data.data_path=s3://eeg-data-public/TUH_EEG/tuab/v3.0.1/edf/processed_npy/ \
         output.output_dir= output.log_dir= \
         clearml.enabled=true clearml.project_name=eeg/brain_age \
         clearml.task_name=finetune_tuab_age
@@ -427,7 +441,10 @@ estimator gets an `s3://` `source_dir` and skips its KMS upload), so a plain
 these ways:
 
 - **Submit with MFA-backed credentials** — assume a role / get session-token
-  credentials that satisfy the MFA condition, then submit.
+  credentials that satisfy the MFA condition, then submit. On the project's EC2
+  machines this is `aws-mfa-session` followed by `AWS_PROFILE=mfa` (machine-level
+  tooling from [gugas81/common](https://github.com/gugas81/common), `machine/`;
+  LaBraM itself contains no MFA code).
 - **Use a key you are allowed to use** — `--set sagemaker.output_kms_key=arn:aws:kms:…:key/…`.
   It is applied to *all* the submission's S3 writes (code, config, weights, and
   the job's model output).
@@ -586,15 +603,34 @@ raised explicitly (`--set sagemaker.max_run_sec=345600` for 4 days). With
 
 ClearML logging works inside the job: `clearml` is in `requirements.txt`, and the
 per-fold tasks group under `‹project›/‹experiment›` exactly as for a local run.
-It only needs credentials in the container. When `clearml.enabled` is set, the
-submit CLI **forwards the submitter's ClearML credentials**
-(`CLEARML_API_ACCESS_KEY`, `CLEARML_API_SECRET_KEY`, `CLEARML_API_HOST`,
-`CLEARML_WEB_HOST`, `CLEARML_FILES_HOST`) into the job's environment, resolving
-each from — in order — an explicit `sagemaker.environment` entry, the matching
-environment variable, then the local **`clearml.conf`** (which is where
-`clearml-init` puts them, so the common setup needs no extra work). If the
-access key, secret key and API host still cannot be resolved the CLI warns
-before submitting, because the job would otherwise fail to report. The
+It only needs credentials in the container, and they must never travel inside
+the run config: the config is uploaded to S3, recorded on the ClearML task and
+printed to the job log.
+
+**Credentials come from AWS Secrets Manager.** Store this machine's ClearML
+credentials once (re-run after rotating the key; needs an MFA session where the
+account enforces MFA for KMS):
+
+```bash
+python -m labram.aws.clearml_secret put      # secret labram/clearml, from clearml.conf
+python -m labram.aws.clearml_secret check    # lists the stored keys, never values
+```
+
+The submitter then puts only the secret's name in the job environment
+(`LABRAM_CLEARML_SECRET=labram/clearml`, from `sagemaker.clearml_secret`) and
+refuses to submit if the secret does not exist; `sagemaker_entry.py` reads it
+with the execution role (inline policy `labram-clearml-secret-read`:
+`secretsmanager:GetSecretValue` on `labram/clearml-*`) and exports the
+`CLEARML_*` variables before ClearML starts. `sagemaker.clearml_secret=''`
+restores the old behaviour of passing the credentials as job environment
+variables, which are visible in the SageMaker job definition.
+
+As a safety net, every copy of a config that leaves the process -- the saved
+`run_config.yaml`, the S3 upload, the ClearML hyperparameters and configuration,
+the console log -- is passed through `labram/utils/secrets.py::redacted_copy`,
+which masks values under credential-looking keys (`SECRET`, `PASSWORD`,
+`TOKEN`, `*_KEY`, ...) as `***`; the command line ClearML records as the task's
+entry point is masked the same way. The
 fold-number parsing in `cv_report` tolerates the `append_timestamp` task-name
 suffix.
 
