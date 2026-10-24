@@ -292,3 +292,10 @@ def test_removal_reasons_first_failing_rule(tmp_path):
     assert tot["over the per-patient cap"] == 1                      # r2: passes every rule, not selected
     assert tot["channels other than the allowed ones missing"] == 1  # r3 lacks A1
     assert tot["EDF unreadable (not converted)"] == 1                # r4 (>= 60 s, not converted)
+
+
+def test_split_sizes_counts_recordings_not_windows(tmp_path):
+    p = tmp_path / "age_split.json"
+    p.write_text('{"files": {"train": ["train/a_s001_t000_0.pkl", "train/a_s001_t000_1.pkl", "train/b_s001_t000_0.pkl"],'
+                 ' "val": ["val/c_s001_t000_3.pkl"]}}')
+    assert rs.split_sizes(str(p)) == {"train": 2, "val": 1, "test": 0}

@@ -1143,3 +1143,13 @@ def removal_reasons(t: pd.DataFrame, converted: Iterable[str], cohort: pd.DataFr
     kept = res.loc["selected", (slice(None), "recordings")]
     assert (removed + kept == res.loc["raw", (slice(None), "recordings")]).all()
     return res
+
+
+def split_sizes(age_split_json: str) -> Dict[str, int]:
+    """Recordings per split (train / val / test) of a dataset's
+    ``age_split.json``, whose entries are window files
+    ``<split>/<recording stem>_<k>.pkl``."""
+    with open(age_split_json) as f:
+        files = json.load(f)["files"]
+    return {s: len({os.path.basename(x).rsplit("_", 1)[0] for x in files.get(s, [])})
+            for s in ("train", "val", "test")}
