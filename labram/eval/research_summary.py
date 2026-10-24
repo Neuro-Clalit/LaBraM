@@ -277,6 +277,35 @@ PHASE1_LOSS: Dict[str, str] = {
 }
 
 
+# Phase-1 runs whose head reads something other than the mean patch token.
+PHASE1_FEATURE_SPACE = {"D-cls": "cls_token", "D-clsmean": "patch_tokens + cls_token",
+                        "N2L": "cls_attention (class token attends to all tokens)",
+                        "LC1": "patch_tokens + status_label"}
+
+
+def feature_space(name: str) -> str:
+    """What the age head reads (Eq. (2.13)): ``patch_tokens`` (mean over the
+    final patch tokens, the default) or ``cls_token`` (the class token,
+    ``model.use_mean_pooling=false``), plus ``path_label`` when the head also
+    receives the recording's status + pathology vector (``conditions_v1.npz``,
+    ``model.session_features=head``) or ``feat_tokens`` when handcrafted
+    features enter as extra tokens; ``features only (no EEG)`` for a run that
+    reads no EEG. Runs outside :data:`EXPERIMENTS` (phase 1) are
+    ``patch_tokens``."""
+    if name in PHASE1_FEATURE_SPACE:
+        return PHASE1_FEATURE_SPACE[name]
+    exp = EXPERIMENTS.get(name)
+    extra = " ".join(exp.extra) if exp else ""
+    if "model.session_features=only" in extra:
+        return "features only (no EEG)"
+    base = "cls_token" if "model.use_mean_pooling=false" in extra else "patch_tokens"
+    if exp is not None and exp.conditions:
+        return base + " + path_label"
+    if "model.session_features=tokens" in extra:
+        return base + " + feat_tokens"
+    return base
+
+
 def run_loss(run: str) -> str:
     """The training loss of a run as a :data:`LOSSES` label: phase 1 from
     :data:`PHASE1_LOSS`, phase 2 / CV from its overrides (every one is M1,
@@ -946,12 +975,92 @@ def recalibrated_test(sets: pd.DataFrame,
         fit = g[g.set.isin(fit_on)]
         if fit_status is not None:
             fit = fit[fit.status.isin(fit_status)]
-        a, b = np.polyfit(fit.pred, fit.true, 1)
+        a, b = recalibration_fit(fit.pred, fit.true)
         t = g[g.set == PREDICTION_SETS[0]].copy()
         t["pred"] = a * t.pred + b
         t["err"] = t.pred - t.true
         out.append(t)
     return pd.concat(out, ignore_index=True)
+
+
+def recalibration_fit(pred, true) -> Tuple[float, float]:
+    """``(a, b)`` of Eq. (3.11): the least-squares line ``true ~ a * pred + b``."""
+    a, b = np.polyfit(np.asarray(pred, float), np.asarray(true, float), 1)
+    return float(a), float(b)
+
+
+def split_run_calibration(preds: pd.DataFrame, fit_status: Sequence[str] = ("normal",)) -> pd.DataFrame:
+    """Eq. (3.11) for single-split runs, which have no out-of-fold predictions:
+    per run, fit ``true ~ a * pred + b`` on the run's own **val** recordings of
+    ``fit_status`` and apply it to its **test** predictions alone.
+
+    ``preds`` holds per-recording predictions (``scripts/eval_runs.py``
+    ``predictions.csv.gz``: ``run``, ``split``, ``recording``, ``pred``,
+    ``true``, ``cohort``). Per run: the fit set's size, ``a``, ``b``, how many
+    fit recordings / patients are also test recordings / patients (both must be
+    0; the patient is the recording name's first field), the raw and calibrated
+    val and test MAE (all / normal / abnormal) and the raw test MAE."""
+    rows = []
+    for run, g in preds.groupby("run", sort=False):
+        val, test = g[g.split == "val"], g[g.split == "test"]
+        fit = val[val.cohort.isin(fit_status)]
+        a, b = recalibration_fit(fit.pred, fit.true)
+        pat = lambda d: set(d.recording.str.split("_").str[0])   # noqa: E731
+        r = {"run": run, "fit recordings": len(fit), "a": a, "b": b,
+             "fit ∩ test recordings": len(set(fit.recording) & set(test.recording)),
+             "fit ∩ test patients": len(pat(fit) & pat(test))}
+        cal = a * test.pred + b
+        for st in ("all", "normal", "abnormal"):
+            m = np.ones(len(test), bool) if st == "all" else (test.cohort == st).to_numpy()
+            r[f"test {st}"] = float(np.mean(np.abs(test.pred[m] - test.true[m])))
+            r[f"cal. {st}"] = float(np.mean(np.abs(cal[m] - test.true[m])))
+        r["val"] = float(np.mean(np.abs(val.pred - val.true)))
+        rows.append(r)
+    return pd.DataFrame(rows)
+
+
+# Short column names of the NEDC diagnosis groups of the condition vector
+# (dataset_maker/make_condition_features.py::PATHOLOGY), in that order.
+PATHOLOGY_SHORT = {"clinical_seizure": "cl. seiz.", "electrographic_seizure": "el. seiz.", "epilepsy": "epil.",
+                   "stroke": "stroke", "tbi": "TBI", "substance": "subst.", "bipolar": "bipol.",
+                   "anxiety": "anx.", "depression": "depr.", "schizophrenia": "schiz.", "dementia": "dement.",
+                   "ms": "MS", "other": "other"}
+
+
+def tueg_pathology_mae(preds: pd.DataFrame, recordings: pd.DataFrame, min_n: int = 1) -> pd.DataFrame:
+    """MAE (Eq. (0.1)) per run on its held-out **TUEG** recordings (not in
+    TUAB), by status and by NEDC diagnosis group.
+
+    ``preds``: ``run``, ``stem``, ``pred``, ``true`` -- one row per run and
+    recording the run never trained on (a single-split run's val split, a CV
+    experiment's out-of-fold predictions). ``recordings``:
+    :func:`tueg_recordings` (``corpora``, ``status``, ``in_sheet`` and the
+    ``dx_*`` flags). A group is the union of its NEDC flags
+    (``make_condition_features.PATHOLOGY``); groups overlap (multi-hot).
+    Returns one row per run x group with ``n`` and ``MAE``; groups with fewer
+    than ``min_n`` recordings get MAE NaN."""
+    from dataset_maker.make_condition_features import PATHOLOGY
+    info = recordings.drop_duplicates("stem").set_index("stem")
+    d = preds.merge(info, left_on="stem", right_index=True, how="left")
+    d = d[~d.corpora.fillna("").str.split(",").map(lambda cs: "tuab" in cs)]
+    d["ae"] = (d.pred - d.true).abs()
+    groups = {"TUEG all": np.ones(len(d), bool), "TUEG normal": (d.status == "normal").to_numpy(),
+              "TUEG abnormal": (d.status == "abnormal").to_numpy()}
+    for key, cols in PATHOLOGY.items():
+        if key in PATHOLOGY_SHORT:
+            flag = np.zeros(len(d), bool)
+            for col in cols:
+                flag |= d[col].fillna(False).astype(bool).to_numpy() & d.in_sheet.fillna(False).to_numpy()
+            groups[PATHOLOGY_SHORT[key]] = flag
+    rows = []
+    for run, idx in d.groupby("run", sort=False).groups.items():
+        g = d.loc[idx]
+        for name, mask in groups.items():
+            m = mask[d.index.get_indexer(idx)]
+            n = int(m.sum())
+            rows.append({"run": run, "group": name, "n": n,
+                         "MAE": float(g.ae[m].mean()) if n >= min_n else float("nan")})
+    return pd.DataFrame(rows)
 
 
 def correction_leak_check(sets: pd.DataFrame, methods: Dict[str, Callable[[pd.DataFrame], pd.DataFrame]],

@@ -5,8 +5,9 @@ For every run of ``--manifest`` (a JSON list of ``{"name", "model"}``, where
 ``model`` is a SageMaker ``model.tar.gz`` on S3, a local tarball or a run
 directory), fetch the run, rebuild its model and data from its own
 ``run_config.yaml`` (``scripts/eval_age_by_cohort.py::evaluate_run``) on
-``--data-path`` and score ``checkpoint-best.pth`` on the train, val and test
-splits. Writes to ``--out-dir``:
+``--data-path`` (or the entry's own ``"data_path"``) and score
+``checkpoint-best.pth`` on the train, val and test splits (``--splits``).
+Writes to ``--out-dir``:
 
 * ``metrics.csv``: per run x split x cohort (all / normal / abnormal):
   recordings, MAE, RMSE, R², Pearson r (recording level: the mean of each
@@ -103,8 +104,9 @@ def eval_budget(data: dict):
     return keep
 
 
-def score_run(name: str, run_dir: str, args, device) -> tuple:
-    res = evaluate_run(run_dir, args.data_path, "checkpoint-best.pth", SPLITS, device, args.batch_size,
+def score_run(name: str, run_dir: str, args, device, data_path: str) -> tuple:
+    splits = tuple(args.splits)
+    res = evaluate_run(run_dir, data_path, "checkpoint-best.pth", splits, device, args.batch_size,
                        args.data_format, return_windows=True, tokenizer_weight=args.tokenizer_weight,
                        stage_dir="none", num_workers=args.num_workers)
     rows, preds = [], []
@@ -114,7 +116,7 @@ def score_run(name: str, run_dir: str, args, device) -> tuple:
         with open(split_json) as f:
             recorded = json.load(f)
     budget = eval_budget(res["data"])
-    for split in SPLITS:
+    for split in splits:
         w = res["splits"][split]["windows"]
         views = [(split, per_recording(w))]
         if split == "train":
@@ -127,7 +129,7 @@ def score_run(name: str, run_dir: str, args, device) -> tuple:
             if view == split:
                 preds.append(r.reset_index().assign(run=name, split=split))
     checks = []
-    for split in SPLITS:
+    for split in splits:
         got = set(res["splits"][split]["predictions"])
         want = set(recorded.get(split, {}).get("recordings", [])) if recorded else set()
         checks.append({"run": name, "split": split, "recordings eval": len(got),
@@ -141,7 +143,10 @@ def score_run(name: str, run_dir: str, args, device) -> tuple:
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--manifest", required=True, help="JSON list of {name, model}")
-    ap.add_argument("--data-path", required=True)
+    ap.add_argument("--data-path", default=None,
+                    help="data root; a manifest entry's own \"data_path\" overrides it")
+    ap.add_argument("--splits", nargs="+", default=list(SPLITS), choices=SPLITS,
+                    help="splits to score (train is the slow one)")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--data-format", choices=["pickle", "npy"], default="npy")
     ap.add_argument("--batch-size", type=int, default=256)
@@ -178,7 +183,10 @@ def main(argv=None):
         t0 = time.time()
         with tempfile.TemporaryDirectory(prefix="eval_runs_", dir=args.work_dir) as tmp:
             try:
-                rows, checks, preds = score_run(m["name"], fetch_run(m["model"], tmp), args, device)
+                data_path = m.get("data_path") or args.data_path
+                if not data_path:
+                    raise ValueError("no data path: pass --data-path or set the entry's data_path")
+                rows, checks, preds = score_run(m["name"], fetch_run(m["model"], tmp), args, device, data_path)
             except Exception as exc:          # one broken run must not stop the others
                 print(f"[error] {m['name']}: {type(exc).__name__}: {exc}", flush=True)
                 acc["checks"].append(pd.DataFrame([{"run": m["name"], "split": "ERROR", "identical": False,
@@ -193,11 +201,10 @@ def main(argv=None):
         acc["preds"].append(preds)
         for k, p in paths.items():
             pd.concat(acc[k], ignore_index=True).to_csv(p, index=False)
-        test = [r for r in rows if r["split"] == "test" and r["cohort"] == "all"][0]
-        train = [r for r in rows if r["split"] == "train" and r["cohort"] == "all"][0]
         ok = all(c["identical"] for c in checks if c["identical"] == c["identical"])
-        print(f"[done] {m['name']:10s} {time.time() - t0:6.0f} s  train MAE {train['MAE']:.2f}  "
-              f"test MAE {test['MAE']:.2f}  split identical: {ok}", flush=True)
+        mae = "  ".join(f"{r['split']} MAE {r['MAE']:.2f}" for r in rows
+                        if r["cohort"] == "all" and r["split"] in ("train", "val", "test"))
+        print(f"[done] {m['name']:10s} {time.time() - t0:6.0f} s  {mae}  split identical: {ok}", flush=True)
 
 
 if __name__ == "__main__":

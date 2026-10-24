@@ -385,3 +385,45 @@ def test_correction_leak_check_flags_only_the_gap_correction():
     assert c.loc["gap", "uses TUAB test true age"] == "yes" and c.loc["gap", "max change (years)"] > 0
     assert (c.loc[["cole", "recal"], "uses TUAB test true age"] == "no").all()
     assert (c[["fit ∩ test recordings", "fit ∩ test patients"]] == 0).all().all()
+
+
+def test_split_run_calibration_fits_on_val_normal_only():
+    rec = lambda p, i: f"{p}{i:03d}_s001_t000"                     # patient = first field
+    rows = []
+    for i, y in enumerate(np.arange(20.0, 80.0, 5.0)):               # val: pred = 0.5 y + 25 (normal)
+        rows.append({"run": "r", "split": "val", "recording": rec("v", i), "true": y, "pred": 0.5 * y + 25,
+                     "cohort": "normal"})
+    rows.append({"run": "r", "split": "val", "recording": rec("w", 0), "true": 50.0, "pred": 90.0,
+                 "cohort": "abnormal"})                              # not in the normal fit
+    for i, y in enumerate((30.0, 60.0)):
+        rows.append({"run": "r", "split": "test", "recording": rec("t", i), "true": y, "pred": 0.5 * y + 25,
+                     "cohort": "normal"})
+    c = rs.split_run_calibration(pd.DataFrame(rows)).set_index("run").loc["r"]
+    assert c["a"] == pytest.approx(2.0) and c["b"] == pytest.approx(-50.0)
+    assert c["cal. all"] == pytest.approx(0.0, abs=1e-9) and c["test all"] > 0
+    assert c["fit recordings"] == 12 and c["fit ∩ test patients"] == 0
+
+
+def test_feature_space_labels():
+    assert rs.feature_space("D") == "patch_tokens" and rs.feature_space("D-cls") == "cls_token"
+    assert rs.feature_space("Exp3cond") == "patch_tokens + path_label"
+    assert rs.feature_space("Exp4aug") == "cls_token + path_label"
+    assert rs.feature_space("Exp1t") == "patch_tokens + feat_tokens"
+    assert rs.feature_space("Exp1f") == "features only (no EEG)"
+    assert rs.feature_space("cvbase") == "patch_tokens"
+
+
+def test_tueg_pathology_mae_skips_tuab_and_groups_flags():
+    from dataset_maker import tuh_clinical as tc
+    t = _tueg_frame().assign(in_sheet=[True, True, True, False], stem=["a1", "a2", "b1", "c1"],
+                             corpora=["tueg", "tueg,tuab", "tueg", "tueg"])
+    for col in tc.DIAGNOSES.values():
+        t[col] = False
+    t.loc[0, "dx_epilepsy"] = True
+    t.loc[2, ["dx_dementia", "dx_alzheimers"]] = True
+    p = pd.DataFrame({"run": "r", "stem": ["a1", "a2", "b1", "c1"], "pred": [32.0, 40.0, 60.0, 50.0],
+                      "true": [30.0, 32.0, 70.0, 45.0]})
+    m = rs.tueg_pathology_mae(p, t).set_index("group")
+    assert m.loc["TUEG all", "n"] == 3                         # a2 is a TUAB recording
+    assert m.loc["epil.", "MAE"] == pytest.approx(2.0) and m.loc["dement.", "MAE"] == pytest.approx(10.0)
+    assert m.loc["TUEG abnormal", "n"] == 1 and m.loc["TUEG normal", "MAE"] == pytest.approx(2.0)
