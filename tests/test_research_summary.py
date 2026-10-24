@@ -337,3 +337,30 @@ def test_phase1_short_list_merges_duplicates_and_seeds():
     r = reg.set_index("run")
     assert s.loc["MT1", "test"] == pytest.approx((r.loc["MT1", "test"] + r.loc["MT1-seed1", "test"]) / 2)
     assert s.loc["F2", "vs D"] == "worse" and s.loc["E2", "vs D"] == "n.s."
+
+
+def test_tueg_diagnoses_total_row_counts_every_sheet_recording():
+    from dataset_maker import tuh_clinical as tc
+    t = _tueg_frame().assign(in_sheet=[True, True, True, False])
+    for col in [*tc.DIAGNOSES.values(), "any_neuro_dx", "sedated"]:
+        t[col] = False
+    t.loc[0, ["dx_epilepsy", "dx_clinical_seizure", "any_neuro_dx"]] = True   # multi-hot
+    d = rs.tueg_diagnoses(t).set_index("flag")
+    total = d.iloc[-1]
+    assert d.index[-1].startswith("Total") and total.recordings == 3 and total.patients == 2
+    assert total.normal == 1 and total.abnormal == 2 and total["% of sheet"] == 100.0
+    assert d.loc["Epilepsy", "recordings"] == 1
+
+
+def test_reeval_short_list_merges_groups_and_checks_splits():
+    reg = rs.registry_master_table(REGISTRY)
+    m = pd.read_csv(os.path.join(ROOT, "docs", "data", "phase1_reeval_metrics.csv"))
+    c = pd.read_csv(os.path.join(ROOT, "docs", "data", "phase1_reeval_split_check.csv"))
+    s = rs.reeval_short_list(m, c, reg).set_index("config")
+    assert len(s) == len(reg) - 4 and (s["split = recorded"] == "✓").all()
+    assert s.loc["D", "runs"] == 3 and s.loc["MT1", "runs"] == 2
+    r = reg.set_index("run")
+    assert s.loc["E2", "test MAE"] == pytest.approx(r.loc["E2", "test"], abs=0.02)   # matches training-time eval
+    assert s.loc["D", "gap (test − train)"] == pytest.approx(s.loc["D", "test MAE"] - s.loc["D", "train MAE"])
+    c.loc[c.run == "E2", "identical"] = False
+    assert rs.reeval_short_list(m, c, reg).set_index("config").loc["E2", "split = recorded"] == "✗"

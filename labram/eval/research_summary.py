@@ -766,7 +766,13 @@ def tueg_diagnoses(t: pd.DataFrame) -> pd.DataFrame:
                      "normal": int((s.status[m] == "normal").sum()), "abnormal": int((s.status[m] == "abnormal").sum()),
                      "% of sheet": 100.0 * m.mean(), "age mean": s.age[m].mean(),
                      "% abnormal": 100.0 * (s.status[m] == "abnormal").mean()})
-    return pd.DataFrame(rows).sort_values("recordings", ascending=False)
+    out = pd.DataFrame(rows).sort_values("recordings", ascending=False)
+    # Total: every recording in the sheet, flagged or not. The flags are
+    # multi-hot, so the rows above do not add up to it.
+    total = {"flag": "Total (all sheet recordings)", "recordings": len(s), "patients": int(s.subject.nunique()),
+             "normal": int((s.status == "normal").sum()), "abnormal": int((s.status == "abnormal").sum()),
+             "% of sheet": 100.0, "age mean": s.age.mean(), "% abnormal": 100.0 * (s.status == "abnormal").mean()}
+    return pd.concat([out, pd.DataFrame([total])], ignore_index=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1274,4 +1280,40 @@ def phase1_short_list(reg: pd.DataFrame, tau: float) -> pd.DataFrame:
     d = out["Δ test"]
     out["vs D"] = np.where(d <= -tau, "better", np.where(d >= tau, "worse", "n.s."))
     out.loc[out.config == "D", "vs D"] = "reference"
+    return out
+
+
+def reeval_short_list(metrics: pd.DataFrame, checks: pd.DataFrame, reg: pd.DataFrame) -> pd.DataFrame:
+    """The eval-mode re-scoring of the phase-1 runs (``scripts/eval_runs.py``,
+    ``docs/data/phase1_reeval_*.csv``) as one row per configuration, merged like
+    :func:`phase1_short_list`: the runs of :data:`PHASE1_SAME_RESULT` and the seed
+    repeats of :data:`PHASE1_SEEDS` are averaged. Columns: MAE and R² on train
+    (the run's own 5-minute evaluation budget per recording), on train over all
+    windows (MAE), val and test, test MAE / R² on normal and abnormal recordings,
+    the generalization gap test − train, and whether every split of every
+    merged run matched its recorded ``data_split.json``."""
+    def val(run, split, cohort, col):
+        s = metrics[(metrics.run == run) & (metrics.split == split) & (metrics.cohort == cohort)]
+        return float(s[col].iloc[0]) if len(s) else np.nan
+
+    rows, used = [], set()
+    for run in reg.run:
+        if run in used:
+            continue
+        group = [run, *PHASE1_SAME_RESULT.get(run, ()), *PHASE1_SEEDS.get(run, ())]
+        used.update(group)
+        mean = lambda *a: float(np.nanmean([val(g, *a) for g in group]))   # noqa: E731
+        rows.append({
+            "config": run, "family": reg.set_index("run").loc[run, "family"],
+            "train MAE": mean("train_eval_budget", "all", "MAE"), "train R²": mean("train_eval_budget", "all", "R2"),
+            "train MAE (all windows)": mean("train", "all", "MAE"),
+            "val MAE": mean("val", "all", "MAE"), "val R²": mean("val", "all", "R2"),
+            "test MAE": mean("test", "all", "MAE"), "test R²": mean("test", "all", "R2"),
+            "test Norm MAE": mean("test", "normal", "MAE"), "test Norm R²": mean("test", "normal", "R2"),
+            "test Ab MAE": mean("test", "abnormal", "MAE"), "test Ab R²": mean("test", "abnormal", "R2"),
+            "split = recorded": "✓" if bool(checks[checks.run.isin(group)].identical.all())
+            and checks.run.isin(group).sum() == 3 * len(group) else "✗",
+            "runs": len(group)})
+    out = pd.DataFrame(rows)
+    out.insert(out.columns.get_loc("split = recorded"), "gap (test − train)", out["test MAE"] - out["train MAE"])
     return out

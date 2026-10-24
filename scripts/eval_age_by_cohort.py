@@ -147,6 +147,10 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
         crit = build_downstream_criterion("regression", cfg.model.nb_classes, cfg.loss,
                                           target_stats=bundle.target_stats)
         to_scalar = lambda out: regression_output(crit, out)   # noqa: E731
+    elif cfg.model.head_type == "multitask":
+        # The head emits [age, abnormal logit]; age metrics score the age column
+        # (losses/regression.py::MultiTaskAgeCriterion.predict).
+        to_scalar = lambda out: out[..., :1]   # noqa: E731
     model = get_model(cfg)
     state = torch.load(os.path.join(run_dir, checkpoint), map_location="cpu", weights_only=False)
     # A run that selected its best epoch on the EMA weights is scored with them.
