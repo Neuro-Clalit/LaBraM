@@ -277,3 +277,18 @@ def test_raw_summary_rows_and_selection():
     assert (total["selected recordings"], total.removed, total["T1/T2 missing (selected)"]) == (2, 2, 1)
     tueg_all = r[(r.part == "TUEG (not in TUAB)") & (r.status == "all")].iloc[0]
     assert tueg_all.recordings == 2
+
+
+def test_removal_reasons_first_failing_rule(tmp_path):
+    t = _tueg_frame().assign(stem=["r1", "r2", "r3", "r4"], corpora=["tuab,tueg", "tuab,tueg", "tueg", "tueg"],
+                             source_split=["train", "eval", None, None])
+    split = tmp_path / "age_split.json"
+    split.write_text('{"files": {"train": ["train/a_s1_t0_0.pkl"], "test": ["test/b_s1_t0_0.pkl"]}}')
+    manifest = {"cohort": {"min_age": 18, "max_age": 89, "min_minutes": 5.0, "allow_missing": ["T1", "T2"]}}
+    r = rs.removal_reasons(t, converted=["r1", "r2", "r3"], cohort=pd.DataFrame({"stem": ["r1"]}),
+                           cohort_manifest=manifest, tuab_split_json=str(split))
+    tot = r[("TOTAL", "recordings")]
+    assert tot["selected"] == 1 and tot["raw"] == 4
+    assert tot["over the per-patient cap"] == 1                      # r2: passes every rule, not selected
+    assert tot["channels other than the allowed ones missing"] == 1  # r3 lacks A1
+    assert tot["EDF unreadable (not converted)"] == 1                # r4 (>= 60 s, not converted)

@@ -1080,3 +1080,66 @@ def raw_summary(t: pd.DataFrame, converted: Iterable[str], cohort: pd.DataFrame)
         rows.append(row(part, "all", d))
     rows.append(row("TOTAL", "", t))
     return pd.DataFrame(rows)
+
+
+REMOVAL_REASONS = (
+    "EDF shorter than 60 s (not converted)",
+    "EDF unreadable (not converted)",
+    "age unknown (missing, or 90+ redacted)",
+    "age outside the cohort's range",
+    "recording shorter than the minimum length",
+    "channels other than the allowed ones missing",
+    "patient is in the TUAB test set",
+    "over the per-patient cap",
+)
+
+
+def removal_reasons(t: pd.DataFrame, converted: Iterable[str], cohort: pd.DataFrame, cohort_manifest: dict,
+                    tuab_split_json: str) -> pd.DataFrame:
+    """Why each raw recording is not in ``cohort``: every recording counts once,
+    under the first rule of :data:`REMOVAL_REASONS` it fails, in the order
+    ``dataset_maker/make_cohort_dataset.py`` applies them (thresholds from
+    ``cohort_manifest["cohort"]``). A dropped recording that passes every rule
+    was dropped by the per-patient cap. Rows: the reasons, ``selected`` and
+    ``raw``; columns: recordings and patients for TUAB train, TUAB eval (test),
+    TUEG (not in TUAB) and the total. The removed counts match
+    :func:`raw_summary`."""
+    from dataset_maker import make_cohort_dataset as mcd
+    c = cohort_manifest["cohort"]
+    converted, selected = set(converted), set(cohort.stem)
+    allowed = {x.upper() for x in c.get("allow_missing") or []}
+    test_patients = {s for s, v in mcd.tuab_subject_split(tuab_split_json).items() if v == "test"}
+
+    def reason(r):
+        if r.stem in selected:
+            return "selected"
+        if r.stem not in converted:
+            return REMOVAL_REASONS[0] if r.duration_sec < 60 else REMOVAL_REASONS[1]
+        if pd.isna(r.age):
+            return REMOVAL_REASONS[2]
+        if not c["min_age"] <= r.age <= c["max_age"]:
+            return REMOVAL_REASONS[3]
+        if r.duration_sec < 60 * c["min_minutes"]:
+            return REMOVAL_REASONS[4]
+        if not {x.upper() for x in r.missing_channels} <= allowed:
+            return REMOVAL_REASONS[5]
+        if r.subject in test_patients:
+            return REMOVAL_REASONS[6]
+        return REMOVAL_REASONS[7]
+
+    why = t.apply(reason, axis=1)
+    corp = t.corpora.str.split(",").map(lambda cs: "tuab" in cs)
+    parts = {"TUAB train": corp & (t.source_split == "train"), "TUAB eval (test)": corp & (t.source_split == "eval"),
+             "TUEG (not in TUAB)": ~corp, "TOTAL": pd.Series(True, index=t.index)}
+    order = list(REMOVAL_REASONS) + ["selected", "raw"]
+    out = {}
+    for part, m in parts.items():
+        d = t[m].assign(why=why[m])
+        g = d.groupby("why").agg(recordings=("stem", "size"), patients=("subject", "nunique"))
+        g.loc["raw"] = [len(d), d.subject.nunique()]
+        out[part] = g.reindex(order).fillna(0).astype(int)
+    res = pd.concat(out, axis=1).rename_axis("reason")
+    removed = res.loc[list(REMOVAL_REASONS), (slice(None), "recordings")].sum()
+    kept = res.loc["selected", (slice(None), "recordings")]
+    assert (removed + kept == res.loc["raw", (slice(None), "recordings")]).all()
+    return res
