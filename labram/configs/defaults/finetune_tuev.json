@@ -368,6 +368,7 @@
         "prob": 0.2,
         "consistency_weight": 1.0,
         "detach_full": true,
-        "eval_consistency": true
+        "eval_consistency": true,
+        "start_epoch": 0
     }
 }

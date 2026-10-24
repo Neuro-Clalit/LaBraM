@@ -232,7 +232,10 @@ def train_one_epoch(
         consistency = None
 
         if dropper is not None:
-            drop_all = torch.rand(()).item() < dropper.cfg.prob
+            # The random drop starts at channel_drop.start_epoch (missing channels are
+            # always left out); the draw is skipped before it, so no batch is dropped.
+            drop_all = (epoch >= getattr(dropper.cfg, "start_epoch", 0)
+                        and torch.rand(()).item() < dropper.cfg.prob)
             if loss_scaler is None:
                 samples = samples.half()
             with torch.amp.autocast(device.type, enabled=(device.type == 'cuda'
