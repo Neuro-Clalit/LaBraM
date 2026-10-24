@@ -311,3 +311,17 @@ def test_flags_per_recording_is_multi_hot():
     f = rs.flags_per_recording(t)
     assert f.loc[2, "recordings"] == 1 and f.loc[1, "recordings"] == 1 and f.loc[0, "recordings"] == 1
     assert f.recordings.sum() == 3                                # only recordings in the sheet
+
+
+def test_flag_matrix_counts_shared_items():
+    from dataset_maker import tuh_clinical as tc
+    t = _tueg_frame().assign(in_sheet=[True, True, True, False])
+    for col in tc.DIAGNOSES.values():
+        t[col] = False
+    t.loc[0, ["dx_epilepsy", "dx_clinical_seizure"]] = True      # normal recording with two flags
+    t.loc[1, "dx_epilepsy"] = True                              # abnormal recording with epilepsy
+    m = rs.flag_matrix(t)
+    assert (m.values == m.values.T).all()
+    assert m.loc["epilepsy", "epilepsy"] == 2 and m.loc["epilepsy", "cl. seizure"] == 1
+    assert m.loc["epilepsy", "normal"] == 1 and m.loc["epilepsy", "abnormal"] == 1
+    assert m.loc["normal", "abnormal"] == 0

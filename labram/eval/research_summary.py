@@ -1183,3 +1183,26 @@ def flags_per_recording(t: pd.DataFrame) -> pd.DataFrame:
                         "abnormal": k[s.status == "abnormal"].value_counts()}).fillna(0).astype(int).sort_index()
     out["% of sheet"] = 100.0 * out.recordings / len(s)
     return out.rename_axis("diagnosis flags per recording")
+
+
+#: Short names of the clinical sheet's diagnosis flags, for matrix axes.
+FLAG_SHORT = {
+    "dx_electrographic_seizure": "el. seizure", "dx_clinical_seizure": "cl. seizure", "dx_stroke": "stroke",
+    "dx_epilepsy": "epilepsy", "dx_parkinsons": "Parkinson's", "dx_alzheimers": "Alzheimer's", "dx_tbi": "TBI",
+    "dx_schizophrenia": "schizophrenia", "dx_dementia": "dementia", "dx_substance": "substance",
+    "dx_anxiety": "anxiety", "dx_depression": "depression", "dx_bipolar": "bipolar", "dx_adhd": "ADHD",
+    "dx_ms": "MS",
+}
+
+
+def flag_matrix(t: pd.DataFrame) -> pd.DataFrame:
+    """Pairwise co-occurrence over the TUEG recordings in the clinical sheet:
+    entry (a, b) is the number of recordings that carry both a and b, for the
+    status (normal / abnormal, Eq. (1.2)) and the 15 diagnosis flags (most
+    frequent first). The diagonal is each item's total."""
+    s = t[t.in_sheet]
+    items = {"normal": s.status == "normal", "abnormal": s.status == "abnormal"}
+    flags = {FLAG_SHORT[c]: s[c].fillna(False).astype(bool) for c in FLAG_SHORT}
+    items.update(dict(sorted(flags.items(), key=lambda kv: -int(kv[1].sum()))))
+    x = pd.DataFrame(items).astype(int)
+    return x.T.dot(x)
