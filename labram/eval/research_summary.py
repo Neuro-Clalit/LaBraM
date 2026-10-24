@@ -906,3 +906,11 @@ def cole_corrected_test(sets: pd.DataFrame,
         t["err"] = t.pred - t.true
         out.append(t)
     return pd.concat(out, ignore_index=True)
+
+
+def display_name(name: str) -> str:
+    """A dataset / cohort name as the notebook shows it: the corpus names in
+    capitals (``normal_tueg_v1`` -> ``normal_TUEG_v1``,
+    ``tuab_v3.0.1_interp50-60`` -> ``TUAB_v3.0.1_interp50-60``). The directory
+    on disk keeps the lower-case name."""
+    return re.sub(r"(?<![A-Za-z])(tueg|tuab|tuh)(?![A-Za-z])", lambda m: m.group(1).upper(), name)

@@ -247,3 +247,9 @@ def test_bias_fit_check_and_deployable_correction():
     assert rs.bias_fit_check(leaky).iloc[0]["fit ∩ test recordings"] == 3   # a leak is detected
     c = rs.cole_corrected_test(d)                       # inverts pred = 0.6 y + 20 using the prediction only
     assert np.allclose(c.pred, c.true)
+
+
+def test_display_name_capitalizes_corpora_only():
+    assert rs.display_name("normal_tueg_v1") == "normal_TUEG_v1"
+    assert rs.display_name("tuab_v3.0.1_interp50-60") == "TUAB_v3.0.1_interp50-60"
+    assert rs.display_name("all_both_v3") == "all_both_v3"
