@@ -67,8 +67,7 @@ def main(argv=None):
     ap.add_argument("--set", nargs="*", default=[], dest="overrides")
     ap.add_argument("--data-uri", default=DATA_URI)
     ap.add_argument("--tokenizer-uri", default=TOKENIZER_URI)
-    ap.add_argument("--instance-type", default="ml.g5.4xlarge",
-                    help="g5.2xlarge (32 GB RAM) runs out of memory on the train split")
+    ap.add_argument("--instance-type", default="ml.g5.2xlarge")
     ap.add_argument("--volume-gb", type=int, default=200)
     ap.add_argument("--num-workers", type=int, default=4)
     ap.add_argument("--max-run-hours", type=float, default=8.0)

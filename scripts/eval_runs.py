@@ -146,6 +146,10 @@ def main(argv=None):
     ap.add_argument("--data-format", choices=["pickle", "npy"], default="npy")
     ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument("--num-workers", type=int, default=4, help="data-loader workers (memory)")
+    ap.add_argument("--mmap-cache", type=int, default=8,
+                    help="open recording memory maps per loader process. Scoring every training "
+                         "window touches whole recordings, and the default 256 per process exceeds "
+                         "a 32-64 GB SageMaker instance's memory limit; eval reads recordings in order")
     ap.add_argument("--work-dir", default=None,
                     help="where models are downloaded / extracted (default: the system temp dir, "
                          "outside --out-dir so a crash leaves no checkpoint in the outputs)")
@@ -164,6 +168,8 @@ def main(argv=None):
     old = {k: pd.read_csv(p) for k, p in paths.items() if os.path.exists(p)}
     done = set(old["metrics"].run) if args.skip_done and "metrics" in old else set()
     acc = {k: [old[k]] if k in old else [] for k in paths}
+    from labram.data.tuh_datasets import NpyWindowsMixin
+    NpyWindowsMixin.MMAP_CACHE = args.mmap_cache
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     for m in manifest:
         if m["name"] in done:
