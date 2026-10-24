@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import math
 import re
 from dataclasses import dataclass, field
@@ -914,3 +915,131 @@ def display_name(name: str) -> str:
     ``tuab_v3.0.1_interp50-60`` -> ``TUAB_v3.0.1_interp50-60``). The directory
     on disk keeps the lower-case name."""
     return re.sub(r"(?<![A-Za-z])(tueg|tuab|tuh)(?![A-Za-z])", lambda m: m.group(1).upper(), name)
+
+
+# ---------------------------------------------------------------------------
+# Raw corpora and the inclusion flow to the cohorts
+
+def _missing_kind(missing) -> str:
+    m = {c.upper() for c in missing}
+    return "all 23" if not m else ("only T1/T2 missing" if m <= {"T1", "T2"} else "other channels missing")
+
+
+def _counts(d: pd.DataFrame) -> Dict[str, object]:
+    kind = d.missing_channels.map(_missing_kind)
+    return {"recordings": len(d), "patients": d.subject.nunique(),
+            "normal": int((d.status == "normal").sum()), "abnormal": int((d.status == "abnormal").sum()),
+            "no label": int((d.status == "no label").sum()),
+            "all 23 channels": int((kind == "all 23").sum()),
+            "only T1/T2 missing": int((kind == "only T1/T2 missing").sum()),
+            "other channels missing": int((kind == "other channels missing").sum())}
+
+
+def raw_corpora(t: pd.DataFrame) -> pd.DataFrame:
+    """The two raw corpora the study draws from, per recording, from
+    :func:`tueg_recordings` (``status`` = Eq. (1.2)): TUAB (with its official
+    train / eval split) and TUEG (all, and without the TUAB recordings).
+    Columns: recordings, patients, hours, age known, normal / abnormal / no
+    label and channel completeness against the 23 model channels."""
+    corp = t.corpora.str.split(",")
+    tuab = corp.map(lambda cs: "tuab" in cs)
+    groups = [("TUAB", "all", tuab),
+              ("TUAB", "train split", tuab & (t.source_split == "train")),
+              ("TUAB", "eval split (test)", tuab & (t.source_split == "eval")),
+              ("TUEG", "all", pd.Series(True, index=t.index)),
+              ("TUEG", "also in TUAB", tuab),
+              ("TUEG", "not in TUAB", ~tuab)]
+    rows = []
+    for corpus, part, m in groups:
+        d = t[m]
+        rows.append({"corpus": corpus, "part": part, **_counts(d),
+                     "hours": d.duration_sec.sum() / 3600, "age known": int(d.age.notna().sum())})
+    cols = ["corpus", "part", "recordings", "patients", "hours", "age known", "normal", "abnormal", "no label",
+            "all 23 channels", "only T1/T2 missing", "other channels missing"]
+    return pd.DataFrame(rows)[cols]
+
+
+def cohort_flow(t: pd.DataFrame, cohort_manifest: dict, tuab_split_json: str) -> pd.DataFrame:
+    """The inclusion flow of one cohort built by ``dataset_maker/make_cohort_dataset.py``,
+    replayed step by step from its recorded parameters (``manifest["cohort"]``)
+    with the builder's own functions, on :func:`tueg_recordings` ``t``. Each
+    row is the set left after the step: :func:`_counts` and the recordings the
+    step removed. The last rows are the cohort's train + val and test; they are
+    checked against the counts in the manifest."""
+    from dataset_maker import make_cohort_dataset as mcd
+    from dataset_maker import tuh_clinical as tc
+    c = cohort_manifest["cohort"]
+    exp = c["experiment"]
+    with open(os.path.join(c["source"], "manifest.json")) as f:
+        converted = {r["stem"] for r in json.load(f)["recordings"]}
+    allowed = {x.upper() for x in c.get("allow_missing") or []}
+    j = t[t.stem.isin(converted)].reset_index(drop=True)
+    steps = [("TUEG recordings (TUH index)", t)]
+    steps.append(("converted to npy (readable EDF, ≥ 60 s)", j))
+    m = j.age.between(c["min_age"], c["max_age"])
+    steps.append((f"age known, {c['min_age']}–{c['max_age']} y", j[m]))
+    m &= j.duration_sec >= 60 * c["min_minutes"]
+    steps.append((f"recording ≥ {c['min_minutes']:g} min", j[m]))
+    m &= j.missing_channels.map(lambda x: {ch.upper() for ch in x} <= allowed)
+    steps.append(("all 23 channels" if not allowed else "all 23 channels, or only " + "/".join(sorted(allowed))
+                  + " missing", j[m]))
+    if exp.startswith("normal"):
+        m &= (tc.normative_mask(j) & (j.abnormal.fillna(0).astype(int) != 1)).fillna(False).astype(bool)
+        steps.append(("normal only: report-normal, no neurological diagnosis, not sedated", j[m]))
+    pool, test = mcd.select(j, exp, min_age=c["min_age"], max_age=c["max_age"], min_minutes=c["min_minutes"],
+                            allow_missing=c.get("allow_missing") or ())
+    assert pool.equals(m), "replayed pool differs from make_cohort_dataset.select"
+    tuab_split = mcd.tuab_subject_split(tuab_split_json)
+    patient_split = None
+    if c.get("patient_split"):
+        with open(c["patient_split"]) as f:
+            patient_split = json.load(f)["subjects"]
+    split = mcd.assign_splits(j, pool, test, exp, tuab_split, val_fraction=c["val_fraction"], seed=c["seed"],
+                              patient_split=patient_split)
+    trval = split.isin(["train", "val"])
+    steps.append(("without TUAB patients (TUEG only)" if exp == "normal_tueg"
+                  else "without recordings of TUAB-test patients", j[trval]))
+    split = mcd.cap_per_subject(j, split, c["max_per_subject"], c["seed"])
+    steps.append((f"≤ {c['max_per_subject']} recordings per patient = train + val", j[split.isin(['train', 'val'])]))
+    steps.append(("test: TUAB eval recordings with a known age", j[split == "test"]))
+    rows, prev = [], None
+    for name, d in steps:
+        r = {"step": name, **_counts(d)}
+        r["removed"] = (prev - len(d)) if prev is not None and not name.startswith("test") else None
+        prev = len(d) if not name.startswith("test") else prev
+        rows.append(r)
+    counts = c["counts"]
+    want_trval = counts["train"]["n_recordings"] + counts["val"]["n_recordings"]
+    assert rows[-2]["recordings"] == want_trval, (rows[-2]["recordings"], want_trval)
+    assert rows[-1]["recordings"] == counts["test"]["n_recordings"]
+    return pd.DataFrame(rows)
+
+
+def tuab_flow(t: pd.DataFrame, age_split_json: str) -> pd.DataFrame:
+    """The inclusion flow of the phase-1 TUAB dataset (``data/age_splits.py``):
+    TUAB recordings -> known age -> all 23 channels (``make_TUAB.py`` drops
+    recordings missing any) -> TUAB's train split, divided patient-disjointly
+    into train and val, and TUAB's eval split as test. Rows as in
+    :func:`cohort_flow`; the final splits are checked against ``age_split.json``."""
+    with open(age_split_json) as f:
+        files = json.load(f)["files"]
+    stems = {s: {os.path.basename(x).rsplit("_", 1)[0] for x in v} for s, v in files.items()}
+    d = t[t.corpora.str.split(",").map(lambda cs: "tuab" in cs)]
+    steps = [("TUAB recordings (TUH index)", d)]
+    d = d[d.age.notna()]
+    steps.append(("age known (1–89 y; 90+ redacted)", d))
+    d = d[d.missing_channels.map(len) == 0]
+    steps.append(("all 23 channels", d))
+    steps.append(("TUAB train split = train + val", d[d.source_split == "train"]))
+    steps.append(("  of which train", d[d.stem.isin(stems["train"])]))
+    steps.append(("  of which val (patient-disjoint, seeded)", d[d.stem.isin(stems["val"])]))
+    steps.append(("test: TUAB eval split", d[d.source_split == "eval"]))
+    rows, prev = [], None
+    for k, (name, x) in enumerate(steps):
+        r = {"step": name, **_counts(x)}
+        r["removed"] = prev - len(x) if prev is not None and k <= 2 else None   # later rows split, not remove
+        prev = len(x) if k <= 2 else prev
+        rows.append(r)
+    out = pd.DataFrame(rows)
+    assert list(out.recordings[4:]) == [len(stems["train"]), len(stems["val"]), len(stems["test"])]
+    return out

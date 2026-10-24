@@ -253,3 +253,15 @@ def test_display_name_capitalizes_corpora_only():
     assert rs.display_name("normal_tueg_v1") == "normal_TUEG_v1"
     assert rs.display_name("tuab_v3.0.1_interp50-60") == "TUAB_v3.0.1_interp50-60"
     assert rs.display_name("all_both_v3") == "all_both_v3"
+
+
+def test_raw_corpora_counts_status_and_channels():
+    t = _tueg_frame().assign(corpora=["tuab,tueg", "tuab,tueg", "tueg", "tueg"],
+                             source_split=["train", "eval", None, None])
+    r = rs.raw_corpora(t).set_index(["corpus", "part"])
+    assert r.loc[("TUAB", "all"), "recordings"] == 2 and r.loc[("TUEG", "all"), "recordings"] == 4
+    assert r.loc[("TUEG", "not in TUAB"), "patients"] == 2
+    assert r.loc[("TUAB", "eval split (test)"), "abnormal"] == 1
+    tueg = r.loc[("TUEG", "all")]
+    assert (tueg["all 23 channels"], tueg["only T1/T2 missing"], tueg["other channels missing"]) == (2, 1, 1)
+    assert tueg["normal"] + tueg["abnormal"] + tueg["no label"] == tueg["recordings"]
