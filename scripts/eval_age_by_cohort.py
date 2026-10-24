@@ -46,10 +46,10 @@ METRICS = ["mae", "rmse", "r2", "pearson_r"]
 
 
 def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, session=False,
-             channel_drop=None):
+             channel_drop=None, num_workers=8):
     enable_window_ids(dataset, "recording")
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False,
-                                         num_workers=8, pin_memory=True)
+                                         num_workers=num_workers, pin_memory=True)
     channel_indices = utils.get_channel_indices(ch_names)
     # With channel_drop, every sample runs on its present (non-zero) channels.
     dropper = ChannelDropper.from_config(channel_drop, ch_names)
@@ -108,7 +108,7 @@ def _window_names(dataset):
 
 def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None,
                  train_data_path=None, window_qc=True, session_features=None, return_windows=False,
-                 tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None):
+                 tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None, num_workers=8):
     """Score one run on ``splits``. With ``return_windows`` each split also
     carries its window-level predictions (``windows``: names, recording ids,
     predicted / true age in years) and the result the run's window settings
@@ -163,7 +163,8 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     for split in splits:
         pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device,
                                     batch_size, to_scalar, session=session,
-                                    channel_drop=getattr(cfg, "channel_drop", None))
+                                    channel_drop=getattr(cfg, "channel_drop", None),
+                                    num_workers=num_workers)
         ids, p, t = _per_recording(pred, true, recs, bundle.target_stats, pred_stats)
         cohort = np.array([labels.get(r) for r in ids])   # group ids are recording stems
         out = {}

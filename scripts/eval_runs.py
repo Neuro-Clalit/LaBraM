@@ -26,6 +26,7 @@ partial result survives an interruption; ``--skip-done`` resumes.
         --out-dir eval_out --data-format npy
 """
 import argparse
+import gc
 import json
 import os
 import shutil
@@ -105,7 +106,7 @@ def eval_budget(data: dict):
 def score_run(name: str, run_dir: str, args, device) -> tuple:
     res = evaluate_run(run_dir, args.data_path, "checkpoint-best.pth", SPLITS, device, args.batch_size,
                        args.data_format, return_windows=True, tokenizer_weight=args.tokenizer_weight,
-                       stage_dir="none")
+                       stage_dir="none", num_workers=args.num_workers)
     rows, preds = [], []
     recorded = {}
     split_json = os.path.join(run_dir, "data_split.json")
@@ -144,6 +145,10 @@ def main(argv=None):
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--data-format", choices=["pickle", "npy"], default="npy")
     ap.add_argument("--batch-size", type=int, default=256)
+    ap.add_argument("--num-workers", type=int, default=4, help="data-loader workers (memory)")
+    ap.add_argument("--work-dir", default=None,
+                    help="where models are downloaded / extracted (default: the system temp dir, "
+                         "outside --out-dir so a crash leaves no checkpoint in the outputs)")
     ap.add_argument("--tokenizer-weight", default="./checkpoints/vqnsp.pth",
                     help="VQNSP weights for codebook-regularized runs")
     ap.add_argument("--only", nargs="*", default=None, help="evaluate only these run names")
@@ -165,7 +170,7 @@ def main(argv=None):
             print(f"[skip] {m['name']}", flush=True)
             continue
         t0 = time.time()
-        with tempfile.TemporaryDirectory(prefix="eval_runs_", dir=args.out_dir) as tmp:
+        with tempfile.TemporaryDirectory(prefix="eval_runs_", dir=args.work_dir) as tmp:
             try:
                 rows, checks, preds = score_run(m["name"], fetch_run(m["model"], tmp), args, device)
             except Exception as exc:          # one broken run must not stop the others
@@ -174,6 +179,9 @@ def main(argv=None):
                                                     "error": f"{type(exc).__name__}: {exc}"}]))
                 pd.concat(acc["checks"], ignore_index=True).to_csv(paths["checks"], index=False)
                 continue
+        gc.collect()                          # free the run's model, data and loader workers
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         acc["metrics"].append(pd.DataFrame(rows))
         acc["checks"].append(pd.DataFrame(checks))
         acc["preds"].append(preds)

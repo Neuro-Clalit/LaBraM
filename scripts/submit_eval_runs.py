@@ -67,8 +67,10 @@ def main(argv=None):
     ap.add_argument("--set", nargs="*", default=[], dest="overrides")
     ap.add_argument("--data-uri", default=DATA_URI)
     ap.add_argument("--tokenizer-uri", default=TOKENIZER_URI)
-    ap.add_argument("--instance-type", default="ml.g5.2xlarge")
+    ap.add_argument("--instance-type", default="ml.g5.4xlarge",
+                    help="g5.2xlarge (32 GB RAM) runs out of memory on the train split")
     ap.add_argument("--volume-gb", type=int, default=200)
+    ap.add_argument("--num-workers", type=int, default=4)
     ap.add_argument("--max-run-hours", type=float, default=8.0)
     ap.add_argument("--name", default="labram-eval-p1", help="job name prefix")
     ap.add_argument("--dry-run", action="store_true")
@@ -130,7 +132,7 @@ def main(argv=None):
             py_version=sm.py_version, image_uri=sm.image_uri,
             hyperparameters={"manifest": f"/opt/ml/input/data/manifest/{os.path.basename(uri)}",
                              "data-path": "/opt/ml/input/data", "out-dir": "/opt/ml/model",
-                             "data-format": "npy",
+                             "data-format": "npy", "num-workers": args.num_workers,
                              "tokenizer-weight": "/opt/ml/input/data/tokenizer/vqnsp.pth"},
             environment=dict(sm.environment), tags={**sm.tags, "project": "LaBraM", "phase": "eval"},
             inputs={"processed_npy": args.data_uri, "manifest": uri, "tokenizer": args.tokenizer_uri},
