@@ -125,6 +125,40 @@ def test_pool_all_includes_test(bundle):
     assert folds.held_out_test is None
 
 
+def test_held_out_test_set_trains_on_k_minus_1_folds(bundle, tmp_path):
+    cfg = CrossValidationConfig(enabled=True, n_folds=5, split_by="subject", seed=3, test_set="held_out")
+    cfg.validate()
+    folds = cv.build_grouped_folds(bundle, cfg, "TUAB")
+    test_files = sorted(_files_of(bundle.test))
+    seen_val = set()
+    for k in range(folds.n_folds):
+        b = cv.materialize_fold(folds, k, bundle)
+        tr = {f.split("_")[0] for f in _files_of(b.train)}
+        va = {f.split("_")[0] for f in _files_of(b.val)}
+        assert sorted(_files_of(b.test)) == test_files            # the original test split, every fold
+        assert not tr & va and va == set(folds.fold_groups[k])     # val = fold k
+        assert len(tr) == 10 - len(va)                             # the other K-1 folds train
+        seen_val |= va
+    assert len(seen_val) == 10                                     # every pooled subject validated once
+    doc = cv.load_cv_split_dict(cv.save_cv_split(folds, str(tmp_path / "cv")))
+    assert doc["test_set"] == "held_out" and doc["folds"][2]["role_as_val_for_fold"] == 2
+    assert doc["folds"][2]["role_as_test_for_fold"] is None
+    assert cv.apply_cv_split(bundle, doc, "TUAB").test_set == "held_out"
+
+
+def test_held_out_test_set_rejects_leaks_and_pool_all(bundle):
+    with pytest.raises(ValueError):
+        CrossValidationConfig(enabled=True, test_set="held_out", pool="all").validate()
+    with pytest.raises(ValueError):
+        CrossValidationConfig(enabled=True, test_set="bogus").validate()
+    cfg = CrossValidationConfig(enabled=True, n_folds=5, split_by="subject", test_set="held_out")
+    folds = cv.build_grouped_folds(bundle, cfg, "TUAB")
+    leaky = DatasetBundle(train=bundle.train, val=bundle.val, test=bundle.train,
+                          ch_names=["A"], nb_classes=1, metrics=["accuracy"])
+    with pytest.raises(ValueError, match="also in the CV pool"):
+        cv.materialize_fold(folds, 0, leaky)
+
+
 def test_too_many_folds_raises(bundle):
     cfg = CrossValidationConfig(enabled=True, n_folds=50, split_by="subject")
     with pytest.raises(ValueError):

@@ -96,10 +96,22 @@ class GroupedFolds:
     group_files: Dict[str, List[Tuple[int, str]]] = field(default_factory=dict)
     # Summary of the untouched held-out test set (pool == 'train_val').
     held_out_test: Optional[Dict[str, Any]] = None
+    # 'fold': test = fold k, val = fold k+1; 'held_out': val = fold k and the
+    # pool's original test split is the test set (CrossValidationConfig.test_set).
+    test_set: str = "fold"
 
-    def fold_indices(self, k: int) -> Tuple[int, int]:
-        """(test_fold, val_fold) for fold ``k``: test = k, val = next fold."""
+    def fold_indices(self, k: int) -> Tuple[Optional[int], int]:
+        """(test_fold, val_fold) for fold ``k``: test = k, val = next fold; with
+        ``test_set == 'held_out'`` there is no test fold and val = k."""
+        if self.test_set == "held_out":
+            return None, k
         return k, (k + 1) % self.n_folds
+
+    @property
+    def convention(self) -> str:
+        if self.test_set == "held_out":
+            return "fold k -> val; remainder -> train; the original test split -> test"
+        return "fold k -> test; fold (k+1)%K -> val; remainder -> train"
 
 
 def build_grouped_folds(bundle: DatasetBundle, cv_cfg, dataset_name: Optional[str] = None) -> GroupedFolds:
@@ -141,7 +153,8 @@ def build_grouped_folds(bundle: DatasetBundle, cv_cfg, dataset_name: Optional[st
         n_folds=cv_cfg.n_folds, split_by=cv_cfg.split_by, pool=cv_cfg.pool,
         seed=cv_cfg.seed, shuffle=cv_cfg.shuffle, dataset_name=dataset_name,
         sources=sources, source_meta=source_meta, fold_groups=fold_groups,
-        group_files=group_files, held_out_test=held_out_test)
+        group_files=group_files, held_out_test=held_out_test,
+        test_set=getattr(cv_cfg, "test_set", "fold"))
 
 
 def _split_summary(dataset, split_by: str) -> Dict[str, Any]:
@@ -195,19 +208,33 @@ def materialize_fold(folds: GroupedFolds, k: int, base_bundle: DatasetBundle) ->
     When ``pool == 'train_val'`` the original test set is discarded from CV (it
     stays available for a separate final evaluation); the held-out fold is used
     as the fold's test set so every case is tested exactly once across folds.
+
+    With ``folds.test_set == 'held_out'``: val = fold ``k``, train = the other
+    K-1 folds, and test = ``base_bundle.test`` (the original test split), the
+    same recordings for every fold.
     """
     if not 0 <= k < folds.n_folds:
         raise ValueError(f"fold {k} out of range 0..{folds.n_folds - 1}")
 
     test_fold, val_fold = folds.fold_indices(k)
-    test_groups = folds.fold_groups[test_fold]
     val_groups = folds.fold_groups[val_fold]
     train_groups = [g for i, chunk in enumerate(folds.fold_groups)
                     if i not in (test_fold, val_fold) for g in chunk]
 
     dataset_train = _build_split_dataset(folds, train_groups)
     dataset_val = _build_split_dataset(folds, val_groups)
-    dataset_test = _build_split_dataset(folds, test_groups)
+    if test_fold is None:
+        if folds.pool != "train_val" or base_bundle.test is None:
+            raise ValueError("test_set='held_out' needs pool='train_val' and a test split")
+        dataset_test = base_bundle.test
+        test_groups = {group_id_for(dataset_test, f, folds.split_by)
+                       for f in getattr(dataset_test, "files", []) or []}
+        leaked = test_groups & set(folds.group_files)
+        if leaked:
+            raise ValueError(f"{len(leaked)} {folds.split_by} group(s) of the held-out test split "
+                             f"are also in the CV pool, e.g. {sorted(leaked)[:3]}")
+    else:
+        dataset_test = _build_split_dataset(folds, folds.fold_groups[test_fold])
 
     return DatasetBundle(
         train=dataset_train, val=dataset_val, test=dataset_test,
@@ -231,8 +258,8 @@ def cv_split_to_dict(folds: GroupedFolds) -> Dict[str, Any]:
             "n_groups": len(groups),
             "n_windows": n_windows,
             "groups": groups,
-            "role_as_test_for_fold": k,
-            "role_as_val_for_fold": (k - 1) % folds.n_folds,
+            "role_as_test_for_fold": None if test_fold is None else k,
+            "role_as_val_for_fold": k if test_fold is None else (k - 1) % folds.n_folds,
         })
     return {
         "dataset": folds.dataset_name,
@@ -241,7 +268,8 @@ def cv_split_to_dict(folds: GroupedFolds) -> Dict[str, Any]:
         "pool": folds.pool,
         "seed": folds.seed,
         "shuffle": folds.shuffle,
-        "convention": "fold k -> test; fold (k+1)%K -> val; remainder -> train",
+        "test_set": folds.test_set,
+        "convention": folds.convention,
         "sources": folds.source_meta,
         "folds": fold_entries,
         "held_out_test": folds.held_out_test,
@@ -294,7 +322,8 @@ def apply_cv_split(bundle: DatasetBundle, split: Dict[str, Any],
         seed=split.get("seed", 0), shuffle=split.get("shuffle", True),
         dataset_name=dataset_name or split.get("dataset"),
         sources=sources, source_meta=source_meta, fold_groups=fold_groups,
-        group_files=group_files, held_out_test=split.get("held_out_test"))
+        group_files=group_files, held_out_test=split.get("held_out_test"),
+        test_set=split.get("test_set", "fold"))
 
 
 def subject_overlap(folds: GroupedFolds) -> Dict[str, List[str]]:

@@ -263,6 +263,9 @@ class ChannelDropConfig(ConfigBase):
       eval mode).
     * ``eval_consistency``: val/test also report the consistency and the MAE
       with a drop drawn by the same rule (seeded per batch).
+    * ``start_epoch``: the augmentation (random drop) starts at this epoch
+      (0-based); earlier epochs train on every present channel. Missing
+      channels are left out from the first epoch either way.
     """
     enabled: bool = False
     channels: List[str] = field(default_factory=list)
@@ -272,6 +275,7 @@ class ChannelDropConfig(ConfigBase):
     consistency_weight: float = 1.0
     detach_full: bool = True
     eval_consistency: bool = True
+    start_epoch: int = 0
 
 
 @dataclass

@@ -302,6 +302,7 @@
         "shuffle": true,
         "seed": 42,
         "pool": "train_val",
+        "test_set": "fold",
         "split_json": "",
         "base_dir": ""
     },
@@ -370,6 +371,7 @@
         "prob": 0.2,
         "consistency_weight": 1.0,
         "detach_full": true,
-        "eval_consistency": true
+        "eval_consistency": true,
+        "start_epoch": 0
     }
 }
