@@ -1043,3 +1043,40 @@ def tuab_flow(t: pd.DataFrame, age_split_json: str) -> pd.DataFrame:
     out = pd.DataFrame(rows)
     assert list(out.recordings[4:]) == [len(stems["train"]), len(stems["val"]), len(stems["test"])]
     return out
+
+
+def raw_summary(t: pd.DataFrame, converted: Iterable[str], cohort: pd.DataFrame) -> pd.DataFrame:
+    """Raw data by corpus part and status, and what one cohort keeps of it.
+
+    Rows: TUAB train, TUAB eval (test) and TUEG recordings not in TUAB, each
+    split by status (Eq. (1.2)) with a subtotal, and the total (every TUEG
+    recording once). ``converted`` are the stems of the npy export (readable
+    EDF, at least 60 s); ``cohort`` is the cohort's ``cohort.parquet``
+    (``stem``, ``split``). Columns: patients and recordings; the recordings
+    left after "readable EDF, >= 60 s" and then "age known"; how many selected
+    recordings lack only T1/T2; selected recordings and patients; removed
+    recordings (= recordings - selected)."""
+    converted = set(converted)
+    selected = set(cohort.stem)
+    corp = t.corpora.str.split(",")
+    tuab = corp.map(lambda cs: "tuab" in cs)
+    parts = [("TUAB train", tuab & (t.source_split == "train"), ("normal", "abnormal")),
+             ("TUAB eval (test)", tuab & (t.source_split == "eval"), ("normal", "abnormal")),
+             ("TUEG (not in TUAB)", ~tuab, STATUS)]
+
+    def row(part, status, d):
+        sel = d[d.stem.isin(selected)]
+        ok = d.stem.isin(converted)
+        t1t2 = sel.missing_channels.map(_missing_kind) == "only T1/T2 missing"
+        return {"part": part, "status": status, "patients": d.subject.nunique(), "recordings": len(d),
+                "readable EDF, ≥ 60 s": int(ok.sum()), "age known": int((ok & d.age.notna()).sum()),
+                "T1/T2 missing (selected)": int(t1t2.sum()), "selected recordings": len(sel),
+                "selected patients": sel.subject.nunique(), "removed": len(d) - len(sel)}
+
+    rows = []
+    for part, mask, statuses in parts:
+        d = t[mask]
+        rows += [row(part, s, d[d.status == s]) for s in statuses]
+        rows.append(row(part, "all", d))
+    rows.append(row("TOTAL", "", t))
+    return pd.DataFrame(rows)

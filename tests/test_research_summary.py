@@ -265,3 +265,15 @@ def test_raw_corpora_counts_status_and_channels():
     tueg = r.loc[("TUEG", "all")]
     assert (tueg["all 23 channels"], tueg["only T1/T2 missing"], tueg["other channels missing"]) == (2, 1, 1)
     assert tueg["normal"] + tueg["abnormal"] + tueg["no label"] == tueg["recordings"]
+
+
+def test_raw_summary_rows_and_selection():
+    t = _tueg_frame().assign(stem=["r1", "r2", "r3", "r4"], corpora=["tuab,tueg", "tuab,tueg", "tueg", "tueg"],
+                             source_split=["train", "eval", None, None])
+    r = rs.raw_summary(t, converted=["r1", "r2", "r3"], cohort=pd.DataFrame({"stem": ["r1", "r2"]}))
+    assert list(r.part.unique()) == ["TUAB train", "TUAB eval (test)", "TUEG (not in TUAB)", "TOTAL"]
+    total = r[r.part == "TOTAL"].iloc[0]
+    assert (total.recordings, total["readable EDF, ≥ 60 s"], total["age known"]) == (4, 3, 3)
+    assert (total["selected recordings"], total.removed, total["T1/T2 missing (selected)"]) == (2, 2, 1)
+    tueg_all = r[(r.part == "TUEG (not in TUAB)") & (r.status == "all")].iloc[0]
+    assert tueg_all.recordings == 2
