@@ -364,3 +364,24 @@ def test_reeval_short_list_merges_groups_and_checks_splits():
     assert s.loc["D", "gap (test − train)"] == pytest.approx(s.loc["D", "test MAE"] - s.loc["D", "train MAE"])
     c.loc[c.run == "E2", "identical"] = False
     assert rs.reeval_short_list(m, c, reg).set_index("config").loc["E2", "split = recorded"] == "✗"
+
+
+def test_recalibration_maps_prediction_to_age_without_test_labels():
+    d = _toy_sets()
+    d["pred"] = np.where(d.set == "TUAB test, ensemble", d.pred, 2.0 * d.true + 5.0)   # OOF: pred = 2y + 5
+    d["err"] = d.pred - d.true
+    t = d[d.set == "TUAB test, ensemble"]
+    c = rs.recalibrated_test(d)
+    assert np.allclose(c.pred.to_numpy(), (t.pred.to_numpy() - 5.0) / 2.0)        # y = (pred - 5) / 2
+
+
+def test_correction_leak_check_flags_only_the_gap_correction():
+    methods = {"gap": lambda s: rs.bias_corrected_test(s, 1), "cole": lambda s: rs.cole_corrected_test(s),
+               "recal": lambda s: rs.recalibrated_test(s)}
+    d = _toy_sets()
+    d.loc[d.set == "TUEG out-of-fold", "pred"] = d.true * 0.5 + 20.0              # an age-dependent OOF gap
+    d["err"] = d.pred - d.true
+    c = rs.correction_leak_check(d, methods).set_index("method")
+    assert c.loc["gap", "uses TUAB test true age"] == "yes" and c.loc["gap", "max change (years)"] > 0
+    assert (c.loc[["cole", "recal"], "uses TUAB test true age"] == "no").all()
+    assert (c[["fit ∩ test recordings", "fit ∩ test patients"]] == 0).all().all()

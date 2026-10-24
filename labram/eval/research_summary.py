@@ -26,7 +26,7 @@ import os
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -929,6 +929,63 @@ def cole_corrected_test(sets: pd.DataFrame,
         t["err"] = t.pred - t.true
         out.append(t)
     return pd.concat(out, ignore_index=True)
+
+
+def recalibrated_test(sets: pd.DataFrame,
+                      fit_on: Sequence[str] = ("TUAB out-of-fold", "TUEG out-of-fold"),
+                      fit_status: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    """Deployable recalibration: regress the true age on the prediction over the
+    out-of-fold predictions, $y \\approx a\\,\\hat y + b$ (OLS; ``fit_on`` /
+    ``fit_status`` as in :func:`bias_corrected_test`), and map the TUAB test
+    predictions through it, $\\hat y'' = a\\,\\hat y + b$. Like
+    :func:`cole_corrected_test` it never uses a test recording's true age; it is
+    the least-squares calibration of the prediction (it lowers the error, but
+    does not remove the age trend of the gap)."""
+    out = []
+    for exp, g in sets.groupby("exp", sort=False):
+        fit = g[g.set.isin(fit_on)]
+        if fit_status is not None:
+            fit = fit[fit.status.isin(fit_status)]
+        a, b = np.polyfit(fit.pred, fit.true, 1)
+        t = g[g.set == PREDICTION_SETS[0]].copy()
+        t["pred"] = a * t.pred + b
+        t["err"] = t.pred - t.true
+        out.append(t)
+    return pd.concat(out, ignore_index=True)
+
+
+def correction_leak_check(sets: pd.DataFrame, methods: Dict[str, Callable[[pd.DataFrame], pd.DataFrame]],
+                          fit_on: Sequence[str] = ("TUAB out-of-fold", "TUEG out-of-fold"),
+                          seed: int = 0) -> pd.DataFrame:
+    """Does a bias correction see the TUAB test labels? Two checks per method:
+
+    * **fit set**: the out-of-fold recordings it is fitted on that are TUAB test
+      recordings, or share a patient with one (:func:`bias_fit_check`; both
+      must be 0);
+    * **application**: the TUAB test true ages are randomly permuted within each
+      experiment and the method is run again. A method that never reads them
+      returns the same corrected predictions; ``max change`` is the largest
+      difference (years) over every experiment and test recording.
+
+    ``methods`` maps a name to a function ``sets -> corrected test rows``
+    (e.g. ``lambda s: cole_corrected_test(s)``)."""
+    chk = bias_fit_check(sets, fit_on)
+    rng = np.random.default_rng(seed)
+    shuffled = sets.copy()
+    for exp in shuffled.exp.unique():
+        m = (shuffled.set == PREDICTION_SETS[0]) & (shuffled.exp == exp)
+        shuffled.loc[m, "true"] = rng.permutation(shuffled.loc[m, "true"].to_numpy())
+    rows = []
+    for name, fn in methods.items():
+        a = fn(sets).sort_values(["exp", "stem"]).pred.to_numpy()
+        b = fn(shuffled).sort_values(["exp", "stem"]).pred.to_numpy()
+        change = float(np.max(np.abs(a - b))) if len(a) else 0.0
+        rows.append({"method": name,
+                     "fit ∩ test recordings": int(chk["fit ∩ test recordings"].max()),
+                     "fit ∩ test patients": int(chk["fit ∩ test patients"].max()),
+                     "max change (years)": change,
+                     "uses TUAB test true age": "yes" if change > 1e-9 else "no"})
+    return pd.DataFrame(rows)
 
 
 def display_name(name: str) -> str:
