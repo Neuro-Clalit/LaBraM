@@ -299,3 +299,15 @@ def test_split_sizes_counts_recordings_not_windows(tmp_path):
     p.write_text('{"files": {"train": ["train/a_s001_t000_0.pkl", "train/a_s001_t000_1.pkl", "train/b_s001_t000_0.pkl"],'
                  ' "val": ["val/c_s001_t000_3.pkl"]}}')
     assert rs.split_sizes(str(p)) == {"train": 2, "val": 1, "test": 0}
+
+
+def test_flags_per_recording_is_multi_hot():
+    from dataset_maker import tuh_clinical as tc
+    t = _tueg_frame().assign(in_sheet=[True, True, True, False])
+    for col in tc.DIAGNOSES.values():
+        t[col] = False
+    t.loc[0, ["dx_epilepsy", "dx_clinical_seizure"]] = True      # two flags on one recording
+    t.loc[1, "dx_stroke"] = True
+    f = rs.flags_per_recording(t)
+    assert f.loc[2, "recordings"] == 1 and f.loc[1, "recordings"] == 1 and f.loc[0, "recordings"] == 1
+    assert f.recordings.sum() == 3                                # only recordings in the sheet

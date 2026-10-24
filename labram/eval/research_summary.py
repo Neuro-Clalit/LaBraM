@@ -702,8 +702,21 @@ def tueg_subsets(t: pd.DataFrame) -> pd.DataFrame:
         ("normative", "report-normal, no neurological diagnosis, not sedated, 18–89 y",
          tc.normative_mask(t).fillna(False).astype(bool)),
     ]
-    rows = [{"subset": name, "label it carries": lab, "recordings": int(m.sum()),
-             "% of TUEG": 100.0 * m.sum() / n, "patients": int(t.subject[m].nunique()),
+    def label_counts(name, m):
+        # per-recording categorical labels only; TUSZ / TUAR / TUSL annotate events inside a recording
+        if name == "in TUAB" or name == "normative":
+            v = t.status[m].value_counts()
+            return " / ".join(f"{k} {int(v.get(k, 0)):,}" for k in ("normal", "abnormal") if k in v or name == "in TUAB")
+        if name == "in TUEP":
+            v = t.epilepsy[m].value_counts()
+            return f"epilepsy {int(v.get(1, 0)):,} / no epilepsy {int(v.get(0, 0)):,}"
+        if name == "in the NEDC clinical sheet":
+            v = t.abnormal_report[m].astype("boolean").value_counts()
+            return f"report normal {int(v.get(False, 0)):,} / abnormal {int(v.get(True, 0)):,}"
+        return "–"
+
+    rows = [{"subset": name, "label it carries": lab, "label counts (recordings)": label_counts(name, m),
+             "recordings": int(m.sum()), "% of TUEG": 100.0 * m.sum() / n, "patients": int(t.subject[m].nunique()),
              "hours": t.duration_sec[m].sum() / 3600} for name, lab, m in masks]
     return pd.DataFrame(rows)
 
@@ -738,8 +751,10 @@ def tueg_status(t: pd.DataFrame) -> pd.DataFrame:
 
 def tueg_diagnoses(t: pd.DataFrame) -> pd.DataFrame:
     """The clinical sheet's diagnosis flags over the TUEG recordings in the
-    sheet: recordings, patients, prevalence (% of sheet recordings), mean age
-    and the share whose status is abnormal."""
+    sheet: recordings, patients, how many of them are normal / abnormal
+    (Eq. (1.2) status), prevalence (% of sheet recordings), mean age and the
+    share whose status is abnormal. The flags are independent of the status:
+    a flagged recording can be normal or abnormal."""
     from dataset_maker import tuh_clinical as tc
     s = t[t.in_sheet]
     names = {v: k for k, v in tc.DIAGNOSES.items()}
@@ -748,6 +763,7 @@ def tueg_diagnoses(t: pd.DataFrame) -> pd.DataFrame:
     for col, name in names.items():
         m = s[col].fillna(False).astype(bool)
         rows.append({"flag": name, "recordings": int(m.sum()), "patients": int(s.subject[m].nunique()),
+                     "normal": int((s.status[m] == "normal").sum()), "abnormal": int((s.status[m] == "abnormal").sum()),
                      "% of sheet": 100.0 * m.mean(), "age mean": s.age[m].mean(),
                      "% abnormal": 100.0 * (s.status[m] == "abnormal").mean()})
     return pd.DataFrame(rows).sort_values("recordings", ascending=False)
@@ -1153,3 +1169,17 @@ def split_sizes(age_split_json: str) -> Dict[str, int]:
         files = json.load(f)["files"]
     return {s: len({os.path.basename(x).rsplit("_", 1)[0] for x in files.get(s, [])})
             for s in ("train", "val", "test")}
+
+
+def flags_per_recording(t: pd.DataFrame) -> pd.DataFrame:
+    """How many of the clinical sheet's 15 diagnosis flags each TUEG recording
+    in the sheet carries (they are multi-hot: independent Y/N columns), with the
+    recordings and their normal / abnormal status (Eq. (1.2)) per count."""
+    from dataset_maker import tuh_clinical as tc
+    s = t[t.in_sheet]
+    k = s[list(tc.DIAGNOSES.values())].fillna(False).astype(bool).sum(axis=1)
+    out = pd.DataFrame({"recordings": k.value_counts(),
+                        "normal": k[s.status == "normal"].value_counts(),
+                        "abnormal": k[s.status == "abnormal"].value_counts()}).fillna(0).astype(int).sort_index()
+    out["% of sheet"] = 100.0 * out.recordings / len(s)
+    return out.rename_axis("diagnosis flags per recording")
