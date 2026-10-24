@@ -325,3 +325,15 @@ def test_flag_matrix_counts_shared_items():
     assert m.loc["epilepsy", "epilepsy"] == 2 and m.loc["epilepsy", "cl. seizure"] == 1
     assert m.loc["epilepsy", "normal"] == 1 and m.loc["epilepsy", "abnormal"] == 1
     assert m.loc["normal", "abnormal"] == 0
+
+
+def test_phase1_short_list_merges_duplicates_and_seeds():
+    reg = rs.registry_master_table(REGISTRY)
+    s = rs.phase1_short_list(reg, tau=0.38).set_index("config")
+    assert {"D-npy", "D-cohorts", "MT1-seed1", "S2-seed1"}.isdisjoint(s.index)
+    assert len(s) == len(reg) - 4
+    assert set(s.index) <= set(rs.CHANGE_VS_D)
+    assert s.loc["D", "Δ test"] == 0 and s.loc["D", "Norm"] == pytest.approx(6.57)   # from D-cohorts
+    r = reg.set_index("run")
+    assert s.loc["MT1", "test"] == pytest.approx((r.loc["MT1", "test"] + r.loc["MT1-seed1", "test"]) / 2)
+    assert s.loc["F2", "vs D"] == "worse" and s.loc["E2", "vs D"] == "n.s."

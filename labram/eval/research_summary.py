@@ -1206,3 +1206,72 @@ def flag_matrix(t: pd.DataFrame) -> pd.DataFrame:
     items.update(dict(sorted(flags.items(), key=lambda kv: -int(kv[1].sum()))))
     x = pd.DataFrame(items).astype(int)
     return x.T.dot(x)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 short list: one row per distinct configuration, relative to D
+
+#: What each phase-1 configuration changes relative to D (``finetune_tuab_age.json``).
+#: "4/1 ep" = E2's schedule (4 epochs, 1 warmup) instead of D's 15 / 2.
+CHANGE_VS_D: Dict[str, str] = {
+    "A": "no CAR; scored on whole recordings", "B": "no CAR", "D": "— (reference)",
+    "E2": "4/1 ep", "L1": "mixup 0.4 + EMA eval, 12 ep / 2 warmup",
+    "C2": "no CAR + layer decay 0.5, drop path 0.2, dropout 0.1, wd 0.1, clip 1",
+    "DX3": "C2's regularizer bundle (with CAR)", "F1": "4/1 ep + layer decay 0.5", "F2": "4/1 ep + dropout 0.1",
+    "F3": "4/1 ep + drop path 0.2", "F4": "4/1 ep + weight decay 0.1", "G1": "4/1 ep + head init scale 1.0",
+    "H1": "4/1 ep + layer decay 0.75", "H2": "4/1 ep + layer decay 0.85",
+    "C2-head": "C2, only the head trained", "C2-last": "C2, only the last block + head trained",
+    "M3": "4/1 ep + LoRA r16 instead of full fine-tuning (lr 1e-3, ld 1.0)",
+    "M1": "4/1 ep + mixup 0.4", "M1c": "4/1 ep + C-Mixup (σ 5 y)", "M2": "4/1 ep + EMA eval",
+    "M12": "4/1 ep + mixup 0.4 + EMA eval", "D2": "no CAR + L1 loss", "DX2": "Huber δ 2",
+    "M4": "4/1 ep + soft labels (σ 2.5 y)", "B1": "4/1 ep + age-balanced loss (sqrt-inverse)",
+    "B2": "4/1 ep + age-balanced loss (inverse)", "DX1": "codebook amplitude reconstruction (w 1)",
+    "DX4": "codebook quantization term (w 1)", "DX4b": "codebook quantization term (w 50)",
+    "C": "no CAR + 30 s windows", "D-clip1": "gradient clipping 1.0", "E1": "random crop",
+    "E1c": "random crop + clipping 1.0", "E2c": "4/1 ep + clipping 1.0", "D-cls": "class token instead of mean pooling",
+    "D-clsmean": "[mean; class token] concatenated", "N2L": "mixup 0.4 + clip 1 + attention head, 12 ep / 4 warmup",
+    "MT1": "4/1 ep + mixup 0.4 + age/abnormal multi-task head", "S1": "no pretrained weights, layer decay 1.0",
+    "S2": "no pretrained weights, 6 blocks + MLP head, mixup, tuned",
+    "S3": "S2 + label-preserving augmentation + ±800 µV clip",
+}
+#: Runs that reproduce another run with the same configuration on a different
+#: data format / scoring path and the same results: merged into that run's row.
+PHASE1_SAME_RESULT = {"D": ("D-npy", "D-cohorts")}
+#: Seed repeats of one configuration: averaged into one row.
+PHASE1_SEEDS = {"MT1": ("MT1-seed1",), "S2": ("S2-seed1",)}
+
+
+def phase1_short_list(reg: pd.DataFrame, tau: float) -> pd.DataFrame:
+    """Phase 1 as one row per distinct configuration (``registry_master_table``):
+    runs of :data:`PHASE1_SAME_RESULT` merged into their reference (cohort
+    metrics taken from whichever copy has them), seed repeats of
+    :data:`PHASE1_SEEDS` averaged. Columns: family, what changes relative to D,
+    val / test MAE with their difference to D, Norm / Ab test MAE, β, the
+    selected / total epochs, the merged runs, and whether |Δ test| exceeds the
+    single-run noise threshold ``tau`` (Eq. (5.2))."""
+    r = reg.set_index("run")
+    metrics = ["val", "test", "test_normal", "test_abnormal", "beta", "best_epoch", "epochs"]
+    rows, used = [], set()
+    for run in r.index:
+        if run in used:
+            continue
+        group = [run, *PHASE1_SAME_RESULT.get(run, ()), *PHASE1_SEEDS.get(run, ())]
+        used.update(group)
+        g = r.loc[list(group), metrics]
+        if run in PHASE1_SAME_RESULT:
+            v = g.loc[run].copy()
+            for c in ("test_normal", "test_abnormal"):
+                v[c] = g[c].dropna().iloc[0] if g[c].notna().any() else np.nan
+        else:
+            v = g.mean()
+        merged = (f"= {', '.join(PHASE1_SAME_RESULT[run])} (same results)" if run in PHASE1_SAME_RESULT else
+                  f"mean of {len(group)} seeds ({', '.join(group)})" if run in PHASE1_SEEDS else "")
+        rows.append({"config": run, "family": r.loc[run, "family"], "change vs D": CHANGE_VS_D.get(run, "?"),
+                     "val": v.val, "Δ val": v.val - r.loc["D", "val"], "test": v.test,
+                     "Δ test": v.test - r.loc["D", "test"], "Norm": v.test_normal, "Ab": v.test_abnormal,
+                     "β": v.beta, "e*/E": f"{v.best_epoch:.0f}/{v.epochs:.0f}", "runs": merged})
+    out = pd.DataFrame(rows)
+    d = out["Δ test"]
+    out["vs D"] = np.where(d <= -tau, "better", np.where(d >= tau, "worse", "n.s."))
+    out.loc[out.config == "D", "vs D"] = "reference"
+    return out
