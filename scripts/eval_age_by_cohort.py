@@ -100,14 +100,27 @@ def train_target_stats(cfg, train_data_path):
     return apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data)).target_stats
 
 
+def _window_names(dataset):
+    """Window file names of ``dataset`` in loader order (leaves concatenated)."""
+    from labram.data.window_selection import _leaves
+    return [os.path.basename(f) for leaf in _leaves(dataset) for f in getattr(leaf, "files", [])]
+
+
 def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None,
-                 train_data_path=None, window_qc=True, session_features=None):
+                 train_data_path=None, window_qc=True, session_features=None, return_windows=False,
+                 tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None):
+    """Score one run on ``splits``. With ``return_windows`` each split also
+    carries its window-level predictions (``windows``: names, recording ids,
+    predicted / true age in years) and the result the run's window settings
+    (``data``), so callers can re-aggregate on a subset of windows."""
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
+    if stage_dir is not None:                 # e.g. "none": read in place, no NVMe copy
+        cfg.data.stage_dir = stage_dir
     if data_format:
         cfg.data.data_format = data_format
     if cfg.model.codebook_reg.enabled:
-        cfg.model.codebook_reg.tokenizer_weight = "./checkpoints/vqnsp.pth"
+        cfg.model.codebook_reg.tokenizer_weight = tokenizer_weight
     bundle = get_dataset_bundle(cfg.data.dataset, data_path, data_format=cfg.data.data_format)
     selection = WindowSelection.from_data_config(cfg.data)
     if not window_qc:
@@ -144,7 +157,9 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     root = getattr(bundle.test, "root", data_path)
     labels = load_label_lookup_for(root)
     result = {"epoch": state.get("epoch"), "splits": {},
-              "pred_target_stats": pred_stats or bundle.target_stats}
+              "pred_target_stats": pred_stats or bundle.target_stats,
+              "data": {"eval_minutes": cfg.data.eval_minutes, "window_sec": cfg.data.window_sec,
+                       "trim_start_sec": cfg.data.trim_start_sec, "trim_end_sec": cfg.data.trim_end_sec}}
     for split in splits:
         pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device,
                                     batch_size, to_scalar, session=session,
@@ -157,6 +172,14 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
             m = utils.regression_metrics_fn(p[mask], t[mask], METRICS)
             out[name] = {"n": int(mask.sum()), **{k: float(v) for k, v in m.items()}}
         out["predictions"] = {r: float(v) for r, v in zip(ids, p)}
+        if return_windows:
+            names = _window_names(getattr(bundle, split))
+            if len(names) != len(recs):
+                raise RuntimeError(f"{split}: {len(names)} window names for {len(recs)} predictions")
+            out["windows"] = {"names": names, "recs": list(recs),
+                              "pred": utils.denormalize(pred, pred_stats or bundle.target_stats),
+                              "true": utils.denormalize(true, bundle.target_stats),
+                              "labels": [labels.get(r) for r in recs]}
         result["splits"][split] = out
     return result
 
