@@ -226,6 +226,13 @@ PHASE2: Tuple[Experiment, ...] = (
                + ("channel_drop.prob=0.2", "channel_drop.consistency_weight=0.1") + tuple(_FAST)
                + ("trainer.early_stopping=true",),
                "Exp4aug", "15 / 5 epochs with early stopping (stopped at 11)", conditions=True, where="local"),
+    Experiment("Exp4anymiss", "all_both_v3_anymiss", 15, 5,
+               tuple(_COND) + ("model.use_mean_pooling=false", "channel_drop.enabled=true", "channel_drop.channels=[]",
+                               "channel_drop.min_drop=1", "channel_drop.max_drop=3", "channel_drop.start_epoch=4",
+                               "channel_drop.prob=0.2", "channel_drop.consistency_weight=0.1") + tuple(_FAST)
+               + ("trainer.early_stopping=true",),
+               "Exp4aug15", "+2,003 training recordings missing A1/A2 or other channels; any 1-3 channels "
+               "dropped (p 0.2) from epoch 4 (stopped at 12)", conditions=True),
     Experiment("cvbase", "all_both_v3_cvcompact", 5, 1,
                tuple(_T1T2) + ("channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0") + tuple(_FAST)
                + tuple(CV5), "Exp4base", "5-fold CV of Exp4base (5 / 1 epochs)", script="cvbase"),
@@ -351,6 +358,7 @@ PHASE2_CLEARML: Dict[str, str] = {
     "Exp4ctrl": "bb15c54792f24626b81ac3eac8b97661",
     "Exp4aug": "d15337ba1fe8412a83c386d7ddf69bb3",
     "Exp4aug15": "692b86d6f2ca4f4898488988722c7bc9",
+    "Exp4anymiss": "6dcbcbed974a42ae9d46f38f79bc7a05",
     "cvbase": "d0379910d1e748d1ba2250b0e2157103",
     "cvctrl": "efe8b8525ed248ae968f24d6840e76bc",
     "cvaug": "d538fd4c7b1c484fa2f94438aecdc418",
