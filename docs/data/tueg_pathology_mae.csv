@@ -335,3 +335,19 @@ cvaug,schiz.,90,8.943,out-of-fold
 cvaug,dement.,79,7.498,out-of-fold
 cvaug,MS,51,10.8,out-of-fold
 cvaug,other,36,6.741,out-of-fold
+cvaugval,TUEG all,26685,7.987,out-of-fold (val)
+cvaugval,TUEG normal,10197,7.362,out-of-fold (val)
+cvaugval,TUEG abnormal,14298,8.317,out-of-fold (val)
+cvaugval,cl. seiz.,2064,7.311,out-of-fold (val)
+cvaugval,el. seiz.,358,8.361,out-of-fold (val)
+cvaugval,epil.,821,7.851,out-of-fold (val)
+cvaugval,stroke,1043,8.691,out-of-fold (val)
+cvaugval,TBI,346,10.03,out-of-fold (val)
+cvaugval,subst.,1068,7.381,out-of-fold (val)
+cvaugval,bipol.,273,5.983,out-of-fold (val)
+cvaugval,anx.,121,6.167,out-of-fold (val)
+cvaugval,depr.,125,7.157,out-of-fold (val)
+cvaugval,schiz.,90,8.39,out-of-fold (val)
+cvaugval,dement.,79,7.876,out-of-fold (val)
+cvaugval,MS,51,10.26,out-of-fold (val)
+cvaugval,other,36,7.143,out-of-fold (val)

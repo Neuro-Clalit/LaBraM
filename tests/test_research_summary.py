@@ -427,3 +427,14 @@ def test_tueg_pathology_mae_skips_tuab_and_groups_flags():
     assert m.loc["TUEG all", "n"] == 3                         # a2 is a TUAB recording
     assert m.loc["epil.", "MAE"] == pytest.approx(2.0) and m.loc["dement.", "MAE"] == pytest.approx(10.0)
     assert m.loc["TUEG abnormal", "n"] == 1 and m.loc["TUEG normal", "MAE"] == pytest.approx(2.0)
+
+
+def test_prediction_sets_val_only_cv_uses_val_folds_as_out_of_fold():
+    preds = pd.DataFrame({"exp": ["cvaugval"] * 3, "fold": [0, 0, 1], "split": ["heldout", "val", "val"],
+                          "stem": ["t1", "a1", "g1"], "pred": [30.0, 40.0, 50.0], "true": [32.0, 41.0, 55.0]})
+    preds["err"] = preds.pred - preds.true
+    recs = pd.DataFrame({"stem": ["t1", "a1", "g1"], "status": ["normal", "normal", "abnormal"],
+                         "corpora": ["tuab", "tuab", "tueg"]})
+    s = rs.prediction_sets(preds, recs)
+    assert set(s.set) == {"TUAB test, ensemble", "TUAB out-of-fold", "TUEG out-of-fold"}
+    assert set(s[s.set == "TUEG out-of-fold"].stem) == {"g1"}

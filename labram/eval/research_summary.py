@@ -239,6 +239,12 @@ PHASE2: Tuple[Experiment, ...] = (
                + ("channel_drop.prob=0.2", "channel_drop.consistency_weight=0.1") + tuple(_FAST) + tuple(CV5),
                "cvctrl", "T1/T2 batch dropout + consistency loss λ 0.1 (CV of Exp4aug)",
                script="cvaug", conditions=True),
+    Experiment("cvaugval", "all_both_v3_cvcompact", 10, 3,
+               tuple(_COND) + ("model.use_mean_pooling=false",) + tuple(_T1T2)
+               + ("channel_drop.prob=0.2", "channel_drop.consistency_weight=0.1") + tuple(_FAST) + tuple(CV5)
+               + ("cross_validation.test_set=held_out",),
+               "cvaug", "val-only CV: val = fold k, the other 4 folds train (~23.2K recordings), test = TUAB",
+               script="cvaugval", conditions=True),
 )
 EXPERIMENTS: Dict[str, Experiment] = {e.name: e for e in PHASE2}
 
@@ -348,8 +354,12 @@ PHASE2_CLEARML: Dict[str, str] = {
     "cvbase": "d0379910d1e748d1ba2250b0e2157103",
     "cvctrl": "efe8b8525ed248ae968f24d6840e76bc",
     "cvaug": "d538fd4c7b1c484fa2f94438aecdc418",
+    "cvaugval": "c3e3484d72b849769b50150b7a29dcfe",
 }
-_CV_RUNS = ("cvbase", "cvctrl", "cvaug")
+_CV_RUNS = ("cvbase", "cvctrl", "cvaug", "cvaugval")
+#: The split holding a CV experiment's out-of-fold predictions: the in-pool
+#: test folds, or the val folds for a val-only CV (``cross_validation.test_set=held_out``).
+CV_OOF_SPLIT: Dict[str, str] = {"cvaugval": "val"}
 
 
 def clearml_url(kind: str, ident: str, project_id: str = CLEARML_PROJECT) -> str:
@@ -818,7 +828,8 @@ def prediction_sets(preds: pd.DataFrame, recordings: pd.DataFrame) -> pd.DataFra
       fold models (``labram/eval/cv_compare.py::ensemble``);
     * ``TUAB out-of-fold`` / ``TUEG out-of-fold``: every recording of the CV
       pool, predicted by the one fold model that held it out, split by whether
-      the recording is in TUAB.
+      the recording is in TUAB. "Held out" is the fold's in-pool test fold, or
+      for a val-only CV (:data:`CV_OOF_SPLIT`) its val fold.
 
     ``preds`` is ``cv_compare.long_frame`` of the CV predictions; ``recordings``
     is :func:`tueg_recordings` (``stem``, ``status``, ``corpora``). Columns
@@ -826,7 +837,8 @@ def prediction_sets(preds: pd.DataFrame, recordings: pd.DataFrame) -> pd.DataFra
     from labram.eval import cv_compare as cc
     info = recordings.drop_duplicates("stem").set_index("stem")
     ens = cc.ensemble(preds, "heldout", "median")[["exp", "stem", "pred", "true"]].assign(set=PREDICTION_SETS[0])
-    oof = preds[preds.split == "test"][["exp", "stem", "pred", "true"]].copy()
+    oof_split = preds.exp.map(lambda e: CV_OOF_SPLIT.get(e, "test"))
+    oof = preds[preds.split == oof_split][["exp", "stem", "pred", "true"]].copy()
     in_tuab = oof.stem.map(info.corpora).fillna("").str.split(",").map(lambda cs: "tuab" in cs)
     oof["set"] = np.where(in_tuab, PREDICTION_SETS[1], PREDICTION_SETS[2])
     out = pd.concat([ens, oof], ignore_index=True)
