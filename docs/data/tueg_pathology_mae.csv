@@ -383,3 +383,19 @@ Exp4noear,schiz.,9,5.171,val
 Exp4noear,dement.,10,6.499,val
 Exp4noear,MS,5,9.146,val
 Exp4noear,other,11,8.594,val
+Exp4noearEEG,TUEG all,2940,8.013,val
+Exp4noearEEG,TUEG normal,1117,7.374,val
+Exp4noearEEG,TUEG abnormal,1465,8.392,val
+Exp4noearEEG,cl. seiz.,184,7.221,val
+Exp4noearEEG,el. seiz.,11,16.75,val
+Exp4noearEEG,epil.,46,6.899,val
+Exp4noearEEG,stroke,93,7.098,val
+Exp4noearEEG,TBI,49,9.449,val
+Exp4noearEEG,subst.,96,8.234,val
+Exp4noearEEG,bipol.,24,8.567,val
+Exp4noearEEG,anx.,10,6.642,val
+Exp4noearEEG,depr.,8,8.671,val
+Exp4noearEEG,schiz.,9,8.088,val
+Exp4noearEEG,dement.,10,14.09,val
+Exp4noearEEG,MS,5,10.27,val
+Exp4noearEEG,other,11,10.48,val

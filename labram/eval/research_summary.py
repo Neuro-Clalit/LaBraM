@@ -241,6 +241,12 @@ PHASE2: Tuple[Experiment, ...] = (
                + ("trainer.early_stopping=true",),
                "Exp4anymiss", "A1/A2/T1/T2 removed from every recording (19 channels), no channel "
                "augmentation; 8 / 2 epochs", conditions=True, where="local"),
+    Experiment("Exp4noearEEG", "all_both_v3_anymiss", 8, 2,
+               ("model.use_mean_pooling=false", 'data.drop_channels=["A1","A2","T1","T2"]',
+                "channel_drop.enabled=true", "channel_drop.channels=[]", "channel_drop.min_drop=1",
+                "channel_drop.max_drop=1", "channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0")
+               + tuple(_FAST) + ("trainer.early_stopping=true",),
+               "Exp4noear", "no status / pathology input (EEG only); otherwise as Exp4noear"),
     Experiment("cvbase", "all_both_v3_cvcompact", 5, 1,
                tuple(_T1T2) + ("channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0") + tuple(_FAST)
                + tuple(CV5), "Exp4base", "5-fold CV of Exp4base (5 / 1 epochs)", script="cvbase"),
@@ -368,6 +374,7 @@ PHASE2_CLEARML: Dict[str, str] = {
     "Exp4aug15": "692b86d6f2ca4f4898488988722c7bc9",
     "Exp4anymiss": "6dcbcbed974a42ae9d46f38f79bc7a05",
     "Exp4noear": "fbb67d0382e6420eb14b4006f9f3118a",
+    "Exp4noearEEG": "07bd98e3aab448338d17f046ff25bb96",
     "cvbase": "d0379910d1e748d1ba2250b0e2157103",
     "cvctrl": "efe8b8525ed248ae968f24d6840e76bc",
     "cvaug": "d538fd4c7b1c484fa2f94438aecdc418",
