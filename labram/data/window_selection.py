@@ -11,6 +11,7 @@ import os
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
+import numpy as np
 import torch.utils.data
 
 from labram.data.tuh_metadata import CASE_LABELS, load_label_lookup_for, recording_stem
@@ -314,6 +315,29 @@ def enable_abnormal_target(dataset) -> None:
             raise ValueError(f"{len(missing)} recording(s) in {leaf.root} have no "
                              f"normal/abnormal label (e.g. {missing[:3]})")
         leaf.abnormal_lookup = {s: int(labels[s] == "abnormal") for s in stems}
+
+
+def enable_multitask_targets(dataset, path: str) -> List[str]:
+    """Make every age leaf of ``dataset`` return ``[age, *targets]`` from a
+    multi-task target file (``dataset_maker/make_multitask_targets.py``):
+    normal/abnormal status and diagnosis groups, NaN where unknown. ``path`` is
+    absolute or relative to each leaf's data root. Returns the target names.
+    Raises if a recording is not in the file."""
+    names = None
+    for leaf in _leaves(dataset):
+        if not hasattr(leaf, "age_lookup"):
+            raise ValueError("data.multitask_targets needs the TUAB_AGE dataset")
+        with np.load(path if os.path.isabs(path) else os.path.join(leaf.root, path)) as z:
+            stems, targets = [str(s) for s in z["stems"]], z["targets"].astype(np.float32)
+            names = [str(n) for n in z["names"]]
+        rows = dict(zip(stems, targets))
+        wanted = {recording_stem(f) for f in leaf.files}
+        missing = sorted(wanted - set(rows))
+        if missing:
+            raise ValueError(f"{len(missing)} recording(s) in {leaf.root} have no multi-task "
+                             f"targets in {path} (e.g. {missing[:3]})")
+        leaf.multitask_lookup = {s: rows[s] for s in wanted}
+    return names
 
 
 def enable_session_features(dataset, path: str, skip_signal: bool = False):

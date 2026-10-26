@@ -226,3 +226,102 @@ def test_multitask_config_is_the_best_run_with_the_multitask_head():
     assert cfg.labram_plus.enabled and not cfg.labram_plus.z_score_patches
     assert cfg.finetune_checkpoint.finetune.endswith("labram-base.pth")
     assert cfg.optimizer.layer_decay == 0.65 and cfg.model.depth is None
+
+
+# ------------------------------------------------------------------ multi-task targets
+# (data.multitask_targets: status + diagnosis groups, NaN = unknown, targets only)
+def test_head_emits_one_logit_per_class_name_with_three_layer_branches():
+    names = ["status_abnormal", "pathology/epilepsy", "pathology/stroke"]
+    model = _tiny(multitask_head={"shared_dims": [64, 64], "age_dims": [32, 16],
+                                  "abnormal_dims": [32, 16], "class_names": names})
+    head = model.head
+    lin = lambda seq: [m for m in seq if isinstance(m, nn.Linear)]
+    assert len(lin(head.shared)) == 2                       # 2 shared layers
+    assert len(lin(head.age)) + 1 == 3 and len(lin(head.abnormal)) + 1 == 3   # 3 per head
+    out = model(torch.randn(3, 4, 1, 200))
+    assert out.shape == (3, 1 + len(names))                 # [age, status, *pathology]
+
+
+def test_masked_criterion_ignores_unknown_labels():
+    crit = MultiTaskAgeCriterion(nn.HuberLoss(), abnormal_weight=0.5, pathology_weight=0.25,
+                                 class_names=["status_abnormal", "p/a", "p/b"])
+    out = torch.tensor([[0.1, 2.0, -1.0, 3.0], [0.2, -2.0, 0.5, 0.0]])
+    nan = float("nan")
+    tgt = torch.tensor([[0.0, 1.0, 0.0, nan], [0.0, nan, nan, nan]])
+    b = crit(out, tgt)
+    import torch.nn.functional as F
+    status = F.binary_cross_entropy_with_logits(torch.tensor([2.0]), torch.tensor([1.0]))
+    path = F.binary_cross_entropy_with_logits(torch.tensor([-1.0]), torch.tensor([0.0]))
+    assert torch.isclose(b.components["abnormal"], status)
+    assert torch.isclose(b.components["pathology"], path)
+    assert torch.isfinite(b.total)
+    # no known label at all: the classification terms vanish, the age term stays
+    all_nan = torch.tensor([[0.0, nan, nan, nan]])
+    assert crit(out[:1], all_nan).components["pathology"] == 0
+    # mixup blends a known with an unknown label into an unknown one
+    mixed = 0.7 * tgt[0] + 0.3 * tgt[1]
+    assert torch.isnan(mixed[1:]).all()
+
+
+def _targets_file(root, stems, targets, names):
+    np.savez(root / "multitask_targets_v1.npz", stems=np.array(stems),
+             targets=np.asarray(targets, dtype=np.float32), names=np.array(names))
+
+
+def test_loader_returns_age_plus_targets(tmp_path):
+    from labram.data import get_dataset_bundle
+    from labram.data.window_selection import enable_multitask_targets
+    from test_window_qc import _corpus
+    root = _corpus(tmp_path)
+    stems = ["aaa_s001_t000", "bbb_s001_t000", "ccc_s001_t000", "ddd_s001_t000", "eee_s001_t000"]
+    t = [[1, 0, 1], [0, np.nan, np.nan], [np.nan, 1, 0], [1, 0, 0], [0, 0, 0]]
+    _targets_file(root, stems, t, ["status_abnormal", "pathology/a", "pathology/b"])
+    bundle = get_dataset_bundle("TUAB_AGE", str(root), data_format="npy")
+    names = enable_multitask_targets(bundle.train, "multitask_targets_v1.npz")
+    assert names == ["status_abnormal", "pathology/a", "pathology/b"]
+    y = bundle.train[0][1]
+    assert y.shape == (4,)
+    with pytest.raises(ValueError):
+        _targets_file(root, stems[:2], t[:2], names)
+        enable_multitask_targets(bundle.val, "multitask_targets_v1.npz")
+
+
+def test_class_metrics_score_known_labels_per_recording():
+    from labram.train.train_finetune import _multitask_class_metrics
+    nan = np.nan
+    # 4 recordings x 2 windows; status known for 3, group known for all, both classes present
+    prob = np.array([[.9, .8], [.8, .7], [.2, .1], [.3, .2], [.6, .9], [.7, .8], [.1, .3], [.2, .2]])
+    true = np.array([[1, 1], [1, 1], [0, 0], [0, 0], [nan, 1], [nan, 1], [0, 0], [0, 0]], dtype=float)
+    groups = ["r1", "r1", "r2", "r2", "r3", "r3", "r4", "r4"]
+    m = _multitask_class_metrics(prob, true, groups, "mean", ["status_abnormal", "pathology/epilepsy"])
+    assert m["abnormal_roc_auc"] == 1.0
+    assert m["pathology_epilepsy_roc_auc"] == 1.0 and m["pathology_epilepsy_n_pos"] == 2
+    assert m["pathology_macro_roc_auc"] == 1.0 and m["pathology_n_groups"] == 1
+
+
+def test_run_finetune_trains_with_multitask_targets_end_to_end(tmp_path):
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    from test_window_qc import _corpus
+    root = _corpus(tmp_path)
+    stems = ["aaa_s001_t000", "bbb_s001_t000", "ccc_s001_t000", "ddd_s001_t000", "eee_s001_t000"]
+    _targets_file(root, stems, [[1, 0, 1], [0, np.nan, np.nan], [np.nan, 1, 0], [1, 0, 0], [0, 1, 0]],
+                  ["status_abnormal", "pathology/a", "pathology/b"])
+    out = tmp_path / "out"
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy",
+           "data.trim_start_sec": 0.0, "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0,
+           "data.num_workers": 0, "trainer.debug": True, "trainer.epochs": 1,
+           "distributed.device": "cpu", "finetune_checkpoint.finetune": "",
+           "clearml.enabled": False, "output.output_dir": str(out), "output.log_dir": str(out),
+           "model.head_type": "multitask", "data.multitask_targets": "multitask_targets_v1.npz",
+           "model.multitask_head.shared_dims": [32, 32], "model.multitask_head.age_dims": [16, 8],
+           "model.multitask_head.abnormal_dims": [16, 8],
+           "mixup.enabled": True, "logging.log_model_graph": False})
+    summary = run_finetune.main(cfg)
+    train, val = summary["best_train_stats"], summary["best_val_stats"]
+    assert summary["best_metric_name"] == "mae"            # selection stays on age
+    assert np.isfinite(train["loss"])
+    assert "pathology_loss" in train and "abnormal_loss" in train
+    assert cfg.model.multitask_head.class_names == ["status_abnormal", "pathology/a", "pathology/b"]

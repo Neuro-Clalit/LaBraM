@@ -75,6 +75,10 @@ class LossConfig(ConfigBase):
     # Multi-task brain age (model.head_type=multitask): weight of the auxiliary
     # normal/abnormal BCE term next to the age loss, total = age + w * BCE.
     abnormal_weight: float = 0.5
+    # With data.multitask_targets: weight of the mean BCE over the known
+    # diagnosis-group labels, total = age + abnormal_weight * BCE_status
+    # + pathology_weight * BCE_pathology.
+    pathology_weight: float = 0.5
 
     # Codebook-regularized fine-tuning: weight on the classification term when
     # the spectral (amplitude/phase) and quantization losses regularize the

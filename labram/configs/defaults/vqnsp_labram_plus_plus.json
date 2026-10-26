@@ -96,6 +96,7 @@
         "window_max_abs_uv": 0.0,
         "window_min_std_uv": 0.0,
         "session_features": "",
+        "multitask_targets": "",
         "drop_channels": [],
         "train_minutes_per_epoch": 0.0,
         "stage_dir": "auto",
@@ -147,7 +148,8 @@
         "balance_bin_width": 1.0,
         "balance_lds_sigma": 2.0,
         "balance_max_weight": 10.0,
-        "abnormal_weight": 0.5
+        "abnormal_weight": 0.5,
+        "pathology_weight": 0.5
     },
     "disable_eval": false,
     "eval": false,

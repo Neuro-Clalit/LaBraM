@@ -40,11 +40,13 @@
             "abnormal_dims": [
                 64
             ],
-            "drop": 0.0
+            "drop": 0.0,
+            "class_names": []
         },
         "condition_on_abnormal": false,
         "abnormal_embed_dim": 16,
         "session_features": "off",
+        "multitask_targets": "",
         "session_feature_groups": [],
         "session_feature_drop": 0.0,
         "session_feature_norm": "post",
@@ -264,7 +266,8 @@
         "balance_bin_width": 1.0,
         "balance_lds_sigma": 2.0,
         "balance_max_weight": 10.0,
-        "abnormal_weight": 0.5
+        "abnormal_weight": 0.5,
+        "pathology_weight": 0.5
     },
     "finetune_checkpoint": {
         "py/object": "labram.configs.model_config.FinetuneCheckpointConfig",
