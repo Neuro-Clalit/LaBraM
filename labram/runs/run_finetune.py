@@ -387,7 +387,8 @@ def main(config: FinetuneRunConfig, bundle=None):
         if config.model.head_type == 'multitask':
             criterion = MultiTaskAgeCriterion(criterion, config.loss.abnormal_weight,
                                               config.loss.pathology_weight,
-                                              config.model.multitask_head.class_names)
+                                              config.model.multitask_head.class_names,
+                                              config.loss.pathology_reduction)
         elif config.model.condition_on_abnormal:
             criterion = AbnormalConditionedAgeCriterion(criterion)
         elif config.model.session_features != "off":

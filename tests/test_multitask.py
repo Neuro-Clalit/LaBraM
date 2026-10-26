@@ -325,3 +325,25 @@ def test_run_finetune_trains_with_multitask_targets_end_to_end(tmp_path):
     assert np.isfinite(train["loss"])
     assert "pathology_loss" in train and "abnormal_loss" in train
     assert cfg.model.multitask_head.class_names == ["status_abnormal", "pathology/a", "pathology/b"]
+
+
+def test_present_reduction_weights_groups_with_a_positive_equally():
+    import torch.nn.functional as F
+    from labram.losses.regression import present_class_bce_with_logits
+    nan = float("nan")
+    logits = torch.tensor([[1.0, -1.0, 0.5], [-2.0, 0.0, 0.3], [0.5, 2.0, -0.4], [0.0, 1.0, 0.1]])
+    labels = torch.tensor([[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, nan, 0.0], [0.0, 0.0, 0.0]])
+    # only group 0 has a positive: its mean BCE over its 4 known labels
+    expect = F.binary_cross_entropy_with_logits(logits[:, 0], labels[:, 0])
+    assert torch.isclose(present_class_bce_with_logits(logits, labels), expect)
+    labels[3, 1] = 1.0           # group 1 now present: mean of the two group means
+    m = torch.isfinite(labels[:, 1])
+    g1 = F.binary_cross_entropy_with_logits(logits[m, 1], labels[m, 1])
+    assert torch.isclose(present_class_bce_with_logits(logits, labels), (expect + g1) / 2)
+    assert present_class_bce_with_logits(logits, torch.zeros_like(labels)) == 0
+    crit = MultiTaskAgeCriterion(nn.HuberLoss(), 0.5, 0.5, ["s", "p/a", "p/b", "p/c"], "present")
+    out = torch.cat((torch.zeros(4, 2), logits), dim=1)
+    tgt = torch.cat((torch.zeros(4, 1), torch.ones(4, 1), labels), dim=1)
+    assert torch.isclose(crit(out, tgt).components["pathology"], (expect + g1) / 2)
+    with pytest.raises(ValueError):
+        MultiTaskAgeCriterion(nn.HuberLoss(), pathology_reduction="bogus")

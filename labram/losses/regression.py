@@ -243,6 +243,22 @@ def masked_bce_with_logits(logits: torch.Tensor, target: torch.Tensor) -> torch.
     return F.binary_cross_entropy_with_logits(logits[known].float(), target[known].float())
 
 
+def present_class_bce_with_logits(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Class-balanced multi-label BCE: per class (last dim) the mean BCE over its
+    known (finite) labels, kept only for the classes with a positive label
+    (> 0, also a mixup blend) in the batch, then the mean over those classes;
+    0 when no class has a positive."""
+    known = torch.isfinite(target)
+    present = (known & (torch.nan_to_num(target, nan=0.0) > 0)).any(dim=0)
+    if not bool(present.any()):
+        return logits.sum() * 0.0
+    per_class = []
+    for k in torch.nonzero(present).flatten().tolist():
+        m = known[:, k]
+        per_class.append(F.binary_cross_entropy_with_logits(logits[m, k].float(), target[m, k].float()))
+    return torch.stack(per_class).mean()
+
+
 class MultiTaskAgeCriterion(nn.Module):
     """Brain age + normal/abnormal: ``age_criterion`` on the age column plus
     ``abnormal_weight`` x BCE-with-logits on the abnormal logit.
@@ -262,8 +278,12 @@ class MultiTaskAgeCriterion(nn.Module):
     """
 
     def __init__(self, age_criterion: nn.Module, abnormal_weight: float = 0.5,
-                 pathology_weight: float = 0.5, class_names: Optional[Sequence[str]] = None):
+                 pathology_weight: float = 0.5, class_names: Optional[Sequence[str]] = None,
+                 pathology_reduction: str = "known"):
         super().__init__()
+        if pathology_reduction not in ("known", "present"):
+            raise ValueError(f"loss.pathology_reduction must be known or present, got {pathology_reduction!r}")
+        self.pathology_reduction = pathology_reduction
         self.age_criterion = age_criterion
         self.abnormal_weight = float(abnormal_weight)
         self.pathology_weight = float(pathology_weight)
@@ -283,7 +303,9 @@ class MultiTaskAgeCriterion(nn.Module):
             return LossBreakdown(total=age + self.abnormal_weight * abnormal,
                                  components={"regression": age, "abnormal": abnormal})
         abnormal = masked_bce_with_logits(output[..., 1], target[..., 1])
-        pathology = masked_bce_with_logits(output[..., 2:], target[..., 2:])
+        logits, labels = output[..., 2:].reshape(-1, output.shape[-1] - 2), target[..., 2:].reshape(-1, target.shape[-1] - 2)
+        pathology = (present_class_bce_with_logits(logits, labels) if self.pathology_reduction == "present"
+                     else masked_bce_with_logits(logits, labels))
         return LossBreakdown(total=age + self.abnormal_weight * abnormal
                              + self.pathology_weight * pathology,
                              components={"regression": age, "abnormal": abnormal,

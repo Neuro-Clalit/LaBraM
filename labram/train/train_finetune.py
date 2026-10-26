@@ -489,7 +489,8 @@ def evaluate(
     with_session = isinstance(criterion, SessionFeatureAgeCriterion)
     if not regularized:
         abnormal_weight = criterion.abnormal_weight if multitask else None
-        mt_extra = ((criterion.pathology_weight, criterion.class_names) if multitask else None)
+        mt_extra = ((criterion.pathology_weight, criterion.class_names, criterion.pathology_reduction)
+                    if multitask else None)
         criterion = build_downstream_criterion(
             task, 1 if is_binary else 2, loss_cfg if is_regression else None,
             target_stats=target_stats if is_regression else None)

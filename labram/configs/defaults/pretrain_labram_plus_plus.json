@@ -156,7 +156,8 @@
         "balance_lds_sigma": 2.0,
         "balance_max_weight": 10.0,
         "abnormal_weight": 0.5,
-        "pathology_weight": 0.5
+        "pathology_weight": 0.5,
+        "pathology_reduction": "known"
     },
     "shutdown": {
         "py/object": "labram.configs.train_config.ShutdownConfig",
