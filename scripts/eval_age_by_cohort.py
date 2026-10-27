@@ -140,6 +140,8 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
         stage_bundle(bundle, cfg.data.stage_dir, reserve_gb=cfg.data.stage_reserve_gb,
                      splits=tuple(s for s in ("val", "test", "train") if s in splits))
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
+    from labram.data.window_selection import resolve_multitask_class_names
+    resolve_multitask_class_names(cfg, train_data_path or data_path)   # the training cohort holds the targets
     pred_stats = train_target_stats(cfg, train_data_path) if train_data_path else None
     to_scalar = None
     if bundle.task == "regression" and cfg.loss.regression_loss == "soft_label":

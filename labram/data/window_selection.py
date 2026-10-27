@@ -340,6 +340,19 @@ def enable_multitask_targets(dataset, path: str) -> List[str]:
     return names
 
 
+def resolve_multitask_class_names(cfg, data_path: str) -> None:
+    """Rebuilding a trained multi-task model: its saved ``run_config.yaml`` is
+    written before training fills in ``model.multitask_head.class_names`` from
+    ``data.multitask_targets``, so read them from that file (relative to
+    ``data_path``) when they are missing, to size the classification output."""
+    mt = getattr(cfg.data, "multitask_targets", "")
+    head = cfg.model.multitask_head
+    if not mt or cfg.model.head_type != "multitask" or getattr(head, "class_names", None):
+        return
+    with np.load(mt if os.path.isabs(mt) else os.path.join(data_path, mt)) as z:
+        head.class_names = [str(n) for n in z["names"]]
+
+
 def enable_session_features(dataset, path: str, skip_signal: bool = False):
     """Make every age leaf of ``dataset`` return ``[age, *features]`` targets
     from a session-feature file (``dataset_maker/make_session_features.py``);

@@ -143,6 +143,10 @@ _T1T2 = ['channel_drop.enabled=true', 'channel_drop.channels=["T1","T2"]',
 _FAST = ["model.fused_attention=true", "data.num_workers=6", "trainer.batch_size=128",
          "optimizer.lr=0.0002", "data.train_minutes_per_epoch=5"]
 _COND = ["data.session_features=conditions_v1.npz", "model.session_features=head"]
+# Multi-task head predicting status + diagnosis groups (targets only; data.multitask_targets).
+_MT = ["model.head_type=multitask", "data.multitask_targets=multitask_targets_v1.npz",
+       "model.multitask_head.shared_dims=[256,256]", "model.multitask_head.age_dims=[128,64]",
+       "model.multitask_head.abnormal_dims=[128,64]", "loss.abnormal_weight=0.5", "loss.pathology_weight=0.5"]
 
 
 @dataclass(frozen=True)
@@ -247,6 +251,21 @@ PHASE2: Tuple[Experiment, ...] = (
                 "channel_drop.max_drop=1", "channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0")
                + tuple(_FAST) + ("trainer.early_stopping=true",),
                "Exp4noear", "no status / pathology input (EEG only); otherwise as Exp4noear"),
+    Experiment("Exp4mt", "all_both_v3_anymiss", 8, 2,
+               ("model.use_mean_pooling=false", 'data.drop_channels=["A1","A2","T1","T2"]',
+                "channel_drop.enabled=true", "channel_drop.channels=[]", "channel_drop.min_drop=1",
+                "channel_drop.max_drop=1", "channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0")
+               + tuple(_FAST) + ("trainer.early_stopping=true",) + tuple(_MT),
+               "Exp4noearEEG", "multi-task head: + status and 13 diagnosis groups as targets (BCE over all "
+               "known labels)"),
+    Experiment("Exp4mtbal", "all_both_v3_anymiss", 8, 2,
+               ("model.use_mean_pooling=false", 'data.drop_channels=["A1","A2","T1","T2"]',
+                "channel_drop.enabled=true", "channel_drop.channels=[]", "channel_drop.min_drop=1",
+                "channel_drop.max_drop=1", "channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0")
+               + tuple(_FAST) + ("trainer.early_stopping=true",) + tuple(_MT)
+               + ("loss.pathology_reduction=present",),
+               "Exp4mt", "class-balanced pathology loss (groups present in the batch, equally weighted)",
+               where="local"),
     Experiment("cvbase", "all_both_v3_cvcompact", 5, 1,
                tuple(_T1T2) + ("channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0") + tuple(_FAST)
                + tuple(CV5), "Exp4base", "5-fold CV of Exp4base (5 / 1 epochs)", script="cvbase"),
@@ -286,6 +305,8 @@ LOSSES = {
     "codebook_quant": "Huber δ 1 + quantization, w 1 (2.9)",
     "codebook_quant50": "Huber δ 1 + quantization, w 50 (2.9)",
     "multitask": "Huber δ 1 + mixup + 0.5 BCE abnormal (2.3, 2.5, 2.10)",
+    "multitask_path": "Huber δ 1 + mixup + 0.5 BCE status + 0.5 BCE pathology (2.3, 2.5, 2.10)",
+    "multitask_path_bal": "Huber δ 1 + mixup + 0.5 BCE status + 0.5 class-balanced BCE pathology (2.3, 2.5, 2.10)",
     "consistency": "Huber δ 1 + mixup + 0.1 consistency (2.3, 2.5, 2.11)",
 }
 #: Loss of each phase-1 run, read from its ClearML configuration
@@ -325,6 +346,9 @@ def feature_space(name: str) -> str:
     extra = " ".join(exp.extra) if exp else ""
     if "model.session_features=only" in extra:
         return "features only (no EEG)"
+    if "data.multitask_targets=" in extra:
+        base = "cls_token" if "model.use_mean_pooling=false" in extra else "patch_tokens"
+        return base + " (EEG only; multi-task head)"
     base = "cls_token" if "model.use_mean_pooling=false" in extra else "patch_tokens"
     if exp is not None and exp.conditions:
         return base + " + path_label"
@@ -340,6 +364,8 @@ def run_loss(run: str) -> str:
     if run in PHASE1_LOSS:
         return LOSSES[PHASE1_LOSS[run]]
     extra = EXPERIMENTS[run].extra
+    if any(o.startswith("data.multitask_targets=") for o in extra):
+        return LOSSES["multitask_path_bal" if "loss.pathology_reduction=present" in extra else "multitask_path"]
     weight = [o.split("=", 1)[1] for o in extra if o.startswith("channel_drop.consistency_weight=")]
     return LOSSES["consistency" if weight and float(weight[0]) > 0 else "huber_mixup"]
 
@@ -375,6 +401,8 @@ PHASE2_CLEARML: Dict[str, str] = {
     "Exp4anymiss": "6dcbcbed974a42ae9d46f38f79bc7a05",
     "Exp4noear": "fbb67d0382e6420eb14b4006f9f3118a",
     "Exp4noearEEG": "07bd98e3aab448338d17f046ff25bb96",
+    "Exp4mt": "66b31850c3994738a24e47decb56d976",
+    "Exp4mtbal": "65fcf641045444b4a2390f479eb5d9db",
     "cvbase": "d0379910d1e748d1ba2250b0e2157103",
     "cvctrl": "efe8b8525ed248ae968f24d6840e76bc",
     "cvaug": "d538fd4c7b1c484fa2f94438aecdc418",

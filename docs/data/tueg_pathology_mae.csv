@@ -399,3 +399,35 @@ Exp4noearEEG,schiz.,9,8.088,val
 Exp4noearEEG,dement.,10,14.09,val
 Exp4noearEEG,MS,5,10.27,val
 Exp4noearEEG,other,11,10.48,val
+Exp4mt,TUEG all,2940,8.321,val
+Exp4mt,TUEG normal,1117,7.614,val
+Exp4mt,TUEG abnormal,1465,8.794,val
+Exp4mt,cl. seiz.,184,7.537,val
+Exp4mt,el. seiz.,11,21.04,val
+Exp4mt,epil.,46,7.979,val
+Exp4mt,stroke,93,7.875,val
+Exp4mt,TBI,49,10.19,val
+Exp4mt,subst.,96,8.301,val
+Exp4mt,bipol.,24,8.684,val
+Exp4mt,anx.,10,7.487,val
+Exp4mt,depr.,8,8.732,val
+Exp4mt,schiz.,9,8.329,val
+Exp4mt,dement.,10,13.53,val
+Exp4mt,MS,5,7.556,val
+Exp4mt,other,11,11.09,val
+Exp4mtbal,TUEG all,2940,8.324,val
+Exp4mtbal,TUEG normal,1117,7.581,val
+Exp4mtbal,TUEG abnormal,1465,8.738,val
+Exp4mtbal,cl. seiz.,184,7.241,val
+Exp4mtbal,el. seiz.,11,20.45,val
+Exp4mtbal,epil.,46,7.778,val
+Exp4mtbal,stroke,93,7.417,val
+Exp4mtbal,TBI,49,10.18,val
+Exp4mtbal,subst.,96,8.375,val
+Exp4mtbal,bipol.,24,8.627,val
+Exp4mtbal,anx.,10,7.138,val
+Exp4mtbal,depr.,8,8.359,val
+Exp4mtbal,schiz.,9,9.293,val
+Exp4mtbal,dement.,10,15.03,val
+Exp4mtbal,MS,5,8.238,val
+Exp4mtbal,other,11,10.63,val

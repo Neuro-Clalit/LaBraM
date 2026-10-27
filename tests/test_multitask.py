@@ -347,3 +347,15 @@ def test_present_reduction_weights_groups_with_a_positive_equally():
     assert torch.isclose(crit(out, tgt).components["pathology"], (expect + g1) / 2)
     with pytest.raises(ValueError):
         MultiTaskAgeCriterion(nn.HuberLoss(), pathology_reduction="bogus")
+
+
+def test_resolve_class_names_from_the_targets_file(tmp_path):
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.data.window_selection import resolve_multitask_class_names
+    _targets_file(tmp_path, ["a"], [[1, 0]], ["status_abnormal", "pathology/x"])
+    cfg = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_age.json",
+                                        **{"model.head_type": "multitask",
+                                           "data.multitask_targets": "multitask_targets_v1.npz"})
+    assert cfg.model.multitask_head.class_names == []          # as a saved run_config.yaml
+    resolve_multitask_class_names(cfg, str(tmp_path))
+    assert cfg.model.multitask_head.class_names == ["status_abnormal", "pathology/x"]

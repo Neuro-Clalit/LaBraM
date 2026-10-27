@@ -94,6 +94,8 @@ def main(argv=None):
                 leaf.target_stats = bundle.target_stats        # the fold's z-scoring
         bundle.heldout = held
         cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
+        from labram.data.window_selection import resolve_multitask_class_names
+        resolve_multitask_class_names(cfg, args.data_path)
         session = cfg.model.session_features != "off"
         if session:
             for s in args.splits:
