@@ -143,11 +143,18 @@ class MultiTaskHeadConfig(ConfigBase):
     age-regression branch (``age_dims``) and a dedicated normal/abnormal
     classification branch (``abnormal_dims``). Each entry is one
     ``Linear -> GELU -> Dropout(drop)`` layer. Regression (brain age) only; the
-    classification loss weight is ``loss.abnormal_weight``."""
+    classification loss weight is ``loss.abnormal_weight``.
+
+    ``class_names``: the classification branch's outputs, one logit each. Empty
+    (default) = one normal/abnormal logit. With ``data.multitask_targets`` it is
+    set from that file (``status_abnormal`` + one ``pathology/<group>`` per NEDC
+    diagnosis group); the pathology logits are weighted by
+    ``loss.pathology_weight``."""
     shared_dims: List[int] = field(default_factory=lambda: [256])
     age_dims: List[int] = field(default_factory=lambda: [128])
     abnormal_dims: List[int] = field(default_factory=lambda: [64])
     drop: float = 0.0
+    class_names: List[str] = field(default_factory=list)
 
 
 @dataclass

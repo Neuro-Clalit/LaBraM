@@ -93,6 +93,7 @@
         "window_max_abs_uv": 0.0,
         "window_min_std_uv": 0.0,
         "session_features": "",
+        "multitask_targets": "",
         "drop_channels": [],
         "train_minutes_per_epoch": 0.0,
         "stage_dir": "auto",
@@ -154,7 +155,8 @@
             "abnormal_dims": [
                 64
             ],
-            "drop": 0.0
+            "drop": 0.0,
+            "class_names": []
         },
         "condition_on_abnormal": false,
         "abnormal_embed_dim": 16,
@@ -253,7 +255,9 @@
         "balance_bin_width": 1.0,
         "balance_lds_sigma": 2.0,
         "balance_max_weight": 10.0,
-        "abnormal_weight": 0.5
+        "abnormal_weight": 0.5,
+        "pathology_weight": 0.5,
+        "pathology_reduction": "known"
     },
     "shutdown": {
         "py/object": "labram.configs.train_config.ShutdownConfig",
@@ -299,6 +303,7 @@
         "shuffle": true,
         "seed": 42,
         "pool": "train_val",
+        "test_set": "fold",
         "split_json": "",
         "base_dir": ""
     },
@@ -367,6 +372,7 @@
         "prob": 0.2,
         "consistency_weight": 1.0,
         "detach_full": true,
-        "eval_consistency": true
+        "eval_consistency": true,
+        "start_epoch": 0
     }
 }

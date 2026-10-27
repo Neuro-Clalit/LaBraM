@@ -1,6 +1,7 @@
 """Tests for labram/eval/research_summary.py (the research-summary notebook's helpers)."""
 import os
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,6 +14,7 @@ SCRIPT = os.path.join(ROOT, "scripts", "submit_tuh_cohorts.sh")
 REGISTRY = os.path.join(ROOT, "docs", "age_overfitting_experiments.md")
 AB = os.path.join(ROOT, "docs", "data", "line_removal_ab.json")
 COHORT_CSV = os.path.join(ROOT, "docs", "data", "tuh_cohort_eval_v1.csv")
+CLEARML_CSV = os.path.join(ROOT, "docs", "data", "brain_age_clearml_runs.csv")
 
 
 def _key(override: str):
@@ -91,3 +93,352 @@ def test_parse_markdown_table_strips_links():
     text = "x\n### Table 1.1. T\n\n| a | b |\n|---|---|\n| [`ab`](http://x) | $−0.4$ |\n\nafter"
     t = rs.parse_markdown_table(text, "### Table 1.1.")
     assert t.to_dict("records") == [{"a": "ab", "b": "−0.4"}]
+
+
+def test_parse_markdown_table_keeps_link_targets_on_request():
+    text = "### Table 1.1. T\n\n| a | b |\n|---|---|\n| [`ab`](http://x/1) | 2 |\n| c | 3 |\n"
+    t = rs.parse_markdown_table(text, "### Table 1.1.", link_columns=("a",))
+    assert list(t["a"]) == ["ab", "c"] and list(t["a url"]) == ["http://x/1", ""]
+
+
+def test_clearml_link_shows_the_name_not_the_url():
+    url = rs.clearml_url("task", "f" * 32)
+    assert url == f"{rs.CLEARML_WEB}/projects/{rs.CLEARML_PROJECT}/experiments/{'f' * 32}/output/log"
+    assert rs.clearml_url("project", "e" * 32) == f"{rs.CLEARML_WEB}/projects/{'e' * 32}/experiments"
+    assert rs.clearml_link("age_<D>", url) == f'<a href="{url}" target="_blank">age_<wbr>&lt;D&gt;</a>'
+    assert rs.clearml_link("x", "") == "–"
+
+
+def test_clearml_csv_covers_every_run_and_matches_the_registry():
+    """docs/data/brain_age_clearml_runs.csv names every phase-1 run of the
+    registry (with the task id of its registry link) and every phase-2 / CV run."""
+    reg = rs.registry_master_table(REGISTRY)
+    want = rs.clearml_targets(reg).set_index("run")
+    have = rs.load_clearml_runs(CLEARML_CSV)
+    assert set(have.index) == set(want.index) == set(reg.run) | set(rs.EXPERIMENTS)
+    assert (have.loc[want.index, ["kind", "id"]] == want[["kind", "id"]]).all().all()
+    assert have.name.str.len().gt(0).all()
+    assert have.loc["D", "url"] == reg.set_index("run").loc["D", "clearml_url"]
+
+
+def test_every_run_has_a_training_loss():
+    reg = rs.registry_master_table(REGISTRY)
+    assert set(reg.run) == set(rs.PHASE1_LOSS)
+    assert set(rs.PHASE1_LOSS.values()) <= set(rs.LOSSES)
+    assert rs.run_loss("D2") == rs.LOSSES["l1"] and rs.run_loss("M1c") == rs.LOSSES["huber_cmixup"]
+    for e in rs.PHASE2:
+        aug = "channel_drop.consistency_weight=0.1" in e.extra
+        if any(o.startswith("data.multitask_targets=") for o in e.extra):
+            bal = "loss.pathology_reduction=present" in e.extra
+            assert rs.run_loss(e.name) == rs.LOSSES["multitask_path_bal" if bal else "multitask_path"]
+            continue
+        assert rs.run_loss(e.name) == rs.LOSSES["consistency" if aug else "huber_mixup"]
+
+
+def _tueg_frame():
+    return pd.DataFrame({
+        "subject": ["a", "a", "b", "c"], "session": ["s1", "s2", "s1", "s1"],
+        "duration_sec": [600.0, 1200.0, 1800.0, 3600.0], "year": [2010, 2012, 1899, 2015],
+        "missing_channels": [[], ["T1", "T2"], ["A1"], []], "sfreq": [256.0, 256.0, 250.0, 256.0],
+        "montage": ["01_tcp_ar"] * 3 + ["02_tcp_le"], "sex": ["F", "F", "M", None],
+        "age": [30.0, 32.0, 70.0, float("nan")], "raw_age": [30.0, 32.0, 70.0, 999.0],
+        "status": ["normal", "abnormal", "abnormal", "no label"],
+        "status_source": ["NEDC report", "TUAB folder", "NEDC report", "–"]})
+
+
+def test_tueg_overview_and_status_counts():
+    t = _tueg_frame()
+    o = rs.tueg_overview(t).set_index("quantity").value
+    assert o["recordings (EDF files)"] == "4" and o["patients"] == "3" and o["sessions"] == "4"
+    assert o["hours of EEG"] == "2"
+    assert o["missing only T1/T2"].startswith("1 ") and o["missing other channels"].startswith("1 ")
+    assert o["age 90+ (redacted as 999)"].startswith("1 ") and o["age missing"].startswith("0 ")
+    s = rs.tueg_status(t).set_index(["status", "source"])
+    assert s.loc[("abnormal", "all"), "recordings"] == 2 and s.loc[("abnormal", "all"), "age mean"] == 51.0
+    assert s.loc[("total", "all"), "recordings"] == 4 and s.loc[("total", "all"), "age n"] == 3
+    assert s.loc[("total", "all"), "% of TUEG"] == 100.0
+
+
+def test_split_fingerprint_compares_recordings_not_windows():
+    a = {"train": {"recordings": ["r2", "r1"], "n_subjects": 2, "n_windows": 10},
+         "val": {"recordings": ["r3"], "n_subjects": 1, "n_windows": 3}}
+    b = {"train": {"recordings": ["r1", "r2"], "n_subjects": 2, "n_windows": 99},
+         "val": {"recordings": ["r4"], "n_subjects": 1, "n_windows": 3}}
+    rows = [{"run": run, **r} for run, d in (("a", a), ("b", b)) for r in rs.split_fingerprint(d)]
+    sig = rs.split_signature(pd.DataFrame(rows))
+    ta, va, xa = sig["a"].split("/")
+    tb, vb, xb = sig["b"].split("/")
+    assert ta == tb and va != vb and xa == xb == "-"
+
+
+def test_phase1_runs_share_one_split():
+    splits = pd.read_csv(os.path.join(ROOT, "docs", "data", "brain_age_run_splits.csv"))
+    sig = rs.split_signature(splits)
+    reg = rs.registry_master_table(REGISTRY)
+    assert sig.loc[list(reg.run)].nunique() == 1
+    test = {s.split("/")[2] for s in sig if s.split("/")[2] != "-"}
+    assert len(test) == 1                      # every run tests on the same TUAB recordings
+
+
+def test_age_fit_metrics_bias_and_slope():
+    true = pd.Series([20.0, 40.0, 60.0, 80.0])
+    m = rs.age_fit_metrics(true + 2.0, true)              # constant offset: bias 2, no slope
+    assert m["MAE"] == pytest.approx(2.0) and m["bias"] == pytest.approx(2.0) and m["β"] == pytest.approx(0.0)
+    m = rs.age_fit_metrics(pd.Series([50.0] * 4), true)  # constant prediction: β = -1
+    assert m["β"] == pytest.approx(-1.0)
+
+
+def test_prediction_sets_split_tuab_tueg_and_status():
+    preds = pd.DataFrame({
+        "exp": ["x"] * 6, "fold": [0, 1, 0, 1, 0, 0],
+        "split": ["heldout", "heldout", "heldout", "heldout", "test", "test"],
+        "stem": ["t1", "t1", "t2", "t2", "a1", "g1"],
+        "pred": [30.0, 34.0, 60.0, 62.0, 40.0, 50.0], "true": [32.0, 32.0, 61.0, 61.0, 41.0, 55.0]})
+    preds["err"] = preds.pred - preds.true
+    recs = pd.DataFrame({"stem": ["t1", "t2", "a1", "g1"], "status": ["normal", "abnormal", "normal", "no label"],
+                         "corpora": ["tuab,tueg", "tuab,tueg", "tuab,tueg", "tueg"]})
+    s = rs.prediction_sets(preds, recs).set_index(["set", "stem"])
+    assert s.loc[("TUAB test, ensemble", "t1"), "pred"] == 32.0          # median of the fold models
+    assert ("TUAB out-of-fold", "a1") in s.index and ("TUEG out-of-fold", "g1") in s.index
+    assert s.loc[("TUEG out-of-fold", "g1"), "status"] == "no label"
+    m = rs.prediction_metrics(s.reset_index())
+    assert set(m.status) >= {"all", "normal", "abnormal", "no label"}
+
+
+def _toy_sets():
+    true_oof = np.arange(20.0, 81.0, 5.0)
+    true_test = np.array([25.0, 50.0, 75.0])
+    shrink = lambda y: 50.0 + 0.6 * (y - 50.0)              # regression to the mean, beta = -0.4
+    rows = [{"exp": "x", "set": "TUEG out-of-fold", "stem": f"o{i}", "true": y, "pred": shrink(y),
+             "status": "normal"} for i, y in enumerate(true_oof)]
+    rows += [{"exp": "x", "set": "TUAB test, ensemble", "stem": f"t{i}", "true": y, "pred": shrink(y),
+              "status": "abnormal"} for i, y in enumerate(true_test)]
+    d = pd.DataFrame(rows)
+    d["err"] = d.pred - d.true
+    return d
+
+
+def test_bias_correction_is_fitted_out_of_sample():
+    c = rs.bias_corrected_test(_toy_sets(), degree=1)
+    assert set(c.set) == {"TUAB test, ensemble"}
+    assert np.allclose(c.err, 0.0)                         # the linear trend fitted on OOF removes it exactly
+    d = _toy_sets()
+    d.loc[d.set == "TUEG out-of-fold", "pred"] += 3.0     # shift only the OOF rows ...
+    d["err"] = d.pred - d.true
+    c = rs.bias_corrected_test(d, degree=1)
+    assert np.allclose(c.err, -3.0)                        # ... so the fit comes from them, not from the test rows
+
+
+def test_agreement_summary_pairs():
+    idx = [f"s{i}" for i in range(6)]
+    true = pd.Series([20.0, 30.0, 40.0, 50.0, 60.0, 70.0], index=idx)
+    status = pd.Series(["normal", "abnormal"] * 3, index=idx)
+    rng = np.random.default_rng(0)
+    wide = pd.DataFrame({f"{e} f{k}": true + rng.normal(0, 2, 6) for e in ("a", "b") for k in range(3)}, index=idx)
+    for e in ("a", "b"):
+        wide[f"{e} ens"] = wide[[f"{e} f{k}" for k in range(3)]].median(axis=1)
+    s = rs.agreement_summary(wide, true, status, ("a", "b"))
+    assert set(s.status) == {"all", "normal", "abnormal"}
+    assert (s.pair == "a vs b (ensembles)").sum() == 3
+    assert s.agree_5y.between(0, 1).all() and s.r_pred.le(1).all()
+
+
+def test_bias_fit_check_and_deployable_correction():
+    d = _toy_sets()
+    chk = rs.bias_fit_check(d).iloc[0]
+    assert chk["fit ∩ test recordings"] == 0 and chk["fit ∩ test patients"] == 0
+    leaky = pd.concat([d, d[d.set == "TUAB test, ensemble"].assign(set="TUEG out-of-fold")], ignore_index=True)
+    assert rs.bias_fit_check(leaky).iloc[0]["fit ∩ test recordings"] == 3   # a leak is detected
+    c = rs.cole_corrected_test(d)                       # inverts pred = 0.6 y + 20 using the prediction only
+    assert np.allclose(c.pred, c.true)
+
+
+def test_display_name_capitalizes_corpora_only():
+    assert rs.display_name("normal_tueg_v1") == "normal_TUEG_v1"
+    assert rs.display_name("tuab_v3.0.1_interp50-60") == "TUAB_v3.0.1_interp50-60"
+    assert rs.display_name("all_both_v3") == "all_both_v3"
+
+
+def test_raw_corpora_counts_status_and_channels():
+    t = _tueg_frame().assign(corpora=["tuab,tueg", "tuab,tueg", "tueg", "tueg"],
+                             source_split=["train", "eval", None, None])
+    r = rs.raw_corpora(t).set_index(["corpus", "part"])
+    assert r.loc[("TUAB", "all"), "recordings"] == 2 and r.loc[("TUEG", "all"), "recordings"] == 4
+    assert r.loc[("TUEG", "not in TUAB"), "patients"] == 2
+    assert r.loc[("TUAB", "eval split (test)"), "abnormal"] == 1
+    tueg = r.loc[("TUEG", "all")]
+    assert (tueg["all 23 channels"], tueg["only T1/T2 missing"], tueg["other channels missing"]) == (2, 1, 1)
+    assert tueg["normal"] + tueg["abnormal"] + tueg["no label"] == tueg["recordings"]
+
+
+def test_raw_summary_rows_and_selection():
+    t = _tueg_frame().assign(stem=["r1", "r2", "r3", "r4"], corpora=["tuab,tueg", "tuab,tueg", "tueg", "tueg"],
+                             source_split=["train", "eval", None, None])
+    r = rs.raw_summary(t, converted=["r1", "r2", "r3"], cohort=pd.DataFrame({"stem": ["r1", "r2"]}))
+    assert list(r.part.unique()) == ["TUAB train", "TUAB eval (test)", "TUEG (not in TUAB)", "TOTAL"]
+    total = r[r.part == "TOTAL"].iloc[0]
+    assert (total.recordings, total["readable EDF, ≥ 60 s"], total["age known"]) == (4, 3, 3)
+    assert (total["selected recordings"], total.removed, total["T1/T2 missing (selected)"]) == (2, 2, 1)
+    tueg_all = r[(r.part == "TUEG (not in TUAB)") & (r.status == "all")].iloc[0]
+    assert tueg_all.recordings == 2
+
+
+def test_removal_reasons_first_failing_rule(tmp_path):
+    t = _tueg_frame().assign(stem=["r1", "r2", "r3", "r4"], corpora=["tuab,tueg", "tuab,tueg", "tueg", "tueg"],
+                             source_split=["train", "eval", None, None])
+    split = tmp_path / "age_split.json"
+    split.write_text('{"files": {"train": ["train/a_s1_t0_0.pkl"], "test": ["test/b_s1_t0_0.pkl"]}}')
+    manifest = {"cohort": {"min_age": 18, "max_age": 89, "min_minutes": 5.0, "allow_missing": ["T1", "T2"]}}
+    r = rs.removal_reasons(t, converted=["r1", "r2", "r3"], cohort=pd.DataFrame({"stem": ["r1"]}),
+                           cohort_manifest=manifest, tuab_split_json=str(split))
+    tot = r[("TOTAL", "recordings")]
+    assert tot["selected"] == 1 and tot["raw"] == 4
+    assert tot["over the per-patient cap"] == 1                      # r2: passes every rule, not selected
+    assert tot["channels other than the allowed ones missing"] == 1  # r3 lacks A1
+    assert tot["EDF unreadable (not converted)"] == 1                # r4 (>= 60 s, not converted)
+
+
+def test_split_sizes_counts_recordings_not_windows(tmp_path):
+    p = tmp_path / "age_split.json"
+    p.write_text('{"files": {"train": ["train/a_s001_t000_0.pkl", "train/a_s001_t000_1.pkl", "train/b_s001_t000_0.pkl"],'
+                 ' "val": ["val/c_s001_t000_3.pkl"]}}')
+    assert rs.split_sizes(str(p)) == {"train": 2, "val": 1, "test": 0}
+
+
+def test_flags_per_recording_is_multi_hot():
+    from dataset_maker import tuh_clinical as tc
+    t = _tueg_frame().assign(in_sheet=[True, True, True, False])
+    for col in tc.DIAGNOSES.values():
+        t[col] = False
+    t.loc[0, ["dx_epilepsy", "dx_clinical_seizure"]] = True      # two flags on one recording
+    t.loc[1, "dx_stroke"] = True
+    f = rs.flags_per_recording(t)
+    assert f.loc[2, "recordings"] == 1 and f.loc[1, "recordings"] == 1 and f.loc[0, "recordings"] == 1
+    assert f.recordings.sum() == 3                                # only recordings in the sheet
+
+
+def test_flag_matrix_counts_shared_items():
+    from dataset_maker import tuh_clinical as tc
+    t = _tueg_frame().assign(in_sheet=[True, True, True, False])
+    for col in tc.DIAGNOSES.values():
+        t[col] = False
+    t.loc[0, ["dx_epilepsy", "dx_clinical_seizure"]] = True      # normal recording with two flags
+    t.loc[1, "dx_epilepsy"] = True                              # abnormal recording with epilepsy
+    m = rs.flag_matrix(t)
+    assert (m.values == m.values.T).all()
+    assert m.loc["epilepsy", "epilepsy"] == 2 and m.loc["epilepsy", "cl. seizure"] == 1
+    assert m.loc["epilepsy", "normal"] == 1 and m.loc["epilepsy", "abnormal"] == 1
+    assert m.loc["normal", "abnormal"] == 0
+
+
+def test_phase1_short_list_merges_duplicates_and_seeds():
+    reg = rs.registry_master_table(REGISTRY)
+    s = rs.phase1_short_list(reg, tau=0.38).set_index("config")
+    assert {"D-npy", "D-cohorts", "MT1-seed1", "S2-seed1"}.isdisjoint(s.index)
+    assert len(s) == len(reg) - 4
+    assert set(s.index) <= set(rs.CHANGE_VS_D)
+    assert s.loc["D", "Δ test"] == 0 and s.loc["D", "Norm"] == pytest.approx(6.57)   # from D-cohorts
+    r = reg.set_index("run")
+    assert s.loc["MT1", "test"] == pytest.approx((r.loc["MT1", "test"] + r.loc["MT1-seed1", "test"]) / 2)
+    assert s.loc["F2", "vs D"] == "worse" and s.loc["E2", "vs D"] == "n.s."
+
+
+def test_tueg_diagnoses_total_row_counts_every_sheet_recording():
+    from dataset_maker import tuh_clinical as tc
+    t = _tueg_frame().assign(in_sheet=[True, True, True, False])
+    for col in [*tc.DIAGNOSES.values(), "any_neuro_dx", "sedated"]:
+        t[col] = False
+    t.loc[0, ["dx_epilepsy", "dx_clinical_seizure", "any_neuro_dx"]] = True   # multi-hot
+    d = rs.tueg_diagnoses(t).set_index("flag")
+    total = d.iloc[-1]
+    assert d.index[-1].startswith("Total") and total.recordings == 3 and total.patients == 2
+    assert total.normal == 1 and total.abnormal == 2 and total["% of sheet"] == 100.0
+    assert d.loc["Epilepsy", "recordings"] == 1
+
+
+def test_reeval_short_list_merges_groups_and_checks_splits():
+    reg = rs.registry_master_table(REGISTRY)
+    m = pd.read_csv(os.path.join(ROOT, "docs", "data", "phase1_reeval_metrics.csv"))
+    c = pd.read_csv(os.path.join(ROOT, "docs", "data", "phase1_reeval_split_check.csv"))
+    s = rs.reeval_short_list(m, c, reg).set_index("config")
+    assert len(s) == len(reg) - 4 and (s["split = recorded"] == "✓").all()
+    assert s.loc["D", "runs"] == 3 and s.loc["MT1", "runs"] == 2
+    r = reg.set_index("run")
+    assert s.loc["E2", "test MAE"] == pytest.approx(r.loc["E2", "test"], abs=0.02)   # matches training-time eval
+    assert s.loc["D", "gap (test − train)"] == pytest.approx(s.loc["D", "test MAE"] - s.loc["D", "train MAE"])
+    c.loc[c.run == "E2", "identical"] = False
+    assert rs.reeval_short_list(m, c, reg).set_index("config").loc["E2", "split = recorded"] == "✗"
+
+
+def test_recalibration_maps_prediction_to_age_without_test_labels():
+    d = _toy_sets()
+    d["pred"] = np.where(d.set == "TUAB test, ensemble", d.pred, 2.0 * d.true + 5.0)   # OOF: pred = 2y + 5
+    d["err"] = d.pred - d.true
+    t = d[d.set == "TUAB test, ensemble"]
+    c = rs.recalibrated_test(d)
+    assert np.allclose(c.pred.to_numpy(), (t.pred.to_numpy() - 5.0) / 2.0)        # y = (pred - 5) / 2
+
+
+def test_correction_leak_check_flags_only_the_gap_correction():
+    methods = {"gap": lambda s: rs.bias_corrected_test(s, 1), "cole": lambda s: rs.cole_corrected_test(s),
+               "recal": lambda s: rs.recalibrated_test(s)}
+    d = _toy_sets()
+    d.loc[d.set == "TUEG out-of-fold", "pred"] = d.true * 0.5 + 20.0              # an age-dependent OOF gap
+    d["err"] = d.pred - d.true
+    c = rs.correction_leak_check(d, methods).set_index("method")
+    assert c.loc["gap", "uses TUAB test true age"] == "yes" and c.loc["gap", "max change (years)"] > 0
+    assert (c.loc[["cole", "recal"], "uses TUAB test true age"] == "no").all()
+    assert (c[["fit ∩ test recordings", "fit ∩ test patients"]] == 0).all().all()
+
+
+def test_split_run_calibration_fits_on_val_normal_only():
+    rec = lambda p, i: f"{p}{i:03d}_s001_t000"                     # patient = first field
+    rows = []
+    for i, y in enumerate(np.arange(20.0, 80.0, 5.0)):               # val: pred = 0.5 y + 25 (normal)
+        rows.append({"run": "r", "split": "val", "recording": rec("v", i), "true": y, "pred": 0.5 * y + 25,
+                     "cohort": "normal"})
+    rows.append({"run": "r", "split": "val", "recording": rec("w", 0), "true": 50.0, "pred": 90.0,
+                 "cohort": "abnormal"})                              # not in the normal fit
+    for i, y in enumerate((30.0, 60.0)):
+        rows.append({"run": "r", "split": "test", "recording": rec("t", i), "true": y, "pred": 0.5 * y + 25,
+                     "cohort": "normal"})
+    c = rs.split_run_calibration(pd.DataFrame(rows)).set_index("run").loc["r"]
+    assert c["a"] == pytest.approx(2.0) and c["b"] == pytest.approx(-50.0)
+    assert c["cal. all"] == pytest.approx(0.0, abs=1e-9) and c["test all"] > 0
+    assert c["fit recordings"] == 12 and c["fit ∩ test patients"] == 0
+
+
+def test_feature_space_labels():
+    assert rs.feature_space("D") == "patch_tokens" and rs.feature_space("D-cls") == "cls_token"
+    assert rs.feature_space("Exp3cond") == "patch_tokens + path_label"
+    assert rs.feature_space("Exp4aug") == "cls_token + path_label"
+    assert rs.feature_space("Exp1t") == "patch_tokens + feat_tokens"
+    assert rs.feature_space("Exp1f") == "features only (no EEG)"
+    assert rs.feature_space("cvbase") == "patch_tokens"
+
+
+def test_tueg_pathology_mae_skips_tuab_and_groups_flags():
+    from dataset_maker import tuh_clinical as tc
+    t = _tueg_frame().assign(in_sheet=[True, True, True, False], stem=["a1", "a2", "b1", "c1"],
+                             corpora=["tueg", "tueg,tuab", "tueg", "tueg"])
+    for col in tc.DIAGNOSES.values():
+        t[col] = False
+    t.loc[0, "dx_epilepsy"] = True
+    t.loc[2, ["dx_dementia", "dx_alzheimers"]] = True
+    p = pd.DataFrame({"run": "r", "stem": ["a1", "a2", "b1", "c1"], "pred": [32.0, 40.0, 60.0, 50.0],
+                      "true": [30.0, 32.0, 70.0, 45.0]})
+    m = rs.tueg_pathology_mae(p, t).set_index("group")
+    assert m.loc["TUEG all", "n"] == 3                         # a2 is a TUAB recording
+    assert m.loc["epil.", "MAE"] == pytest.approx(2.0) and m.loc["dement.", "MAE"] == pytest.approx(10.0)
+    assert m.loc["TUEG abnormal", "n"] == 1 and m.loc["TUEG normal", "MAE"] == pytest.approx(2.0)
+
+
+def test_prediction_sets_val_only_cv_uses_val_folds_as_out_of_fold():
+    preds = pd.DataFrame({"exp": ["cvaugval"] * 3, "fold": [0, 0, 1], "split": ["heldout", "val", "val"],
+                          "stem": ["t1", "a1", "g1"], "pred": [30.0, 40.0, 50.0], "true": [32.0, 41.0, 55.0]})
+    preds["err"] = preds.pred - preds.true
+    recs = pd.DataFrame({"stem": ["t1", "a1", "g1"], "status": ["normal", "normal", "abnormal"],
+                         "corpora": ["tuab", "tuab", "tueg"]})
+    s = rs.prediction_sets(preds, recs)
+    assert set(s.set) == {"TUAB test, ensemble", "TUAB out-of-fold", "TUEG out-of-fold"}
+    assert set(s[s.set == "TUEG out-of-fold"].stem) == {"g1"}

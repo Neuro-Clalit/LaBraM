@@ -19,7 +19,8 @@ from labram.data import get_dataset_bundle
 from labram.data.staging import stage_bundle
 from labram.data.age_sampling import build_age_bin_sampler
 from labram.data.window_selection import (
-    WindowSelection, apply_window_selection, enable_abnormal_target, enable_random_crop,
+    WindowSelection, apply_window_selection, enable_abnormal_target, enable_multitask_targets,
+    enable_random_crop,
     enable_session_features,
     train_window_ages,
 )
@@ -161,12 +162,22 @@ def main(config: FinetuneRunConfig, bundle=None):
                 skip_signal=config.model.session_features == "only")
             if groups is not None:
                 config.model.session_feature_groups = groups
+    if config.data.multitask_targets:
+        # Age + status + diagnosis groups as multi-task *targets* (never inputs);
+        # loaded before staging, which re-roots the loaders.
+        if config.model.head_type != 'multitask':
+            raise ValueError("data.multitask_targets needs model.head_type=multitask")
+        for split in (bundle.train, bundle.val, bundle.test):
+            names = enable_multitask_targets(split, config.data.multitask_targets)
+            if names is not None:
+                config.model.multitask_head.class_names = names
     if not config.trainer.debug:
         # Only the selected recordings, train first; a no-op for pickles, on
         # SageMaker, or with data.stage_dir=none.
         stage_bundle(bundle, config.data.stage_dir, reserve_gb=config.data.stage_reserve_gb,
                      splits=("val", "test") if config.trainer.eval else ("train", "val", "test"))
-    if config.model.head_type == 'multitask' or config.model.condition_on_abnormal:
+    if ((config.model.head_type == 'multitask' and not config.data.multitask_targets)
+            or config.model.condition_on_abnormal):
         # Age + normal/abnormal: every split yields [age, abnormal] targets --
         # predicted by a multi-task head, or fed to a label-conditioned age head.
         if config.loss.regression_loss == 'soft_label':
@@ -374,7 +385,10 @@ def main(config: FinetuneRunConfig, bundle=None):
             train_targets=train_window_ages(dataset_train)
             if task == 'regression' and config.loss.balance != 'none' else None)
         if config.model.head_type == 'multitask':
-            criterion = MultiTaskAgeCriterion(criterion, config.loss.abnormal_weight)
+            criterion = MultiTaskAgeCriterion(criterion, config.loss.abnormal_weight,
+                                              config.loss.pathology_weight,
+                                              config.model.multitask_head.class_names,
+                                              config.loss.pathology_reduction)
         elif config.model.condition_on_abnormal:
             criterion = AbnormalConditionedAgeCriterion(criterion)
         elif config.model.session_features != "off":

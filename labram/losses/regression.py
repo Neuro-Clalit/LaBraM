@@ -3,7 +3,7 @@
 # Downstream regression criterion selection (e.g. brain-age prediction).
 # ---------------------------------------------------------
 
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
@@ -234,9 +234,40 @@ class SessionFeatureAgeCriterion(nn.Module):
         return self.age_criterion(output, target[..., :1])
 
 
+def masked_bce_with_logits(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Mean BCE-with-logits over the entries whose target is finite (NaN =
+    unknown label, also after mixup blends it with a known one); 0 when none is."""
+    known = torch.isfinite(target)
+    if not bool(known.any()):
+        return logits.sum() * 0.0
+    return F.binary_cross_entropy_with_logits(logits[known].float(), target[known].float())
+
+
+def present_class_bce_with_logits(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Class-balanced multi-label BCE: per class (last dim) the mean BCE over its
+    known (finite) labels, kept only for the classes with a positive label
+    (> 0, also a mixup blend) in the batch, then the mean over those classes;
+    0 when no class has a positive."""
+    known = torch.isfinite(target)
+    present = (known & (torch.nan_to_num(target, nan=0.0) > 0)).any(dim=0)
+    if not bool(present.any()):
+        return logits.sum() * 0.0
+    per_class = []
+    for k in torch.nonzero(present).flatten().tolist():
+        m = known[:, k]
+        per_class.append(F.binary_cross_entropy_with_logits(logits[m, k].float(), target[m, k].float()))
+    return torch.stack(per_class).mean()
+
+
 class MultiTaskAgeCriterion(nn.Module):
     """Brain age + normal/abnormal: ``age_criterion`` on the age column plus
     ``abnormal_weight`` x BCE-with-logits on the abnormal logit.
+
+    With multi-task targets (``data.multitask_targets``) the head emits
+    ``[age, status_logit, *pathology_logits]`` and the loader
+    ``[age_z, status, *pathology]`` with NaN for unknown labels; the loss adds
+    ``pathology_weight`` x the mean BCE over the known pathology entries, and
+    both BCE terms skip unknown labels (:func:`masked_bce_with_logits`).
 
     The head emits ``[age, abnormal_logit]`` and the loader ``[age_z, abnormal]``
     (``abnormal`` in {0, 1}, or a mixup blend of the two). Returns a
@@ -246,10 +277,17 @@ class MultiTaskAgeCriterion(nn.Module):
     are unchanged.
     """
 
-    def __init__(self, age_criterion: nn.Module, abnormal_weight: float = 0.5):
+    def __init__(self, age_criterion: nn.Module, abnormal_weight: float = 0.5,
+                 pathology_weight: float = 0.5, class_names: Optional[Sequence[str]] = None,
+                 pathology_reduction: str = "known"):
         super().__init__()
+        if pathology_reduction not in ("known", "present"):
+            raise ValueError(f"loss.pathology_reduction must be known or present, got {pathology_reduction!r}")
+        self.pathology_reduction = pathology_reduction
         self.age_criterion = age_criterion
         self.abnormal_weight = float(abnormal_weight)
+        self.pathology_weight = float(pathology_weight)
+        self.class_names = list(class_names or [])
 
     def predict(self, output: torch.Tensor) -> torch.Tensor:
         return output[..., :1]
@@ -259,10 +297,19 @@ class MultiTaskAgeCriterion(nn.Module):
 
     def forward(self, output: torch.Tensor, target: torch.Tensor) -> LossBreakdown:
         age = self.age_criterion(output[..., :1], target[..., :1])
-        abnormal = F.binary_cross_entropy_with_logits(
-            output[..., -1].float(), target[..., -1].float())
-        return LossBreakdown(total=age + self.abnormal_weight * abnormal,
-                             components={"regression": age, "abnormal": abnormal})
+        if output.shape[-1] <= 2:
+            abnormal = F.binary_cross_entropy_with_logits(
+                output[..., -1].float(), target[..., -1].float())
+            return LossBreakdown(total=age + self.abnormal_weight * abnormal,
+                                 components={"regression": age, "abnormal": abnormal})
+        abnormal = masked_bce_with_logits(output[..., 1], target[..., 1])
+        logits, labels = output[..., 2:].reshape(-1, output.shape[-1] - 2), target[..., 2:].reshape(-1, target.shape[-1] - 2)
+        pathology = (present_class_bce_with_logits(logits, labels) if self.pathology_reduction == "present"
+                     else masked_bce_with_logits(logits, labels))
+        return LossBreakdown(total=age + self.abnormal_weight * abnormal
+                             + self.pathology_weight * pathology,
+                             components={"regression": age, "abnormal": abnormal,
+                                         "pathology": pathology})
 
 
 def build_regression_criterion(cfg: Optional[LossConfig] = None,

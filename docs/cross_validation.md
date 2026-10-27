@@ -39,6 +39,7 @@ python -m labram.eval.cv_report --base_dir ./checkpoints/finetune_tuab_cv5
 | `shuffle` | `true` | Shuffle groups before partitioning. |
 | `seed` | `42` | Deterministic fold assignment. |
 | `pool` | `train_val` | Which data is re-partitioned: `train_val` (keep the original test set out of CV) or `all`. |
+| `test_set` | `fold` | `fold`: fold *k* is the test set (below). `held_out`: no in-pool test fold — fold *k* is val, the other K−1 folds train, and the original test split (needs `pool = train_val`) is every fold's test set. |
 | `split_json` | `''` | Reuse a saved `cv_split.json` so separately-dispatched fold jobs share an identical partition. |
 | `base_dir` | `''` | Base folder holding the fold sub-runs; `''` → derived from `output.output_dir`. Each fold lives in `<base_dir>/fold_<k>`. |
 
@@ -55,6 +56,18 @@ So every case is used for testing exactly once across the K folds, and no subjec
 appears in more than one of a fold's train/val/test sets (verified by a leakage
 self-check). With `pool = train_val` the dataset's original test split is left
 untouched for a separate final evaluation.
+
+With `test_set = held_out` a fold instead has
+
+- **val** = fold *k*
+- **train** = the other K−1 folds
+- **test** = the original test split, the same for every fold
+
+so each model trains on (K−1)/K of the pool instead of (K−2)/K, every pooled case
+is validated (not tested) exactly once, and the only test set is the held-out
+split. `materialize_fold` refuses a test split that shares a group with the pool.
+A reused `split_json` keeps its partition; the fold roles follow the run's
+`test_set`.
 
 ## Experiment naming ("base folder + fold number")
 

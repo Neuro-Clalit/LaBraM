@@ -12,6 +12,7 @@ import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.utils.data
 from timm.utils import ModelEma
@@ -232,7 +233,10 @@ def train_one_epoch(
         consistency = None
 
         if dropper is not None:
-            drop_all = torch.rand(()).item() < dropper.cfg.prob
+            # The random drop starts at channel_drop.start_epoch (missing channels are
+            # always left out); the draw is skipped before it, so no batch is dropped.
+            drop_all = (epoch >= getattr(dropper.cfg, "start_epoch", 0)
+                        and torch.rand(()).item() < dropper.cfg.prob)
             if loss_scaler is None:
                 samples = samples.half()
             with torch.amp.autocast(device.type, enabled=(device.type == 'cuda'
@@ -485,11 +489,13 @@ def evaluate(
     with_session = isinstance(criterion, SessionFeatureAgeCriterion)
     if not regularized:
         abnormal_weight = criterion.abnormal_weight if multitask else None
+        mt_extra = ((criterion.pathology_weight, criterion.class_names, criterion.pathology_reduction)
+                    if multitask else None)
         criterion = build_downstream_criterion(
             task, 1 if is_binary else 2, loss_cfg if is_regression else None,
             target_stats=target_stats if is_regression else None)
         if multitask:
-            criterion = MultiTaskAgeCriterion(criterion, abnormal_weight)
+            criterion = MultiTaskAgeCriterion(criterion, abnormal_weight, *mt_extra)
         elif conditioned:
             criterion = AbnormalConditionedAgeCriterion(criterion)
         elif with_session:
@@ -569,8 +575,9 @@ def evaluate(
         if multitask:
             # The abnormal column rides along with the age prediction (so the
             # sharded gather below keeps the two aligned) and is split off after.
-            abnormal_prob = torch.sigmoid(output[..., -1:].float()).cpu()
-            abnormal_true = target[..., -1:].float().cpu()
+            # every class column after the age: status (+ diagnosis groups)
+            abnormal_prob = torch.sigmoid(output[..., 1:].float()).cpu()
+            abnormal_true = target[..., 1:].float().cpu()
         if is_regression:
             # A scalar prediction, not a probability: no sigmoid. (A soft-label
             # head's bin logits become their expectation here.)
@@ -648,7 +655,11 @@ def evaluate(
                     log_writer, window_report, f"{head}_window", epoch, eval_cfg)
 
     if multitask:
-        ret.update(_abnormal_metrics(abnormal_prob, abnormal_true, groups, agg_mode))
+        if abnormal_prob.shape[1] == 1 and np.isfinite(abnormal_true).all():
+            ret.update(_abnormal_metrics(abnormal_prob, abnormal_true, groups, agg_mode))
+        else:
+            ret.update(_multitask_class_metrics(abnormal_prob, abnormal_true, groups, agg_mode,
+                                                criterion.class_names))
     ret.update({key: meter.global_avg for key, meter in metric_logger.meters.items()
                 if key in ('data_time_sec', 'step_time_sec', 'host_compute_time_sec',
                            'gpu_compute_time_sec') or key.endswith('_loss')})
@@ -681,6 +692,48 @@ def _abnormal_metrics(prob, true, groups, agg_mode) -> Dict[str, float]:
         prob, true, groups, mode, list(ABNORMAL_METRICS), True, 1, False, TASK_CLASSIFICATION)
     out = {f'window_abnormal_{k}': v for k, v in window_ret.items()}
     out.update({f'abnormal_{k}': v for k, v in (ret if aggregated else window_ret).items()})
+    return out
+
+
+def _multitask_class_metrics(prob, true, groups, agg_mode, names) -> Dict[str, float]:
+    """Classification metrics of a multi-task head with partly unknown labels
+    (``data.multitask_targets``; NaN = unknown). Column 0 is the normal/abnormal
+    status: :func:`_abnormal_metrics` over the windows whose status is known.
+    Every further column is one diagnosis group: per recording (the mean
+    probability of its windows when the windows carry case ids, else per
+    window), ``pathology_<group>_{roc_auc,pr_auc}`` over the recordings whose
+    label is known, when both classes occur; ``pathology_macro_*`` is their mean
+    and ``pathology_n_groups`` how many groups were scored."""
+    from sklearn.metrics import average_precision_score, roc_auc_score
+    out: Dict[str, float] = {}
+    groups = list(groups) if groups is not None else []
+    known = np.isfinite(true[:, 0])
+    if known.sum() >= 2 and len(np.unique(true[known, 0])) == 2:
+        g = [groups[i] for i in np.flatnonzero(known)] if len(groups) == len(true) else []
+        out.update(_abnormal_metrics(prob[known, :1], true[known, :1], g, agg_mode))
+    aucs, aps = [], []
+    for k in range(1, prob.shape[1]):
+        name = (names[k] if names and k < len(names) else f"class_{k}").split("/")[-1]
+        m = np.isfinite(true[:, k])
+        if not m.any():
+            continue
+        p, t = prob[m, k], true[m, k]
+        if len(groups) == len(true):
+            df = pd.DataFrame({"case": np.asarray(groups, dtype=object)[m], "p": p, "t": t})
+            agg = df.groupby("case", sort=False).agg(p=("p", "mean"), t=("t", "first"))
+            p, t = agg.p.to_numpy(), agg.t.to_numpy()
+        t = (t >= 0.5).astype(int)
+        if len(np.unique(t)) < 2:
+            continue
+        auc, ap = float(roc_auc_score(t, p)), float(average_precision_score(t, p))
+        out[f"pathology_{name}_roc_auc"], out[f"pathology_{name}_pr_auc"] = auc, ap
+        out[f"pathology_{name}_n_pos"] = int(t.sum())
+        aucs.append(auc)
+        aps.append(ap)
+    if aucs:
+        out["pathology_macro_roc_auc"] = float(np.mean(aucs))
+        out["pathology_macro_pr_auc"] = float(np.mean(aps))
+        out["pathology_n_groups"] = len(aucs)
     return out
 
 
