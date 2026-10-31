@@ -183,7 +183,7 @@ class FinetuneModelConfig(ConfigBase):
     multitask_head: MultiTaskHeadConfig = field(default_factory=MultiTaskHeadConfig)
     # head_type=multitask with loss.age_weight=0: the recording's known age as a
     # model input for the status / pathology heads. "tokens": the z-scored age
-    # (the loader's age target) -> LayerNorm-free Linear(1 -> embed_dim) is one
+    # (the loader's age target) -> Linear(1 -> embed_dim) -> LayerNorm is one
     # extra token in the encoder's sequence (the session-token path, one group
     # [1, 1]). Needs the age at inference too.
     age_input: str = "off"
