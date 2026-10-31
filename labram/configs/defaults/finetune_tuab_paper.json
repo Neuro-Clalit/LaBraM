@@ -43,6 +43,7 @@
             "drop": 0.0,
             "class_names": []
         },
+        "age_input": "off",
         "condition_on_abnormal": false,
         "abnormal_embed_dim": 16,
         "session_features": "off",
@@ -268,7 +269,8 @@
         "balance_max_weight": 10.0,
         "abnormal_weight": 0.5,
         "pathology_weight": 0.5,
-        "pathology_reduction": "known"
+        "pathology_reduction": "known",
+        "age_weight": 1.0
     },
     "finetune_checkpoint": {
         "py/object": "labram.configs.model_config.FinetuneCheckpointConfig",
@@ -286,7 +288,9 @@
         "log_grad_freq": 50,
         "agg_windows": "none",
         "agg_case_by": "recording",
-        "use_ema": false
+        "use_ema": false,
+        "select_metric": "",
+        "select_mode": "auto"
     },
     "labram_plus": {
         "py/object": "labram.configs.labram_plus_config.LaBraMPlusConfig",

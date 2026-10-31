@@ -359,3 +359,58 @@ def test_resolve_class_names_from_the_targets_file(tmp_path):
     assert cfg.model.multitask_head.class_names == []          # as a saved run_config.yaml
     resolve_multitask_class_names(cfg, str(tmp_path))
     assert cfg.model.multitask_head.class_names == ["status_abnormal", "pathology/x"]
+
+
+# ------------------------------------------------- classification only / age as input
+def test_age_weight_zero_drops_the_age_term_and_age_input_hands_the_age_to_the_model():
+    out = torch.tensor([[5.0, 0.3, -1.0], [-4.0, -0.2, 2.0]], requires_grad=True)
+    target = torch.tensor([[0.5, 1.0, 0.0], [-0.5, 0.0, 1.0]])
+    crit = MultiTaskAgeCriterion(nn.HuberLoss(), 0.5, 0.5, age_weight=0.0, age_input=True)
+    loss = crit(out, target)
+    loss.total.backward()
+    assert torch.all(out.grad[:, 0] == 0)                   # no gradient into the age output
+    assert torch.equal(crit.condition(target), target[:, :1])
+    assert getattr(MultiTaskAgeCriterion(nn.HuberLoss()), "condition", None) is None
+
+
+def test_age_input_tokens_add_one_encoder_token_fed_by_the_condition():
+    model = _tiny(multitask_head={"shared_dims": [16], "age_dims": [8], "abnormal_dims": [8],
+                                  "class_names": ["status_abnormal", "pathology/a"]},
+                  session_features="tokens", session_feature_groups=[[1, 1]])
+    x = torch.randn(2, 4, 1, 200)
+    a = model(x, condition=torch.tensor([[-1.0], [1.0]]))
+    b = model(x, condition=torch.tensor([[1.0], [-1.0]]))
+    assert a.shape == (2, 3) and not torch.allclose(a, b)    # the age changes the output
+
+
+@pytest.mark.parametrize("kw", [{"age_input": "head"},
+                                {"age_input": "tokens", "head_type": "mlp"}])
+def test_age_input_config_is_validated(kw):
+    with pytest.raises(ValueError):
+        FinetuneModelConfig(**{"head_type": "multitask", "task": "regression", **kw}).validate()
+
+
+def test_run_finetune_trains_a_classification_only_model_with_age_input(tmp_path):
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    from test_window_qc import _corpus
+    root = _corpus(tmp_path)
+    stems = ["aaa_s001_t000", "bbb_s001_t000", "ccc_s001_t000", "ddd_s001_t000", "eee_s001_t000"]
+    _targets_file(root, stems, [[1, 0, 1], [0, 1, 0], [1, 1, 0], [1, 0, 1], [0, 1, 1]],
+                  ["status_abnormal", "pathology/a", "pathology/b"])
+    out = tmp_path / "out"
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy",
+           "data.trim_start_sec": 0.0, "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0,
+           "data.num_workers": 0, "trainer.debug": True, "trainer.epochs": 1,
+           "distributed.device": "cpu", "finetune_checkpoint.finetune": "",
+           "clearml.enabled": False, "output.output_dir": str(out), "output.log_dir": str(out),
+           "model.head_type": "multitask", "data.multitask_targets": "multitask_targets_v1.npz",
+           "model.multitask_head.shared_dims": [32, 32], "model.multitask_head.age_dims": [16, 8],
+           "model.multitask_head.abnormal_dims": [16, 8], "model.age_input": "tokens",
+           "loss.age_weight": 0.0, "evaluation.select_metric": "loss",
+           "mixup.enabled": True, "logging.log_model_graph": False})
+    summary = run_finetune.main(cfg)
+    assert summary["best_metric_name"] == "loss"           # the override, lower is better
+    assert np.isfinite(summary["best_train_stats"]["loss"])

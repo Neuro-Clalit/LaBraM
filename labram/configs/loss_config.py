@@ -85,6 +85,11 @@ class LossConfig(ConfigBase):
     # then the mean over those groups -- every group present counts equally, so
     # frequent groups and the many negatives do not dominate.
     pathology_reduction: str = "known"
+    # Weight of the age term in the multi-task loss. 0 = no age prediction: the
+    # age branch gets no gradient and the model is a status + pathology
+    # classifier (select the best epoch on a classification metric,
+    # evaluation.select_metric).
+    age_weight: float = 1.0
 
     # Codebook-regularized fine-tuning: weight on the classification term when
     # the spectral (amplitude/phase) and quantization losses regularize the

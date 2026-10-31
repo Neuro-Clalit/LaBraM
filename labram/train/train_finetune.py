@@ -31,6 +31,7 @@ from labram.losses import (
     model_condition, regression_output, regression_target)
 from labram.losses.regression import downstream_term_name
 from labram.losses.outputs import LossBreakdown
+from labram.utils.regression_metrics import LOWER_IS_BETTER
 from labram.train.augment import augment_batch
 from labram.train.channel_drop import ChannelDropper
 from labram.train.early_stopping import should_stop
@@ -489,7 +490,8 @@ def evaluate(
     with_session = isinstance(criterion, SessionFeatureAgeCriterion)
     if not regularized:
         abnormal_weight = criterion.abnormal_weight if multitask else None
-        mt_extra = ((criterion.pathology_weight, criterion.class_names, criterion.pathology_reduction)
+        mt_extra = ((criterion.pathology_weight, criterion.class_names, criterion.pathology_reduction,
+                     criterion.age_weight, criterion.age_input)
                     if multitask else None)
         criterion = build_downstream_criterion(
             task, 1 if is_binary else 2, loss_cfg if is_regression else None,
@@ -1067,6 +1069,12 @@ def train_loop(
     # Model selection metric and its direction: accuracy (higher is better) for
     # classification, MAE (lower is better) for regression.
     select_metric, select_dir = utils.best_metric_for(task, metrics)
+    if getattr(config.evaluation, 'select_metric', ''):
+        select_metric = config.evaluation.select_metric
+        mode = config.evaluation.select_mode
+        select_dir = mode if mode in ('max', 'min') else (
+            'min' if select_metric in LOWER_IS_BETTER or select_metric.endswith('loss') else 'max')
+        logger.info("Best epoch selected on %s (%s)", select_metric, select_dir)
     better = (lambda new, cur: new > cur) if select_dir == 'max' else (lambda new, cur: new < cur)
 
     # Val/test are scored (and the best epoch selected) with the EMA weights

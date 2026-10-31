@@ -181,6 +181,12 @@ class FinetuneModelConfig(ConfigBase):
     mlp_head: MLPHeadConfig = field(default_factory=MLPHeadConfig)
     # "multitask": age + normal/abnormal from one pooled feature (multitask_head).
     multitask_head: MultiTaskHeadConfig = field(default_factory=MultiTaskHeadConfig)
+    # head_type=multitask with loss.age_weight=0: the recording's known age as a
+    # model input for the status / pathology heads. "tokens": the z-scored age
+    # (the loader's age target) -> LayerNorm-free Linear(1 -> embed_dim) is one
+    # extra token in the encoder's sequence (the session-token path, one group
+    # [1, 1]). Needs the age at inference too.
+    age_input: str = "off"
     # Condition the age head on the recording's known normal/abnormal label: a
     # soft one-hot [1 - a, a] -> Linear(2 -> abnormal_embed_dim, no bias) is
     # concatenated to the pooled feature (the label is an input, not predicted).
@@ -292,6 +298,10 @@ class FinetuneModelConfig(ConfigBase):
             if self.codebook_reg.enabled or self.lora.enabled:
                 raise ValueError("model.head_type=multitask is not supported with "
                                  "model.codebook_reg or model.lora")
+        if self.age_input not in ("off", "tokens"):
+            raise ValueError(f"model.age_input must be 'off' or 'tokens', got {self.age_input!r}")
+        if self.age_input != "off" and (self.head_type != "multitask" or self.session_features != "off"):
+            raise ValueError("model.age_input needs head_type=multitask and no model.session_features")
         if self.head_type == "mlp" and self.codebook_reg.enabled:
             raise ValueError("model.head_type=mlp is not supported with model.codebook_reg")
         if self.depth is not None:

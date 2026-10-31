@@ -46,7 +46,10 @@ METRICS = ["mae", "rmse", "r2", "pearson_r"]
 
 
 def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, session=False,
-             channel_drop=None, num_workers=8):
+             channel_drop=None, num_workers=8, logits_out=None, age_input=False):
+    """Window predictions. ``logits_out`` (a list), when given, also receives
+    each batch's full model output before ``to_scalar`` (e.g. every multi-task
+    column)."""
     enable_window_ids(dataset, "recording")
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False,
                                          num_workers=num_workers, pin_memory=True)
@@ -61,6 +64,8 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
             if session:                        # target = [age, *session features]
                 extra = {"condition": y[:, 1:].float().to(device)}
                 y = y[:, 0]
+            elif age_input:                    # model.age_input: the z-scored age is an input
+                extra = {"condition": y.float().reshape(-1, 1).to(device)}
             with torch.amp.autocast(device.type, enabled=device.type == "cuda"):
                 if dropper is not None:
                     out = dropper.forward(model, x, dropper.present(x),
@@ -68,6 +73,8 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
                 else:
                     out = model(x, channel_indices=channel_indices, classify_only=True, **extra)
             out = getattr(out, "logits", out)
+            if logits_out is not None:
+                logits_out.append(out.float().cpu())
             if to_scalar is not None:          # soft-label head: bin logits -> expectation
                 out = to_scalar(out)
             preds.append(out.float().squeeze(-1).cpu())
@@ -92,6 +99,14 @@ def _per_recording(pred, true, recs, target_stats, pred_stats=None):
     return ids, np.array([sums[r][0] / sums[r][1] for r in ids]), np.array([sums[r][2] for r in ids])
 
 
+def _mean_by_recording(values, recs):
+    """(recording ids in first-seen order, mean row of ``values`` per recording)."""
+    idx = OrderedDict()
+    for i, r in enumerate(recs):
+        idx.setdefault(r, []).append(i)
+    return list(idx), [values[i].mean(axis=0) for i in idx.values()]
+
+
 def train_target_stats(cfg, train_data_path):
     """(mean, std) of the training targets of the run, rebuilt from its own
     training data with its own window selection (older run configs do not
@@ -108,11 +123,16 @@ def _window_names(dataset):
 
 def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None,
                  train_data_path=None, window_qc=True, session_features=None, return_windows=False,
-                 tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None, num_workers=8):
+                 tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None, num_workers=8,
+                 class_probs=False):
     """Score one run on ``splits``. With ``return_windows`` each split also
     carries its window-level predictions (``windows``: names, recording ids,
     predicted / true age in years) and the result the run's window settings
-    (``data``), so callers can re-aggregate on a subset of windows."""
+    (``data``), so callers can re-aggregate on a subset of windows. With
+    ``class_probs`` a multi-task run's splits also carry ``class_probs``:
+    recording -> the mean sigmoid probability of its windows per class column
+    (status, diagnosis groups; as training's per-recording metrics), and the
+    result its ``class_names``."""
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
     if stage_dir is not None:                 # e.g. "none": read in place, no NVMe copy
@@ -166,11 +186,16 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
               "pred_target_stats": pred_stats or bundle.target_stats,
               "data": {"eval_minutes": cfg.data.eval_minutes, "window_sec": cfg.data.window_sec,
                        "trim_start_sec": cfg.data.trim_start_sec, "trim_end_sec": cfg.data.trim_end_sec}}
+    keep_logits = class_probs and cfg.model.head_type == "multitask"
+    if keep_logits:
+        result["class_names"] = list(cfg.model.multitask_head.class_names or [])
     for split in splits:
+        logits = [] if keep_logits else None
         pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device,
                                     batch_size, to_scalar, session=session,
                                     channel_drop=getattr(cfg, "channel_drop", None),
-                                    num_workers=num_workers)
+                                    num_workers=num_workers, logits_out=logits,
+                                    age_input=getattr(cfg.model, "age_input", "off") != "off")
         ids, p, t = _per_recording(pred, true, recs, bundle.target_stats, pred_stats)
         cohort = np.array([labels.get(r) for r in ids])   # group ids are recording stems
         out = {}
@@ -179,6 +204,9 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
             m = utils.regression_metrics_fn(p[mask], t[mask], METRICS)
             out[name] = {"n": int(mask.sum()), **{k: float(v) for k, v in m.items()}}
         out["predictions"] = {r: float(v) for r, v in zip(ids, p)}
+        if keep_logits:                        # columns 1.. are the class logits
+            prob = torch.sigmoid(torch.cat(logits)[:, 1:]).numpy()
+            out["class_probs"] = dict(zip(*_mean_by_recording(prob, recs)))
         if return_windows:
             names = _window_names(getattr(bundle, split))
             if len(names) != len(recs):

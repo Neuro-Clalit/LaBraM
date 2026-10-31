@@ -76,8 +76,9 @@ def get_model(config: FinetuneRunConfig):
         multitask_head=m.multitask_head,
         condition_on_abnormal=m.condition_on_abnormal,
         abnormal_embed_dim=m.abnormal_embed_dim,
-        session_features=m.session_features,
-        session_feature_groups=m.session_feature_groups,
+        # model.age_input=tokens reuses the session-token path: one [1, 1] group.
+        session_features="tokens" if m.age_input == "tokens" else m.session_features,
+        session_feature_groups=[[1, 1]] if m.age_input == "tokens" else m.session_feature_groups,
         session_feature_drop=m.session_feature_drop,
         session_feature_norm=m.session_feature_norm,
         session_token_gain=m.session_token_gain,
@@ -388,7 +389,9 @@ def main(config: FinetuneRunConfig, bundle=None):
             criterion = MultiTaskAgeCriterion(criterion, config.loss.abnormal_weight,
                                               config.loss.pathology_weight,
                                               config.model.multitask_head.class_names,
-                                              config.loss.pathology_reduction)
+                                              config.loss.pathology_reduction,
+                                              config.loss.age_weight,
+                                              config.model.age_input != "off")
         elif config.model.condition_on_abnormal:
             criterion = AbnormalConditionedAgeCriterion(criterion)
         elif config.model.session_features != "off":

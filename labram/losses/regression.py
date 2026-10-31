@@ -279,7 +279,8 @@ class MultiTaskAgeCriterion(nn.Module):
 
     def __init__(self, age_criterion: nn.Module, abnormal_weight: float = 0.5,
                  pathology_weight: float = 0.5, class_names: Optional[Sequence[str]] = None,
-                 pathology_reduction: str = "known"):
+                 pathology_reduction: str = "known", age_weight: float = 1.0,
+                 age_input: bool = False):
         super().__init__()
         if pathology_reduction not in ("known", "present"):
             raise ValueError(f"loss.pathology_reduction must be known or present, got {pathology_reduction!r}")
@@ -288,6 +289,16 @@ class MultiTaskAgeCriterion(nn.Module):
         self.abnormal_weight = float(abnormal_weight)
         self.pathology_weight = float(pathology_weight)
         self.class_names = list(class_names or [])
+        # age_weight = 0: classification only. age_input: the model takes the
+        # (z-scored) age target column as its condition (model.age_input).
+        self.age_weight = float(age_weight)
+        self.age_input = bool(age_input)
+        if self.age_input:
+            self.condition = self._age_condition
+
+    @staticmethod
+    def _age_condition(target: torch.Tensor) -> torch.Tensor:
+        return target[..., :1]
 
     def predict(self, output: torch.Tensor) -> torch.Tensor:
         return output[..., :1]
@@ -300,13 +311,13 @@ class MultiTaskAgeCriterion(nn.Module):
         if output.shape[-1] <= 2:
             abnormal = F.binary_cross_entropy_with_logits(
                 output[..., -1].float(), target[..., -1].float())
-            return LossBreakdown(total=age + self.abnormal_weight * abnormal,
+            return LossBreakdown(total=self.age_weight * age + self.abnormal_weight * abnormal,
                                  components={"regression": age, "abnormal": abnormal})
         abnormal = masked_bce_with_logits(output[..., 1], target[..., 1])
         logits, labels = output[..., 2:].reshape(-1, output.shape[-1] - 2), target[..., 2:].reshape(-1, target.shape[-1] - 2)
         pathology = (present_class_bce_with_logits(logits, labels) if self.pathology_reduction == "present"
                      else masked_bce_with_logits(logits, labels))
-        return LossBreakdown(total=age + self.abnormal_weight * abnormal
+        return LossBreakdown(total=self.age_weight * age + self.abnormal_weight * abnormal
                              + self.pathology_weight * pathology,
                              components={"regression": age, "abnormal": abnormal,
                                          "pathology": pathology})

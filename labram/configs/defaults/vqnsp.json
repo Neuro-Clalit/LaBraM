@@ -150,7 +150,8 @@
         "balance_max_weight": 10.0,
         "abnormal_weight": 0.5,
         "pathology_weight": 0.5,
-        "pathology_reduction": "known"
+        "pathology_reduction": "known",
+        "age_weight": 1.0
     },
     "disable_eval": false,
     "eval": false,
