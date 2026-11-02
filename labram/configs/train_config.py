@@ -197,6 +197,16 @@ class EvaluationConfig(ConfigBase):
     # Score val/test (and select the best epoch) with the EMA weights instead
     # of the raw ones. Requires ``optimizer.model_ema``.
     use_ema: bool = False
+    # Report every evaluated split per source dataset as well as overall:
+    # ``{dataset}_*`` and ``{dataset}_{normal,abnormal,unlabelled}_*``, where the
+    # dataset is the manifest row's corpus family (``harvard`` = HEEDB,
+    # ``temple`` = TUH; ``labram/data/dataset_groups.py``).
+    per_dataset_metrics: bool = True
+    # Evaluate a fixed sample of training recordings every epoch, like val/test
+    # (no mixup/augmentation, windows pooled per recording), as split
+    # ``train_eval``: up to this many recordings per dataset, each with its
+    # first ``data.eval_minutes`` of listed training windows. 0 = off.
+    train_eval_recordings: int = 500
 
 
 @dataclass

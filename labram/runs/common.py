@@ -625,7 +625,8 @@ def flatten_summary_metrics(summary: Any) -> dict:
 
     if _is_num(summary.get('best_epoch')) and summary['best_epoch'] >= 0:
         flat['best_epoch'] = summary['best_epoch']
-    for key, prefix in (('best_val_stats', 'val'), ('best_test_stats', 'test')):
+    for key, prefix in (('best_val_stats', 'val'), ('best_test_stats', 'test'),
+                        ('best_train_eval_stats', 'train_eval')):
         for k, v in (summary.get(key) or {}).items():
             # MSE is left out: RMSE reports the same error in the target's units.
             if _is_num(v) and k not in ('mse', 'window_mse'):
@@ -673,7 +674,10 @@ def log_summary_metrics(log_writer: Any, summary: Any, config: Any = None,
     return flat
 
 
-SUMMARY_TABLE_SPLITS = ('train', 'val', 'test')
+SUMMARY_TABLE_SPLITS = ('train', 'train_eval', 'val', 'test')
+# Group prefixes of the per-cohort / per-dataset metrics (train_finetune._cohort_metrics).
+SUMMARY_COHORTS = ('normal', 'abnormal', 'unlabelled')
+SUMMARY_DATASETS = ('harvard', 'temple', 'unknown')
 # Metric columns of the summary tables, in display order. Loss-term columns
 # (``*_loss``) follow ``loss``, and ``window_*`` variants follow the case-level
 # set. Confusion-matrix counts, timing and optimizer state are left out.
@@ -700,8 +704,10 @@ def _summary_table_columns(keys: set) -> List[str]:
     # pooling, so they are not repeated in the window_* columns.
     window = [f'window_{m}' for m in metrics
               if f'window_{m}' in keys and not m.startswith(('pred_', 'target_'))]
-    cohorts = [f'{c}_{m}' for c in ('normal', 'abnormal')
-               for m in ('mae', 'rmse', 'r2', 'pearson_r', 'n_cases') if f'{c}_{m}' in keys]
+    groups = list(SUMMARY_COHORTS) + [
+        g for d in SUMMARY_DATASETS for g in (d, *(f'{d}_{c}' for c in SUMMARY_COHORTS))]
+    cohorts = [f'{g}_{m}' for g in groups
+               for m in ('mae', 'rmse', 'r2', 'pearson_r', 'n_cases') if f'{g}_{m}' in keys]
     return (['loss'] if 'loss' in keys else []) + terms \
         + [m for m in metrics if m in keys] + window + cohorts
 

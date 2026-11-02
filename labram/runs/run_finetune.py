@@ -36,7 +36,7 @@ from labram.runs.codebook_setup import (
     CodebookRegLayerAssigner, build_codebook_classifier, loss_config_from_codebook_reg,
 )
 from labram.runs.finetune_setup import (
-    build_dataloaders, build_samplers, enable_window_ids, freeze_except,
+    build_dataloaders, build_samplers, build_train_eval_loader, enable_window_ids, freeze_except,
     load_finetune_checkpoint, required_time_patches, subset_for_debug,
 )
 from labram.optim_factory import (
@@ -266,6 +266,11 @@ def main(config: FinetuneRunConfig, bundle=None):
         num_workers=config.data.num_workers,
         pin_memory=pin_memory,
     )
+    if not config.trainer.eval and dataset_val is not None:
+        # Training recordings scored like val/test (per dataset and cohort).
+        loaders.train_eval = build_train_eval_loader(
+            dataset_train, config.evaluation, config.data, config.trainer.batch_size,
+            config.data.num_workers, pin_memory, seed=config.distributed.seed)
 
     model = get_model(config)
     patch_size = model.patch_size

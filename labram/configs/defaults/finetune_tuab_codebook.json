@@ -272,7 +272,9 @@
         "log_grad_freq": 50,
         "agg_windows": "mean",
         "agg_case_by": "recording",
-        "use_ema": false
+        "use_ema": false,
+        "per_dataset_metrics": true,
+        "train_eval_recordings": 500
     },
     "logging": {
         "py/object": "labram.configs.train_config.LoggingConfig",

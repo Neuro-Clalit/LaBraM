@@ -101,6 +101,34 @@ class DataLoaders:
     train: torch.utils.data.DataLoader
     val: Optional[torch.utils.data.DataLoader]
     test: Optional[Union[torch.utils.data.DataLoader, List[torch.utils.data.DataLoader]]]
+    # A fixed sample of training recordings scored like val/test each epoch
+    # (``evaluation.train_eval_recordings``); None when off.
+    train_eval: Optional[torch.utils.data.DataLoader] = None
+
+
+def build_train_eval_loader(dataset_train, eval_cfg, data_cfg, batch_size: int, num_workers: int,
+                            pin_memory: bool, seed: int = 0):
+    """The ``train_eval`` loader: up to ``eval_cfg.train_eval_recordings``
+    training recordings per source dataset, each with its first
+    ``data_cfg.eval_minutes`` of listed windows, scored sequentially with
+    per-recording ids. None when disabled or nothing can be selected."""
+    from labram.data.dataset_groups import train_eval_subset
+    n = int(getattr(eval_cfg, 'train_eval_recordings', 0) or 0)
+    if n <= 0 or dataset_train is None:
+        return None
+    windows = max(1, int(getattr(data_cfg, 'eval_minutes', 5.0) * 60
+                         // max(getattr(data_cfg, 'window_sec', 10), 1)))
+    subset = train_eval_subset(dataset_train, n, windows, seed=seed)
+    if subset is None:
+        return None
+    if getattr(eval_cfg, 'agg_windows', 'none') != 'none':
+        enable_window_ids(subset, eval_cfg.agg_case_by)
+    logger.info("train_eval: %d windows from up to %d training recordings per dataset",
+                len(subset), n)
+    return torch.utils.data.DataLoader(
+        subset, sampler=torch.utils.data.SequentialSampler(subset),
+        batch_size=int(1.5 * batch_size), num_workers=num_workers,
+        pin_memory=pin_memory, drop_last=False)
 
 
 def build_samplers(dataset_train, dataset_val, dataset_test, num_tasks: int, global_rank: int, dist_eval: bool):

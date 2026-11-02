@@ -1,5 +1,9 @@
 #!/usr/bin/env python
-"""Score trained brain-age models per cohort: all / normal / abnormal recordings.
+"""Score trained brain-age models per cohort and per source dataset.
+
+Groups: all / normal / abnormal / unlabelled recordings, and -- for cohorts whose
+manifest rows carry a corpus -- the same per dataset (``harvard`` = HEEDB,
+``temple`` = TUH; ``labram/data/dataset_groups.py``), e.g. ``harvard_normal``.
 
 For each run directory (holding ``run_config.yaml`` and a checkpoint), rebuild
 the model and the exact val/test samples from the run's own config (window
@@ -39,10 +43,12 @@ from labram.data.window_selection import (
 from labram.eval.loading import load_run_config
 from labram.losses import build_downstream_criterion, regression_output, soft_label_n_bins
 from labram.runs.finetune_setup import enable_window_ids
+from labram.data.dataset_groups import UNKNOWN, dataset_lookup
 from labram.runs.run_finetune import get_model
 from labram.train.channel_drop import ChannelDropper
 
 METRICS = ["mae", "rmse", "r2", "pearson_r"]
+COHORTS = ("normal", "abnormal", "unlabelled")
 
 
 def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, session=False,
@@ -168,10 +174,20 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
                                     batch_size, to_scalar, session=session,
                                     channel_drop=getattr(cfg, "channel_drop", None))
         ids, p, t = _per_recording(pred, true, recs, bundle.target_stats, pred_stats)
-        cohort = np.array([labels.get(r) for r in ids])   # group ids are recording stems
+        # group ids are recording stems; no label = unlabelled (e.g. HEEDB without a report)
+        cohort = np.array([labels.get(r) if labels.get(r) in ("normal", "abnormal")
+                           else "unlabelled" for r in ids])
+        source = dataset_lookup(getattr(bundle, split))
+        family = np.array([source.get(r, UNKNOWN) for r in ids])
+        groups = [("all", np.ones(len(ids), bool))] + [(c, cohort == c) for c in COHORTS]
+        if source:                         # per dataset (harvard / temple) x cohort
+            for ds in sorted(set(family)):
+                groups += [(ds, family == ds)] + [(f"{ds}_{c}", (family == ds) & (cohort == c))
+                                                  for c in COHORTS]
         out = {}
-        for name, mask in (("all", np.ones(len(ids), bool)), ("normal", cohort == "normal"),
-                           ("abnormal", cohort == "abnormal")):
+        for name, mask in groups:
+            if mask.sum() < 2:
+                continue
             m = utils.regression_metrics_fn(p[mask], t[mask], METRICS)
             out[name] = {"n": int(mask.sum()), **{k: float(v) for k, v in m.items()}}
         out["predictions"] = {r: float(v) for r, v in zip(ids, p)}

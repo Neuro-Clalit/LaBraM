@@ -227,6 +227,13 @@ npy float16 at 23 ch × 200 Hz ≈ 33 MB/h → ≈2.3 TB for the ≈69k hours (�
   Both use the recipe of `exp4anymiss-noear-nolabel` (19 channels, no condition input, mixup, lr 2e-4,
   batch 128, 5 min per recording per epoch, 8 epochs with early stopping). ClearML project `LaBraM/heedb`.
 
+### Per-dataset reporting (from the runs after E1/E2)
+Every fine-tune now reports each split overall, per cohort (normal / abnormal / unlabelled)
+and per dataset x cohort (`harvard_*`, `temple_*`, e.g. `temple_abnormal_mae`). A
+`train_eval` split (up to 500 training recordings per dataset, scored like val/test) shows
+overfitting per dataset. E1/E2 were launched before this change. Their per-dataset numbers
+come from `scripts/eval_age_by_cohort.py`, which reports the same groups.
+
 ### Local training on all data (decided 2026-11-02)
 The user wants to be able to train locally on all of TUH + HEEDB, not only on SageMaker.
 - **Disk:** `/data` (`vol-0e556358439755c10`, gp3, 500 MB/s, 6000 IOPS) is 1.5 TB with 1.465 TB used.

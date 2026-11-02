@@ -634,9 +634,13 @@ def evaluate(
     if aggregated:
         ret['loss'] = loss_avg
         ret.update({f'window_{k}': v for k, v in window_ret.items()})
-        if is_regression:
-            ret.update(_cohort_metrics(data_loader, pred, true, groups, agg_mode, metrics,
-                                       is_binary, nb_classes, task, log_writer, head, epoch))
+        # Per report cohort (regression) and per source dataset (harvard /
+        # temple), so mixed-corpus runs are never reported only in aggregate.
+        ret.update(_cohort_metrics(
+            data_loader, pred, true, groups, agg_mode, metrics, is_binary, nb_classes, task,
+            log_writer, head, epoch,
+            per_dataset=eval_cfg is None or getattr(eval_cfg, 'per_dataset_metrics', True),
+            by_label=is_regression))
         # Case-level scalars are logged by the caller (train_loop) under ``head``;
         # log the per-window scalars + detailed report here under ``{head}_window``
         # (regression scalars all go to train_loop's per-metric plots).
@@ -665,7 +669,7 @@ def evaluate(
     return ret
 
 
-COHORTS = ("normal", "abnormal")
+COHORTS = ("normal", "abnormal", "unlabelled")
 
 
 ABNORMAL_METRICS = ("roc_auc", "pr_auc", "accuracy", "balanced_accuracy")
@@ -700,29 +704,71 @@ def _case_labels(data_loader: Any) -> Optional[Dict[str, str]]:
 
 
 def _cohort_metrics(data_loader, pred, true, groups, agg_mode, metrics, is_binary,
-                    nb_classes, task, log_writer=None, head=None, epoch=None) -> Dict[str, float]:
-    """Case-level metrics for TUAB's normal and abnormal recordings separately
-    (``normal_mae``, ``abnormal_r2``, ...), logged under ``{head}_normal`` /
-    ``{head}_abnormal``. Empty when the dataset carries no normal/abnormal labels
-    or cases are not recordings."""
-    labels = _case_labels(data_loader)
-    if not labels:
+                    nb_classes, task, log_writer=None, head=None, epoch=None,
+                    per_dataset=True, by_label=True) -> Dict[str, float]:
+    """Case-level metrics per report cohort and per source dataset.
+
+    * ``{cohort}_*`` for ``normal`` / ``abnormal`` / ``unlabelled`` recordings
+      (``label`` in the metadata sidecar; no label = unlabelled), when
+      ``by_label`` (regression: the label is not the target);
+    * ``{dataset}_*`` and ``{dataset}_{cohort}_*`` per source dataset when
+      ``per_dataset`` -- ``harvard`` (HEEDB), ``temple`` (TUH), from the manifest
+      row's corpus (``labram/data/dataset_groups.py``).
+
+    Each group is logged under ``{head}_{group}``. Groups with fewer than two
+    cases are skipped; cases are recordings (``evaluation.agg_case_by``)."""
+    from labram.data.dataset_groups import UNKNOWN, dataset_lookup
+    labels = _case_labels(data_loader) if by_label else None
+    datasets = dataset_lookup(getattr(data_loader, 'dataset', None)) if per_dataset else {}
+    if not labels and not datasets:
         return {}
     case_pred, case_true = utils.aggregate_windows(
         pred, true, groups, agg_mode, is_binary, is_regression=task == TASK_REGRESSION)
-    cohort = np.array([labels.get(c) for c in dict.fromkeys(groups)])   # first-appearance order
+    cases = list(dict.fromkeys(groups))                    # first-appearance order
+    cohort = (np.array([_cohort_of(labels.get(c)) for c in cases]) if labels else None)
+    source = (np.array([datasets.get(c, UNKNOWN) for c in cases]) if datasets else None)
     out: Dict[str, float] = {}
-    for name in COHORTS:
-        mask = cohort == name
+
+    def score(name, mask):
         if mask.sum() < 2:
-            continue
+            return
         scores, _ = _metrics_and_report(case_pred[mask], case_true[mask], metrics, is_binary,
                                         nb_classes, False, task)
         scores['n_cases'] = int(mask.sum())
         out.update({f'{name}_{k}': v for k, v in scores.items()})
         if log_writer is not None and head is not None:
             _log_eval_stats(log_writer, scores, head=f"{head}_{name}", epoch=epoch)
+
+    if cohort is not None:
+        for name in COHORTS:
+            score(name, cohort == name)
+    if source is not None:
+        for ds in sorted(set(source)):
+            in_ds = source == ds
+            score(ds, in_ds)
+            if cohort is not None:
+                for name in COHORTS:
+                    score(f'{ds}_{name}', in_ds & (cohort == name))
     return out
+
+
+def _log_dataset_breakdown(val_stats, test_stats, train_eval_stats, metric) -> None:
+    """One console line per split with the selection metric per dataset and
+    per dataset x cohort (``harvard_normal_mae=...``), so mixed-corpus runs
+    are readable in the job log without ClearML."""
+    groups = ('harvard', 'temple', 'unknown')
+    for split, stats in (('TrainEval', train_eval_stats), ('Val', val_stats), ('Test', test_stats)):
+        if not stats:
+            continue
+        parts = [f"{k[:-len(metric) - 1]}={v:.2f}" for k, v in stats.items()
+                 if k.endswith(f'_{metric}') and k.split('_', 1)[0] in groups + COHORTS
+                 and not k.startswith('window_') and _is_scalar(v)]
+        if parts:
+            logger.info("%s EEG %s by dataset/cohort: %s", split, metric, "  ".join(sorted(parts)))
+
+
+def _cohort_of(label) -> str:
+    return label if label in ('normal', 'abnormal') else 'unlabelled'
 
 
 def _is_sharded_loader(data_loader: Any) -> bool:
@@ -1034,10 +1080,13 @@ def train_loop(
     best_val_stats: dict = {}
     best_test_stats: dict = {}
     best_train_stats: dict = {}
+    best_train_eval_stats: dict = {}
     last_epoch = -1
     last_train_stats: dict = {}
     last_val_stats: dict = {}
     last_test_stats: dict = {}
+    last_train_eval_stats: dict = {}
+    train_eval_loader = getattr(loaders, 'train_eval', None)
     if config.trainer.start_epoch > 0 and config.output.output_dir:
         # Resuming (e.g. after a spot interruption): restore the best epoch so
         # far, so selection and the final summary cover every epoch.
@@ -1046,6 +1095,7 @@ def train_loop(
             best_val, best_test, best_epoch = state["best_val"], state["best_test"], state["best_epoch"]
             best_val_stats, best_test_stats = state["best_val_stats"], state["best_test_stats"]
             best_train_stats = state["best_train_stats"]
+            best_train_eval_stats = state.get("best_train_eval_stats", {})
             logger.info("Resumed best-epoch state: best %s val %.4f at epoch %d",
                         select_metric, best_val, best_epoch)
 
@@ -1133,6 +1183,24 @@ def train_loop(
                 test_timing = utils.timing_stats(
                     'test', test_timer.elapsed(), int(test_stats.get('samples_processed', 0)))
                 logger.info(f"Test EEG {select_metric}: {test_stats[select_metric]:.2f}{unit}")
+            train_eval_stats, train_eval_timing = {}, {}
+            if train_eval_loader is not None:
+                # A fixed sample of training recordings, scored like val/test.
+                train_eval_timer = utils.PhaseTimer(device)
+                train_eval_stats = evaluate(
+                    train_eval_loader, eval_model, device, header='TrainEval:',
+                    ch_names=ch_names, metrics=metrics, is_binary=is_binary,
+                    nb_classes=nb_classes, eval_cfg=config.evaluation,
+                    log_writer=log_writer, head='train_eval', epoch=epoch,
+                    task=task, target_stats=target_stats,
+                    loss_cfg=config.loss, logging_cfg=config.logging, criterion=criterion,
+                    channel_drop_cfg=getattr(config, 'channel_drop', None))
+                train_eval_timing = utils.timing_stats(
+                    'train_eval', train_eval_timer.elapsed(),
+                    int(train_eval_stats.get('samples_processed', 0)))
+                logger.info(f"TrainEval EEG {select_metric}: "
+                            f"{train_eval_stats[select_metric]:.2f}{unit}")
+            _log_dataset_breakdown(val_stats, test_stats, train_eval_stats, select_metric)
 
             if better(val_stats[select_metric], best_val):
                 best_val = val_stats[select_metric]
@@ -1148,6 +1216,7 @@ def train_loop(
                 best_val_stats = dict(val_stats)
                 best_test_stats = dict(test_stats)
                 best_train_stats = dict(train_stats)
+                best_train_eval_stats = dict(train_eval_stats)
             logger.info(f'Best {select_metric} val: {best_val:.2f}{unit}, '
                         f'test: {best_test:.2f}{unit}')
 
@@ -1155,15 +1224,19 @@ def train_loop(
                 _log_eval_stats(log_writer, val_stats, head="val", epoch=epoch)
                 if test_stats:
                     _log_eval_stats(log_writer, test_stats, head="test", epoch=epoch)
+                if train_eval_stats:
+                    _log_eval_stats(log_writer, train_eval_stats, head="train_eval", epoch=epoch)
             last_val_stats, last_test_stats = dict(val_stats), dict(test_stats)
+            last_train_eval_stats = dict(train_eval_stats)
             val_history.append(float(val_stats[select_metric]))
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'val_{k}': v for k, v in val_stats.items()},
                          **{f'test_{k}': v for k, v in test_stats.items()},
+                         **{f'train_eval_{k}': v for k, v in train_eval_stats.items()},
                          'epoch': epoch, 'n_parameters': n_parameters,
                          **train_timing, **checkpoint_timing,
-                         **validation_timing, **test_timing}
+                         **validation_timing, **test_timing, **train_eval_timing}
         else:
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          'epoch': epoch, 'n_parameters': n_parameters,
@@ -1178,6 +1251,7 @@ def train_loop(
             _log_regression_epoch(
                 log_writer, epoch,
                 {'train': train_stats,
+                 'train_eval': last_train_eval_stats if has_eval else None,
                  'val': last_val_stats if has_eval else None,
                  'test': last_test_stats if has_eval else None},
                 term_name=downstream_term_name(task))
@@ -1198,6 +1272,7 @@ def train_loop(
                 "epoch": epoch, "best_val": best_val, "best_test": best_test,
                 "best_epoch": best_epoch, "best_val_stats": best_val_stats,
                 "best_test_stats": best_test_stats, "best_train_stats": best_train_stats,
+                "best_train_eval_stats": best_train_eval_stats,
                 "val_history": val_history})
         if (config.trainer.early_stopping and loaders.val is not None
                 and should_stop(val_history, patience=config.trainer.early_stopping_patience,
@@ -1247,9 +1322,11 @@ def train_loop(
         "best_val_stats": best_val_stats,
         "best_test_stats": best_test_stats,
         "best_train_stats": best_train_stats,
+        "best_train_eval_stats": best_train_eval_stats,
         # The final epoch's metrics, for the best-vs-last summary tables.
         "last_epoch": last_epoch,
         "last_train_stats": last_train_stats,
         "last_val_stats": last_val_stats,
         "last_test_stats": last_test_stats,
+        "last_train_eval_stats": last_train_eval_stats,
     }
