@@ -1,0 +1,25 @@
+model,trained_on,test_set,cohort,n,MAE,bias,R2
+exp4base,TUH,TUAB eval,all,274,7.362,-1.187,0.705
+exp4base,TUH,TUAB eval,normal,149,5.622,-0.862,0.81
+exp4base,TUH,TUAB eval,abnormal,125,9.436,-1.574,0.511
+exp4noear,TUH,TUAB eval,all,274,7.478,-0.64,0.709
+exp4noear,TUH,TUAB eval,normal,149,5.746,-0.56,0.808
+exp4noear,TUH,TUAB eval,abnormal,125,9.543,-0.735,0.522
+cvaugval_f0,TUH,TUAB eval,all,274,7.358,-1.835,0.697
+cvaugval_f0,TUH,TUAB eval,normal,149,5.468,-1.659,0.809
+cvaugval_f0,TUH,TUAB eval,abnormal,125,9.61,-2.045,0.491
+cvaugval_f1,TUH,TUAB eval,all,274,7.305,-0.897,0.712
+cvaugval_f1,TUH,TUAB eval,normal,149,5.47,-0.778,0.808
+cvaugval_f1,TUH,TUAB eval,abnormal,125,9.493,-1.039,0.528
+cvaugval_f2,TUH,TUAB eval,all,274,7.303,-1.682,0.708
+cvaugval_f2,TUH,TUAB eval,normal,149,5.513,-1.708,0.809
+cvaugval_f2,TUH,TUAB eval,abnormal,125,9.436,-1.651,0.519
+cvaugval_f3,TUH,TUAB eval,all,274,7.255,-1.178,0.711
+cvaugval_f3,TUH,TUAB eval,normal,149,5.486,-1.003,0.806
+cvaugval_f3,TUH,TUAB eval,abnormal,125,9.363,-1.387,0.529
+cvaugval_f4,TUH,TUAB eval,all,274,7.1,-0.355,0.717
+cvaugval_f4,TUH,TUAB eval,normal,149,5.106,-0.325,0.834
+cvaugval_f4,TUH,TUAB eval,abnormal,125,9.476,-0.391,0.513
+cvaugval_ens,TUH,TUAB eval,all,274,7.221,-1.168,0.715
+cvaugval_ens,TUH,TUAB eval,normal,149,5.356,-1.049,0.818
+cvaugval_ens,TUH,TUAB eval,abnormal,125,9.443,-1.309,0.524
