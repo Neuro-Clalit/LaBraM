@@ -5,8 +5,11 @@ The cohort is read by the same loader as the TUH cohorts (``data.dataset=TUAB_AG
 ``data.data_format=npy``): ``manifest.json`` (the source rows with
 ``source_split`` = cohort split), ``age_metadata.json``, ``age_split.json``
 (window names ``<split>/<stem>_<k>.pkl``) and ``recordings/<stem>.npy``.
-SageMaker mounts one dataset prefix per job, so the selected recordings are
-copied server-side (S3 -> S3, no local disk) next to the sidecars.
+SageMaker mounts one dataset prefix per job, so with an ``s3://`` source and
+output the selected recordings are copied server-side (S3 -> S3, no local
+disk) next to the sidecars. With a local source and output (the HEEDB npy
+synced to /data, for local training) they are hard-linked, as in the TUH
+cohorts: no extra space.
 
 Selection (``--experiment``):
 
@@ -28,6 +31,10 @@ unknown) for the multi-task heads.
     python -m dataset_maker.make_heedb_cohort --experiment routine \\
         --source s3://eeg-data-public/HEEDB/v4.1/processed_npy_interp50-60_flat0.5_float16 \\
         --out s3://eeg-data-public/HEEDB/v4.1/cohorts/heedb_routine_v1
+    # local (after `s5cmd sync` of the npy to /data):
+    python -m dataset_maker.make_heedb_cohort --experiment routine \
+        --source /data/datasets/HEEDB/v4.1/processed_npy_interp50-60_flat0.5_float16 \
+        --out /data/datasets/HEEDB/v4.1/cohorts/heedb_routine_v1
 """
 import argparse
 import concurrent.futures as cf
@@ -121,11 +128,19 @@ def build(index, src_manifest, patient_split, args):
 
 
 def write(args, client, manifest, meta, files, counts, j):
-    bucket, prefix = split_s3(args.out)
-    sbucket, sprefix = split_s3(args.source)
+    local = not args.out.startswith("s3://")
+    if local:
+        os.makedirs(os.path.join(args.out, "recordings"), exist_ok=True)
+    else:
+        bucket, prefix = split_s3(args.out)
+        sbucket, sprefix = split_s3(args.source)
 
     def put(name, data):
-        client.put_object(Bucket=bucket, Key=f"{prefix}/{name}", Body=data)
+        if local:
+            with open(os.path.join(args.out, name), "wb") as fh:
+                fh.write(data)
+        else:
+            client.put_object(Bucket=bucket, Key=f"{prefix}/{name}", Body=data)
 
     put("manifest.json", json.dumps(manifest, indent=1).encode())
     put("age_metadata.json", json.dumps({"version": 1, "recordings": meta}).encode())
@@ -139,8 +154,14 @@ def write(args, client, manifest, meta, files, counts, j):
         put(name, buf.getvalue())
 
     def copy(stem):
-        client.copy_object(Bucket=bucket, Key=f"{prefix}/recordings/{stem}.npy",
-                           CopySource={"Bucket": sbucket, "Key": f"{sprefix}/recordings/{stem}.npy"})
+        if local:
+            src = os.path.join(args.source, "recordings", f"{stem}.npy")
+            dst = os.path.join(args.out, "recordings", f"{stem}.npy")
+            if not os.path.exists(dst):
+                os.link(src, dst)           # same filesystem: no extra space
+        else:
+            client.copy_object(Bucket=bucket, Key=f"{prefix}/recordings/{stem}.npy",
+                               CopySource={"Bucket": sbucket, "Key": f"{sprefix}/recordings/{stem}.npy"})
         return stem
 
     stems = [r["stem"] for r in manifest["recordings"]]
@@ -154,8 +175,8 @@ def write(args, client, manifest, meta, files, counts, j):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--experiment", required=True, choices=EXPERIMENTS)
-    p.add_argument("--source", required=True, help="s3:// npy dir with manifest.json")
-    p.add_argument("--out", required=True, help="s3:// cohort dir")
+    p.add_argument("--source", required=True, help="npy dir with manifest.json (s3:// or local)")
+    p.add_argument("--out", required=True, help="cohort dir (s3:// with an s3 source, local with a local one)")
     p.add_argument("--root", default=hx.DEFAULT_ROOT)
     p.add_argument("--seed", type=int, default=12345)
     p.add_argument("--max-per-subject", type=int, default=10)
@@ -166,14 +187,18 @@ def main(argv=None):
     p.add_argument("--skip-copy", action="store_true", help="write the sidecars only")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
-    for uri in (args.source, args.out):
-        if not uri.startswith("s3://"):
-            raise SystemExit(f"{uri}: expected an s3:// path")
-    from dataset_maker.download_heedb import check_private
-    client = hx.s3_client(None)
-    check_private(client, split_s3(args.out)[0])
-    sb, sp = split_s3(args.source)
-    src_manifest = json.loads(client.get_object(Bucket=sb, Key=f"{sp}/manifest.json")["Body"].read())
+    if args.source.startswith("s3://") != args.out.startswith("s3://"):
+        raise SystemExit("--source and --out must both be s3:// or both local")
+    client = None
+    if args.source.startswith("s3://"):
+        from dataset_maker.download_heedb import check_private
+        client = hx.s3_client(None)
+        check_private(client, split_s3(args.out)[0])
+        sb, sp = split_s3(args.source)
+        src_manifest = json.loads(client.get_object(Bucket=sb, Key=f"{sp}/manifest.json")["Body"].read())
+    else:
+        with open(os.path.join(args.source, "manifest.json")) as fh:
+            src_manifest = json.load(fh)
     index = pd.read_parquet(os.path.join(args.root, "index", "heedb_index.parquet"))
     with open(os.path.join(args.root, "index", "heedb_patient_split.json")) as fh:
         patient_split = json.load(fh)

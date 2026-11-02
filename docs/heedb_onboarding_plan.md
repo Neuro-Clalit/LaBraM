@@ -177,6 +177,20 @@ counts and expected TB.
 Storage estimate: raw ≈6.3 TB (≈ $145/month Standard, less on Intelligent-Tiering).
 npy float16 at 23 ch × 200 Hz ≈ 33 MB/h → ≈2.3 TB for the ≈69k hours (≈0.8 TB if trimmed to 30 min per session).
 
+### Local training on all data (decided 2026-11-02)
+The user wants to be able to train locally on all of TUH + HEEDB, not only on SageMaker.
+- **Disk:** `/data` (`vol-0e556358439755c10`, gp3, 500 MB/s, 6000 IOPS) is 1.5 TB with 1.465 TB used.
+  The HEEDB npy is ≈ 1.66 TB: 68.7k header hours × 73 % kept after flat removal × 33.1 MB/h,
+  measured on the pilot (45.2 GB for 1,364 kept hours). Cohorts hard-link their recordings, so they
+  add ≈ 0. **Grow to 4 TB** (≈ 78 % used); use 5 TB if paediatric or cEEG excerpts follow. Then
+  `sudo resize2fs /dev/nvme1n1` (ext4, online).
+- **Steps after the resize:**
+  1. `s5cmd sync s3://eeg-data-public/HEEDB/v4.1/processed_npy_interp50-60_flat0.5_float16/* /data/datasets/HEEDB/v4.1/processed_npy_interp50-60_flat0.5_float16/`
+  2. `python -m labram.data.window_qc --root <that dir>` writes `window_stats.npz`.
+  3. `python -m dataset_maker.make_heedb_cohort --experiment routine|normal --source <local npy> --out /data/datasets/HEEDB/v4.1/cohorts/<name>` (hard links).
+  4. Train with `data.data_path=<local cohort>`; NVMe staging (`data.stage_dir=auto`) copies what fits and
+     reads the rest from `/data`.
+
 ## Step 4 — Train on HEEDB + TUH (≈2 weeks)
 1. **Code support**
    - **Combined cohort = one S3 prefix.** SageMaker gets one `dataset` channel per job

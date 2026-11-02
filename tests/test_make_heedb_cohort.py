@@ -66,3 +66,25 @@ def test_short_recordings_are_dropped(parts):
     manifest["recordings"][0]["n_windows"] = 3                       # 30 s < 1 min
     *_, j = mc.build(idx, manifest, split, _args("routine"))
     assert manifest["recordings"][0]["stem"] not in set(j["stem"])
+
+
+def test_local_cohort_hard_links_recordings(parts, tmp_path):
+    import json
+    import os
+
+    import numpy as np
+    idx, manifest, split = parts
+    src = tmp_path / "npy"
+    (src / "recordings").mkdir(parents=True)
+    for r in manifest["recordings"]:
+        np.save(src / "recordings" / f"{r['stem']}.npy", np.zeros((10, 23), np.float16))
+    (src / "manifest.json").write_text(json.dumps(manifest))
+    args = _args("routine")
+    args.source, args.out, args.threads, args.skip_copy = str(src), str(tmp_path / "cohort"), 4, False
+    built = mc.build(idx, manifest, split, args)
+    assert mc.write(args, None, *built) == len(built[0]["recordings"])
+    stem = built[0]["recordings"][0]["stem"]
+    a, b = src / "recordings" / f"{stem}.npy", tmp_path / "cohort" / "recordings" / f"{stem}.npy"
+    assert os.stat(a).st_ino == os.stat(b).st_ino                      # hard link, no copy
+    for name in ("manifest.json", "age_metadata.json", "age_split.json", "labels.parquet"):
+        assert (tmp_path / "cohort" / name).exists()
