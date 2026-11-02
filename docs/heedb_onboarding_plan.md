@@ -204,6 +204,29 @@ npy float16 at 23 ch × 200 Hz ≈ 33 MB/h → ≈2.3 TB for the ≈69k hours (�
   model without ear channels transfers best (HEEDB lacks A1/A2 in 70 % of files). The
   recalibrated 8.7 is the bar that E1/E2 (training on HEEDB) must beat.
 
+### Training on SageMaker: what works (2026-11-02)
+- **Do not stream a full HEEDB cohort with FastFile.** Random 10-second windows over S3 made E1
+  I/O-bound: 6.5 s per step, about 24 h per epoch. Both FastFile jobs were stopped.
+- **Use compact cohorts in File mode.** `make_compact_cohort.py --src s3://… --dst s3://… --processes 12`
+  keeps only the windows a run reads (at most 20 min per training recording, plus the 5 min
+  evaluation budget):
+
+  | Compact cohort | Size | Recordings | Instance |
+  |---|---|---|---|
+  | `heedb_routine_v1_compact` | 669 GB | 71,805 | ml.g5.8xlarge (900 GB NVMe) |
+  | `tuh_heedb_v1_compact` | 894 GB | 103,117 | ml.g5.16xlarge (1.9 TB NVMe) |
+
+  An E1 epoch takes about 45-50 min (13.4k steps). Account limits: one instance of each g5
+  size for training, and at most 1,024 GB EBS per training instance (`sagemaker.volume_size_gb`).
+- **Window QC for all 72k recordings** is in `processed_npy_…/window_stats.npz`: 16.27 M windows,
+  10.26 % above 800 µV (TUH 12.1 %), 0.32 % with a flat channel.
+- **Runs:**
+  - E1 `labram-heedb-e1-routine-noear-2026-11-02-16-20-24-821`
+  - E2 `labram-heedb-e2-tuh-heedb-noear-2026-11-02-17-04-13-850`
+
+  Both use the recipe of `exp4anymiss-noear-nolabel` (19 channels, no condition input, mixup, lr 2e-4,
+  batch 128, 5 min per recording per epoch, 8 epochs with early stopping). ClearML project `LaBraM/heedb`.
+
 ### Local training on all data (decided 2026-11-02)
 The user wants to be able to train locally on all of TUH + HEEDB, not only on SageMaker.
 - **Disk:** `/data` (`vol-0e556358439755c10`, gp3, 500 MB/s, 6000 IOPS) is 1.5 TB with 1.465 TB used.
