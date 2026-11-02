@@ -12,8 +12,12 @@ objects whose size matches, so a rerun after an interruption only copies what
 is missing. ``verify`` compares the destination listing with the list (count and
 bytes per site). ``sync-local`` uploads the local metadata / scan / index files.
 
-The destination bucket is created by ``infra/heedb_storage`` (private, KMS,
-TLS-only). DUA: never point this at ``s3://eeg-data-public``.
+The destination is ``s3://eeg-data-public/HEEDB/v4.1/`` (the user's choice,
+2026-11-02): despite its name that bucket is private -- all four public-access
+blocks on, no bucket policy, no public ACL. The DUA forbids redistribution, so
+every run first checks that the destination bucket is still not publicly
+readable and refuses otherwise (``check_private``). ``infra/heedb_storage`` is
+an optional dedicated KMS bucket (``--bucket``).
 
     python -m dataset_maker.download_heedb run --dry-run
     python -m dataset_maker.download_heedb run --workers 128
@@ -33,9 +37,9 @@ import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from dataset_maker import heedb_index as hx  # noqa: E402
 
-DEST_BUCKET = os.environ.get("HEEDB_BUCKET", "heedb-private-574441342949")
+DEST_BUCKET = os.environ.get("HEEDB_BUCKET", "eeg-data-public")
 DEST_ROOT = "HEEDB/v4.1"
-PUBLIC_BUCKETS = ("eeg-data-public",)
+_PUBLIC_BLOCKS = ("BlockPublicAcls", "IgnorePublicAcls", "BlockPublicPolicy", "RestrictPublicBuckets")
 SINGLE_COPY_LIMIT = 5 * 1024 ** 3          # CopyObject handles up to 5 GiB
 
 
@@ -47,9 +51,21 @@ def dest_key(src_key: str) -> str:
     return f"{DEST_ROOT}/raw/{src_key[len(prefix):]}"
 
 
-def _check_bucket(bucket: str) -> None:
-    if bucket in PUBLIC_BUCKETS:
-        raise SystemExit(f"refusing to copy HEEDB data into public bucket {bucket} (DUA)")
+def check_private(client, bucket: str) -> None:
+    """Refuse (SystemExit) unless ``bucket`` cannot be read publicly: all four
+    public-access blocks on and no public bucket policy (HEEDB DUA)."""
+    try:
+        cfg = client.get_public_access_block(Bucket=bucket)["PublicAccessBlockConfiguration"]
+    except Exception as exc:                 # no block configured -> could be public
+        raise SystemExit(f"{bucket}: cannot confirm public-access block ({exc}); refusing (HEEDB DUA)")
+    if not all(cfg.get(k) for k in _PUBLIC_BLOCKS):
+        raise SystemExit(f"{bucket}: public-access block is not fully on {cfg}; refusing (HEEDB DUA)")
+    try:
+        public = client.get_bucket_policy_status(Bucket=bucket)["PolicyStatus"]["IsPublic"]
+    except client.exceptions.from_code("NoSuchBucketPolicy"):
+        public = False
+    if public:
+        raise SystemExit(f"{bucket}: bucket policy is public; refusing (HEEDB DUA)")
 
 
 def list_dest(client, bucket: str, prefix: str) -> Dict[str, int]:
@@ -154,8 +170,8 @@ def main(argv=None):
     sub.add_parser("verify")
     sub.add_parser("sync-local")
     args = p.parse_args(argv)
-    _check_bucket(args.bucket)
     client = hx.s3_client(args.profile, pool=max(getattr(args, "workers", 64), 64))
+    check_private(client, args.bucket)
     objects = pd.read_parquet(args.list or os.path.join(args.root, "scan", "download_list.parquet"))[["key", "bytes"]]
 
     if args.command == "sync-local":

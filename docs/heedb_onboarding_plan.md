@@ -29,8 +29,9 @@ Access point `s3://arn:aws:s3:us-east-1:184438910517:accesspoint/bdsp-credential
 | Medications (per patient, `HEEDB_Medication_ATC.csv`) | ATC codes grouped by first level; N03 (antiseizure), N05 (psycholeptics), N01/N02 (anaesthetics/opioids) give "sedated / on ASM" flags like `tuh_clinical.DRUG_CLASSES` |
 | Patient IDs | `BDSPPatientID` is unique across sites (108.3k unique in 109.2k rows); BIDS folder = `sub-<SiteID><pid>` |
 
-DUA: no redistribution and no re-identification. HEEDB data **never** goes to `s3://eeg-data-public/`;
-it only goes to a new private, KMS-encrypted bucket.
+DUA: no redistribution and no re-identification. HEEDB is stored under `s3://eeg-data-public/HEEDB/v4.1/` — private despite the bucket's name (all public-access blocks on, no bucket policy, no public ACL); the copy tool refuses to run if it ever becomes publicly readable.
+It must never be made public or shared outside this account (2026-11-02: the user chose this
+bucket over a dedicated one; `infra/heedb_storage` remains as an optional KMS bucket).
 
 ### Data report (2026-11-01): what changed the plan
 `notebooks/heedb_data_report.ipynb` (+ PDF) runs the TUH analytics on HEEDB from the metadata, all
@@ -68,10 +69,9 @@ array, `infra/batch_dataprep`) · `labram.data.window_qc` · `tueg_patient_split
 
 ## Step 1 — Pull the metadata + a pilot download, first analytics (≈1 week)
 
-1. **Private storage.** Create `s3://heedb-private-574441342949` (us-east-1, block public access,
-   SSE-KMS, versioning, access limited to our SageMaker/Batch roles, lifecycle to
-   Intelligent-Tiering for raw EDF). Prefix: `HEEDB/v4.1/{metadata,raw,scan,npy,cohorts}/`.
-   Add the bucket to `infra/` (CloudFormation, deployed with MFA) rather than by hand.
+1. **Storage.** `s3://eeg-data-public/HEEDB/v4.1/{metadata,raw,scan,index,npy,cohorts}/` (private
+   bucket, us-east-1, same region as BDSP). `dataset_maker/download_heedb.py` checks before every run
+   that the bucket is still not publicly readable.
 2. **Metadata mirror** (~160 MB): copy `HEEDB_Metadata/` and `eeg-metadata/` to
    `…/metadata/` and to `/data/datasets/HEEDB/v4.1/metadata/` (local copy kept off git).
 3. **Recording index without downloading EDF** — new `dataset_maker/heedb_index.py`:
@@ -159,7 +159,7 @@ counts and expected TB.
    - identical signal path: referential channels → 23 `TUH_CHANNELS` (zero-filled + `channel_mask`),
      0.1–75 Hz band-pass, line removal `interp` at 60 Hz (US mains, same as TUEG `interp50-60`),
      resample to 200 Hz, µV, float16, `[T, 23]`, whole 10 s windows, drop < 60 s;
-   - write to `s3://heedb-private-…/HEEDB/v4.1/npy/<variant>/recordings/<stem>.npy` + `manifest.json`
+   - write to `s3://eeg-data-public/HEEDB/v4.1/npy/<variant>/recordings/<stem>.npy` + `manifest.json`
      (`format_version: 2`, plus `corpus: heedb`, `site`).
 3. **Run** on AWS Batch Spot (`scripts/submit_batch_npy.py --corpus heedb`, reading the private
    mirror); then `make_TUH_npy merge`, `labram.data.window_qc` → `window_stats.npz`,
@@ -240,8 +240,8 @@ npy float16 at 23 ch × 200 Hz ≈ 33 MB/h → ≈2.3 TB for the ≈69k hours (�
   T7→T3 etc.; npy from a HEEDB-style EDF matches the TUH path on the same signal; masked
   multitask loss ignores missing labels. `pytest tests/ -v`.
 - Data checks: index row count = `s3 ls` EDF count; `verify_npy_format.py` on the pilot; patient
-  disjointness asserted on save/load; DUA check that nothing HEEDB-derived lands in
-  `eeg-data-public` (CI grep / bucket policy).
+  disjointness asserted on save/load; DUA check that the destination bucket stays
+  non-public (`download_heedb.check_private`) and that no notebook output holds identifiers.
 - End-to-end debug: pilot cohort → 1-epoch fine-tune on 1 GPU → eval report, before any full run.
 
 ## Decisions
@@ -257,4 +257,4 @@ npy float16 at 23 ch × 200 Hz ≈ 33 MB/h → ≈2.3 TB for the ≈69k hours (�
   history (mask instead); (b) give the ICD heads a lower loss weight than the findings heads; (c) report them
   separately as weak-label heads. Step 2 confirms which ICD groups are learnable before they
   become heads.
-- **Still open:** private bucket name (proposed `heedb-private-574441342949`).
+- **Storage (decided 2026-11-02):** `s3://eeg-data-public/HEEDB/v4.1/` (private bucket).

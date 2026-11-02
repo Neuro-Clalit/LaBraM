@@ -151,3 +151,44 @@ def test_interp_line_removal_and_recipe_tags(corpus):
     assert np.isfinite(x).all() and 25 < np.sqrt(2) * x[4000:14000, 0].std() < 35   # EEG kept
     again = _convert(corpus, "--notch", "50,60", "--line-removal", "notch")          # other recipe
     assert again["line_removal"] == "notch:50,60"
+
+
+def test_window_ranges_and_flat_window_drop():
+    assert mk.window_ranges(np.array([0, 1, 2, 5, 6, 9])) == "0-3,5-7,9-10"
+    assert mk.window_ranges(np.array([], dtype=int)) == ""
+    x = np.random.default_rng(0).normal(0, 10, (5 * 2000, 23))
+    x[2000:6000] = 0.0                                    # windows 1-2 flat
+    mask = [True] * 21 + [False, False]
+    x[:, 21:] = 0.0                                       # absent channels do not count
+    kept, ranges, n = mk.drop_flat_windows(x, mask, 0.5)
+    assert n == 2 and ranges == "0-1,3-5" and kept.shape == (3 * 2000, 23)
+    np.testing.assert_array_equal(kept[:2000], x[:2000])
+
+
+def test_bids_labels_with_flat_stretch(tmp_path):
+    """HEEDB-style EDF: bare 10-10 labels, no A1/A2/T1/T2, a 30 s all-zero stretch."""
+    labels = ["Fp1", "Fp2", "F3", "F4", "C3", "C4", "P3", "P4", "O1", "O2", "F7", "F8",
+              "T7", "T8", "P7", "P8", "Fz", "Cz", "Pz", "ECGL", "LOC"]
+    sig = _signals(len(labels), 100, 200)
+    sig[:, 20 * 200:50 * 200] = 0.0
+    write_edf(tmp_path / "edf/bids/S0001/sub-S0001101/ses-1/eeg/x_eeg.edf", labels, sig, 200)
+    pd.DataFrame([{"stem": "sub-S0001101_ses-1_task-EEG", "path": "bids/S0001/sub-S0001101/ses-1/eeg/x_eeg.edf",
+                   "corpus": "heedb", "site": "S0001", "subject": "S0001101", "session": "1",
+                   "age": 50.0, "sex": "F", "duration_sec": 100.0, "sfreq": 200.0, "label": "normal",
+                   "abnormal": 0}]).to_parquet(tmp_path / "scan.parquet")
+    manifest = _convert(tmp_path, "--channel-names", "bids", "--min-channels", "19",
+                        "--drop-flat-std", "0.5", "--notch", "50,60", "--line-removal", "interp")
+    (rec,) = manifest["recordings"]
+    missing = [c for c, m in zip(TUH_CHANNELS, rec["channel_mask"]) if not m]
+    assert missing == ["A1", "A2", "T1", "T2"]
+    # 10 windows; 20-50 s zero -> windows 2-4 flat (filter ringing may keep the edges)
+    assert rec["flat_windows_dropped"] >= 2 and rec["n_windows"] == 10 - rec["flat_windows_dropped"]
+    assert rec["kept_ranges"].startswith("0-2") and rec["site"] == "S0001" and rec["flat"] == "0.5"
+    x = np.load(tmp_path / "npy/recordings/sub-S0001101_ses-1_task-EEG.npy")
+    assert x.shape == (rec["n_windows"] * 2000, 23) and x[:, TUH_CHANNELS.index("T3")].any()
+    # The TUH label convention finds none of the bare labels: an error row, no file.
+    mk.main(["convert", "--scan", str(tmp_path / "scan.parquet"), "--edf-root", str(tmp_path / "edf"),
+             "--dst", str(tmp_path / "npy_tuh")])
+    mk.main(["merge", "--scan", str(tmp_path / "scan.parquet"), "--dst", str(tmp_path / "npy_tuh")])
+    tuh = json.loads((tmp_path / "npy_tuh/manifest.json").read_text())
+    assert tuh["n_recordings"] == 0 and "0 of the 23" in tuh["errors"]["sub-S0001101_ses-1_task-EEG"]

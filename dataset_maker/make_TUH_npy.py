@@ -12,6 +12,13 @@ without the 10 s pickle stage, and tolerant of what TUEG adds:
   them, so training can exclude or mask them explicitly;
 * any extra channels, which are never read.
 
+Other corpora (``--channel-names bids``: bare BIDS labels such as the Harvard
+EEG Database, T7/T8/P7/P8 mapped to T3/T4/T5/T6) use the same pipeline.
+``--drop-flat-std`` removes 10 s windows in which at least half of the present
+channels are flat (std below the threshold, µV) -- HEEDB files hold long
+all-zero stretches; the kept windows' original positions are recorded as
+``kept_ranges`` (``"a-b,c-d"``, window indices, end exclusive).
+
 Output, readable by the TUAB npy loader::
 
     recordings/<stem>.npy   float16|float32 [T, 23], T = n_windows * 2000
@@ -42,11 +49,12 @@ import numpy as np
 try:
     from dataset_maker.make_TUAB_npy import Store, assign_shards, npy_bytes, resolve_shard
     from labram.data.line_removal import spectrum_interpolate
-    from labram.data.tuh_metadata import TUH_CHANNELS, channel_map
+    from labram.data.tuh_metadata import (TUH_CHANNELS, bids_canonical_channel, canonical_channel,
+                                          channel_map)
 except ImportError:      # flat source dir inside a processing / Batch container
     from line_removal import spectrum_interpolate
     from make_TUAB_npy import Store, assign_shards, npy_bytes, resolve_shard
-    from tuh_metadata import TUH_CHANNELS, channel_map
+    from tuh_metadata import TUH_CHANNELS, bids_canonical_channel, canonical_channel, channel_map
 
 SAMPLE_RATE = 200
 WINDOW_SAMPLES = 2000
@@ -68,20 +76,25 @@ MIN_DURATION_SEC = 60
 # signal on TUAB (0.003-0.06 µV); only values beyond this are clipped.
 FLOAT16_MAX = float(np.finfo(np.float16).max)
 SCAN_FIELDS = ("corpus", "path", "subject", "session", "token", "age", "raw_age", "sex", "year",
-               "label", "montage", "session_date", "abnormal", "epilepsy", "source_split")
+               "label", "montage", "session_date", "abnormal", "epilepsy", "source_split", "site")
+CHANNEL_NAMING = {"tuh": canonical_channel, "bids": bids_canonical_channel}
+FLAT_CHANNEL_FRAC = 0.5          # a window is flat when this share of present channels is
+MAX_RANGES_CHARS = 1800          # S3 user metadata is limited to 2 KB
 SIDECARS = ("age_metadata.json", "age_split.json")
 
 
 # ---------------------------------------------------------------- preprocess
-def preprocess_recording(edf_path, notch=DEFAULT_NOTCH, method="notch"):
+def preprocess_recording(edf_path, notch=DEFAULT_NOTCH, method="notch", canonical=None,
+                         min_channels=1):
     """EDF -> (``[T, 23]`` float64 µV at 200 Hz, whole windows only; channel mask).
     ``notch``: mains frequencies (Hz) to remove, empty for none; ``method``:
-    ``notch`` (MNE FIR notch) or ``interp`` (spectrum interpolation)."""
+    ``notch`` (MNE FIR notch) or ``interp`` (spectrum interpolation);
+    ``canonical``: EDF label -> TUH name (default TUH ``EEG X-REF``)."""
     import mne
     raw = mne.io.read_raw_edf(edf_path, preload=False, verbose="error")
-    present = channel_map(raw.ch_names)          # canonical -> raw label
-    if not present:
-        raise ValueError("none of the 23 TUH channels present")
+    present = channel_map(raw.ch_names, canonical)   # canonical -> raw label
+    if len(present) < max(min_channels, 1):
+        raise ValueError(f"{len(present)} of the 23 TUH channels present (< {max(min_channels, 1)})")
     order = [c for c in TUH_CHANNELS if c in present]
     raw.pick([present[c] for c in order])
     raw.load_data(verbose="error")
@@ -105,6 +118,31 @@ def preprocess_recording(edf_path, notch=DEFAULT_NOTCH, method="notch"):
     mask = [c in present for c in TUH_CHANNELS]
     out[:, [TUH_CHANNELS.index(c) for c in order]] = data[:, :n].T
     return out, mask
+
+
+def drop_flat_windows(x, mask, min_std):
+    """Drop the 10 s windows of ``x`` ``[T, 23]`` in which at least
+    ``FLAT_CHANNEL_FRAC`` of the present channels have std < ``min_std`` µV.
+    Returns (kept ``[T', 23]``, kept window ranges ``"a-b,c-d"``, n dropped)."""
+    n = x.shape[0] // WINDOW_SAMPLES
+    cols = [i for i, m in enumerate(mask) if m]
+    if n == 0 or not cols:
+        return x, "", 0
+    std = x[:n * WINDOW_SAMPLES, cols].reshape(n, WINDOW_SAMPLES, len(cols)).std(axis=1)
+    keep = (std < min_std).mean(axis=1) < FLAT_CHANNEL_FRAC
+    idx = np.flatnonzero(keep)
+    kept = x[:n * WINDOW_SAMPLES].reshape(n, WINDOW_SAMPLES, -1)[idx].reshape(-1, x.shape[1])
+    return kept, window_ranges(idx), int(n - idx.size)
+
+
+def window_ranges(idx):
+    """Sorted window indices -> ``"a-b,c-d"`` (end exclusive)."""
+    if len(idx) == 0:
+        return ""
+    breaks = np.flatnonzero(np.diff(idx) > 1)
+    starts = np.r_[idx[0], idx[breaks + 1]]
+    ends = np.r_[idx[breaks], idx[-1]] + 1
+    return ",".join(f"{a}-{b}" for a, b in zip(starts, ends))
 
 
 # --------------------------------------------------------------------- work list
@@ -142,6 +180,8 @@ def cmd_convert(args):
     notch = parse_notch(args.notch)
     notch_tag = ",".join(f"{f:g}" for f in notch) or "none"
     line_tag = f"{args.line_removal}:{notch_tag}"
+    flat_tag = f"{args.drop_flat_std:g}" if args.drop_flat_std > 0 else "off"
+    canonical = CHANNEL_NAMING[args.channel_names]
     big_lock = threading.Semaphore(1)
     t0 = time.time()
     print(f"[shard {shard}/{num_shards}] {len(mine)} of {len(todo)} recordings "
@@ -152,7 +192,8 @@ def cmd_convert(args):
         rel = f"recordings/{stem}.npy"
         meta = dst.head(rel)
         done_tag = meta and (meta.get("line") or f"notch:{meta.get('notch', '50')}")
-        if meta and "sha256" in meta and "channel_mask" in meta and done_tag == line_tag:
+        if (meta and "sha256" in meta and "channel_mask" in meta and done_tag == line_tag
+                and meta.get("flat", "off") == flat_tag):
             return {"stem": stem, **{k: json.loads(v) if k == "channel_mask" else v
                                      for k, v in meta.items()}, "skipped": True}
         big = estimated_gb(row) > args.big_gb
@@ -163,25 +204,35 @@ def cmd_convert(args):
                 with tempfile.NamedTemporaryFile(suffix=".edf") as tmp:
                     tmp.write(src.read(row["path"]))
                     tmp.flush()
-                    x, mask = preprocess_recording(tmp.name, notch, args.line_removal)
+                    x, mask = preprocess_recording(tmp.name, notch, args.line_removal, canonical,
+                                                   args.min_channels)
             else:
                 x, mask = preprocess_recording(os.path.join(src.root, row["path"]), notch,
-                                               args.line_removal)
+                                               args.line_removal, canonical, args.min_channels)
+            kept_ranges, n_flat = None, 0
+            if args.drop_flat_std > 0:
+                x, kept_ranges, n_flat = drop_flat_windows(x, mask, args.drop_flat_std)
         except Exception as exc:              # record, never abort the shard
             return {"stem": stem, "error": f"{type(exc).__name__}: {exc}"[:300]}
         finally:
             if big:
                 big_lock.release()
         if x.shape[0] == 0:
-            return {"stem": stem, "error": "shorter than one window"}
+            return {"stem": stem, "error": "no window left (too short or flat)" if n_flat
+                    else "shorter than one window"}
         if dtype == np.float16:            # beyond ±65504 µV float16 is inf
             x = np.clip(x, -FLOAT16_MAX, FLOAT16_MAX)
         data = npy_bytes(np.ascontiguousarray(x.astype(dtype)))
         out = {"stem": stem, "n_windows": x.shape[0] // WINDOW_SAMPLES, "n_samples": x.shape[0],
                "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data),
-               "channel_mask": mask, "dtype": dtype.name, "notch": notch_tag, "line": line_tag}
-        dst.write(rel, data, metadata={**{k: out[k] for k in ("n_windows", "n_samples", "sha256",
-                                                                "bytes", "dtype", "notch", "line")},
+               "channel_mask": mask, "dtype": dtype.name, "notch": notch_tag, "line": line_tag,
+               "flat": flat_tag}
+        if kept_ranges is not None:
+            out["flat_windows_dropped"] = n_flat
+            out["kept_ranges"] = kept_ranges if len(kept_ranges) <= MAX_RANGES_CHARS else "many"
+        keys = ("n_windows", "n_samples", "sha256", "bytes", "dtype", "notch", "line", "flat",
+                "flat_windows_dropped", "kept_ranges")
+        dst.write(rel, data, metadata={**{k: str(out[k]) for k in keys if k in out},
                                        "channel_mask": json.dumps(mask)})
         return out
 
@@ -244,7 +295,8 @@ def cmd_merge(args):
                     excluded[r["stem"]] = f"not in {os.path.basename(args.split_from)}"
                     continue
                 r["source_split"] = split_of[r["stem"]]
-            for k in ("n_windows", "n_samples", "bytes"):
+            for k in ("n_windows", "n_samples", "bytes") + (("flat_windows_dropped",)
+                                                            if "flat_windows_dropped" in r else ()):
                 r[k] = int(r[k])
             r["duration_sec"] = r["n_samples"] / SAMPLE_RATE
             rows[r["stem"]] = r
@@ -312,6 +364,12 @@ def main(argv=None):
     c.add_argument("--big-gb", type=float, default=BIG_RECORDING_GB,
                    help="recordings above this in-memory size are filtered one at a time")
     c.add_argument("--limit", type=int, default=0, help="convert at most N (debug)")
+    c.add_argument("--channel-names", default="tuh", choices=sorted(CHANNEL_NAMING),
+                   help="EDF label convention: TUH 'EEG X-REF' or bare BIDS names (HEEDB)")
+    c.add_argument("--min-channels", type=int, default=1,
+                   help="skip recordings with fewer of the 23 TUH channels (HEEDB: 19)")
+    c.add_argument("--drop-flat-std", type=float, default=0.0,
+                   help="drop 10 s windows where >= half the present channels have std below this (µV); 0 = off")
     c.set_defaults(func=cmd_convert)
     m = sub.add_parser("merge")
     m.add_argument("--scan", required=True)

@@ -44,9 +44,41 @@ def test_dest_key_keeps_bids_path():
         dh.dest_key("other/key")
 
 
-def test_refuses_public_bucket():
-    with pytest.raises(SystemExit):
-        dh._check_bucket("eeg-data-public")
+class _Exceptions:
+    class NoSuchBucketPolicy(Exception):
+        pass
+
+    def from_code(self, code):
+        return getattr(self, code)
+
+
+class FakeAccess:
+    exceptions = _Exceptions()
+
+    def __init__(self, blocks, policy_public=None):
+        self.blocks, self.policy_public = blocks, policy_public
+
+    def get_public_access_block(self, Bucket):
+        if self.blocks is None:
+            raise RuntimeError("NoSuchPublicAccessBlockConfiguration")
+        return {"PublicAccessBlockConfiguration": self.blocks}
+
+    def get_bucket_policy_status(self, Bucket):
+        if self.policy_public is None:
+            raise self.exceptions.NoSuchBucketPolicy()
+        return {"PolicyStatus": {"IsPublic": self.policy_public}}
+
+
+ALL_ON = dict.fromkeys(["BlockPublicAcls", "IgnorePublicAcls", "BlockPublicPolicy", "RestrictPublicBuckets"], True)
+
+
+def test_private_bucket_passes_and_public_ones_are_refused():
+    dh.check_private(FakeAccess(ALL_ON), "b")                        # no policy at all
+    dh.check_private(FakeAccess(ALL_ON, policy_public=False), "b")
+    for client in (FakeAccess(None), FakeAccess({**ALL_ON, "RestrictPublicBuckets": False}),
+                   FakeAccess(ALL_ON, policy_public=True)):
+        with pytest.raises(SystemExit):
+            dh.check_private(client, "b")
 
 
 def test_copy_retries_failures_and_resumes(objects):

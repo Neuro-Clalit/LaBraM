@@ -2,7 +2,8 @@
 """Harvard EEG Database (HEEDB v4.1, BDSP) -> a recording index aligned with TUH.
 
 HEEDB is read through the BDSP credentialed S3 access point (DUA: never
-redistribute, never mirror into ``s3://eeg-data-public``). It ships as BIDS
+redistribute; our copy lives in the private ``s3://eeg-data-public/HEEDB/v4.1/``,
+see ``download_heedb.py``). It ships as BIDS
 (``EEG/bids/<site>/sub-<site><pid>/ses-<N>/eeg/*_eeg.edf``) plus per-site CSVs:
 
 * ``eeg-metadata/<site>_eeg_metadata_*.csv`` -- one row per recording session:
@@ -547,6 +548,32 @@ def download_list(listing: pd.DataFrame, meta_dir: str) -> pd.DataFrame:
     return objs.merge(want, on=["site", "subject", "session"], how="inner").reset_index(drop=True)
 
 
+def convert_scan(index: pd.DataFrame, sample: Optional[int] = None, seed: int = 0) -> pd.DataFrame:
+    """The adult routine EDFs of the main sites with a scanned header, as a
+    ``make_TUH_npy`` work list (TUH scan columns): ``path`` is relative to the
+    raw mirror root (``EEG/`` dropped), ``duration_sec`` from the EDF header.
+    ``sample``: a stratified pilot of that many (site x report label, one EDF
+    per patient)."""
+    sel = index[index["site"].isin(MAIN_SITES) & index["routine"].fillna(False)
+                & index["adult"].fillna(False) & index["key"].notna() & index["n_signals"].notna()]
+    out = pd.DataFrame({
+        "stem": sel["stem"], "path": sel["key"].str.slice(len(EEG_PREFIX) + 1),
+        "corpus": "heedb", "site": sel["site"], "subject": sel["subject"],
+        "session": sel["session"], "token": sel["run"],
+        "age": sel["age"], "raw_age": sel["age"], "sex": sel["sex"], "year": sel["year"],
+        "label": sel["label"], "abnormal": sel["abnormal_report"].astype("Int8"),
+        "duration_sec": sel["header_duration_sec"], "sfreq": sel["sfreq"],
+        "n_tuh_channels": sel["n_tuh_channels"],
+    }).drop_duplicates("stem").reset_index(drop=True)
+    if sample:
+        cells = out.assign(lab=out["label"].fillna("unlabelled")).drop_duplicates("subject")
+        groups = cells.groupby(["site", "lab"])
+        per = int(np.ceil(sample / max(groups.ngroups, 1)))
+        out = (groups.apply(lambda g: g.sample(n=min(per, len(g)), random_state=seed))
+               .reset_index(drop=True).drop(columns="lab").head(sample))
+    return out
+
+
 # ------------------------------------------------------------------------ CLI
 def _paths(root):
     return {"meta": os.path.join(root, "metadata"),
@@ -590,6 +617,8 @@ def main(argv=None):
     hd.add_argument("--workers", type=int, default=64)
     sub.add_parser("build", help="join everything -> index/heedb_index.parquet")
     sub.add_parser("download-list", help="adult routine objects -> scan/download_list.parquet")
+    cs = sub.add_parser("convert-scan", help="make_TUH_npy work list -> scan/convert_scan[_pilot<N>].parquet")
+    cs.add_argument("--sample", type=int, default=None, help="stratified pilot of N EDFs")
     args = p.parse_args(argv)
     paths = _paths(args.root)
     for path in paths.values():
@@ -621,6 +650,12 @@ def main(argv=None):
         index.to_parquet(paths["index"], index=False)
         print(json.dumps({"rows": len(index), "sessions": int(index[["subject", "session"]].drop_duplicates().shape[0]),
                           "patients": int(index["subject"].nunique())}))
+    elif args.command == "convert-scan":
+        cs = convert_scan(pd.read_parquet(paths["index"]), args.sample)
+        name = f"convert_scan_pilot{args.sample}.parquet" if args.sample else "convert_scan.parquet"
+        cs.to_parquet(os.path.join(args.root, "scan", name), index=False)
+        print(json.dumps({"edfs": len(cs), "hours": round(cs["duration_sec"].sum() / 3600),
+                          "by_site": cs["site"].value_counts().to_dict()}))
     elif args.command == "download-list":
         dl = download_list(pd.read_parquet(paths["listing"]), paths["meta"])
         dl.to_parquet(paths["download"], index=False)
