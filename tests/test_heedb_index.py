@@ -265,3 +265,14 @@ def test_small_cells_are_suppressed():
     out = suppress_small(df, ["n"])
     assert list(out["n"]) == [0, "<10", "<10", 10, 250]
     assert list(out["rate"]) == list(df["rate"])
+
+
+def test_patient_split_is_stable_and_follows_the_patient_across_sites():
+    idx = pd.DataFrame({"patient_id": pd.array([7, 7, 8] + list(range(100, 2100)), dtype="Int64"),
+                        "subject": ["S00017", "S00027", "S00018"] + [f"S0001{i}" for i in range(100, 2100)]})
+    sp = hx.patient_split(idx)
+    assert sp["subjects"]["S00017"] == sp["subjects"]["S00027"] == sp["patients"]["7"]
+    assert sp == hx.patient_split(idx.sample(frac=1, random_state=1))          # order-free
+    assert hx.patient_split(idx.iloc[:3])["patients"]["7"] == sp["patients"]["7"]   # stable
+    frac = {k: v / len(sp["patients"]) for k, v in sp["counts"].items()}
+    assert abs(frac["test"] - 0.1) < 0.03 and abs(frac["val"] - 0.1) < 0.03

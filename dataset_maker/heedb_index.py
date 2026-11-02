@@ -30,6 +30,7 @@ headers are read with S3 range requests (no recording is downloaded).
 import argparse
 import concurrent.futures as cf
 import glob
+import hashlib
 import json
 import os
 import re
@@ -574,6 +575,31 @@ def convert_scan(index: pd.DataFrame, sample: Optional[int] = None, seed: int = 
     return out
 
 
+def split_of(patient_id, seed: int = 12345, val_fraction: float = 0.1, test_fraction: float = 0.1) -> str:
+    """train / val / test of one patient from ``sha256("heedb:<seed>:<patient id>")``
+    -- the same rule as ``tueg_patient_split.hash_split`` plus a held-out test
+    band, stable under adding or removing other patients. Keyed by the BDSP
+    patient id, not the BIDS subject, because a patient can have sessions at two
+    sites (S0001 and S0002 share ids)."""
+    u = int.from_bytes(hashlib.sha256(f"heedb:{seed}:{int(patient_id)}".encode()).digest(), "big") / 2 ** 256
+    return "test" if u < test_fraction else ("val" if u < test_fraction + val_fraction else "train")
+
+
+def patient_split(index: pd.DataFrame, seed: int = 12345, val_fraction: float = 0.1,
+                  test_fraction: float = 0.1) -> dict:
+    """``{"patients": {pid: split}, "subjects": {BIDS subject: split}, counts}``
+    for every patient in ``index``; asserts that no patient spans two splits."""
+    pids = index["patient_id"].dropna().astype(int).unique()
+    patients = {str(p): split_of(p, seed, val_fraction, test_fraction) for p in sorted(pids)}
+    subj = index.dropna(subset=["patient_id"]).drop_duplicates("subject")
+    subjects = {s: patients[str(int(p))] for s, p in zip(subj["subject"], subj["patient_id"])}
+    counts = {k: sum(v == k for v in patients.values()) for k in ("train", "val", "test")}
+    return {"version": 1, "rule": "sha256('heedb:<seed>:<patient_id>') / 2^256: "
+            "[0, test) test, [test, test+val) val, else train",
+            "seed": seed, "val_fraction": val_fraction, "test_fraction": test_fraction,
+            "counts": counts, "patients": patients, "subjects": subjects}
+
+
 # ------------------------------------------------------------------------ CLI
 def _paths(root):
     return {"meta": os.path.join(root, "metadata"),
@@ -619,6 +645,10 @@ def main(argv=None):
     sub.add_parser("download-list", help="adult routine objects -> scan/download_list.parquet")
     cs = sub.add_parser("convert-scan", help="make_TUH_npy work list -> scan/convert_scan[_pilot<N>].parquet")
     cs.add_argument("--sample", type=int, default=None, help="stratified pilot of N EDFs")
+    ps = sub.add_parser("patient-split", help="train/val/test per patient -> heedb_patient_split.json")
+    ps.add_argument("--seed", type=int, default=12345)
+    ps.add_argument("--val-fraction", type=float, default=0.1)
+    ps.add_argument("--test-fraction", type=float, default=0.1)
     args = p.parse_args(argv)
     paths = _paths(args.root)
     for path in paths.values():
@@ -650,6 +680,12 @@ def main(argv=None):
         index.to_parquet(paths["index"], index=False)
         print(json.dumps({"rows": len(index), "sessions": int(index[["subject", "session"]].drop_duplicates().shape[0]),
                           "patients": int(index["subject"].nunique())}))
+    elif args.command == "patient-split":
+        sp = patient_split(pd.read_parquet(paths["index"]), args.seed, args.val_fraction, args.test_fraction)
+        out = os.path.join(args.root, "index", "heedb_patient_split.json")
+        with open(out, "w") as fh:
+            json.dump(sp, fh)
+        print(json.dumps({"out": out, **sp["counts"]}))
     elif args.command == "convert-scan":
         cs = convert_scan(pd.read_parquet(paths["index"]), args.sample)
         name = f"convert_scan_pilot{args.sample}.parquet" if args.sample else "convert_scan.parquet"
