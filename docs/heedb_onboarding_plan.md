@@ -177,6 +177,33 @@ counts and expected TB.
 Storage estimate: raw ≈6.3 TB (≈ $145/month Standard, less on Intelligent-Tiering).
 npy float16 at 23 ch × 200 Hz ≈ 33 MB/h → ≈2.3 TB for the ≈69k hours (≈0.8 TB if trimmed to 30 min per session).
 
+### Status 2026-11-02: data ready, transfer baseline (E0)
+- **Raw copy:** 376,751 objects (5.475 TB) in `s3://eeg-data-public/HEEDB/v4.1/raw/`, verified per site.
+- **Conversion** (`processed_npy_interp50-60_flat0.5_float16`, Batch + recovery pass): 72,051 recordings,
+  16.27 M windows, 45,181 h kept, 1.50 TB. Flat windows dropped: I0002 7.8 %, I0003 16.9 %,
+  S0001 31.9 %, S0002 49.4 %. Not converted:
+  - 46 recordings with known errors (44 with fewer than 19 channels, 2 entirely flat);
+  - 20 with an invalid or short header;
+  - 44 sampled at 2-16 kHz (`scan/excluded_by_sfreq.csv`).
+- **Patient split:** `index/heedb_patient_split.json`, 101,812 / 12,770 / 12,723 patients.
+- **Cohorts in S3** (`HEEDB/v4.1/cohorts/`):
+  - `heedb_routine_v1`: 71,805 recordings;
+  - `heedb_normal_v1`: 7,619 recordings (6,017 / 803 / 799).
+- **E0, transfer:** TUH brain-age models scored on 2,100 held-out HEEDB test recordings (700 normal /
+  700 abnormal / 700 unlabelled), `docs/data/heedb_transfer_e0.csv`:
+
+  | Model | TUH MAE | HEEDB MAE | Bias | Slope (prediction on age) | MAE after recalibration |
+  |---|---|---|---|---|---|
+  | `exp4base` (EEG only) | ≈ 7.4 | 11.20 | −6.1 | 0.48 | 9.10 |
+  | `exp4anymiss-noear-nolabel` (no ear channels) | ≈ 7.5 | **10.02** | −3.9 | 0.52 | **8.72** |
+  | `cvaugval` 5-fold median (with condition vectors) | 7.1–7.4 | 10.18 | −4.0 | 0.53 | 8.94 |
+
+  The error is mostly compression of predictions toward the mean age, and HEEDB is older than TUH:
+  people in their 70s and 80s are underpredicted by 14–19 years. A linear recalibration fitted on
+  half the patients and scored on the other half (by patient) recovers about 1.3–2.1 years. The
+  model without ear channels transfers best (HEEDB lacks A1/A2 in 70 % of files). The
+  recalibrated 8.7 is the bar that E1/E2 (training on HEEDB) must beat.
+
 ### Local training on all data (decided 2026-11-02)
 The user wants to be able to train locally on all of TUH + HEEDB, not only on SageMaker.
 - **Disk:** `/data` (`vol-0e556358439755c10`, gp3, 500 MB/s, 6000 IOPS) is 1.5 TB with 1.465 TB used.

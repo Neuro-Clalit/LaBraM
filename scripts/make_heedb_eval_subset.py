@@ -11,7 +11,8 @@ stats, so ``--keep-train`` training rows stay listed, without their recordings.
 Those stats cancel out for the true ages, and predictions are de-normalized with
 the scored model's own training stats
 (``eval_age_by_cohort.py --pred-stats-from-log``). The other evaluation split is
-dropped, which keeps the loader from building millions of window names.
+cut to ``--keep-other`` listed rows (the loader wants it non-empty), which keeps it
+from building millions of window names.
 
     python scripts/make_heedb_eval_subset.py \\
         --cohort s3://eeg-data-public/HEEDB/v4.1/cohorts/heedb_routine_v1 \\
@@ -44,6 +45,7 @@ def main(argv=None):
     p.add_argument("--eval-minutes", type=float, default=5.0)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--keep-train", type=int, default=300, help="training rows kept for the target stats")
+    p.add_argument("--keep-other", type=int, default=50, help="rows kept of the other evaluation split")
     args = p.parse_args(argv)
     client = hx.s3_client(None)
     bucket, prefix = split_s3(args.cohort)
@@ -63,14 +65,16 @@ def main(argv=None):
     train_rows = cohort[cohort["split"] == "train"].sample(
         n=min(args.keep_train, int((cohort["split"] == "train").sum())), random_state=args.seed)
     train_keep = set(train_rows["stem"])
+    other_rows = cohort[cohort["split"] == other]
+    train_keep |= set(other_rows.sample(n=min(args.keep_other, len(other_rows)), random_state=args.seed)["stem"])
     trim = args.trim_sec // 10
     keep_windows = 2 * trim + int(args.eval_minutes * 6)
 
     os.makedirs(os.path.join(args.out, "recordings"), exist_ok=True)
     rows = []
     for r in manifest["recordings"]:
-        if (r["source_split"] == args.split and r["stem"] not in keep) or r["source_split"] == other \
-                or (r["source_split"] == "train" and r["stem"] not in train_keep):
+        if (r["source_split"] == args.split and r["stem"] not in keep) \
+                or (r["source_split"] != args.split and r["stem"] not in train_keep):
             continue
         r = dict(r)
         if r["stem"] in keep:
@@ -85,7 +89,8 @@ def main(argv=None):
                                   if f.split("/")[1].rsplit("_", 1)[0] in keep]
     split["files"]["train"] = [f for f in split["files"]["train"]
                                if f.split("/")[1].rsplit("_", 1)[0] in train_keep]
-    split["files"][other] = []
+    split["files"][other] = [f for f in split["files"][other]
+                             if f.split("/")[1].rsplit("_", 1)[0] in train_keep]
     meta["recordings"] = {k: v for k, v in meta["recordings"].items() if k in stems}
     json.dump(manifest, open(os.path.join(args.out, "manifest.json"), "w"))
     json.dump(meta, open(os.path.join(args.out, "age_metadata.json"), "w"))
