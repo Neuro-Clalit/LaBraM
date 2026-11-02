@@ -44,6 +44,7 @@ import os
 import sys
 from collections import Counter
 
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -73,11 +74,17 @@ def select(index: pd.DataFrame, rows: dict, experiment: str, *, min_minutes: flo
 
 def label_table(j: pd.DataFrame) -> pd.DataFrame:
     """Per-recording targets for multi-task heads (nullable; NA = unknown)."""
-    cols = [c for c in j.columns if c.startswith(LABEL_PREFIXES) and not c.endswith("_codes")]
     out = j[["stem", "split", "age", "sex", "site", "label"]].copy()
-    for c in cols:
-        out[c] = j[c].astype("boolean")
+    for c in j.columns:
+        if c.startswith(LABEL_PREFIXES) and _is_flag(j[c]):     # skips icd_count, *_codes
+            out[c] = j[c].astype("boolean")
     return out
+
+
+def _is_flag(col: pd.Series) -> bool:
+    """True when every known value is a boolean (or 0/1)."""
+    vals = col.dropna()
+    return vals.map(lambda v: isinstance(v, (bool, np.bool_)) or v in (0, 1)).all() if len(vals) else True
 
 
 def build(index, src_manifest, patient_split, args):

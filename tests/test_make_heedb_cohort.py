@@ -20,7 +20,8 @@ def _index():
                          "in_sheet": label is not None,
                          "abnormal_report": pd.NA if label is None else label == "abnormal",
                          "any_neuro_dx": pd.NA if neuro is None else neuro,
-                         "fg_seizure": label == "abnormal", "icd_seizure_disorders": neuro})
+                         "fg_seizure": label == "abnormal", "icd_seizure_disorders": neuro,
+                         "icd_count": 12.0, "icd_codes": "G40.909"})
     return pd.DataFrame(rows).astype({"patient_id": "Int64", "abnormal_report": "boolean",
                                       "any_neuro_dx": "boolean"})
 
@@ -52,6 +53,7 @@ def test_routine_cohort_keeps_patient_splits_and_caps_train_windows(parts):
     assert meta[stem]["subject"] == "1" and meta[stem]["label"] == "normal"
     labels = mc.label_table(j)
     assert {"fg_seizure", "icd_seizure_disorders"} <= set(labels.columns)
+    assert not {"icd_count", "icd_codes"} & set(labels.columns)      # not flags
 
 
 def test_normal_cohort_drops_abnormal_and_known_neuro(parts):
