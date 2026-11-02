@@ -549,14 +549,23 @@ def download_list(listing: pd.DataFrame, meta_dir: str) -> pd.DataFrame:
     return objs.merge(want, on=["site", "subject", "session"], how="inner").reset_index(drop=True)
 
 
-def convert_scan(index: pd.DataFrame, sample: Optional[int] = None, seed: int = 0) -> pd.DataFrame:
+# Native rates above this are excluded from conversion: TUH's highest is
+# 1000 Hz, and a 16 kHz research recording does not fit a 30 GB converter at
+# float64 (Batch child OOM, 2026-11-02). 44 of the 72k adult routine EDFs.
+MAX_NATIVE_SFREQ = 1024.0
+
+
+def convert_scan(index: pd.DataFrame, sample: Optional[int] = None, seed: int = 0,
+                 max_sfreq: float = MAX_NATIVE_SFREQ) -> pd.DataFrame:
     """The adult routine EDFs of the main sites with a scanned header, as a
     ``make_TUH_npy`` work list (TUH scan columns): ``path`` is relative to the
     raw mirror root (``EEG/`` dropped), ``duration_sec`` from the EDF header.
+    Native rates above ``max_sfreq`` are left out (``excluded_by_sfreq``).
     ``sample``: a stratified pilot of that many (site x report label, one EDF
     per patient)."""
     sel = index[index["site"].isin(MAIN_SITES) & index["routine"].fillna(False)
-                & index["adult"].fillna(False) & index["key"].notna() & index["n_signals"].notna()]
+                & index["adult"].fillna(False) & index["key"].notna() & index["n_signals"].notna()
+                & ~(index["sfreq"] > max_sfreq)]
     out = pd.DataFrame({
         "stem": sel["stem"], "path": sel["key"].str.slice(len(EEG_PREFIX) + 1),
         "corpus": "heedb", "site": sel["site"], "subject": sel["subject"],
@@ -598,6 +607,13 @@ def patient_split(index: pd.DataFrame, seed: int = 12345, val_fraction: float = 
             "[0, test) test, [test, test+val) val, else train",
             "seed": seed, "val_fraction": val_fraction, "test_fraction": test_fraction,
             "counts": counts, "patients": patients, "subjects": subjects}
+
+
+def excluded_by_sfreq(index: pd.DataFrame, max_sfreq: float = MAX_NATIVE_SFREQ) -> pd.DataFrame:
+    """Adult routine EDFs of the main sites left out for their native rate."""
+    sel = index[index["site"].isin(MAIN_SITES) & index["routine"].fillna(False)
+                & index["adult"].fillna(False) & (index["sfreq"] > max_sfreq)]
+    return sel[["stem", "site", "sfreq", "header_duration_sec"]].drop_duplicates("stem")
 
 
 # ------------------------------------------------------------------------ CLI
@@ -687,7 +703,10 @@ def main(argv=None):
             json.dump(sp, fh)
         print(json.dumps({"out": out, **sp["counts"]}))
     elif args.command == "convert-scan":
-        cs = convert_scan(pd.read_parquet(paths["index"]), args.sample)
+        index = pd.read_parquet(paths["index"])
+        cs = convert_scan(index, args.sample)
+        dropped = excluded_by_sfreq(index)
+        dropped.to_csv(os.path.join(args.root, "scan", "excluded_by_sfreq.csv"), index=False)
         name = f"convert_scan_pilot{args.sample}.parquet" if args.sample else "convert_scan.parquet"
         cs.to_parquet(os.path.join(args.root, "scan", name), index=False)
         print(json.dumps({"edfs": len(cs), "hours": round(cs["duration_sec"].sum() / 3600),

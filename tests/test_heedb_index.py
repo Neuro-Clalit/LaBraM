@@ -276,3 +276,15 @@ def test_patient_split_is_stable_and_follows_the_patient_across_sites():
     assert hx.patient_split(idx.iloc[:3])["patients"]["7"] == sp["patients"]["7"]   # stable
     frac = {k: v / len(sp["patients"]) for k, v in sp["counts"].items()}
     assert abs(frac["test"] - 0.1) < 0.03 and abs(frac["val"] - 0.1) < 0.03
+
+
+def test_convert_scan_leaves_out_research_sampling_rates():
+    base = {"site": "S0001", "routine": True, "adult": True, "n_signals": 30.0, "patient_id": 1,
+            "subject": "S00011", "session": "1", "run": None, "age": 50.0, "sex": "F", "year": 2018,
+            "label": "normal", "abnormal_report": False, "header_duration_sec": 3600.0, "n_tuh_channels": 19}
+    idx = pd.DataFrame([{**base, "stem": "a", "key": "EEG/bids/a_eeg.edf", "sfreq": 256.0},
+                        {**base, "stem": "b", "key": "EEG/bids/b_eeg.edf", "sfreq": 16384.0}])
+    idx["abnormal_report"] = idx["abnormal_report"].astype("boolean")
+    assert list(hx.convert_scan(idx)["stem"]) == ["a"]
+    assert list(hx.convert_scan(idx)["path"]) == ["bids/a_eeg.edf"]
+    assert list(hx.excluded_by_sfreq(idx)["stem"]) == ["b"]
