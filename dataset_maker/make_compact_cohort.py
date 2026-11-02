@@ -42,7 +42,7 @@ import shutil
 import sys
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 import numpy as np
 import torch
@@ -133,6 +133,12 @@ def _write(job):
     return out.nbytes
 
 
+def _reset_client():
+    """Process-pool initializer: boto3 clients must not cross a fork."""
+    global _CLIENT
+    _CLIENT = None
+
+
 def _fetch_sidecars(src, tmp):
     """The sidecars of an s3:// cohort into ``tmp`` (no recordings)."""
     bucket, prefix = _s3(src.rstrip("/"))
@@ -144,17 +150,17 @@ def _fetch_sidecars(src, tmp):
                 _client().download_file(bucket, o["Key"], os.path.join(tmp, name))
 
 
-def build(src, dst, selection, threads=16, cv=False):
+def build(src, dst, selection, threads=16, cv=False, processes=0):
     if src.startswith("s3://"):
         if not dst.startswith("s3://"):
             raise ValueError("an s3:// --src needs an s3:// --dst")
         with tempfile.TemporaryDirectory() as tmp:
             _fetch_sidecars(src, tmp)
-            return _build(tmp, src.rstrip("/"), dst.rstrip("/"), selection, threads, cv)
-    return _build(src, src, dst, selection, threads, cv)
+            return _build(tmp, src.rstrip("/"), dst.rstrip("/"), selection, threads, cv, processes)
+    return _build(src, src, dst, selection, threads, cv, processes)
 
 
-def _build(side, src, dst, selection, threads, cv):
+def _build(side, src, dst, selection, threads, cv, processes=0):
     """``side``: local dir with the source sidecars; ``src``/``dst``: where the
     recordings are read from / written to (local dirs or s3:// prefixes)."""
     remote = dst.startswith("s3://")
@@ -166,8 +172,12 @@ def _build(side, src, dst, selection, threads, cv):
     jobs = [(os.path.join(src, "recordings", f"{r['stem']}.npy"),
              os.path.join(dst, "recordings", f"{r['stem']}.npy"), kept[r["stem"]]) for r in rows]
     t0, total, sizes = time.time(), 0, {}
-    with ThreadPoolExecutor(threads) as pool:
-        for i, (job, nbytes) in enumerate(zip(jobs, pool.map(_write, jobs)), 1):
+    # S3 slicing is CPU-bound under the GIL (download, np.load, np.save):
+    # --processes spreads it over worker processes (jobs are small tuples).
+    pool = (ProcessPoolExecutor(processes, initializer=_reset_client) if processes
+            else ThreadPoolExecutor(threads))
+    with pool:
+        for i, (job, nbytes) in enumerate(zip(jobs, pool.map(_write, jobs, chunksize=8 if processes else 1)), 1):
             total += nbytes
             sizes[job[0]] = nbytes
             if i % 2000 == 0:
@@ -229,6 +239,8 @@ def main(argv=None):
                    help="fine-tune config whose data.* window selection the runs use")
     p.add_argument("--set", nargs="*", default=[], help="config overrides, e.g. data.eval_minutes=5")
     p.add_argument("--threads", type=int, default=16)
+    p.add_argument("--processes", type=int, default=0,
+                   help="worker processes instead of threads (CPU-bound S3 slicing)")
     p.add_argument("--verify", type=int, default=0, help="bit-compare N random samples per split")
     p.add_argument("--cv", action="store_true",
                    help="store every recording's training and evaluation windows (cross-validation)")
@@ -238,7 +250,7 @@ def main(argv=None):
     if selection.quality_filter:
         raise SystemExit("compact copies do not carry window_stats.npz: drop the quality filter")
     print(f"selection: {selection}")
-    total, out = build(args.src, args.dst, selection, args.threads, cv=args.cv)
+    total, out = build(args.src, args.dst, selection, args.threads, cv=args.cv, processes=args.processes)
     print(f"{args.dst}: {out['n_recordings']} recordings, {out['n_stored_windows']} of "
           f"{out['n_windows']} windows stored, {total / 1e9:.1f} GB")
     if args.verify:
