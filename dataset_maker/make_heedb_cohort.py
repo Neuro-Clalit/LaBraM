@@ -111,7 +111,7 @@ def build(index, src_manifest, patient_split, args):
         files[r.split] += window_files(r.stem, src["n_windows"], r.split,
                                        train_windows=train_windows, trim_windows=trim)
         meta[r.stem] = {"stem": r.stem, "subject": str(int(r.patient_id)), "session": str(r.session),
-                        "token": None, "age": int(r.age), "sex": r.sex,
+                        "token": None, "age": int(r.age), "sex": r.sex if isinstance(r.sex, str) else None,
                         "year": None if pd.isna(r.year) else int(r.year),
                         "raw_age": int(r.age), "label": r.label if isinstance(r.label, str) else None}
     pats = {s: set(j.loc[j["split"] == s, "patient_id"].astype(int)) for s in files}

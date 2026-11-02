@@ -100,10 +100,27 @@ def train_target_stats(cfg, train_data_path):
     return apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data)).target_stats
 
 
+def logged_target_stats(run_dir):
+    """(mean, std) of the training targets as the run logged them
+    (``Age target normalization (selected train): mean=.. std=..`` in
+    ``log/run.log``); exact for CV folds, whose config stores none."""
+    import re
+    path = os.path.join(run_dir, "log", "run.log")
+    with open(path) as fh:
+        for line in fh:
+            m = re.search(r"Age target normalization.*mean=([-\d.]+) std=([-\d.]+)", line)
+            if m:
+                return float(m.group(1)), float(m.group(2))
+    raise ValueError(f"{path}: no 'Age target normalization' line")
+
+
 def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None,
-                 train_data_path=None, window_qc=True, session_features=None):
+                 train_data_path=None, window_qc=True, session_features=None, pred_stats=None,
+                 stage_dir=None):
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
+    if stage_dir is not None:
+        cfg.data.stage_dir = stage_dir
     if data_format:
         cfg.data.data_format = data_format
     if cfg.model.codebook_reg.enabled:
@@ -127,7 +144,8 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
         stage_bundle(bundle, cfg.data.stage_dir, reserve_gb=cfg.data.stage_reserve_gb,
                      splits=tuple(s for s in ("val", "test", "train") if s in splits))
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
-    pred_stats = train_target_stats(cfg, train_data_path) if train_data_path else None
+    if pred_stats is None and train_data_path:
+        pred_stats = train_target_stats(cfg, train_data_path)
     to_scalar = None
     if bundle.task == "regression" and cfg.loss.regression_loss == "soft_label":
         cfg.model.nb_classes = soft_label_n_bins(cfg.loss)
@@ -173,6 +191,10 @@ def main():
     ap.add_argument("--train-data-path", default=None,
                     help="the run's own training data, when --data-path is another cohort: "
                          "predictions are de-normalized with its training-target stats")
+    ap.add_argument("--pred-stats-from-log", action="store_true",
+                    help="de-normalize predictions with the training-target stats each run logged "
+                         "(log/run.log; exact for CV folds) -- for scoring on another cohort")
+    ap.add_argument("--stage-dir", default=None, help="override data.stage_dir (e.g. 'none')")
     ap.add_argument("--no-window-qc", action="store_true",
                     help="ignore the run's signal-quality window rejection: score every window")
     ap.add_argument("--session-features", default=None,
@@ -187,7 +209,9 @@ def main():
                                      device, args.batch_size, args.data_format,
                                      train_data_path=args.train_data_path,
                                      window_qc=not args.no_window_qc,
-                                     session_features=args.session_features)
+                                     session_features=args.session_features,
+                                     pred_stats=logged_target_stats(run_dir) if args.pred_stats_from_log else None,
+                                     stage_dir=args.stage_dir)
         for split, cohorts in results[name]["splits"].items():
             print(f"{name:14s} {split:4s} " + "  ".join(
                 f"{c}: n={v['n']} MAE={v['mae']:.2f} R2={v['r2']:.2f}" for c, v in cohorts.items()

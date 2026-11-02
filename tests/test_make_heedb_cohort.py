@@ -22,8 +22,11 @@ def _index():
                          "any_neuro_dx": pd.NA if neuro is None else neuro,
                          "fg_seizure": label == "abnormal", "icd_seizure_disorders": neuro,
                          "icd_count": 12.0, "icd_codes": "G40.909"})
-    return pd.DataFrame(rows).astype({"patient_id": "Int64", "abnormal_report": "boolean",
-                                      "any_neuro_dx": "boolean"})
+    df = pd.DataFrame(rows).astype({"patient_id": "Int64", "abnormal_report": "boolean",
+                                    "any_neuro_dx": "boolean"})
+    df["sex"] = df["sex"].astype("string")
+    df.loc[df["patient_id"] == 4, "sex"] = pd.NA                       # unknown sex
+    return df
 
 
 def _args(experiment):
@@ -51,6 +54,9 @@ def test_routine_cohort_keeps_patient_splits_and_caps_train_windows(parts):
     assert len([f for f in files["train"] if stem in f]) == 6
     assert len([f for f in files["val"] if "sub-S00012_ses-1" in f]) == 12
     assert meta[stem]["subject"] == "1" and meta[stem]["label"] == "normal"
+    import json
+    json.dumps(meta)                                                   # NA-free: serialisable
+    assert meta["sub-S00014_ses-1_task-EEG"]["sex"] is None
     labels = mc.label_table(j)
     assert {"fg_seizure", "icd_seizure_disorders"} <= set(labels.columns)
     assert not {"icd_count", "icd_codes"} & set(labels.columns)      # not flags
