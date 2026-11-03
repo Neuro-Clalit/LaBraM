@@ -54,7 +54,12 @@ COHORTS = ("normal", "abnormal", "unlabelled")
 def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, session=False,
              channel_drop=None):
     enable_window_ids(dataset, "recording")
-    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False,
+    # Under DDP (--nproc-per-node) each rank predicts every world_size-th
+    # window; the shards are gathered back in dataset order below.
+    sharded = utils.get_world_size() > 1
+    sampler = (torch.utils.data.DistributedSampler(dataset, shuffle=False) if sharded
+               else torch.utils.data.SequentialSampler(dataset))
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=sampler,
                                          num_workers=8, pin_memory=True)
     channel_indices = utils.get_channel_indices(ch_names)
     # With channel_drop, every sample runs on its present (non-zero) channels.
@@ -79,7 +84,10 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
             preds.append(out.float().squeeze(-1).cpu())
             targets.append(y.float())
             recs.extend(rec)
-    return torch.cat(preds).numpy(), torch.cat(targets).numpy(), recs
+    pred, true = torch.cat(preds).numpy(), torch.cat(targets).numpy()
+    if sharded:
+        pred, true, recs = utils.gather_sharded_eval(pred, true, recs, total=len(dataset))
+    return pred, true, recs
 
 
 def _per_recording(pred, true, recs, target_stats, pred_stats=None):
@@ -216,8 +224,19 @@ def main():
     ap.add_argument("--session-features", default=None,
                     help="session-feature file for --data-path (default: the run's own)")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--nproc-per-node", type=int, default=1,
+                    help="GPUs to predict on (one DDP process each; -1 = all visible GPUs). "
+                         "Windows are sharded across processes and gathered on rank 0.")
     args = ap.parse_args()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    from labram.utils.launch import relaunch_if_needed
+    relaunch_if_needed(args.nproc_per_node, script=os.path.abspath(__file__))
+    ns = argparse.Namespace(dist_on_itp=False, dist_url="env://", world_size=1, local_rank=-1,
+                            backend="auto", device="auto")
+    utils.init_distributed_mode(ns)
+    if getattr(ns, "distributed", False) and torch.cuda.is_available():
+        device = torch.device("cuda", ns.gpu)
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     results = {}
     for item in args.run:
         name, run_dir = item.split("=", 1)
@@ -228,13 +247,16 @@ def main():
                                      session_features=args.session_features,
                                      pred_stats=logged_target_stats(run_dir) if args.pred_stats_from_log else None,
                                      stage_dir=args.stage_dir)
+        if not utils.is_main_process():
+            continue
         for split, cohorts in results[name]["splits"].items():
             print(f"{name:14s} {split:4s} " + "  ".join(
                 f"{c}: n={v['n']} MAE={v['mae']:.2f} R2={v['r2']:.2f}" for c, v in cohorts.items()
                 if c != "predictions"))
-    if args.out:
+    if args.out and utils.is_main_process():
         with open(args.out, "w") as fh:
             json.dump(results, fh, indent=2)
+    utils.cleanup_distributed()
 
 
 if __name__ == "__main__":
