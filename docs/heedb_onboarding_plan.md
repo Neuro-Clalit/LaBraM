@@ -252,6 +252,35 @@ Their scores on TUAB eval and on the 2,100-recording HEEDB subset (per site, per
 `docs/data/heedb_transfer_e0.csv`) go to `docs/data/tuab_eval_heedb_comparison.csv` and
 `docs/data/heedb_e1_e2.csv`.
 
+### E1 results (rerun, 2026-11-03)
+The E1 rerun completed with its checkpoint: best epoch 6 of 8, val 7.50 / HEEDB test 7.27
+(7,338 recordings); the first run ended at 7.52 / 7.30. The checkpoint is scored with
+`scripts/eval_age_by_cohort.py --pred-stats-from-log` (predictions de-normalised with E1's own
+training statistics, mean 53.92, std 19.82 years). Case MAE, years:
+
+| Test set | Model | All | Normal | Abnormal | Unlabelled |
+|---|---|---|---|---|---|
+| TUAB eval (274) | TUH-only `exp4anymiss-noear-nolabel` | 7.48 | 5.75 | 9.54 | – |
+| TUAB eval (274) | best TUH single model (`cvaugval_f4`) | 7.10 | 5.11 | 9.48 | – |
+| TUAB eval (274) | **E1 (HEEDB only)** | **6.90** | 5.83 | **8.18** | – |
+| HEEDB subset (2,100) | E0 `exp4anymiss-noear-nolabel` | 10.02 | 9.86 | 10.64 | 9.57 |
+| HEEDB subset (2,100) | E0, recalibrated (2-fold by patient) | 8.72 | 8.77 | 9.17 | 8.20 |
+| HEEDB subset (2,100) | **E1** | **7.37** | 7.44 | 7.85 | 6.82 |
+| HEEDB subset (2,100) | E1, recalibrated | 6.89 | 6.91 | 7.33 | 6.42 |
+
+- **Never trained on TUH, E1 is the best model on TUAB eval so far** (6.90 vs 7.10–7.48 for the TUH
+  models), with the gain on abnormal recordings (8.18 vs about 9.4–9.6). Its bias on TUAB eval is +1.3
+  years (+2.1 on normal), against −0.6 to −1.8 for the TUH models.
+- **On HEEDB,** E1 reduces MAE by 2.7 years against the transfer baseline and by 1.4 against the
+  recalibrated baseline. Bias falls from −3.9 to −0.7 years and the prediction-on-age slope rises
+  from 0.52 to 0.67, so there is less compression toward the mean age.
+- **Per site** (E0 → E1): I0002 9.73 → 7.15, S0001 10.44 → 7.81, S0002 9.40 → 6.81, I0003 (n = 37)
+  10.72 → 5.82. S0001 remains the hardest site.
+- **Per age decade, the elderly remain the weak point.** 70s: bias −14.1 → −8.1, MAE 14.1 → 8.4;
+  80+: bias −19.6 → −13.1, MAE 19.6 → 13.1. The 18–29 group is overpredicted (+7.9 to +8.3). The
+  remaining slope (0.67) is the usual regression-to-the-mean of brain-age models; age-bin
+  sampling or loss balancing (`data.age_bin_sampling`, `loss.balance`) are the candidate fixes.
+
 ### Per-dataset reporting (from the runs after E1/E2)
 Every fine-tune now reports each split overall, per cohort (normal / abnormal / unlabelled)
 and per dataset x cohort (`harvard_*`, `temple_*`, e.g. `temple_abnormal_mae`). A

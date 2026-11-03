@@ -23,3 +23,6 @@ cvaugval_f4,TUH,TUAB eval,abnormal,125,9.476,-0.391,0.513
 cvaugval_ens,TUH,TUAB eval,all,274,7.221,-1.168,0.715
 cvaugval_ens,TUH,TUAB eval,normal,149,5.356,-1.049,0.818
 cvaugval_ens,TUH,TUAB eval,abnormal,125,9.443,-1.309,0.524
+E1_heedb_routine,HEEDB,TUAB eval,all,274,6.902,1.292,0.764
+E1_heedb_routine,HEEDB,TUAB eval,normal,149,5.831,2.103,0.808
+E1_heedb_routine,HEEDB,TUAB eval,abnormal,125,8.178,0.325,0.65
