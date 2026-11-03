@@ -312,6 +312,12 @@ years (`docs/data/tuab_eval_heedb_comparison.csv`, `docs/data/heedb_e1_e2.csv`):
 - **HEEDB:** E1 and E2 are equivalent (7.37 vs 7.42; per site within ±0.1 except I0003, n = 37).
   Adding TUH costs nothing on Harvard data. The old-age bias is the same in both (70s −8.1/−8.3,
   80+ −13.1/−13.3).
+- **Per epoch** (`docs/figures/heedb_e1_e2_epochs.png`):
+  - (a) TUAB eval: E2 is below the TUH-only run from epoch 1 (7.90 vs 8.79) and at every later epoch.
+  - (b) The gain is mostly on abnormal recordings.
+  - (c) On the shared TUH val split, E2 reaches 7.31 vs the TUH-only run's best 7.81, so HEEDB also
+    helps on TUH data.
+  - (d) Train-eval vs val per dataset.
 - **Over-fitting:** E2's train-eval MAE fell to 5.37 (Temple 4.75 at epoch 7) while val stayed
   at 7.43–7.48 from epoch 5. The TUH part is memorised faster than HEEDB.
 - **Next:**
