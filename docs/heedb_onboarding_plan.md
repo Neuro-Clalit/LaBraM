@@ -281,6 +281,45 @@ training statistics, mean 53.92, std 19.82 years). Case MAE, years:
   remaining slope (0.67) is the usual regression-to-the-mean of brain-age models; age-bin
   sampling or loss balancing (`data.age_bin_sampling`, `loss.balance`) are the candidate fixes.
 
+### E2 results and the E0 / E1 / E2 comparison (2026-11-03)
+The E2 rerun (TUH `all_both_v3_anymiss` + HEEDB routine, 103,117 recordings) completed with its
+checkpoint. The best epoch is 8 of 8 (val 7.43; epoch 5 had 7.44), with HEEDB+TUAB test 7.25. The
+offline TUAB-eval score equals the in-training `temple_*` numbers (6.70 / 5.13 / 8.56), so the two
+evaluation paths agree. `E1+E2 mean` averages the two models' per-recording predictions. Case MAE,
+years (`docs/data/tuab_eval_heedb_comparison.csv`, `docs/data/heedb_e1_e2.csv`):
+
+| TUAB eval (274) | All | Normal | Abnormal | Bias | R² |
+|---|---|---|---|---|---|
+| TUH-only `exp4anymiss-noear-nolabel` | 7.48 | 5.75 | 9.54 | −0.64 | 0.71 |
+| best TUH single model `cvaugval_f4` | 7.10 | **5.11** | 9.48 | −0.36 | 0.72 |
+| TUH 5-fold ensemble `cvaugval_ens` | 7.22 | 5.36 | 9.44 | −1.17 | 0.72 |
+| E1 (HEEDB only) | 6.90 | 5.83 | 8.18 | +1.29 | 0.76 |
+| **E2 (TUH + HEEDB)** | **6.70** | 5.13 | 8.56 | −0.22 | 0.76 |
+| E1+E2 mean | **6.60** | 5.34 | **8.09** | +0.54 | 0.77 |
+
+| HEEDB subset (2,100) | All | Normal | Abnormal | Unlabelled | Recalibrated (all) | Slope |
+|---|---|---|---|---|---|---|
+| E0 `exp4anymiss-noear-nolabel` | 10.02 | 9.86 | 10.64 | 9.57 | 8.72 | 0.52 |
+| E1 | 7.37 | 7.44 | 7.85 | 6.82 | 6.89 | 0.67 |
+| E2 | 7.42 | 7.43 | 8.02 | 6.79 | 6.80 | 0.66 |
+| E1+E2 mean | **7.36** | **7.40** | 7.90 | **6.78** | 6.80 | 0.67 |
+
+- **TUAB eval:** E2 is the best single model (6.70; 0.40 better than the best TUH model, 0.78 better
+  than the same recipe trained on TUH only) and almost unbiased (−0.2). It keeps the TUH models'
+  normal-recording accuracy (5.13 vs 5.11) and improves abnormal recordings by about 0.9 years.
+  E1 is better on abnormal recordings (8.18) but over-predicts normal ones (+2.1 bias, 5.83). The two
+  are complementary: their mean gives 6.60 overall.
+- **HEEDB:** E1 and E2 are equivalent (7.37 vs 7.42; per site within ±0.1 except I0003, n = 37).
+  Adding TUH costs nothing on Harvard data. The old-age bias is the same in both (70s −8.1/−8.3,
+  80+ −13.1/−13.3).
+- **Over-fitting:** E2's train-eval MAE fell to 5.37 (Temple 4.75 at epoch 7) while val stayed
+  at 7.43–7.48 from epoch 5. The TUH part is memorised faster than HEEDB.
+- **Next:**
+  - **E3:** the E2 recipe plus the abnormal head (normal/abnormal AUROC/BAcc on TUAB eval).
+  - **Old-age compression:** age-bin sampling or loss balancing.
+  - **Checkpoint selection:** pick the epoch on a dataset-balanced val metric.
+  - **Ensembles:** E1+E2 (or several seeds) as an ensemble for reporting.
+
 ### Per-dataset reporting (from the runs after E1/E2)
 Every fine-tune now reports each split overall, per cohort (normal / abnormal / unlabelled)
 and per dataset x cohort (`harvard_*`, `temple_*`, e.g. `temple_abnormal_mae`). A
