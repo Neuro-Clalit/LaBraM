@@ -227,6 +227,31 @@ npy float16 at 23 ch × 200 Hz ≈ 33 MB/h → ≈2.3 TB for the ≈69k hours (�
   Both use the recipe of `exp4anymiss-noear-nolabel` (19 channels, no condition input, mixup, lr 2e-4,
   batch 128, 5 min per recording per epoch, 8 epochs with early stopping). ClearML project `LaBraM/heedb`.
 
+### Status 2026-11-03: first E1/E2 results, checkpoints lost, reruns
+Both jobs completed, but they were submitted with the default `output.output_dir`
+(`./checkpoints/finetune_tuab_age/`), which lies outside `/opt/ml/model`. The checkpoints stayed in
+the container and were deleted with it, so there is no `model.tar.gz` and no TUAB-eval score.
+`sagemaker_entry.py` now moves any output, log or CV directory outside the uploaded folders into
+the model directory (commit `4ac80c4`). Case MAE in years at the best epoch, from the job logs:
+
+| Run | Train data | Best epoch | Val MAE (normal / abnormal) | Test MAE (normal / abnormal) | Test set |
+|---|---|---|---|---|---|
+| E0 `exp4anymiss-noear-nolabel` | TUH | – | – | 10.02 (9.86 / 10.64), recalibrated 8.72 | 2,100-recording HEEDB subset |
+| E1 | `heedb_routine_v1` | 8 of 8 | 7.52 (7.44 / 8.14) | **7.30** (7.48 / 7.79) | HEEDB test, 7,338 recordings |
+| E2 | `tuh_heedb_v1` | 5 of 8 (early stop) | 7.36 (6.97 / 7.85) | **7.13** (7.16 / 7.62) | HEEDB test + TUAB eval, 7,612 recordings |
+
+E1 was still improving at its last epoch (val 7.67 → 7.61 → 7.52 over epochs 6-8). Both already
+beat the recalibrated transfer baseline (8.72), but E2's test mixes TUAB eval with HEEDB, so the
+TUAB-eval comparison with `exp4anymiss-noear-nolabel` (7.48) needs the reruns' checkpoints:
+- E1 rerun `labram-heedb-e1-routine-noear-r2-2026-11-03-05-34-25-665`
+- E2 rerun `labram-heedb-e2-tuh-heedb-noear-r2-2026-11-03-05-59-02-058`
+
+Same recipe; they also log the per-dataset (`harvard_*` / `temple_*`) and `train_eval` metrics.
+Their scores on TUAB eval and on the 2,100-recording HEEDB subset (per site, per age decade,
+2-fold patient recalibration: `labram/eval/heedb_analysis.py::brain_age_tables`, which reproduces
+`docs/data/heedb_transfer_e0.csv`) go to `docs/data/tuab_eval_heedb_comparison.csv` and
+`docs/data/heedb_e1_e2.csv`.
+
 ### Per-dataset reporting (from the runs after E1/E2)
 Every fine-tune now reports each split overall, per cohort (normal / abnormal / unlabelled)
 and per dataset x cohort (`harvard_*`, `temple_*`, e.g. `temple_abnormal_mae`). A
