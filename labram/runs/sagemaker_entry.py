@@ -10,6 +10,7 @@
 
 import argparse
 import os
+import sys
 from typing import List, Optional
 
 import labram.utils as utils
@@ -145,7 +146,7 @@ def publish_checkpoint_outputs() -> None:
     """Copy what was trained in the checkpoint folder into the model dir, which
     SageMaker uploads as model.tar.gz, so the job's outputs keep their layout."""
     src = checkpoint_dir()
-    if not src:
+    if not src or os.environ.get('RANK', '0') != '0':      # DDP: rank 0 only
         return
     import shutil
     dst = os.environ.get('SM_MODEL_DIR', '/opt/ml/model')
@@ -181,6 +182,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     cli = parse_cli(argv)
     load_clearml_credentials()
     config = build_config(cli)
+    # Multi-GPU instance (or several instances): one DDP process per GPU via
+    # torchrun, same script and arguments; node layout from SM_HOSTS.
+    from labram.utils.launch import relaunch_if_needed
+    relaunch_if_needed(config.distributed.nproc_per_node,
+                       script=os.path.abspath(sys.argv[0]), argv=sys.argv[1:] if argv is None else argv)
     if cli.phase == 'vqnsp':
         from labram.runs.run_vqnsp import main as vqnsp_main
         vqnsp_main(config)

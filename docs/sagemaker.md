@@ -115,6 +115,16 @@ subset, e.g. `scripts/submit_paper_experiments.sh cv codebook`).
 Unknown `--set` keys are rejected, so a typo in one of these names fails the
 submission instead of being silently dropped.
 
+## Multi-GPU instances
+
+On a multi-GPU instance (ml.g5.12xlarge / g5.24xlarge: 4 × A10G, g5.48xlarge:
+8 × A10G), add `distributed.nproc_per_node=-1` (and, for fine-tuning,
+`trainer.global_batch_size=<B>` to keep the single-GPU recipe's batch).
+`sagemaker_entry.py` then relaunches itself under torchrun, one DDP process
+per GPU; with `sagemaker.instance_count > 1` the node layout comes from
+`SM_HOSTS`. Only rank 0 writes the outputs that end up in `model.tar.gz`. See
+`docs/multi_gpu.md`.
+
 ## On-demand vs. spot training
 
 The hardware is identical; the purchase contract is not.

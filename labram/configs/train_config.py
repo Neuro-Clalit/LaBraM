@@ -73,6 +73,13 @@ class TrainerConfig(ConfigBase):
     early_stopping: bool = False
     early_stopping_patience: int = 3
     early_stopping_min_delta: float = 0.0
+    # Fine-tune only. When > 0, the effective batch per optimizer step, kept
+    # the same whatever the number of GPUs: batch_size becomes the per-GPU cap
+    # and per-GPU batch / update_freq are derived from it
+    # (labram/runs/common.py::resolve_global_batch), so a recipe tuned on one
+    # GPU keeps its LR and schedule on N GPUs. 0 = batch_size is per GPU and the
+    # effective batch is batch_size x update_freq x GPUs.
+    global_batch_size: int = 0
 
 
 @dataclass
@@ -293,6 +300,18 @@ class DistributedConfig(ConfigBase):
     device: str = DEFAULT_DEVICE
     seed: int = DEFAULT_SEED
     dist_eval: bool = DEFAULT_DIST_EVAL
+    # Multi-GPU (DDP) without typing torchrun: processes per machine, one per
+    # GPU; -1 = every visible GPU, 1 = single process. Above 1 the entry point
+    # relaunches itself under torchrun (labram/utils/launch.py). Under DDP the
+    # val/test/train_eval loaders are always sharded across ranks and gathered
+    # back (dist_eval is implied), so no rank repeats the whole evaluation.
+    nproc_per_node: int = 1
+    # Process-group backend: auto = nccl on CUDA, gloo otherwise.
+    backend: str = 'auto'
+    # DDP: True tolerates parameters that get no gradient in a step (heads or
+    # branches a config does not use) at the cost of an extra graph traversal;
+    # False is faster when every trainable parameter is used.
+    find_unused_parameters: bool = True
     # Runtime fields — set by setup_environment after init_distributed_mode runs.
     distributed: bool = False
     gpu: int = 0

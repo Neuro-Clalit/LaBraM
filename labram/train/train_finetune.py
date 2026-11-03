@@ -7,6 +7,7 @@
 # https://github.com/facebookresearch/deit/
 # https://github.com/facebookresearch/dino
 # ---------------------------------------------------------
+import contextlib
 import math
 import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -191,6 +192,7 @@ def train_one_epoch(
 
     step_timer = utils.StepTimer(
         device, precise_cuda=bool(getattr(logging_cfg, 'precise_cuda_timing', False)))
+    sync_ctx = contextlib.ExitStack()
     for data_iter_step, batch in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         data_time = step_timer.start_step()
         # A 3-element batch carries a per-window case id for case-level metrics.
@@ -200,6 +202,15 @@ def train_one_epoch(
         if step >= num_training_steps_per_epoch:
             continue
         global_step = start_steps + step
+        # DDP all-reduces gradients in every backward; on the accumulation
+        # micro-steps before an update that is wasted traffic, so they run
+        # under no_sync() (forward included, as DDP requires) and only the
+        # last micro-step of each update synchronises the summed gradients.
+        sync_ctx.close()
+        if (loss_scaler is not None and update_freq > 1
+                and isinstance(model, torch.nn.parallel.DistributedDataParallel)
+                and (data_iter_step + 1) % update_freq != 0):
+            sync_ctx.enter_context(model.no_sync())
         # Update LR & WD for the first acc
         if lr_schedule_values is not None or wd_schedule_values is not None and data_iter_step % update_freq == 0:
             apply_lr_wd_schedule(optimizer, global_step, lr_schedule_values, wd_schedule_values)
@@ -377,6 +388,7 @@ def train_one_epoch(
 
     metric_logger.update(**step_timer.finish())
     # gather the stats from all processes
+    sync_ctx.close()
     metric_logger.synchronize_between_processes()
     logger.info("Averaged stats: %s", metric_logger)
     stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}

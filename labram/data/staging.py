@@ -156,7 +156,8 @@ def stage_bundle(bundle, stage_dir: str = AUTO, *, reserve_gb: float = 20.0,
     the loaders of those splits are re-rooted; any other split keeps reading
     its source.
 
-    Under DDP only rank 0 copies; the others wait at a barrier and re-root."""
+    Under DDP only the first rank of each machine (LOCAL_RANK 0) copies onto
+    that machine's disk; the others wait at a barrier and re-root."""
     stage_root = resolve_stage_dir(stage_dir)
     if stage_root is None:
         return None
@@ -168,7 +169,7 @@ def stage_bundle(bundle, stage_dir: str = AUTO, *, reserve_gb: float = 20.0,
     os.makedirs(stage_root, exist_ok=True)
     distributed = dist.is_available() and dist.is_initialized()
     report = None
-    if not distributed or dist.get_rank() == 0:
+    if not distributed or int(os.environ.get("LOCAL_RANK", dist.get_rank())) == 0:
         report = _do_stage(bundle, stage_root, reserve_gb, threads, splits)
         for split in splits:
             n_s, n_l = report.staged.get(split, 0), report.linked.get(split, 0)

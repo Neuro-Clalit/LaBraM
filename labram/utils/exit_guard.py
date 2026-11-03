@@ -23,6 +23,10 @@ def run_and_exit(fn, *args, grace_sec: float = DEFAULT_GRACE_SEC, **kwargs):
     try:
         result = fn(*args, **kwargs)
         status = 0
+        # DDP: every rank reaches this point; leave the process group together
+        # (skipped on an error, where a barrier could wait for a dead rank).
+        from labram.utils.distributed import cleanup_distributed
+        cleanup_distributed()
         return result
     except SystemExit as exc:
         status = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
