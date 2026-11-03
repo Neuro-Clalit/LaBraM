@@ -376,3 +376,70 @@ def channel_presence(headers: pd.DataFrame) -> pd.DataFrame:
     n = max(len(miss), 1)
     return pd.DataFrame({"present %": [100 * (1 - sum(c in list(m) for m in miss) / n)
                                        for c in TUH_CHANNELS]}, index=list(TUH_CHANNELS))
+
+
+# ------------------------------------------------------------------ brain-age scoring
+
+def site_of(stem: str) -> str:
+    """BDSP site of a BIDS stem: ``sub-S0001115…_ses-1_task-EEG`` -> ``S0001``."""
+    sub = stem.split("_", 1)[0][len("sub-"):]
+    return next((s for s in hx.MAIN_SITES if sub.startswith(s)), sub[:5])
+
+
+def prediction_frame(predictions: Dict[str, float], metadata: Dict[str, dict]) -> pd.DataFrame:
+    """One row per recording: ``stem, subject, site, cohort, age, pred`` from
+    ``scripts/eval_age_by_cohort.py`` predictions and a cohort's ``age_metadata``."""
+    rows = []
+    for stem, pred in predictions.items():
+        m = metadata[stem]
+        rows.append({"stem": stem, "subject": m["subject"], "site": site_of(stem),
+                     "cohort": m.get("label") or "unlabelled", "age": float(m["age"]),
+                     "pred": float(pred)})
+    return pd.DataFrame(rows)
+
+
+def recalibrate_2fold(df: pd.DataFrame, seed: int = 0) -> np.ndarray:
+    """Out-of-fold linear recalibration: patients (in order of first appearance)
+    are split in two halves by a seeded permutation; on each half the fit
+    ``age ≈ a + b·pred`` (OLS) of the other half is applied."""
+    subjects = list(dict.fromkeys(df["subject"]))
+    perm = np.random.default_rng(seed).permutation(len(subjects))
+    first = set(np.asarray(subjects)[perm[:len(subjects) // 2]])
+    fold = df["subject"].isin(first).to_numpy()
+    pred, age = df["pred"].to_numpy(), df["age"].to_numpy()
+    out = np.empty_like(pred)
+    for k in (False, True):
+        b, a = np.polyfit(pred[fold != k], age[fold != k], 1)
+        out[fold == k] = a + b * pred[fold == k]
+    return out
+
+
+def _age_stats(g: pd.DataFrame) -> Dict[str, float]:
+    err = g["pred"] - g["age"]
+    ss = ((g["age"] - g["age"].mean()) ** 2).sum()
+    out = {"n": len(g), "MAE": err.abs().mean(), "bias": err.mean(),
+           "R2": 1 - (err ** 2).sum() / ss if ss > 0 else float("nan")}
+    if g["age"].nunique() > 1:
+        out["slope_pred_on_age"] = np.polyfit(g["age"], g["pred"], 1)[0]
+    if "recal" in g:
+        out["MAE_recalibrated_2fold"] = (g["recal"] - g["age"]).abs().mean()
+    return out
+
+
+def brain_age_tables(df: pd.DataFrame, min_n: int = 10) -> Dict[str, pd.DataFrame]:
+    """MAE / bias / R² / slope / recalibrated MAE of one model's predictions
+    (``prediction_frame``), overall and per cohort, per site and per age
+    decade. Groups with fewer than ``min_n`` recordings are dropped (DUA
+    small-cell rule)."""
+    df = df.assign(recal=recalibrate_2fold(df),
+                   decade=(df["age"] // 10 * 10).clip(upper=80).astype(int))
+    by_cohort = [{"cohort": "all", **_age_stats(df)}]
+    by_cohort += [{"cohort": c, **_age_stats(df[df["cohort"] == c])}
+                  for c in ("normal", "abnormal", "unlabelled") if (df["cohort"] == c).sum() >= min_n]
+    by_site = [{"site": s, **_age_stats(g)} for s, g in df.groupby("site") if len(g) >= min_n]
+    # R² and slope are not meaningful inside one decade (truncated age range).
+    by_decade = [{"decade": f"{d}s" if d < 80 else "80+",
+                  **{k: v for k, v in _age_stats(g).items() if k not in ("R2", "slope_pred_on_age")}}
+                 for d, g in df.groupby("decade") if len(g) >= min_n]
+    return {"cohort": pd.DataFrame(by_cohort), "site": pd.DataFrame(by_site),
+            "decade": pd.DataFrame(by_decade)}

@@ -288,3 +288,25 @@ def test_convert_scan_leaves_out_research_sampling_rates():
     assert list(hx.convert_scan(idx)["stem"]) == ["a"]
     assert list(hx.convert_scan(idx)["path"]) == ["bids/a_eeg.edf"]
     assert list(hx.excluded_by_sfreq(idx)["stem"]) == ["b"]
+
+
+def test_brain_age_tables_recalibration_and_groups():
+    from labram.eval.heedb_analysis import brain_age_tables, prediction_frame, site_of
+    assert site_of("sub-S0002123_ses-1_task-EEG") == "S0002"
+    assert site_of("sub-I0003999_ses-2_task-EEG") == "I0003"
+    rng = np.random.default_rng(0)
+    preds, meta = {}, {}
+    for i in range(400):
+        stem = f"sub-{'S0001' if i % 2 else 'I0002'}{i // 2:06d}_ses-{i % 2 + 1}_task-EEG"
+        age = float(rng.uniform(20, 90))
+        meta[stem] = {"subject": str(i // 2), "age": age,
+                      "label": ("normal", "abnormal", None)[i % 3]}
+        preds[stem] = 30 + 0.5 * age + rng.normal(0, 3)        # compressed toward the mean
+    df = prediction_frame(preds, meta)
+    t = brain_age_tables(df)
+    allrow = t["cohort"].set_index("cohort").loc["all"]
+    assert allrow["n"] == 400 and allrow["slope_pred_on_age"] == pytest.approx(0.5, abs=0.05)
+    assert allrow["MAE_recalibrated_2fold"] < 0.6 * allrow["MAE"]    # linear fix recovers most
+    assert set(t["cohort"]["cohort"]) == {"all", "normal", "abnormal", "unlabelled"}
+    assert set(t["site"]["site"]) == {"S0001", "I0002"}
+    assert t["decade"]["n"].sum() == 400 and "R2" not in t["decade"]
