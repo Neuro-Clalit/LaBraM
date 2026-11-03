@@ -4,7 +4,9 @@
 Each ``--part NAME=SIDECARS,RECORDINGS`` names a cohort: ``SIDECARS`` is its
 dir (local or ``s3://``) with ``manifest.json``, ``age_metadata.json`` and
 ``age_split.json`` (``cohort.parquet`` optional), and ``RECORDINGS`` the
-``s3://`` prefix its ``<stem>.npy`` files are copied from. The output has the
+``s3://`` prefix its ``<stem>.npy`` files are copied from (server-side), or,
+for a local ``--out``, the local dir they are hard-linked from (no extra
+space; local training on /data). The output has the
 TUH cohort layout (one prefix: sidecars + ``recordings/``), so the TUAB_AGE npy
 loader and SageMaker read it like any cohort. Each part keeps its own patient
 split: TUH keeps its TUAB-eval test set, HEEDB its held-out test patients.
@@ -18,6 +20,11 @@ the loader's subject-disjointness checks). Every manifest row gets ``corpus`` = 
         --part tuh=/data/datasets/EEG-public/TUH_EEG/cohorts/all_both_v3_anymiss,s3://eeg-data-public/TUH_EEG/tueg/v2.0.2/processed_npy_interp50-60_float16/recordings \\
         --part heedb=s3://eeg-data-public/HEEDB/v4.1/cohorts/heedb_routine_v1,s3://eeg-data-public/HEEDB/v4.1/cohorts/heedb_routine_v1/recordings \\
         --out s3://eeg-data-public/HEEDB/v4.1/cohorts/tuh_heedb_v1
+    # local, hard links:
+    python -m dataset_maker.make_joint_cohort \\
+        --part tuh=/data/datasets/EEG-public/TUH_EEG/cohorts/all_both_v3_anymiss,/data/datasets/EEG-public/TUH_EEG/cohorts/all_both_v3_anymiss/recordings \\
+        --part heedb=/data/datasets/HEEDB/v4.1/cohorts/heedb_routine_v1,/data/datasets/HEEDB/v4.1/cohorts/heedb_routine_v1/recordings \\
+        --out /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1
 """
 import argparse
 import concurrent.futures as cf
@@ -89,14 +96,16 @@ def join(parts):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--part", action="append", required=True, metavar="NAME=SIDECARS,RECORDINGS")
-    p.add_argument("--out", required=True, help="s3:// output cohort dir")
+    p.add_argument("--out", required=True, help="output cohort dir: s3:// (copies) or local (hard links)")
     p.add_argument("--threads", type=int, default=128)
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
     from dataset_maker.download_heedb import check_private
     client = hx.s3_client(None)
-    ob, op = split_s3(args.out)
-    check_private(client, ob)
+    local = not args.out.startswith("s3://")
+    if not local:
+        ob, op = split_s3(args.out)
+        check_private(client, ob)
     parts, sources = [], {}
     for spec in args.part:
         name, rest = spec.split("=", 1)
@@ -114,7 +123,12 @@ def main(argv=None):
         return
 
     def put(name, data):
-        client.put_object(Bucket=ob, Key=f"{op}/{name}", Body=data)
+        if local:
+            os.makedirs(args.out, exist_ok=True)
+            with open(os.path.join(args.out, name), "wb") as fh:
+                fh.write(data)
+        else:
+            client.put_object(Bucket=ob, Key=f"{op}/{name}", Body=data)
 
     put("manifest.json", json.dumps(manifest).encode())
     put("age_metadata.json", json.dumps(meta).encode())
@@ -124,15 +138,30 @@ def main(argv=None):
         cohort.astype({c: "string" for c in cohort.columns if cohort[c].dtype == object}).to_parquet(buf, index=False)
         put("cohort.parquet", buf.getvalue())
 
+    def link(row):
+        src = os.path.join(sources[row["corpus"]], f"{row['stem']}.npy")
+        dst = os.path.join(args.out, "recordings", f"{row['stem']}.npy")
+        if os.path.lexists(dst):
+            return 1
+        try:
+            os.link(os.path.realpath(src), dst)
+        except OSError:                    # another filesystem: symlink instead
+            os.symlink(os.path.realpath(src), dst)
+        return 1
+
     def copy(row):
+        if local:
+            return link(row)
         sb, sp = split_s3(sources[row["corpus"]])
         client.copy_object(Bucket=ob, Key=f"{op}/recordings/{row['stem']}.npy",
                            CopySource={"Bucket": sb, "Key": f"{sp}/{row['stem']}.npy"})
         return 1
 
+    if local:
+        os.makedirs(os.path.join(args.out, "recordings"), exist_ok=True)
     with cf.ThreadPoolExecutor(args.threads) as pool:
         n = sum(pool.map(copy, manifest["recordings"]))
-    print(f"wrote {args.out}: sidecars + {n} recordings copied")
+    print(f"wrote {args.out}: sidecars + {n} recordings {'linked' if local else 'copied'}")
 
 
 if __name__ == "__main__":

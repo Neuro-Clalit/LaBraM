@@ -39,3 +39,28 @@ def test_join_refuses_collisions(second, msg):
 def test_join_refuses_different_channel_layouts():
     with pytest.raises(ValueError, match="channels"):
         join([_part("tuh", ["a"], ["x"]), _part("heedb", ["b"], ["y"], channels=["C3"])])
+
+
+def test_main_local_output_hard_links_recordings(tmp_path, monkeypatch):
+    import json
+    import os
+    from dataset_maker import make_joint_cohort as mj
+    monkeypatch.setattr(mj.hx, "s3_client", lambda profile: None)
+    specs = []
+    for name, stem, subj in (("tuh", "aaaa_s001_t000", "aaaa"),
+                             ("heedb", "sub-S00011_ses-1_task-EEG", "1")):
+        _, man, meta, split, _ = _part(name, [stem], [subj])
+        side = tmp_path / name
+        (side / "recordings").mkdir(parents=True)
+        for fname, obj in (("manifest.json", man), ("age_metadata.json", meta),
+                           ("age_split.json", split)):
+            (side / fname).write_text(json.dumps(obj))
+        (side / "recordings" / f"{stem}.npy").write_bytes(b"x" * 10)
+        specs += ["--part", f"{name}={side},{side / 'recordings'}"]
+    out = tmp_path / "joint"
+    mj.main(specs + ["--out", str(out)])
+    man = json.loads((out / "manifest.json").read_text())
+    assert [r["corpus"] for r in man["recordings"]] == ["tuh", "heedb"]
+    linked = out / "recordings" / "aaaa_s001_t000.npy"
+    assert os.stat(linked).st_ino == os.stat(tmp_path / "tuh" / "recordings" / linked.name).st_ino
+    mj.main(specs + ["--out", str(out)])                 # rerun: existing links are kept

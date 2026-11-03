@@ -272,6 +272,20 @@ The user wants to be able to train locally on all of TUH + HEEDB, not only on Sa
   3. `python -m dataset_maker.make_heedb_cohort --experiment routine|normal --source <local npy> --out /data/datasets/HEEDB/v4.1/cohorts/<name>` (hard links).
   4. Train with `data.data_path=<local cohort>`; NVMe staging (`data.stage_dir=auto`) copies what fits and
      reads the rest from `/data`.
+- **Done 2026-11-03.** `/data` was grown to 4 TiB (gp3, 6000 IOPS, 500 MB/s); `resize2fs` online.
+  - The npy sync: 72,051 recordings, 1,496,393,638,528 bytes, identical to S3 (count and bytes),
+    `window_stats.npz` included (step 2 not needed).
+  - Local cohorts, all hard links (`/data` stays at 2.8 TB used, 1.1 TB free). Each `age_split.json`
+    is byte-identical to its S3 cohort, so local and SageMaker runs see the same split:
+
+    | Cohort | Recordings | Local path |
+    |---|---|---|
+    | `heedb_routine_v1` (E1) | 71,805 | `/data/datasets/HEEDB/v4.1/cohorts/heedb_routine_v1` |
+    | `heedb_normal_v1` | 7,619 | `/data/datasets/HEEDB/v4.1/cohorts/heedb_normal_v1` |
+    | `tuh_heedb_v1` (E2, TUH + HEEDB) | 103,117 | `/data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1` |
+
+    The joint cohort comes from `make_joint_cohort.py` with a local `--out` (hard links from the
+    local part cohorts).
 
 ## Step 4 — Train on HEEDB + TUH (≈2 weeks)
 1. **Code support**
