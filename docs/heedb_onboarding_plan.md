@@ -318,6 +318,13 @@ years (`docs/data/tuab_eval_heedb_comparison.csv`, `docs/data/heedb_e1_e2.csv`):
   - (c) On the shared TUH val split, E2 reaches 7.31 vs the TUH-only run's best 7.81, so HEEDB also
     helps on TUH data.
   - (d) Train-eval vs val per dataset.
+- **Bias correction** (`docs/brain_age_bias_correction.md`):
+  - Corrections are fitted on val normal recordings: Cole, linear (de Lange & Cole) and the
+    quadratic gap of Gemein et al. 2024.
+  - After correction the age trend is gone. E2's corrected TUAB normal gap MAE is 4.24
+    (SOTA paper 6.60).
+  - Abnormal recordings show a brain-age gap 2.4–4.1 years above normal ones in every model
+    (AUROC 0.62–0.67). Raw, the gap shows no difference, because of the age confound.
 - **Over-fitting:** E2's train-eval MAE fell to 5.37 (Temple 4.75 at epoch 7) while val stayed
   at 7.43–7.48 from epoch 5. The TUH part is memorised faster than HEEDB.
 - **Next:**

@@ -27,6 +27,11 @@ Bias-correction conventions (``pred = slope * age + intercept`` fitted on val):
 * ``"age_level"`` -- ``pred - (slope - 1) * age - intercept`` (de Lange & Cole
   2020). Needs the true age: valid for brain-age-gap analyses, not as an age
   estimate.
+* ``"quadratic_gap"`` -- ``pred - (c0 + c1 * age + c2 * age**2)``, the brain-age
+  gap ``pred - age`` regressed on age with a quadratic and subtracted (Gemein et
+  al. 2024, *Brain age revisited*, fitted on held-out non-pathological
+  predictions). Needs the true age, like ``"age_level"``, of which it is the
+  quadratic extension.
 """
 
 import json
@@ -48,7 +53,7 @@ POSTERIOR = ("O1", "O2", "P3", "P4", "PZ", "T5", "T6")
 # stops below 60 Hz line noise; 30-45 Hz is little affected by beta rhythm.
 EMG_BAND = (30.0, 45.0)
 POOLING_METHODS = ("reject", "weight")
-CORRECTIONS = ("none", "cole", "recalibrate", "age_level")
+CORRECTIONS = ("none", "cole", "recalibrate", "age_level", "quadratic_gap")
 _WINDOW_RE = re.compile(r"_(\d+)\.pkl$")
 
 
@@ -265,8 +270,10 @@ def fit_bias_correction(pred, age) -> Dict[str, float]:
     pred, age = np.asarray(pred, float), np.asarray(age, float)
     slope, intercept = np.polyfit(age, pred, 1)
     a, b = np.polyfit(pred, age, 1)
+    c2, c1, c0 = np.polyfit(age, pred - age, 2)
     return {"slope": float(slope), "intercept": float(intercept),
-            "recal_a": float(a), "recal_b": float(b)}
+            "recal_a": float(a), "recal_b": float(b),
+            "gap_c0": float(c0), "gap_c1": float(c1), "gap_c2": float(c2)}
 
 
 def apply_bias_correction(pred, params: Dict[str, float], method: str,
@@ -283,6 +290,11 @@ def apply_bias_correction(pred, params: Dict[str, float], method: str,
         if age is None:
             raise ValueError("age_level correction needs the true age")
         return pred - (params["slope"] - 1.0) * np.asarray(age, float) - params["intercept"]
+    if method == "quadratic_gap":
+        if age is None:
+            raise ValueError("quadratic_gap correction needs the true age")
+        age = np.asarray(age, float)
+        return pred - (params["gap_c0"] + params["gap_c1"] * age + params["gap_c2"] * age ** 2)
     raise ValueError(f"unknown correction {method!r} (expected one of {CORRECTIONS})")
 
 
