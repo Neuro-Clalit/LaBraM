@@ -128,6 +128,10 @@ def test_every_run_has_a_training_loss():
     assert rs.run_loss("D2") == rs.LOSSES["l1"] and rs.run_loss("M1c") == rs.LOSSES["huber_cmixup"]
     for e in rs.PHASE2:
         aug = "channel_drop.consistency_weight=0.1" in e.extra
+        if any(o.startswith("data.multitask_targets=") for o in e.extra):
+            bal = "loss.pathology_reduction=present" in e.extra
+            assert rs.run_loss(e.name) == rs.LOSSES["multitask_path_bal" if bal else "multitask_path"]
+            continue
         assert rs.run_loss(e.name) == rs.LOSSES["consistency" if aug else "huber_mixup"]
 
 

@@ -197,6 +197,12 @@ class EvaluationConfig(ConfigBase):
     # Score val/test (and select the best epoch) with the EMA weights instead
     # of the raw ones. Requires ``optimizer.model_ema``.
     use_ema: bool = False
+    # Metric that selects the best epoch (and drives early stopping), e.g.
+    # "pathology_macro_roc_auc" for a classification-only multi-task run;
+    # "" = the task default (accuracy / MAE). select_mode: "max", "min" or
+    # "auto" (min for the error metrics and losses, max otherwise).
+    select_metric: str = ""
+    select_mode: str = "auto"
 
 
 @dataclass
