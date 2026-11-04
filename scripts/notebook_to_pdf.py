@@ -38,6 +38,9 @@ def main():
                     help="Restart & Run All in place first (saves the outputs into the notebook)")
     ap.add_argument("--with-code", action="store_true", help="keep the code cells in the PDF")
     ap.add_argument("--timeout", type=int, default=3600, help="per-cell timeout for --execute, s")
+    ap.add_argument("--render_wait", type=int, default=20000,
+                    help="ms to let MathJax typeset after the page loads (nbconvert's default, 100 ms, "
+                         "prints most formulas as raw $$...$$ source when MathJax comes from a CDN)")
     ap.add_argument("--pages", metavar="DIR",
                     help="also render every PDF page to DIR/page_NNN.png for a visual check (needs pypdfium2)")
     args = ap.parse_args()
@@ -51,6 +54,7 @@ def main():
     templates = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nbconvert_templates")
     cmd = nbconvert + ["--to", "webpdf", nb,
                        f"--TemplateExporter.extra_template_basedirs={templates}", "--template", TEMPLATE,
+                       f"--WebPDFExporter.page_render_timeout={args.render_wait}",
                        "--TagRemovePreprocessor.enabled=True",
                        f"--TagRemovePreprocessor.remove_cell_tags={SKIP_TAG}"]
     if not args.with_code:
@@ -65,6 +69,9 @@ def main():
         return
     doc = pdfium.PdfDocument(pdf)
     print(f"wrote {pdf}: {len(doc)} pages, {os.path.getsize(pdf) / 1e6:.1f} MB")
+    raw = [i + 1 for i, page in enumerate(doc) if "\\tag{" in page.get_textpage().get_text_range()]
+    if raw:
+        print(f"WARNING: untypeset LaTeX (\\tag{{...}}) on page(s) {raw}; rerun with a larger --render_wait")
     if args.pages:
         os.makedirs(args.pages, exist_ok=True)
         for i, page in enumerate(doc):
