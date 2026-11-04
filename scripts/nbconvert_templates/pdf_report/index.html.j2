@@ -16,6 +16,9 @@
   .jp-RenderedHTMLCommon h1, .jp-RenderedHTMLCommon h2, .jp-RenderedHTMLCommon h3,
   .jp-RenderedHTMLCommon h4 { break-after: avoid-page; }
   .jp-RenderedImage, .jp-RenderedImage img { break-inside: avoid-page; max-width: 100% !important; }
+  /* --with-code: wrap long source lines instead of cutting them at the page edge */
+  .jp-InputArea-editor pre, .jp-InputArea-editor .highlight pre {
+    white-space: pre-wrap !important; overflow-wrap: anywhere !important; }
 }
 </style>
 {% endblock html_head_css %}
