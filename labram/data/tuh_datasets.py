@@ -185,6 +185,10 @@ class TUABAgeLoader(TUHLoader):
     # window_selection.enable_abnormal_target for the multi-task head, which
     # turns the target into ``[age, abnormal]``.
     abnormal_lookup = None
+    # recording stem -> float32 [n] multi-task targets (status, pathology
+    # groups; NaN = unknown); set by window_selection.enable_multitask_targets,
+    # which turns the target into ``[age, *targets]``.
+    multitask_lookup = None
     # (stem -> row, [n_recordings, n_features] float32) of session-level
     # features; set by window_selection.enable_session_features, which turns the
     # target into ``[age, *features]`` (the model takes the features as input).
@@ -233,6 +237,9 @@ class TUABAgeLoader(TUHLoader):
         if self.target_stats is not None:
             mean, std = self.target_stats
             age = (age - mean) / std
+        if self.multitask_lookup is not None:
+            return torch.cat((torch.tensor([age], dtype=torch.float32),
+                              torch.from_numpy(self.multitask_lookup[stem])))
         if self.abnormal_lookup is not None:
             return torch.tensor([age, self.abnormal_lookup[stem]], dtype=torch.float32)
         if self.session_features is not None:

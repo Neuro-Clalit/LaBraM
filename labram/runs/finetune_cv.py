@@ -139,7 +139,10 @@ def prepare_folds(config: FinetuneRunConfig, bundle) -> GroupedFolds:
     if cv.split_json:
         logger.info("Reusing CV split from %s", cv.split_json)
         split = load_cv_split_dict(cv.split_json)
-        return apply_cv_split(bundle, split, config.data.dataset)
+        folds = apply_cv_split(bundle, split, config.data.dataset)
+        # The partition is reused; the roles of its folds follow this run's config.
+        folds.test_set = cv.test_set
+        return folds
     return build_grouped_folds(bundle, cv, config.data.dataset)
 
 

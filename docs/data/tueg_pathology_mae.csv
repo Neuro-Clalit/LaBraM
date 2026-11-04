@@ -1,0 +1,433 @@
+run,group,n,MAE,source
+Exp1,TUEG all,647,7.971,val
+Exp1,TUEG normal,647,7.971,val
+Exp1,TUEG abnormal,0,,val
+Exp1,cl. seiz.,0,,val
+Exp1,el. seiz.,0,,val
+Exp1,epil.,0,,val
+Exp1,stroke,0,,val
+Exp1,TBI,0,,val
+Exp1,subst.,4,3.149,val
+Exp1,bipol.,13,14.12,val
+Exp1,anx.,1,9.418,val
+Exp1,depr.,1,9.418,val
+Exp1,schiz.,1,5.999,val
+Exp1,dement.,0,,val
+Exp1,MS,0,,val
+Exp1,other,6,14.25,val
+Exp1b,TUEG all,647,7.952,val
+Exp1b,TUEG normal,647,7.952,val
+Exp1b,TUEG abnormal,0,,val
+Exp1b,cl. seiz.,0,,val
+Exp1b,el. seiz.,0,,val
+Exp1b,epil.,0,,val
+Exp1b,stroke,0,,val
+Exp1b,TBI,0,,val
+Exp1b,subst.,4,5.162,val
+Exp1b,bipol.,13,16.07,val
+Exp1b,anx.,1,9.377,val
+Exp1b,depr.,1,9.377,val
+Exp1b,schiz.,1,3.585,val
+Exp1b,dement.,0,,val
+Exp1b,MS,0,,val
+Exp1b,other,6,13.74,val
+Exp1t,TUEG all,647,8.806,val
+Exp1t,TUEG normal,647,8.806,val
+Exp1t,TUEG abnormal,0,,val
+Exp1t,cl. seiz.,0,,val
+Exp1t,el. seiz.,0,,val
+Exp1t,epil.,0,,val
+Exp1t,stroke,0,,val
+Exp1t,TBI,0,,val
+Exp1t,subst.,4,6.839,val
+Exp1t,bipol.,13,18.35,val
+Exp1t,anx.,1,7.014,val
+Exp1t,depr.,1,7.014,val
+Exp1t,schiz.,1,6.978,val
+Exp1t,dement.,0,,val
+Exp1t,MS,0,,val
+Exp1t,other,6,16.37,val
+Exp1f,TUEG all,647,7.615,val
+Exp1f,TUEG normal,647,7.615,val
+Exp1f,TUEG abnormal,0,,val
+Exp1f,cl. seiz.,0,,val
+Exp1f,el. seiz.,0,,val
+Exp1f,epil.,0,,val
+Exp1f,stroke,0,,val
+Exp1f,TBI,0,,val
+Exp1f,subst.,4,4.602,val
+Exp1f,bipol.,13,20.23,val
+Exp1f,anx.,1,11.33,val
+Exp1f,depr.,1,11.33,val
+Exp1f,schiz.,1,3.323,val
+Exp1f,dement.,0,,val
+Exp1f,MS,0,,val
+Exp1f,other,6,15.96,val
+Exp3,TUEG all,2427,7.822,val
+Exp3,TUEG normal,983,6.905,val
+Exp3,TUEG abnormal,1103,8.081,val
+Exp3,cl. seiz.,195,6.703,val
+Exp3,el. seiz.,26,8.584,val
+Exp3,epil.,104,5.927,val
+Exp3,stroke,96,9.786,val
+Exp3,TBI,20,10.49,val
+Exp3,subst.,78,9.196,val
+Exp3,bipol.,16,8.092,val
+Exp3,anx.,14,11.06,val
+Exp3,depr.,12,11.31,val
+Exp3,schiz.,3,2.908,val
+Exp3,dement.,6,12.93,val
+Exp3,MS,0,,val
+Exp3,other,7,7.182,val
+Exp3b,TUEG all,2427,7.997,val
+Exp3b,TUEG normal,983,7.061,val
+Exp3b,TUEG abnormal,1103,8.333,val
+Exp3b,cl. seiz.,195,6.72,val
+Exp3b,el. seiz.,26,9.866,val
+Exp3b,epil.,104,6.229,val
+Exp3b,stroke,96,9.713,val
+Exp3b,TBI,20,8.418,val
+Exp3b,subst.,78,9.029,val
+Exp3b,bipol.,16,8.069,val
+Exp3b,anx.,14,10.85,val
+Exp3b,depr.,12,11.38,val
+Exp3b,schiz.,3,5.376,val
+Exp3b,dement.,6,16.59,val
+Exp3b,MS,0,,val
+Exp3b,other,7,6.02,val
+Exp3q,TUEG all,2358,7.853,val
+Exp3q,TUEG normal,955,6.89,val
+Exp3q,TUEG abnormal,1077,8.118,val
+Exp3q,cl. seiz.,192,6.279,val
+Exp3q,el. seiz.,26,10.14,val
+Exp3q,epil.,104,6.609,val
+Exp3q,stroke,96,9.818,val
+Exp3q,TBI,20,10.2,val
+Exp3q,subst.,77,8.812,val
+Exp3q,bipol.,16,8.982,val
+Exp3q,anx.,14,10.08,val
+Exp3q,depr.,12,10.44,val
+Exp3q,schiz.,3,7.057,val
+Exp3q,dement.,6,12.11,val
+Exp3q,MS,0,,val
+Exp3q,other,7,6.36,val
+Exp3c,TUEG all,2427,7.837,val
+Exp3c,TUEG normal,983,6.937,val
+Exp3c,TUEG abnormal,1103,8.098,val
+Exp3c,cl. seiz.,195,6.683,val
+Exp3c,el. seiz.,26,9.295,val
+Exp3c,epil.,104,6.072,val
+Exp3c,stroke,96,9.627,val
+Exp3c,TBI,20,10.65,val
+Exp3c,subst.,78,9.233,val
+Exp3c,bipol.,16,9.116,val
+Exp3c,anx.,14,11.11,val
+Exp3c,depr.,12,11.2,val
+Exp3c,schiz.,3,4.124,val
+Exp3c,dement.,6,12.45,val
+Exp3c,MS,0,,val
+Exp3c,other,7,6.994,val
+Exp3v2,TUEG all,2325,8.005,val
+Exp3v2,TUEG normal,910,7.449,val
+Exp3v2,TUEG abnormal,1096,8.313,val
+Exp3v2,cl. seiz.,181,7.376,val
+Exp3v2,el. seiz.,11,15.69,val
+Exp3v2,epil.,44,8.387,val
+Exp3v2,stroke,91,7.84,val
+Exp3v2,TBI,48,11.94,val
+Exp3v2,subst.,76,8.074,val
+Exp3v2,bipol.,18,9.051,val
+Exp3v2,anx.,10,6.506,val
+Exp3v2,depr.,8,6.564,val
+Exp3v2,schiz.,8,7.849,val
+Exp3v2,dement.,10,12.94,val
+Exp3v2,MS,5,10.78,val
+Exp3v2,other,10,7.472,val
+Exp3cond,TUEG all,2325,7.903,val
+Exp3cond,TUEG normal,910,7.353,val
+Exp3cond,TUEG abnormal,1096,8.195,val
+Exp3cond,cl. seiz.,181,7.126,val
+Exp3cond,el. seiz.,11,12.11,val
+Exp3cond,epil.,44,8.488,val
+Exp3cond,stroke,91,7.894,val
+Exp3cond,TBI,48,10.52,val
+Exp3cond,subst.,76,7.331,val
+Exp3cond,bipol.,18,8.071,val
+Exp3cond,anx.,10,4.735,val
+Exp3cond,depr.,8,7.79,val
+Exp3cond,schiz.,8,6.06,val
+Exp3cond,dement.,10,5.728,val
+Exp3cond,MS,5,10.96,val
+Exp3cond,other,10,6.606,val
+Exp3clscond,TUEG all,2325,7.977,val
+Exp3clscond,TUEG normal,910,7.474,val
+Exp3clscond,TUEG abnormal,1096,8.216,val
+Exp3clscond,cl. seiz.,181,7.434,val
+Exp3clscond,el. seiz.,11,11.96,val
+Exp3clscond,epil.,44,8.426,val
+Exp3clscond,stroke,91,7.489,val
+Exp3clscond,TBI,48,10.25,val
+Exp3clscond,subst.,76,7.782,val
+Exp3clscond,bipol.,18,7.419,val
+Exp3clscond,anx.,10,4.778,val
+Exp3clscond,depr.,8,6.539,val
+Exp3clscond,schiz.,8,5.494,val
+Exp3clscond,dement.,10,5.667,val
+Exp3clscond,MS,5,10.99,val
+Exp3clscond,other,10,8.092,val
+Exp4drop,TUEG all,2940,7.725,val
+Exp4drop,TUEG normal,1117,6.968,val
+Exp4drop,TUEG abnormal,1465,8.268,val
+Exp4drop,cl. seiz.,184,7.032,val
+Exp4drop,el. seiz.,11,10.38,val
+Exp4drop,epil.,46,9.082,val
+Exp4drop,stroke,93,7.764,val
+Exp4drop,TBI,49,11.09,val
+Exp4drop,subst.,96,8.318,val
+Exp4drop,bipol.,24,6.772,val
+Exp4drop,anx.,10,4.412,val
+Exp4drop,depr.,8,7.404,val
+Exp4drop,schiz.,9,4.009,val
+Exp4drop,dement.,10,4.723,val
+Exp4drop,MS,5,8.831,val
+Exp4drop,other,11,8.208,val
+Exp4base,TUEG all,2940,7.833,val
+Exp4base,TUEG normal,1117,7.256,val
+Exp4base,TUEG abnormal,1465,8.229,val
+Exp4base,cl. seiz.,184,7.362,val
+Exp4base,el. seiz.,11,14.53,val
+Exp4base,epil.,46,8.875,val
+Exp4base,stroke,93,7.573,val
+Exp4base,TBI,49,11.32,val
+Exp4base,subst.,96,8.425,val
+Exp4base,bipol.,24,7.773,val
+Exp4base,anx.,10,6.28,val
+Exp4base,depr.,8,7.858,val
+Exp4base,schiz.,9,6.546,val
+Exp4base,dement.,10,11.38,val
+Exp4base,MS,5,9.098,val
+Exp4base,other,11,9.04,val
+Exp4basec,TUEG all,2940,7.824,val
+Exp4basec,TUEG normal,1117,7.239,val
+Exp4basec,TUEG abnormal,1465,8.252,val
+Exp4basec,cl. seiz.,184,7.236,val
+Exp4basec,el. seiz.,11,14.75,val
+Exp4basec,epil.,46,8.442,val
+Exp4basec,stroke,93,7.588,val
+Exp4basec,TBI,49,10.9,val
+Exp4basec,subst.,96,8.627,val
+Exp4basec,bipol.,24,7.402,val
+Exp4basec,anx.,10,6.71,val
+Exp4basec,depr.,8,8.096,val
+Exp4basec,schiz.,9,6.966,val
+Exp4basec,dement.,10,11.13,val
+Exp4basec,MS,5,9.105,val
+Exp4basec,other,11,8.781,val
+Exp4ctrl,TUEG all,2940,7.869,val
+Exp4ctrl,TUEG normal,1117,7.263,val
+Exp4ctrl,TUEG abnormal,1465,8.365,val
+Exp4ctrl,cl. seiz.,184,7.069,val
+Exp4ctrl,el. seiz.,11,11.5,val
+Exp4ctrl,epil.,46,8.102,val
+Exp4ctrl,stroke,93,7.027,val
+Exp4ctrl,TBI,49,9.519,val
+Exp4ctrl,subst.,96,8.705,val
+Exp4ctrl,bipol.,24,6.487,val
+Exp4ctrl,anx.,10,4.434,val
+Exp4ctrl,depr.,8,5.735,val
+Exp4ctrl,schiz.,9,5.3,val
+Exp4ctrl,dement.,10,5.696,val
+Exp4ctrl,MS,5,10.13,val
+Exp4ctrl,other,11,8.176,val
+Exp4aug,TUEG all,2940,7.853,val
+Exp4aug,TUEG normal,1117,7.297,val
+Exp4aug,TUEG abnormal,1465,8.303,val
+Exp4aug,cl. seiz.,184,7.138,val
+Exp4aug,el. seiz.,11,11.36,val
+Exp4aug,epil.,46,8.893,val
+Exp4aug,stroke,93,7.154,val
+Exp4aug,TBI,49,8.983,val
+Exp4aug,subst.,96,8.522,val
+Exp4aug,bipol.,24,7.316,val
+Exp4aug,anx.,10,5.542,val
+Exp4aug,depr.,8,7.586,val
+Exp4aug,schiz.,9,4.426,val
+Exp4aug,dement.,10,4.202,val
+Exp4aug,MS,5,10.28,val
+Exp4aug,other,11,7.953,val
+Exp4aug15,TUEG all,2940,7.841,val
+Exp4aug15,TUEG normal,1117,7.257,val
+Exp4aug15,TUEG abnormal,1465,8.244,val
+Exp4aug15,cl. seiz.,184,7.071,val
+Exp4aug15,el. seiz.,11,12.05,val
+Exp4aug15,epil.,46,8.462,val
+Exp4aug15,stroke,93,7.211,val
+Exp4aug15,TBI,49,8.528,val
+Exp4aug15,subst.,96,8.422,val
+Exp4aug15,bipol.,24,7.476,val
+Exp4aug15,anx.,10,5.285,val
+Exp4aug15,depr.,8,7.91,val
+Exp4aug15,schiz.,9,4.017,val
+Exp4aug15,dement.,10,3.676,val
+Exp4aug15,MS,5,9.95,val
+Exp4aug15,other,11,7.632,val
+Exp2,TUEG all,395,8.441,val
+Exp2,TUEG normal,395,8.441,val
+Exp2,TUEG abnormal,0,,val
+Exp2,cl. seiz.,0,,val
+Exp2,el. seiz.,0,,val
+Exp2,epil.,0,,val
+Exp2,stroke,0,,val
+Exp2,TBI,0,,val
+Exp2,subst.,4,4.153,val
+Exp2,bipol.,2,8.277,val
+Exp2,anx.,1,7.144,val
+Exp2,depr.,1,7.144,val
+Exp2,schiz.,1,6.228,val
+Exp2,dement.,0,,val
+Exp2,MS,0,,val
+Exp2,other,1,8.009,val
+cvbase,TUEG all,26685,8.273,out-of-fold
+cvbase,TUEG normal,10197,7.587,out-of-fold
+cvbase,TUEG abnormal,14298,8.652,out-of-fold
+cvbase,cl. seiz.,2064,7.759,out-of-fold
+cvbase,el. seiz.,358,9.523,out-of-fold
+cvbase,epil.,821,8.031,out-of-fold
+cvbase,stroke,1043,9.408,out-of-fold
+cvbase,TBI,346,10.8,out-of-fold
+cvbase,subst.,1068,8.044,out-of-fold
+cvbase,bipol.,273,6.404,out-of-fold
+cvbase,anx.,121,6.613,out-of-fold
+cvbase,depr.,125,7.409,out-of-fold
+cvbase,schiz.,90,8.323,out-of-fold
+cvbase,dement.,79,11.58,out-of-fold
+cvbase,MS,51,10.04,out-of-fold
+cvbase,other,36,8.862,out-of-fold
+cvctrl,TUEG all,26685,8.169,out-of-fold
+cvctrl,TUEG normal,10197,7.51,out-of-fold
+cvctrl,TUEG abnormal,14298,8.502,out-of-fold
+cvctrl,cl. seiz.,2064,7.436,out-of-fold
+cvctrl,el. seiz.,358,9.194,out-of-fold
+cvctrl,epil.,821,7.908,out-of-fold
+cvctrl,stroke,1043,8.849,out-of-fold
+cvctrl,TBI,346,10.38,out-of-fold
+cvctrl,subst.,1068,7.652,out-of-fold
+cvctrl,bipol.,273,5.792,out-of-fold
+cvctrl,anx.,121,6.167,out-of-fold
+cvctrl,depr.,125,7.633,out-of-fold
+cvctrl,schiz.,90,8.632,out-of-fold
+cvctrl,dement.,79,7.454,out-of-fold
+cvctrl,MS,51,11.64,out-of-fold
+cvctrl,other,36,7.381,out-of-fold
+cvaug,TUEG all,26685,8.145,out-of-fold
+cvaug,TUEG normal,10197,7.479,out-of-fold
+cvaug,TUEG abnormal,14298,8.498,out-of-fold
+cvaug,cl. seiz.,2064,7.494,out-of-fold
+cvaug,el. seiz.,358,8.712,out-of-fold
+cvaug,epil.,821,7.851,out-of-fold
+cvaug,stroke,1043,8.785,out-of-fold
+cvaug,TBI,346,10.61,out-of-fold
+cvaug,subst.,1068,7.581,out-of-fold
+cvaug,bipol.,273,5.927,out-of-fold
+cvaug,anx.,121,6.302,out-of-fold
+cvaug,depr.,125,7.283,out-of-fold
+cvaug,schiz.,90,8.943,out-of-fold
+cvaug,dement.,79,7.498,out-of-fold
+cvaug,MS,51,10.8,out-of-fold
+cvaug,other,36,6.741,out-of-fold
+cvaugval,TUEG all,26685,7.987,out-of-fold (val)
+cvaugval,TUEG normal,10197,7.362,out-of-fold (val)
+cvaugval,TUEG abnormal,14298,8.317,out-of-fold (val)
+cvaugval,cl. seiz.,2064,7.311,out-of-fold (val)
+cvaugval,el. seiz.,358,8.361,out-of-fold (val)
+cvaugval,epil.,821,7.851,out-of-fold (val)
+cvaugval,stroke,1043,8.691,out-of-fold (val)
+cvaugval,TBI,346,10.03,out-of-fold (val)
+cvaugval,subst.,1068,7.381,out-of-fold (val)
+cvaugval,bipol.,273,5.983,out-of-fold (val)
+cvaugval,anx.,121,6.167,out-of-fold (val)
+cvaugval,depr.,125,7.157,out-of-fold (val)
+cvaugval,schiz.,90,8.39,out-of-fold (val)
+cvaugval,dement.,79,7.876,out-of-fold (val)
+cvaugval,MS,51,10.26,out-of-fold (val)
+cvaugval,other,36,7.143,out-of-fold (val)
+Exp4anymiss,TUEG all,2940,7.778,val
+Exp4anymiss,TUEG normal,1117,7.249,val
+Exp4anymiss,TUEG abnormal,1465,8.117,val
+Exp4anymiss,cl. seiz.,184,7.02,val
+Exp4anymiss,el. seiz.,11,10.73,val
+Exp4anymiss,epil.,46,8.351,val
+Exp4anymiss,stroke,93,7.085,val
+Exp4anymiss,TBI,49,8.843,val
+Exp4anymiss,subst.,96,7.603,val
+Exp4anymiss,bipol.,24,7.46,val
+Exp4anymiss,anx.,10,4.479,val
+Exp4anymiss,depr.,8,6.229,val
+Exp4anymiss,schiz.,9,3.141,val
+Exp4anymiss,dement.,10,3.981,val
+Exp4anymiss,MS,5,6.597,val
+Exp4anymiss,other,11,8.165,val
+Exp4noear,TUEG all,2940,8.026,val
+Exp4noear,TUEG normal,1117,7.417,val
+Exp4noear,TUEG abnormal,1465,8.395,val
+Exp4noear,cl. seiz.,184,7.24,val
+Exp4noear,el. seiz.,11,15.48,val
+Exp4noear,epil.,46,8.429,val
+Exp4noear,stroke,93,7.558,val
+Exp4noear,TBI,49,9.64,val
+Exp4noear,subst.,96,8.158,val
+Exp4noear,bipol.,24,7.702,val
+Exp4noear,anx.,10,5.127,val
+Exp4noear,depr.,8,7.996,val
+Exp4noear,schiz.,9,5.171,val
+Exp4noear,dement.,10,6.499,val
+Exp4noear,MS,5,9.146,val
+Exp4noear,other,11,8.594,val
+Exp4noearEEG,TUEG all,2940,8.013,val
+Exp4noearEEG,TUEG normal,1117,7.374,val
+Exp4noearEEG,TUEG abnormal,1465,8.392,val
+Exp4noearEEG,cl. seiz.,184,7.221,val
+Exp4noearEEG,el. seiz.,11,16.75,val
+Exp4noearEEG,epil.,46,6.899,val
+Exp4noearEEG,stroke,93,7.098,val
+Exp4noearEEG,TBI,49,9.449,val
+Exp4noearEEG,subst.,96,8.234,val
+Exp4noearEEG,bipol.,24,8.567,val
+Exp4noearEEG,anx.,10,6.642,val
+Exp4noearEEG,depr.,8,8.671,val
+Exp4noearEEG,schiz.,9,8.088,val
+Exp4noearEEG,dement.,10,14.09,val
+Exp4noearEEG,MS,5,10.27,val
+Exp4noearEEG,other,11,10.48,val
+Exp4mt,TUEG all,2940,8.321,val
+Exp4mt,TUEG normal,1117,7.614,val
+Exp4mt,TUEG abnormal,1465,8.794,val
+Exp4mt,cl. seiz.,184,7.537,val
+Exp4mt,el. seiz.,11,21.04,val
+Exp4mt,epil.,46,7.979,val
+Exp4mt,stroke,93,7.875,val
+Exp4mt,TBI,49,10.19,val
+Exp4mt,subst.,96,8.301,val
+Exp4mt,bipol.,24,8.684,val
+Exp4mt,anx.,10,7.487,val
+Exp4mt,depr.,8,8.732,val
+Exp4mt,schiz.,9,8.329,val
+Exp4mt,dement.,10,13.53,val
+Exp4mt,MS,5,7.556,val
+Exp4mt,other,11,11.09,val
+Exp4mtbal,TUEG all,2940,8.324,val
+Exp4mtbal,TUEG normal,1117,7.581,val
+Exp4mtbal,TUEG abnormal,1465,8.738,val
+Exp4mtbal,cl. seiz.,184,7.241,val
+Exp4mtbal,el. seiz.,11,20.45,val
+Exp4mtbal,epil.,46,7.778,val
+Exp4mtbal,stroke,93,7.417,val
+Exp4mtbal,TBI,49,10.18,val
+Exp4mtbal,subst.,96,8.375,val
+Exp4mtbal,bipol.,24,8.627,val
+Exp4mtbal,anx.,10,7.138,val
+Exp4mtbal,depr.,8,8.359,val
+Exp4mtbal,schiz.,9,9.293,val
+Exp4mtbal,dement.,10,15.03,val
+Exp4mtbal,MS,5,8.238,val
+Exp4mtbal,other,11,10.63,val

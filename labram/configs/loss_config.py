@@ -75,6 +75,21 @@ class LossConfig(ConfigBase):
     # Multi-task brain age (model.head_type=multitask): weight of the auxiliary
     # normal/abnormal BCE term next to the age loss, total = age + w * BCE.
     abnormal_weight: float = 0.5
+    # With data.multitask_targets: weight of the mean BCE over the known
+    # diagnosis-group labels, total = age + abnormal_weight * BCE_status
+    # + pathology_weight * BCE_pathology.
+    pathology_weight: float = 0.5
+    # How the pathology BCE is reduced over the batch: "known" = mean over every
+    # known (group, recording) label; "present" = per group, the mean BCE over its
+    # known labels, only for the groups with at least one positive in the batch,
+    # then the mean over those groups -- every group present counts equally, so
+    # frequent groups and the many negatives do not dominate.
+    pathology_reduction: str = "known"
+    # Weight of the age term in the multi-task loss. 0 = no age prediction: the
+    # age branch gets no gradient and the model is a status + pathology
+    # classifier (select the best epoch on a classification metric,
+    # evaluation.select_metric).
+    age_weight: float = 1.0
 
     # Codebook-regularized fine-tuning: weight on the classification term when
     # the spectral (amplitude/phase) and quantization losses regularize the

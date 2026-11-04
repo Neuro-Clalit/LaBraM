@@ -231,6 +231,11 @@ DEFAULT_CV_POOL: str = 'train_val'
 # '' -> compute folds from (split_by, seed, shuffle); otherwise reuse the folds
 # recorded in this cv_split.json so every fold job sees an identical partition.
 DEFAULT_CV_SPLIT_JSON: str = ''
+# Where a fold's test set comes from: 'fold' -> fold k is the test set and fold
+# (k+1)%K the validation set (K-2 folds train); 'held_out' -> fold k is the
+# validation set, the other K-1 folds train, and the pool's original test split
+# (needs pool='train_val') is every fold's test set.
+DEFAULT_CV_TEST_SET: str = 'fold'
 # Base experiment/output folder for the fold sub-runs. '' -> derived from the
 # fine-tune output_dir. Each fold lives in ``<base>/fold_<k>``.
 DEFAULT_CV_BASE_DIR: str = ''

@@ -42,19 +42,23 @@ class MultiTaskHead(nn.Module):
     dedicated branches of the same form: ``age`` -> ``age_fc`` (the age
     output(s)) and ``abnormal`` -> ``abnormal_fc`` (one logit, abnormal = 1).
     The output is ``[age, abnormal_logit]`` concatenated on the last dim, so
-    ``[..., :num_outputs]`` is the age prediction and ``[..., -1]`` the logit.
+    ``[..., :num_outputs]`` is the age prediction and ``[..., -1]`` the logit;
+    with ``class_outputs > 1`` the classification branch emits that many logits
+    (``[age, status_logit, *pathology_logits]``).
     ``age_fc`` and ``abnormal_fc`` are the layers ``init_scale`` shrinks.
     """
 
     def __init__(self, in_features: int, num_outputs: int,
                  shared_dims: Sequence[int] = (256,), age_dims: Sequence[int] = (128,),
-                 abnormal_dims: Sequence[int] = (64,), drop: float = 0.0):
+                 abnormal_dims: Sequence[int] = (64,), drop: float = 0.0, class_outputs: int = 1):
         super().__init__()
         self.shared, width = _mlp(in_features, shared_dims, drop)
         self.age, age_width = _mlp(width, age_dims, drop)
         self.abnormal, abnormal_width = _mlp(width, abnormal_dims, drop)
         self.age_fc = nn.Linear(age_width, num_outputs)
-        self.abnormal_fc = nn.Linear(abnormal_width, 1)
+        # One logit per class output: normal/abnormal, then (multi-task targets)
+        # one per diagnosis group.
+        self.abnormal_fc = nn.Linear(abnormal_width, class_outputs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = self.shared(x)

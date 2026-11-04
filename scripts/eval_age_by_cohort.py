@@ -52,7 +52,10 @@ COHORTS = ("normal", "abnormal", "unlabelled")
 
 
 def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, session=False,
-             channel_drop=None):
+             channel_drop=None, num_workers=8, logits_out=None, age_input=False):
+    """Window predictions. ``logits_out`` (a list), when given, also receives
+    each batch's full model output before ``to_scalar`` (e.g. every multi-task
+    column)."""
     enable_window_ids(dataset, "recording")
     # Under DDP (--nproc-per-node) each rank predicts every world_size-th
     # window; the shards are gathered back in dataset order below.
@@ -60,7 +63,7 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
     sampler = (torch.utils.data.DistributedSampler(dataset, shuffle=False) if sharded
                else torch.utils.data.SequentialSampler(dataset))
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=sampler,
-                                         num_workers=8, pin_memory=True)
+                                         num_workers=num_workers, pin_memory=True)
     channel_indices = utils.get_channel_indices(ch_names)
     # With channel_drop, every sample runs on its present (non-zero) channels.
     dropper = ChannelDropper.from_config(channel_drop, ch_names)
@@ -72,6 +75,8 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
             if session:                        # target = [age, *session features]
                 extra = {"condition": y[:, 1:].float().to(device)}
                 y = y[:, 0]
+            elif age_input:                    # model.age_input: the z-scored age is an input
+                extra = {"condition": y.float().reshape(-1, 1).to(device)}
             with torch.amp.autocast(device.type, enabled=device.type == "cuda"):
                 if dropper is not None:
                     out = dropper.forward(model, x, dropper.present(x),
@@ -79,6 +84,8 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
                 else:
                     out = model(x, channel_indices=channel_indices, classify_only=True, **extra)
             out = getattr(out, "logits", out)
+            if logits_out is not None:
+                logits_out.append(out.float().cpu())
             if to_scalar is not None:          # soft-label head: bin logits -> expectation
                 out = to_scalar(out)
             preds.append(out.float().squeeze(-1).cpu())
@@ -86,6 +93,10 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
             recs.extend(rec)
     pred, true = torch.cat(preds).numpy(), torch.cat(targets).numpy()
     if sharded:
+        if logits_out:                     # gathered in the same (dataset) order
+            local = torch.cat(logits_out).numpy()
+            full, _, _ = utils.gather_sharded_eval(local, true, recs, total=len(dataset))
+            logits_out[:] = [torch.from_numpy(full)]
         pred, true, recs = utils.gather_sharded_eval(pred, true, recs, total=len(dataset))
     return pred, true, recs
 
@@ -104,6 +115,14 @@ def _per_recording(pred, true, recs, target_stats, pred_stats=None):
         s[1] += 1
     ids = list(sums)
     return ids, np.array([sums[r][0] / sums[r][1] for r in ids]), np.array([sums[r][2] for r in ids])
+
+
+def _mean_by_recording(values, recs):
+    """(recording ids in first-seen order, mean row of ``values`` per recording)."""
+    idx = OrderedDict()
+    for i, r in enumerate(recs):
+        idx.setdefault(r, []).append(i)
+    return list(idx), [values[i].mean(axis=0) for i in idx.values()]
 
 
 def train_target_stats(cfg, train_data_path):
@@ -128,17 +147,33 @@ def logged_target_stats(run_dir):
     raise ValueError(f"{path}: no 'Age target normalization' line")
 
 
+def _window_names(dataset):
+    """Window file names of ``dataset`` in loader order (leaves concatenated)."""
+    from labram.data.window_selection import _leaves
+    return [os.path.basename(f) for leaf in _leaves(dataset) for f in getattr(leaf, "files", [])]
+
+
 def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None,
-                 train_data_path=None, window_qc=True, session_features=None, pred_stats=None,
-                 stage_dir=None):
+                 train_data_path=None, window_qc=True, session_features=None, return_windows=False,
+                 tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None, num_workers=8,
+                 class_probs=False, pred_stats=None):
+    """Score one run on ``splits``. With ``return_windows`` each split also
+    carries its window-level predictions (``windows``: names, recording ids,
+    predicted / true age in years) and the result the run's window settings
+    (``data``), so callers can re-aggregate on a subset of windows. With
+    ``class_probs`` a multi-task run's splits also carry ``class_probs``:
+    recording -> the mean sigmoid probability of its windows per class column
+    (status, diagnosis groups; as training's per-recording metrics), and the
+    result its ``class_names``. ``pred_stats`` (mean, std) de-normalizes the
+    predictions (default: from ``train_data_path``, else the scored data's own)."""
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
-    if stage_dir is not None:
+    if stage_dir is not None:                 # e.g. "none": read in place, no NVMe copy
         cfg.data.stage_dir = stage_dir
     if data_format:
         cfg.data.data_format = data_format
     if cfg.model.codebook_reg.enabled:
-        cfg.model.codebook_reg.tokenizer_weight = "./checkpoints/vqnsp.pth"
+        cfg.model.codebook_reg.tokenizer_weight = tokenizer_weight
     bundle = get_dataset_bundle(cfg.data.dataset, data_path, data_format=cfg.data.data_format)
     selection = WindowSelection.from_data_config(cfg.data)
     if not window_qc:
@@ -158,6 +193,8 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
         stage_bundle(bundle, cfg.data.stage_dir, reserve_gb=cfg.data.stage_reserve_gb,
                      splits=tuple(s for s in ("val", "test", "train") if s in splits))
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
+    from labram.data.window_selection import resolve_multitask_class_names
+    resolve_multitask_class_names(cfg, train_data_path or data_path)   # the training cohort holds the targets
     if pred_stats is None and train_data_path:
         pred_stats = train_target_stats(cfg, train_data_path)
     to_scalar = None
@@ -166,6 +203,10 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
         crit = build_downstream_criterion("regression", cfg.model.nb_classes, cfg.loss,
                                           target_stats=bundle.target_stats)
         to_scalar = lambda out: regression_output(crit, out)   # noqa: E731
+    elif cfg.model.head_type == "multitask":
+        # The head emits [age, abnormal logit]; age metrics score the age column
+        # (losses/regression.py::MultiTaskAgeCriterion.predict).
+        to_scalar = lambda out: out[..., :1]   # noqa: E731
     model = get_model(cfg)
     state = torch.load(os.path.join(run_dir, checkpoint), map_location="cpu", weights_only=False)
     # A run that selected its best epoch on the EMA weights is scored with them.
@@ -176,11 +217,19 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     root = getattr(bundle.test, "root", data_path)
     labels = load_label_lookup_for(root)
     result = {"epoch": state.get("epoch"), "splits": {},
-              "pred_target_stats": pred_stats or bundle.target_stats}
+              "pred_target_stats": pred_stats or bundle.target_stats,
+              "data": {"eval_minutes": cfg.data.eval_minutes, "window_sec": cfg.data.window_sec,
+                       "trim_start_sec": cfg.data.trim_start_sec, "trim_end_sec": cfg.data.trim_end_sec}}
+    keep_logits = class_probs and cfg.model.head_type == "multitask"
+    if keep_logits:
+        result["class_names"] = list(cfg.model.multitask_head.class_names or [])
     for split in splits:
+        logits = [] if keep_logits else None
         pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device,
                                     batch_size, to_scalar, session=session,
-                                    channel_drop=getattr(cfg, "channel_drop", None))
+                                    channel_drop=getattr(cfg, "channel_drop", None),
+                                    num_workers=num_workers, logits_out=logits,
+                                    age_input=getattr(cfg.model, "age_input", "off") != "off")
         ids, p, t = _per_recording(pred, true, recs, bundle.target_stats, pred_stats)
         # group ids are recording stems; no label = unlabelled (e.g. HEEDB without a report)
         cohort = np.array([labels.get(r) if labels.get(r) in ("normal", "abnormal")
@@ -199,6 +248,17 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
             m = utils.regression_metrics_fn(p[mask], t[mask], METRICS)
             out[name] = {"n": int(mask.sum()), **{k: float(v) for k, v in m.items()}}
         out["predictions"] = {r: float(v) for r, v in zip(ids, p)}
+        if keep_logits:                        # columns 1.. are the class logits
+            prob = torch.sigmoid(torch.cat(logits)[:, 1:]).numpy()
+            out["class_probs"] = dict(zip(*_mean_by_recording(prob, recs)))
+        if return_windows:
+            names = _window_names(getattr(bundle, split))
+            if len(names) != len(recs):
+                raise RuntimeError(f"{split}: {len(names)} window names for {len(recs)} predictions")
+            out["windows"] = {"names": names, "recs": list(recs),
+                              "pred": utils.denormalize(pred, pred_stats or bundle.target_stats),
+                              "true": utils.denormalize(true, bundle.target_stats),
+                              "labels": [labels.get(r) for r in recs]}
         result["splits"][split] = out
     return result
 

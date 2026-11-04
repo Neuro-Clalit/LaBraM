@@ -71,6 +71,12 @@ class DataConfig(ConfigBase):
     # (dataset_maker/make_session_features.py), a file name inside data_path or
     # an absolute path; "" = none. Used by model.session_features.
     session_features: str = ""
+    # Multi-task targets (dataset_maker/make_multitask_targets.py), a file name
+    # inside data_path or an absolute path; "" = none. With
+    # model.head_type=multitask the head then predicts, next to the age, the
+    # normal/abnormal status and the NEDC diagnosis groups (NaN = unknown, not
+    # scored). The labels are targets only, never model inputs.
+    multitask_targets: str = ""
     # npy only: channels left out of every sample in every split (10-20 names),
     # e.g. ["T1", "T2"] for a 21-channel model that can also use the TUEG
     # recordings without them. The files keep all channels.
