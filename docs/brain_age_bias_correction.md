@@ -2,7 +2,9 @@
 
 Real vs predicted age and the brain-age gap before and after bias correction
 for the TUH-only baseline (`exp4anymiss-noear-nolabel`, "E0" here), E1
-(HEEDB only), E2 (TUH + HEEDB) and the mean of E1 and E2. Test sets:
+(HEEDB only), E2 (TUH + HEEDB), E2c (E2 + clinical condition inputs: report status
+normal/abnormal/not available and 14 pathology flags, `model.session_features=head`;
+trained locally on the same split) and the mean of E1 and E2. Test sets:
 **TUAB eval** (274 recordings: 149 normal, 125 abnormal) and the full
 **HEEDB held-out test** (7,338 recordings: 1,518 normal, 2,253 abnormal,
 3,567 unlabelled). Every correction is fitted on the **validation recordings
@@ -69,7 +71,7 @@ $$
 
 `docs/figures/brain_age_scatter_tuab.png`. One point per recording (green
 normal, red abnormal), identity line (dashed) and the least-squares fit
-(orange) of Eq. (1.2). Panels: (a) TUH only, (b) E1, (c) E2, (d) E1+E2 mean.
+(orange) of Eq. (1.2). Panels: (a) TUH only, (b) E1, (c) E2, (d) E2c, (e) E1+E2 mean.
 
 ![TUAB scatter](figures/brain_age_scatter_tuab.png)
 
@@ -117,6 +119,8 @@ with fewer than 10 recordings are not shown.
 | E2 | linear | 5.26 | 4.35 | 6.35 | 0.04 | +3.7 | 1e-5 | 0.66 |
 | **E2** | **quadratic** | 5.19 | **4.24** | 6.32 | 0.07 | **+3.9** | **6e-6** | **0.67** |
 | E1+E2 | quadratic | **5.00** | 4.34 | **5.79** | 0.12 | +3.4 | 2e-5 | 0.66 |
+| E2c (+ conditions) | none | 6.82 | 5.20 | 8.76 | −0.64 | −0.2 | 0.83 | 0.48 |
+| E2c (+ conditions) | quadratic | 5.23 | 4.25 | 6.40 | 0.08 | +4.2 | 8e-7 | 0.68 |
 
 ### Table 3.2. HEEDB test (7,338), correction fitted on HEEDB val normal
 
@@ -129,6 +133,8 @@ with fewer than 10 recordings are not shown.
 | E2 | none | 7.27 | 7.43 | 7.83 | −0.71 | −1.4 | 1e-5 | 0.45 |
 | E2 | quadratic | **5.18** | **4.91** | **5.51** | 0.14 | +2.4 | 2e-28 | 0.62 |
 | E1+E2 | quadratic | 5.25 | 4.98 | 5.57 | 0.14 | +2.5 | 3e-29 | 0.62 |
+| E2c (+ conditions) | none | 7.29 | 7.31 | 7.72 | −0.70 | −0.6 | 0.08 | 0.48 |
+| E2c (+ conditions) | quadratic | 5.25 | 4.98 | 5.92 | 0.09 | +3.1 | 6e-43 | 0.64 |
 
 Cole's inversion removes the age trend too ($r$ ≈ 0) but raises the MAE in every
 case (TUAB E2 6.70 → 7.79, HEEDB 7.27 → 8.20): it is the deployable choice
@@ -162,6 +168,12 @@ when the true age is unknown, at that cost. Full rows in the CSV.
   known accuracy/sensitivity trade-off of brain-age models. A dedicated
   abnormal head (E3) is the better route for classification. BAG stays a
   descriptive biomarker.
+
+- **Clinical inputs (E2c):** feeding the report status and pathology flags to the
+  regressor does not improve age accuracy. E2c is within 0.1 year of E2 raw and corrected on
+  both corpora (TUAB 6.82 vs 6.70, HEEDB 7.29 vs 7.27). Its corrected abnormal − normal gap is
+  larger (TUAB +4.2 vs +3.9, HEEDB +3.1 vs +2.4; AUROC 0.68/0.64 vs 0.67/0.62), but E2c *sees*
+  the abnormal label, so part of that separation is the label itself, not EEG evidence.
 
 ## 5. Reproduce
 

@@ -333,6 +333,43 @@ years (`docs/data/tuab_eval_heedb_comparison.csv`, `docs/data/heedb_e1_e2.csv`):
   - **Checkpoint selection:** pick the epoch on a dataset-balanced val metric.
   - **Ensembles:** E1+E2 (or several seeds) as an ensemble for reporting.
 
+### E2c: E2 + clinical condition inputs, trained locally (2026-11-04)
+- **What:** the E2 recipe and split (`tuh_heedb_v1`, same training-target statistics 53.52 / 19.29)
+  with `model.session_features=head`.
+  - The input is the per-recording condition vector `conditions_v1.npz`: report status
+    (normal / abnormal / not available) plus 14 pathology flags.
+  - TUH flags come from the NEDC sheet; HEEDB's `dx_*` flags come from patient ICD-10 codes
+    (`make_condition_features.py --extra-clinical`).
+  - The vector goes through Linear(17→32) and is concatenated with the CLS feature before the
+    regressor.
+- **Where:** trained on this machine (A10G, `/data/runs/heedb/run_e2c.sh`), in 21.9 h. Loading
+  was data-bound: 6 loader workers against random reads from gp3, GPU idle about 60%.
+  `data.num_workers=20` is advised for local runs.
+
+| Epoch | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| Val E2c | 8.96 | 8.23 | 7.78 | 7.85 | 7.45 | 7.46 | 7.45 | **7.40** |
+| Val E2 | 8.89 | 8.36 | 8.07 | 7.92 | 7.44 | 7.48 | 7.48 | **7.43** |
+| Train-eval Harvard / Temple, E2c | 8.80 / 7.90 | 7.78 / 7.07 | 6.97 / 6.42 | 7.12 / 5.96 | 6.43 / 5.20 | 6.29 / 5.05 | 6.20 / 4.79 | 6.14 / 4.69 |
+| HEEDB test E2c (E2) | 9.08 (8.93) | 8.18 (8.28) | 7.67 (8.02) | 7.82 (7.87) | 7.32 (7.24) | 7.36 (7.34) | 7.32 (7.30) | 7.28 (7.27) |
+| TUAB eval E2c (E2) | 8.11 (7.90) | 7.30 (7.33) | 7.07 (7.23) | 7.02 (6.97) | 6.79 (6.86) | 6.87 (6.79) | 6.83 (6.67) | 6.82 (6.70) |
+
+Final checkpoint (epoch 8), scored offline:
+
+| Test set | E2c | E2 |
+|---|---|---|
+| TUAB eval: all / normal / abnormal | 6.82 / 5.20 / 8.76 | 6.70 / 5.13 / 8.56 |
+| HEEDB full test (7,338) | 7.29 | 7.27 |
+| HEEDB 2,100 subset | 7.35 | 7.42 |
+
+- **Accuracy:** the clinical inputs speed up early training (−0.3 years at epoch 3) but do not
+  improve the final age accuracy (within ±0.1 year of E2).
+- **Recommendation:** E2 stays the reference model. It is EEG-only and needs no clinical labels at
+  inference.
+- **Gap separation:** with the quadratic bias correction, E2c separates abnormal from normal
+  recordings slightly more (`docs/brain_age_bias_correction.md`). E2c receives the abnormal label
+  as input, so that separation is not EEG evidence.
+
 ### Per-dataset reporting (from the runs after E1/E2)
 Every fine-tune now reports each split overall, per cohort (normal / abnormal / unlabelled)
 and per dataset x cohort (`harvard_*`, `temple_*`, e.g. `temple_abnormal_mae`). A

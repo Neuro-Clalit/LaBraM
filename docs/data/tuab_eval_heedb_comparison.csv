@@ -32,3 +32,6 @@ E2_tuh_heedb,TUH+HEEDB,TUAB eval,abnormal,125,8.561,-0.418,0.6
 E1+E2_mean,HEEDB / TUH+HEEDB,TUAB eval,all,274,6.596,0.538,0.773
 E1+E2_mean,HEEDB / TUH+HEEDB,TUAB eval,normal,149,5.34,1.028,0.835
 E1+E2_mean,HEEDB / TUH+HEEDB,TUAB eval,abnormal,125,8.094,-0.046,0.644
+E2c_tuh_heedb_conditions,TUH+HEEDB (+status/pathology input),TUAB eval,all,274,6.823,-0.384,0.753
+E2c_tuh_heedb_conditions,TUH+HEEDB (+status/pathology input),TUAB eval,normal,149,5.2,-0.272,0.837
+E2c_tuh_heedb_conditions,TUH+HEEDB (+status/pathology input),TUAB eval,abnormal,125,8.758,-0.517,0.593
