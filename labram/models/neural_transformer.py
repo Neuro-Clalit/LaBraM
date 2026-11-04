@@ -341,7 +341,8 @@ class NeuralTransformer(NeuralTransformerBase):
             if isinstance(c, dict):
                 c = MultiTaskHeadConfig(**c)
             return MultiTaskHead(self.num_features, num_classes, shared_dims=c.shared_dims,
-                                 age_dims=c.age_dims, abnormal_dims=c.abnormal_dims, drop=c.drop)
+                                 age_dims=c.age_dims, abnormal_dims=c.abnormal_dims, drop=c.drop,
+                                 class_outputs=max(1, len(getattr(c, "class_names", []) or [])))
         return nn.Linear(self.num_features, num_classes)
 
     def _head_output_layers(self):

@@ -11,16 +11,22 @@ turns the brain-age study's records into tables.
   with; :func:`experiment_overrides` / :func:`resolve_config` rebuild a run's
   full :class:`FinetuneRunConfig` from them.
 * :func:`config_diff` lists every scientific field two configs disagree on.
+* :func:`load_clearml_runs` reads ``docs/data/brain_age_clearml_runs.csv``
+  (run -> ClearML experiment id and name; regenerated from ClearML by
+  :func:`fetch_clearml_runs`) and :func:`clearml_link` renders a run as a
+  clickable link labelled with its ClearML experiment name.
 * :func:`seed_noise` and :func:`verdict` implement the noise floor and the
   significance rule of the notebook's Section 5.
 """
 from __future__ import annotations
 
+import html
 import json
+import os
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -43,31 +49,40 @@ def _md_number(s: str) -> float:
         return float("nan")
 
 
-def parse_markdown_table(text: str, heading: str) -> pd.DataFrame:
+def parse_markdown_table(text: str, heading: str, link_columns: Sequence[str] = ()) -> pd.DataFrame:
     """The first pipe table after the line that starts with ``heading`` (e.g.
     ``"### Table 12.1."``), as strings with links, backticks and math markup
-    stripped."""
+    stripped. Each column named in ``link_columns`` gets a companion column
+    ``"<name> url"`` with the cell's link target ("" when it has none)."""
     lines = text.splitlines()
     start = next(i for i, ln in enumerate(lines) if ln.startswith(heading))
-    rows: List[List[str]] = []
+    raw: List[List[str]] = []
     for ln in lines[start + 1:]:
         if ln.startswith("|"):
-            rows.append([_md_cell(c) for c in ln.strip().strip("|").split("|")])
-        elif rows:
+            raw.append(ln.strip().strip("|").split("|"))
+        elif raw:
             break
-    header, body = rows[0], [r for r in rows[1:] if not set("".join(r)) <= set("-: ")]
-    return pd.DataFrame(body, columns=header)
+    rows = [[_md_cell(c) for c in r] for r in raw]
+    header = rows[0]
+    keep = [i for i, r in enumerate(rows) if i > 0 and not set("".join(r)) <= set("-: ")]
+    out = pd.DataFrame([rows[i] for i in keep], columns=header)
+    for name in link_columns:
+        j = header.index(name)
+        out[f"{name} url"] = [(re.search(r"\]\(([^)]*)\)", raw[i][j]) or [None, ""])[1] for i in keep]
+    return out
 
 
 def registry_master_table(path: str) -> pd.DataFrame:
-    """Table 12.1 of the experiment registry with numeric columns: ``val``,
+    """Table 12.1 of the experiment registry (``clearml``: the short task id,
+    ``clearml_url``: its link) with numeric columns: ``val``,
     ``test``, ``test_normal``, ``test_abnormal``, ``beta``, ``best_epoch``,
     ``epochs`` (years / epochs)."""
     with open(path) as f:
-        t = parse_markdown_table(f.read(), "### Table 12.1.")
+        t = parse_markdown_table(f.read(), "### Table 12.1.", link_columns=("ClearML",))
     change = next(c for c in t.columns if c.startswith("Change"))
     out = pd.DataFrame({
         "run": t["Run"], "family": t["Family"], "change": t[change], "clearml": t["ClearML"],
+        "clearml_url": t["ClearML url"],
         "val": t["val MAE"].map(_md_number), "test": t["test MAE"].map(_md_number)})
     na = t[[c for c in t.columns if "normal" in c][0]].str.split("/")
     out["test_normal"] = na.map(lambda p: _md_number(p[0]) if len(p) == 2 else float("nan"))
@@ -128,6 +143,10 @@ _T1T2 = ['channel_drop.enabled=true', 'channel_drop.channels=["T1","T2"]',
 _FAST = ["model.fused_attention=true", "data.num_workers=6", "trainer.batch_size=128",
          "optimizer.lr=0.0002", "data.train_minutes_per_epoch=5"]
 _COND = ["data.session_features=conditions_v1.npz", "model.session_features=head"]
+# Multi-task head predicting status + diagnosis groups (targets only; data.multitask_targets).
+_MT = ["model.head_type=multitask", "data.multitask_targets=multitask_targets_v1.npz",
+       "model.multitask_head.shared_dims=[256,256]", "model.multitask_head.age_dims=[128,64]",
+       "model.multitask_head.abnormal_dims=[128,64]", "loss.abnormal_weight=0.5", "loss.pathology_weight=0.5"]
 
 
 @dataclass(frozen=True)
@@ -211,6 +230,42 @@ PHASE2: Tuple[Experiment, ...] = (
                + ("channel_drop.prob=0.2", "channel_drop.consistency_weight=0.1") + tuple(_FAST)
                + ("trainer.early_stopping=true",),
                "Exp4aug", "15 / 5 epochs with early stopping (stopped at 11)", conditions=True, where="local"),
+    Experiment("Exp4anymiss", "all_both_v3_anymiss", 15, 5,
+               tuple(_COND) + ("model.use_mean_pooling=false", "channel_drop.enabled=true", "channel_drop.channels=[]",
+                               "channel_drop.min_drop=1", "channel_drop.max_drop=3", "channel_drop.start_epoch=4",
+                               "channel_drop.prob=0.2", "channel_drop.consistency_weight=0.1") + tuple(_FAST)
+               + ("trainer.early_stopping=true",),
+               "Exp4aug15", "+2,003 training recordings missing A1/A2 or other channels; any 1-3 channels "
+               "dropped (p 0.2) from epoch 4 (stopped at 12)", conditions=True),
+    Experiment("Exp4noear", "all_both_v3_anymiss", 8, 2,
+               tuple(_COND) + ("model.use_mean_pooling=false", 'data.drop_channels=["A1","A2","T1","T2"]',
+                               "channel_drop.enabled=true", "channel_drop.channels=[]", "channel_drop.min_drop=1",
+                               "channel_drop.max_drop=1", "channel_drop.prob=0.0",
+                               "channel_drop.consistency_weight=0.0") + tuple(_FAST)
+               + ("trainer.early_stopping=true",),
+               "Exp4anymiss", "A1/A2/T1/T2 removed from every recording (19 channels), no channel "
+               "augmentation; 8 / 2 epochs", conditions=True, where="local"),
+    Experiment("Exp4noearEEG", "all_both_v3_anymiss", 8, 2,
+               ("model.use_mean_pooling=false", 'data.drop_channels=["A1","A2","T1","T2"]',
+                "channel_drop.enabled=true", "channel_drop.channels=[]", "channel_drop.min_drop=1",
+                "channel_drop.max_drop=1", "channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0")
+               + tuple(_FAST) + ("trainer.early_stopping=true",),
+               "Exp4noear", "no status / pathology input (EEG only); otherwise as Exp4noear"),
+    Experiment("Exp4mt", "all_both_v3_anymiss", 8, 2,
+               ("model.use_mean_pooling=false", 'data.drop_channels=["A1","A2","T1","T2"]',
+                "channel_drop.enabled=true", "channel_drop.channels=[]", "channel_drop.min_drop=1",
+                "channel_drop.max_drop=1", "channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0")
+               + tuple(_FAST) + ("trainer.early_stopping=true",) + tuple(_MT),
+               "Exp4noearEEG", "multi-task head: + status and 13 diagnosis groups as targets (BCE over all "
+               "known labels)"),
+    Experiment("Exp4mtbal", "all_both_v3_anymiss", 8, 2,
+               ("model.use_mean_pooling=false", 'data.drop_channels=["A1","A2","T1","T2"]',
+                "channel_drop.enabled=true", "channel_drop.channels=[]", "channel_drop.min_drop=1",
+                "channel_drop.max_drop=1", "channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0")
+               + tuple(_FAST) + ("trainer.early_stopping=true",) + tuple(_MT)
+               + ("loss.pathology_reduction=present",),
+               "Exp4mt", "class-balanced pathology loss (groups present in the batch, equally weighted)",
+               where="local"),
     Experiment("cvbase", "all_both_v3_cvcompact", 5, 1,
                tuple(_T1T2) + ("channel_drop.prob=0.0", "channel_drop.consistency_weight=0.0") + tuple(_FAST)
                + tuple(CV5), "Exp4base", "5-fold CV of Exp4base (5 / 1 epochs)", script="cvbase"),
@@ -224,8 +279,203 @@ PHASE2: Tuple[Experiment, ...] = (
                + ("channel_drop.prob=0.2", "channel_drop.consistency_weight=0.1") + tuple(_FAST) + tuple(CV5),
                "cvctrl", "T1/T2 batch dropout + consistency loss λ 0.1 (CV of Exp4aug)",
                script="cvaug", conditions=True),
+    Experiment("cvaugval", "all_both_v3_cvcompact", 10, 3,
+               tuple(_COND) + ("model.use_mean_pooling=false",) + tuple(_T1T2)
+               + ("channel_drop.prob=0.2", "channel_drop.consistency_weight=0.1") + tuple(_FAST) + tuple(CV5)
+               + ("cross_validation.test_set=held_out",),
+               "cvaug", "val-only CV: val = fold k, the other 4 folds train (~23.2K recordings), test = TUAB",
+               script="cvaugval", conditions=True),
 )
 EXPERIMENTS: Dict[str, Experiment] = {e.name: e for e in PHASE2}
+
+# ---------------------------------------------------------------------------
+# Training loss of every run
+
+#: Loss labels; the numbers are the notebook's Section-2 equations.
+LOSSES = {
+    "huber": "Huber δ 1 (2.3)",
+    "huber_mixup": "Huber δ 1 + mixup (2.3, 2.5)",
+    "huber_cmixup": "Huber δ 1 + C-Mixup σ 5 y (2.3, 2.5, 2.6)",
+    "huber2": "Huber δ 2 (2.3)",
+    "l1": "L1 (2.4)",
+    "soft_label": "soft-label KL, σ 2.5 y (2.7)",
+    "balance_sqrt": "Huber δ 1, age weights ρ^-1/2 (2.8)",
+    "balance_inv": "Huber δ 1, age weights ρ^-1 (2.8)",
+    "codebook_amp": "Huber δ 1 + amplitude reconstruction, w 1 (2.9)",
+    "codebook_quant": "Huber δ 1 + quantization, w 1 (2.9)",
+    "codebook_quant50": "Huber δ 1 + quantization, w 50 (2.9)",
+    "multitask": "Huber δ 1 + mixup + 0.5 BCE abnormal (2.3, 2.5, 2.10)",
+    "multitask_path": "Huber δ 1 + mixup + 0.5 BCE status + 0.5 BCE pathology (2.3, 2.5, 2.10)",
+    "multitask_path_bal": "Huber δ 1 + mixup + 0.5 BCE status + 0.5 class-balanced BCE pathology (2.3, 2.5, 2.10)",
+    "consistency": "Huber δ 1 + mixup + 0.1 consistency (2.3, 2.5, 2.11)",
+}
+#: Loss of each phase-1 run, read from its ClearML configuration
+#: (``loss.regression_loss`` / ``huber_delta`` / ``balance``,
+#: ``mixup.enabled`` / ``sigma``, the ``model.codebook_reg`` weights and
+#: ``loss.abnormal_weight``); keys of :data:`LOSSES`.
+PHASE1_LOSS: Dict[str, str] = {
+    **dict.fromkeys(["A", "B", "D", "D-npy", "D-cohorts", "E2", "C2", "DX3", "F1", "F2", "F3", "F4", "G1",
+                     "H1", "H2", "C2-head", "C2-last", "M3", "M2", "C", "D-clip1", "E1", "E1c", "E2c",
+                     "D-cls", "D-clsmean", "S1"], "huber"),
+    **dict.fromkeys(["L1", "M1", "M12", "N2L", "S2", "S2-seed1", "S3"], "huber_mixup"),
+    "M1c": "huber_cmixup", "DX2": "huber2", "D2": "l1", "M4": "soft_label",
+    "B1": "balance_sqrt", "B2": "balance_inv",
+    "DX1": "codebook_amp", "DX4": "codebook_quant", "DX4b": "codebook_quant50",
+    "MT1": "multitask", "MT1-seed1": "multitask",
+}
+
+
+# Phase-1 runs whose head reads something other than the mean patch token.
+PHASE1_FEATURE_SPACE = {"D-cls": "cls_token", "D-clsmean": "patch_tokens + cls_token",
+                        "N2L": "cls_attention (class token attends to all tokens)",
+                        "LC1": "patch_tokens + status_label"}
+
+
+def feature_space(name: str) -> str:
+    """What the age head reads (Eq. (2.13)): ``patch_tokens`` (mean over the
+    final patch tokens, the default) or ``cls_token`` (the class token,
+    ``model.use_mean_pooling=false``), plus ``path_label`` when the head also
+    receives the recording's status + pathology vector (``conditions_v1.npz``,
+    ``model.session_features=head``) or ``feat_tokens`` when handcrafted
+    features enter as extra tokens; ``features only (no EEG)`` for a run that
+    reads no EEG. Runs outside :data:`EXPERIMENTS` (phase 1) are
+    ``patch_tokens``."""
+    if name in PHASE1_FEATURE_SPACE:
+        return PHASE1_FEATURE_SPACE[name]
+    exp = EXPERIMENTS.get(name)
+    extra = " ".join(exp.extra) if exp else ""
+    if "model.session_features=only" in extra:
+        return "features only (no EEG)"
+    if "data.multitask_targets=" in extra:
+        base = "cls_token" if "model.use_mean_pooling=false" in extra else "patch_tokens"
+        return base + " (EEG only; multi-task head)"
+    base = "cls_token" if "model.use_mean_pooling=false" in extra else "patch_tokens"
+    if exp is not None and exp.conditions:
+        return base + " + path_label"
+    if "model.session_features=tokens" in extra:
+        return base + " + feat_tokens"
+    return base
+
+
+def run_loss(run: str) -> str:
+    """The training loss of a run as a :data:`LOSSES` label: phase 1 from
+    :data:`PHASE1_LOSS`, phase 2 / CV from its overrides (every one is M1,
+    Huber + mixup; a channel-dropout consistency weight adds Eq. (2.11))."""
+    if run in PHASE1_LOSS:
+        return LOSSES[PHASE1_LOSS[run]]
+    extra = EXPERIMENTS[run].extra
+    if any(o.startswith("data.multitask_targets=") for o in extra):
+        return LOSSES["multitask_path_bal" if "loss.pathology_reduction=present" in extra else "multitask_path"]
+    weight = [o.split("=", 1)[1] for o in extra if o.startswith("channel_drop.consistency_weight=")]
+    return LOSSES["consistency" if weight and float(weight[0]) > 0 else "huber_mixup"]
+
+
+# ---------------------------------------------------------------------------
+# ClearML experiments
+
+CLEARML_WEB = "https://app.clear.ml"
+#: ClearML project ``LaBraM/brain_age``, which holds every single-split run.
+CLEARML_PROJECT = "c44d37fe41b1483481d5495d42b4ffdc"
+#: ClearML task id of each phase-2 run, and for a cross-validation run the id
+#: of the sub-project ``LaBraM/brain_age/<study>`` holding its fold tasks.
+PHASE2_CLEARML: Dict[str, str] = {
+    "Control": "0e7e86c90b9741189fec7608a7cfd427",
+    "Exp1": "9dc76b4d4b794e8980aa92668d993b77",
+    "Exp2": "e41add850a7342d6a1d83c1e22db8343",
+    "Exp1b": "908bad3a40aa4a84b02a69a6a70f40b8",
+    "Exp1t": "be184e5a20364008a3e540f87d592207",
+    "Exp1f": "2071d005ecdf4b53808dea946376aefb",
+    "Exp3": "86f1c7488c3e4edd9b8891deb6b9a515",
+    "Exp3b": "746e9d9c7fe548999e9b974a1654f861",
+    "Exp3q": "ae431763b552447ba178c2d392246fea",
+    "Exp3c": "bf41ca7ca0304c03844c55d73e063674",
+    "Exp3v2": "ab96236c80234c6c9c92851df33ef3ee",
+    "Exp3cond": "7642dde596ed42a6a32a664482260aa4",
+    "Exp3clscond": "2fba9690f0dd46909b061ca2847eb422",
+    "Exp4drop": "441f3b9920254cefa46075c7372b9033",
+    "Exp4base": "33a926503fb347248dbc56252c53e609",
+    "Exp4basec": "a28aa90b1eb8419d8db7b9b5eb3f2e75",
+    "Exp4ctrl": "bb15c54792f24626b81ac3eac8b97661",
+    "Exp4aug": "d15337ba1fe8412a83c386d7ddf69bb3",
+    "Exp4aug15": "692b86d6f2ca4f4898488988722c7bc9",
+    "Exp4anymiss": "6dcbcbed974a42ae9d46f38f79bc7a05",
+    "Exp4noear": "fbb67d0382e6420eb14b4006f9f3118a",
+    "Exp4noearEEG": "07bd98e3aab448338d17f046ff25bb96",
+    "Exp4mt": "66b31850c3994738a24e47decb56d976",
+    "Exp4mtbal": "65fcf641045444b4a2390f479eb5d9db",
+    "cvbase": "d0379910d1e748d1ba2250b0e2157103",
+    "cvctrl": "efe8b8525ed248ae968f24d6840e76bc",
+    "cvaug": "d538fd4c7b1c484fa2f94438aecdc418",
+    "cvaugval": "c3e3484d72b849769b50150b7a29dcfe",
+}
+_CV_RUNS = ("cvbase", "cvctrl", "cvaug", "cvaugval")
+#: The split holding a CV experiment's out-of-fold predictions: the in-pool
+#: test folds, or the val folds for a val-only CV (``cross_validation.test_set=held_out``).
+CV_OOF_SPLIT: Dict[str, str] = {"cvaugval": "val"}
+
+
+def clearml_url(kind: str, ident: str, project_id: str = CLEARML_PROJECT) -> str:
+    """Web-UI link of a ClearML task (``kind="task"``: its console log) or of a
+    project's experiment list (``kind="project"``)."""
+    if kind == "project":
+        return f"{CLEARML_WEB}/projects/{ident}/experiments"
+    return f"{CLEARML_WEB}/projects/{project_id}/experiments/{ident}/output/log"
+
+
+def clearml_link(text: str, url: str) -> str:
+    """An HTML anchor showing ``text`` (the ClearML experiment name) instead of
+    the URL, opening in a new tab; ``"–"`` without a URL. The name may wrap
+    after each ``_`` (``<wbr>``), so a long name does not widen its table
+    past the page in the PDF export."""
+    if not url:
+        return "–"
+    label = html.escape(text).replace("_", "_<wbr>")
+    return f'<a href="{html.escape(url, quote=True)}" target="_blank">{label}</a>'
+
+
+def clearml_targets(registry: pd.DataFrame) -> pd.DataFrame:
+    """Every run of the study with its ClearML ``kind`` (task / project) and
+    ``id``: the phase-1 runs from the registry links, the phase-2 and CV runs
+    from :data:`PHASE2_CLEARML`."""
+    rows = []
+    for r in registry.itertuples():
+        m = re.search(r"/experiments/([0-9a-f]{32})", r.clearml_url or "")
+        if m:
+            rows.append({"run": r.run, "phase": "1", "kind": "task", "id": m.group(1)})
+    for name, ident in PHASE2_CLEARML.items():
+        cv = name in _CV_RUNS
+        rows.append({"run": name, "phase": "3" if cv else "2", "kind": "project" if cv else "task", "id": ident})
+    return pd.DataFrame(rows)
+
+
+def fetch_clearml_runs(registry: pd.DataFrame) -> pd.DataFrame:
+    """:func:`clearml_targets` with each experiment's ClearML ``name`` (the
+    task name, or the project's leaf name), queried from the ClearML server
+    (needs the ``clearml`` package and credentials). Writes the rows that
+    ``docs/data/brain_age_clearml_runs.csv`` holds."""
+    from clearml.backend_api.session.client import APIClient
+    client = APIClient()
+    t = clearml_targets(registry)
+    tasks = t[t.kind == "task"].id.tolist()
+    names = {x.id: x.name for x in client.tasks.get_all(id=tasks, only_fields=["id", "name"])}
+    projects = t[t.kind == "project"].id.tolist()
+    names.update({x.id: x.name.rsplit("/", 1)[-1]
+                  for x in client.projects.get_all(id=projects, only_fields=["id", "name"])})
+    t["name"] = t.id.map(names)
+    missing = t[t.name.isna()].run.tolist()
+    if missing:
+        raise KeyError(f"not found in ClearML: {missing}")
+    return t
+
+
+def load_clearml_runs(path: str) -> pd.DataFrame:
+    """``docs/data/brain_age_clearml_runs.csv`` indexed by run, with a ``url``
+    column (:func:`clearml_url`) and a ``link`` column (:func:`clearml_link`,
+    the experiment name as a clickable link)."""
+    t = pd.read_csv(path, dtype=str).set_index("run")
+    t["url"] = [clearml_url(k, i) for k, i in zip(t.kind, t.id)]
+    t["link"] = [clearml_link(n, u) for n, u in zip(t.name, t.url)]
+    return t
 
 
 def experiment_overrides(exp: Experiment, data_root: str = "") -> List[str]:
@@ -403,3 +653,897 @@ def tuab_split_summary(split_json: str, metadata_json: str) -> pd.DataFrame:
                      "abnormal": int((m.label == "abnormal").sum()), "no label": 0,
                      "age mean": float(m.age.mean()), "age sd": float(m.age.std(ddof=1))})
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# Data splits: which recordings each run trained, validated and tested on
+
+SPLITS = ("train", "val", "test")
+
+
+def split_fingerprint(data_split: dict) -> List[Dict[str, object]]:
+    """One row per split of a run's recorded ``data_split.json`` (the
+    ``data_split`` ClearML artifact): recordings, patients, windows and
+    ``digest``, the first 12 hex digits of the SHA-1 of the sorted recording
+    stems. Two runs used the same recordings in a split iff the digests match;
+    the window count also reflects the window length and evaluation budget."""
+    import hashlib
+    rows = []
+    for split in SPLITS:
+        if split not in data_split:
+            continue
+        d = data_split[split]
+        recs = sorted(d["recordings"])
+        rows.append({"split": split, "recordings": len(recs), "patients": int(d["n_subjects"]),
+                     "windows": int(d["n_windows"]),
+                     "digest": hashlib.sha1("\n".join(recs).encode()).hexdigest()[:12]})
+    return rows
+
+
+def fetch_run_splits(runs: pd.DataFrame) -> pd.DataFrame:
+    """:func:`split_fingerprint` of every ClearML task in ``runs`` (rows of
+    :func:`load_clearml_runs` with ``kind == "task"``), downloading each task's
+    ``data_split`` artifact. Writes the rows that
+    ``docs/data/brain_age_run_splits.csv`` holds."""
+    from clearml import Task
+    rows = []
+    for run, r in runs[runs.kind == "task"].iterrows():
+        art = Task.get_task(task_id=r.id).artifacts.get("data_split")
+        path = art.get_local_copy() if art is not None else None
+        if path is None:
+            raise KeyError(f"{run}: no data_split artifact")
+        with open(path) as f:
+            rows += [{"run": run, **row} for row in split_fingerprint(json.load(f))]
+    return pd.DataFrame(rows)
+
+
+def split_signature(splits: pd.DataFrame) -> pd.Series:
+    """Per run, the concatenated train/val/test recording digests: equal
+    signatures mean the same recordings in every split."""
+    d = splits.pivot(index="run", columns="split", values="digest").reindex(columns=list(SPLITS))
+    return d.fillna("-").agg("/".join, axis=1)
+
+
+# ---------------------------------------------------------------------------
+# TUEG, the source corpus
+
+#: The other TUH corpora that are subsets of TUEG, with the label each adds.
+TUEG_SUBSETS = {
+    "tuab": "normal / abnormal (TUAB folder)",
+    "tusz": "seizure events",
+    "tuep": "epilepsy / no epilepsy (patient)",
+    "tuar": "artifact events",
+    "tusl": "slowing events",
+}
+STATUS = ("normal", "abnormal", "no label")
+
+
+def tueg_recordings(index_parquet: str, sheet_xlsx: str) -> pd.DataFrame:
+    """The TUEG recordings of the TUH recording index (one row per EDF, from
+    ``dataset_maker/tuh_index.py``) joined with NEDC's clinical sheet
+    (``dataset_maker/tuh_clinical.py``), plus ``status``: the TUAB folder label
+    where there is one, else the report finding, else ``"no label"`` (the rule
+    of ``dataset_maker/make_cohort_dataset.py::label_of``)."""
+    from dataset_maker import tuh_clinical as tc
+    j = tc.join_index(pd.read_parquet(index_parquet), tc.load_sheet(sheet_xlsx))
+    t = j[j.corpora.str.split(",").map(lambda cs: "tueg" in cs)].reset_index(drop=True)
+    report = t.abnormal_report.astype("boolean")
+    status = pd.Series("no label", index=t.index, dtype=object)
+    status[t.in_sheet & report.eq(False).fillna(False)] = "normal"
+    status[t.in_sheet & report.eq(True).fillna(False)] = "abnormal"
+    tuab = t.abnormal.notna()
+    status[tuab] = np.where(t.abnormal[tuab].astype(int) == 1, "abnormal", "normal")
+    t["status"] = status
+    t["status_source"] = np.where(tuab, "TUAB folder", np.where(status != "no label", "NEDC report", "–"))
+    return t
+
+
+def _share(n: int, total: int) -> str:
+    return f"{n:,} ({100.0 * n / total:.1f} %)"
+
+
+def tueg_overview(t: pd.DataFrame) -> pd.DataFrame:
+    """TUEG at a glance: size, hours, demographics and recording properties
+    (one row per quantity, values as display strings)."""
+    n = len(t)
+    minutes = t.duration_sec / 60
+    year = t.year[t.year.between(1990, 2025)]                 # a few headers carry 1899 / 2064
+    missing = t.missing_channels.map(lambda m: {c.upper() for c in m})
+    rows = [
+        ("size", "recordings (EDF files)", f"{n:,}"),
+        ("size", "patients", f"{t.subject.nunique():,}"),
+        ("size", "sessions", f"{t[['subject', 'session']].drop_duplicates().shape[0]:,}"),
+        ("size", "hours of EEG", f"{t.duration_sec.sum() / 3600:,.0f}"),
+        ("size", "recordings per patient, median (max)",
+         f"{t.groupby('subject').size().median():.0f} ({t.groupby('subject').size().max()})"),
+        ("recording", "length (min), median [IQR]",
+         f"{minutes.median():.1f} [{minutes.quantile(.25):.1f}, {minutes.quantile(.75):.1f}]"),
+        ("recording", "year, median [5 %, 95 %]",
+         f"{year.median():.0f} [{year.quantile(.05):.0f}, {year.quantile(.95):.0f}]"),
+        ("recording", "sampling rate (Hz)",
+         ", ".join(f"{int(k)}: {v / n:.0%}" for k, v in t.sfreq.value_counts().head(3).items())),
+        ("recording", "montage", ", ".join(f"{k}: {v / n:.0%}" for k, v in t.montage.value_counts().head(3).items())),
+        ("channels", "all 23 channels", _share(int(missing.map(len).eq(0).sum()), n)),
+        ("channels", "missing only T1/T2", _share(int(missing.map(lambda m: bool(m) and m <= {"T1", "T2"}).sum()), n)),
+        ("channels", "missing other channels",
+         _share(int(missing.map(lambda m: bool(m - {"T1", "T2"})).sum()), n)),
+        ("patient", "sex F / M / unknown (recordings)",
+         " / ".join(f"{int((t.sex == s).sum()):,}" for s in ("F", "M")) + f" / {int(t.sex.isna().sum()):,}"),
+        ("patient", "age known (1–89 y)", _share(int(t.age.notna().sum()), n)),
+        ("patient", "age 90+ (redacted as 999)", _share(int((t.raw_age == 999).sum()), n)),
+        ("patient", "age missing", _share(int((t.age.isna() & (t.raw_age != 999)).sum()), n)),
+        ("patient", "age (y), mean ± sd; median [IQR]",
+         f"{t.age.mean():.1f} ± {t.age.std(ddof=1):.1f}; {t.age.median():.0f} "
+         f"[{t.age.quantile(.25):.0f}, {t.age.quantile(.75):.0f}]"),
+    ]
+    return pd.DataFrame(rows, columns=["group", "quantity", "value"])
+
+
+def tueg_subsets(t: pd.DataFrame) -> pd.DataFrame:
+    """Subsets of TUEG: the other TUH corpora inside it (a recording can be in
+    several) and the subsets the brain-age cohorts select from."""
+    from dataset_maker import tuh_clinical as tc
+    n = len(t)
+    corpora = t.corpora.str.split(",")
+    masks = [(f"in {c.upper()}", lab, corpora.map(lambda cs, c=c: c in cs)) for c, lab in TUEG_SUBSETS.items()]
+    masks += [
+        ("TUEG only", "–", corpora.map(len).eq(1)),
+        ("in the NEDC clinical sheet", "report finding, 15 diagnosis flags, medications", t.in_sheet),
+        ("adult age (18–89 y)", "age", t.age.between(18, 89)),
+        ("normative", "report-normal, no neurological diagnosis, not sedated, 18–89 y",
+         tc.normative_mask(t).fillna(False).astype(bool)),
+    ]
+    def label_counts(name, m):
+        # per-recording categorical labels only; TUSZ / TUAR / TUSL annotate events inside a recording
+        if name == "in TUAB" or name == "normative":
+            v = t.status[m].value_counts()
+            return " / ".join(f"{k} {int(v.get(k, 0)):,}" for k in ("normal", "abnormal") if k in v or name == "in TUAB")
+        if name == "in TUEP":
+            v = t.epilepsy[m].value_counts()
+            return f"epilepsy {int(v.get(1, 0)):,} / no epilepsy {int(v.get(0, 0)):,}"
+        if name == "in the NEDC clinical sheet":
+            v = t.abnormal_report[m].astype("boolean").value_counts()
+            return f"report normal {int(v.get(False, 0)):,} / abnormal {int(v.get(True, 0)):,}"
+        return "–"
+
+    rows = [{"subset": name, "label it carries": lab, "label counts (recordings)": label_counts(name, m),
+             "recordings": int(m.sum()), "% of TUEG": 100.0 * m.sum() / n, "patients": int(t.subject[m].nunique()),
+             "hours": t.duration_sec[m].sum() / 3600} for name, lab, m in masks]
+    return pd.DataFrame(rows)
+
+
+def age_stats(age: pd.Series) -> Dict[str, float]:
+    """n, mean, sample sd, median and quartiles of the known ages (years)."""
+    a = age.dropna()
+    return {"age n": len(a), "age mean": a.mean(), "age sd": a.std(ddof=1), "age median": a.median(),
+            "age Q1": a.quantile(.25), "age Q3": a.quantile(.75)}
+
+
+def tueg_status(t: pd.DataFrame) -> pd.DataFrame:
+    """Recordings and patients per normal / abnormal / no-label status and per
+    label source, with each group's age distribution (:func:`age_stats`); the
+    last row is all of TUEG."""
+    rows = []
+    for status in STATUS:
+        s = t[t.status == status]
+        for source in sorted(s.status_source.unique()):
+            g = s[s.status_source == source]
+            rows.append({"status": status, "source": source, "recordings": len(g),
+                         "patients": g.subject.nunique(), **age_stats(g.age)})
+        if s.status_source.nunique() > 1:
+            rows.append({"status": status, "source": "all", "recordings": len(s),
+                         "patients": s.subject.nunique(), **age_stats(s.age)})
+    rows.append({"status": "total", "source": "all", "recordings": len(t), "patients": t.subject.nunique(),
+                 **age_stats(t.age)})
+    out = pd.DataFrame(rows)
+    out["% of TUEG"] = 100.0 * out.recordings / len(t)
+    return out
+
+
+def tueg_diagnoses(t: pd.DataFrame) -> pd.DataFrame:
+    """The clinical sheet's diagnosis flags over the TUEG recordings in the
+    sheet: recordings, patients, how many of them are normal / abnormal
+    (Eq. (1.2) status), prevalence (% of sheet recordings), mean age and the
+    share whose status is abnormal. The flags are independent of the status:
+    a flagged recording can be normal or abnormal."""
+    from dataset_maker import tuh_clinical as tc
+    s = t[t.in_sheet]
+    names = {v: k for k, v in tc.DIAGNOSES.items()}
+    names.update({"any_neuro_dx": "any neurological diagnosis", "sedated": "sedating medication"})
+    rows = []
+    for col, name in names.items():
+        m = s[col].fillna(False).astype(bool)
+        rows.append({"flag": name, "recordings": int(m.sum()), "patients": int(s.subject[m].nunique()),
+                     "normal": int((s.status[m] == "normal").sum()), "abnormal": int((s.status[m] == "abnormal").sum()),
+                     "% of sheet": 100.0 * m.mean(), "age mean": s.age[m].mean(),
+                     "% abnormal": 100.0 * (s.status[m] == "abnormal").mean()})
+    out = pd.DataFrame(rows).sort_values("recordings", ascending=False)
+    # Total: every recording in the sheet, flagged or not. The flags are
+    # multi-hot, so the rows above do not add up to it.
+    total = {"flag": "Total (all sheet recordings)", "recordings": len(s), "patients": int(s.subject.nunique()),
+             "normal": int((s.status == "normal").sum()), "abnormal": int((s.status == "abnormal").sum()),
+             "% of sheet": 100.0, "age mean": s.age.mean(), "% abnormal": 100.0 * (s.status == "abnormal").mean()}
+    return pd.concat([out, pd.DataFrame([total])], ignore_index=True)
+
+
+# ---------------------------------------------------------------------------
+# Per-recording predictions of the CV runs, by subcohort and status
+
+PREDICTION_SETS = ("TUAB test, ensemble", "TUAB out-of-fold", "TUEG out-of-fold")
+
+
+def prediction_sets(preds: pd.DataFrame, recordings: pd.DataFrame) -> pd.DataFrame:
+    """Per CV experiment, one row per scored recording in each of
+    :data:`PREDICTION_SETS`:
+
+    * ``TUAB test, ensemble``: the TUAB test set, predicted by the median of the
+      fold models (``labram/eval/cv_compare.py::ensemble``);
+    * ``TUAB out-of-fold`` / ``TUEG out-of-fold``: every recording of the CV
+      pool, predicted by the one fold model that held it out, split by whether
+      the recording is in TUAB. "Held out" is the fold's in-pool test fold, or
+      for a val-only CV (:data:`CV_OOF_SPLIT`) its val fold.
+
+    ``preds`` is ``cv_compare.long_frame`` of the CV predictions; ``recordings``
+    is :func:`tueg_recordings` (``stem``, ``status``, ``corpora``). Columns
+    ``exp``, ``set``, ``stem``, ``pred``, ``true``, ``err``, ``status``."""
+    from labram.eval import cv_compare as cc
+    info = recordings.drop_duplicates("stem").set_index("stem")
+    ens = cc.ensemble(preds, "heldout", "median")[["exp", "stem", "pred", "true"]].assign(set=PREDICTION_SETS[0])
+    oof_split = preds.exp.map(lambda e: CV_OOF_SPLIT.get(e, "test"))
+    oof = preds[preds.split == oof_split][["exp", "stem", "pred", "true"]].copy()
+    in_tuab = oof.stem.map(info.corpora).fillna("").str.split(",").map(lambda cs: "tuab" in cs)
+    oof["set"] = np.where(in_tuab, PREDICTION_SETS[1], PREDICTION_SETS[2])
+    out = pd.concat([ens, oof], ignore_index=True)
+    out["err"] = out.pred - out.true
+    out["status"] = out.stem.map(info.status).fillna("no label")
+    return out
+
+
+def age_fit_metrics(pred: pd.Series, true: pd.Series) -> Dict[str, float]:
+    """n, MAE (Eq. (0.1)), mean error (Eq. (0.3)), R² (Eq. (0.2)) and the bias
+    slope β (Eq. (0.5), population moments) of one set of recordings."""
+    p, t = np.asarray(pred, float), np.asarray(true, float)
+    e = p - t
+    var = float(np.var(t))
+    return {"n": len(t), "MAE": float(np.mean(np.abs(e))), "bias": float(np.mean(e)),
+            "R²": 1.0 - float(np.sum(e ** 2)) / float(np.sum((t - t.mean()) ** 2)) if len(t) > 1 else float("nan"),
+            "β": float(np.mean((t - t.mean()) * (e - e.mean()))) / var if var > 0 else float("nan")}
+
+
+def prediction_metrics(sets: pd.DataFrame) -> pd.DataFrame:
+    """:func:`age_fit_metrics` per experiment, prediction set and status
+    (``all`` plus each status present)."""
+    rows = []
+    for (exp, name), g in sets.groupby(["exp", "set"], sort=False):
+        for status in ("all", *STATUS):
+            s = g if status == "all" else g[g.status == status]
+            if len(s):
+                rows.append({"exp": exp, "set": name, "status": status, **age_fit_metrics(s.pred, s.true)})
+    return pd.DataFrame(rows)
+
+
+def bias_corrected_test(sets: pd.DataFrame, degree: int = 1,
+                        fit_on: Sequence[str] = ("TUAB out-of-fold", "TUEG out-of-fold"),
+                        fit_status: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    """The TUAB test ensemble of each experiment with its age bias removed.
+
+    Per experiment, fit the brain-age gap $e = \\hat y - y$ as a polynomial of
+    degree ``degree`` in the true age $y$ on that experiment's out-of-fold
+    predictions (``fit_on``; never the test recordings), then subtract it from
+    the TUAB test predictions: $\\hat y^{c} = \\hat y - p(y)$. ``fit_status``
+    restricts the fit to recordings of those statuses (e.g. ``("normal",)``, as
+    Gemein et al. 2024 fit theirs on normal recordings). The correction uses
+    each test recording's true age, so the corrected error is a brain-age-gap
+    quantity, not a prediction error. Returns the test rows of
+    :func:`prediction_sets` with ``pred`` / ``err`` corrected."""
+    out = []
+    for exp, g in sets.groupby("exp", sort=False):
+        fit = g[g.set.isin(fit_on)]
+        if fit_status is not None:
+            fit = fit[fit.status.isin(fit_status)]
+        coef = np.polyfit(fit.true, fit.err, degree)
+        t = g[g.set == PREDICTION_SETS[0]].copy()
+        t["pred"] = t.pred - np.polyval(coef, t.true)
+        t["err"] = t.pred - t.true
+        out.append(t)
+    return pd.concat(out, ignore_index=True)
+
+
+def test_predictors(preds: pd.DataFrame) -> pd.DataFrame:
+    """TUAB test predictions as recordings x predictors: every fold model
+    (``<exp> f<k>``) and every experiment's median ensemble (``<exp> ens``)."""
+    h = preds[preds.split == "heldout"]
+    folds = h.assign(col=h.exp + " f" + h.fold.astype(str)).pivot(index="stem", columns="col", values="pred")
+    ens = h.groupby(["exp", "stem"]).pred.median().unstack(0)
+    ens.columns = [f"{c} ens" for c in ens.columns]
+    cols = []
+    for exp in dict.fromkeys(h.exp):
+        cols += sorted(c for c in folds.columns if c.startswith(exp + " ")) + [f"{exp} ens"]
+    return pd.concat([folds, ens], axis=1)[cols]
+
+
+def agreement_summary(wide: pd.DataFrame, true: pd.Series, status: pd.Series,
+                      exps: Sequence[str]) -> pd.DataFrame:
+    """Agreement on the TUAB test recordings, per status (all / normal /
+    abnormal): every pair of experiment ensembles, and per experiment the mean
+    over its 10 pairs of fold models (how much the fold models of one
+    configuration agree with each other, the reference for the ensemble pairs).
+    Columns from ``cv_compare.pairwise``."""
+    from labram.eval import cv_compare as cc
+    rows = []
+    for st in ("all", "normal", "abnormal"):
+        idx = wide.index if st == "all" else wide.index[status.loc[wide.index] == st]
+        ens = cc.pairwise(wide.loc[idx, [f"{e} ens" for e in exps]], true)
+        for r in ens.itertuples():
+            rows.append({"pair": f"{r.a.split()[0]} vs {r.b.split()[0]} (ensembles)", "status": st,
+                         **{k: getattr(r, k) for k in ("r_pred", "r_err", "agree_2y", "agree_5y", "sign_agree", "dMAE")}})
+        for e in exps:
+            f = cc.pairwise(wide.loc[idx, [c for c in wide.columns if c.startswith(e + " f")]], true)
+            rows.append({"pair": f"{e}: fold model vs fold model (mean of {len(f)} pairs)", "status": st,
+                         **f[["r_pred", "r_err", "agree_2y", "agree_5y", "sign_agree"]].mean().to_dict(),
+                         "dMAE": float(f.dMAE.abs().mean())})
+    return pd.DataFrame(rows)
+
+
+def bias_fit_check(sets: pd.DataFrame,
+                   fit_on: Sequence[str] = ("TUAB out-of-fold", "TUEG out-of-fold")) -> pd.DataFrame:
+    """Per experiment, what :func:`bias_corrected_test` fits on: the number of
+    recordings and patients of the out-of-fold sets, and how many of them are
+    TUAB test recordings or share a patient with the TUAB test set (both must
+    be 0). The patient is the recording stem's first field."""
+    rows = []
+    for exp, g in sets.groupby("exp", sort=False):
+        fit = g[g.set.isin(fit_on)]
+        test = g[g.set == PREDICTION_SETS[0]]
+        fit_pat, test_pat = set(fit.stem.str.split("_").str[0]), set(test.stem.str.split("_").str[0])
+        rows.append({"exp": exp, "fit recordings": fit.stem.nunique(), "fit patients": len(fit_pat),
+                     "test recordings": test.stem.nunique(),
+                     "fit ∩ test recordings": len(set(fit.stem) & set(test.stem)),
+                     "fit ∩ test patients": len(fit_pat & test_pat)})
+    return pd.DataFrame(rows)
+
+
+def cole_corrected_test(sets: pd.DataFrame,
+                        fit_on: Sequence[str] = ("TUAB out-of-fold", "TUEG out-of-fold"),
+                        fit_status: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    """The deployable linear correction of Cole et al.: fit $\\hat y \\approx a\\,y + c$
+    on the out-of-fold predictions (``fit_on`` / ``fit_status`` as in
+    :func:`bias_corrected_test`) and invert it on the TUAB test predictions,
+    $\\hat y' = (\\hat y - c)/a$. Unlike Eq. (3.9) it uses only the prediction,
+    never the test recording's true age."""
+    out = []
+    for exp, g in sets.groupby("exp", sort=False):
+        fit = g[g.set.isin(fit_on)]
+        if fit_status is not None:
+            fit = fit[fit.status.isin(fit_status)]
+        a, c = np.polyfit(fit.true, fit.pred, 1)
+        t = g[g.set == PREDICTION_SETS[0]].copy()
+        t["pred"] = (t.pred - c) / a
+        t["err"] = t.pred - t.true
+        out.append(t)
+    return pd.concat(out, ignore_index=True)
+
+
+def recalibrated_test(sets: pd.DataFrame,
+                      fit_on: Sequence[str] = ("TUAB out-of-fold", "TUEG out-of-fold"),
+                      fit_status: Optional[Sequence[str]] = None) -> pd.DataFrame:
+    """Deployable recalibration: regress the true age on the prediction over the
+    out-of-fold predictions, $y \\approx a\\,\\hat y + b$ (OLS; ``fit_on`` /
+    ``fit_status`` as in :func:`bias_corrected_test`), and map the TUAB test
+    predictions through it, $\\hat y'' = a\\,\\hat y + b$. Like
+    :func:`cole_corrected_test` it never uses a test recording's true age; it is
+    the least-squares calibration of the prediction (it lowers the error, but
+    does not remove the age trend of the gap)."""
+    out = []
+    for exp, g in sets.groupby("exp", sort=False):
+        fit = g[g.set.isin(fit_on)]
+        if fit_status is not None:
+            fit = fit[fit.status.isin(fit_status)]
+        a, b = recalibration_fit(fit.pred, fit.true)
+        t = g[g.set == PREDICTION_SETS[0]].copy()
+        t["pred"] = a * t.pred + b
+        t["err"] = t.pred - t.true
+        out.append(t)
+    return pd.concat(out, ignore_index=True)
+
+
+def recalibration_fit(pred, true) -> Tuple[float, float]:
+    """``(a, b)`` of Eq. (3.11): the least-squares line ``true ~ a * pred + b``."""
+    a, b = np.polyfit(np.asarray(pred, float), np.asarray(true, float), 1)
+    return float(a), float(b)
+
+
+def split_run_calibration(preds: pd.DataFrame, fit_status: Sequence[str] = ("normal",)) -> pd.DataFrame:
+    """Eq. (3.11) for single-split runs, which have no out-of-fold predictions:
+    per run, fit ``true ~ a * pred + b`` on the run's own **val** recordings of
+    ``fit_status`` and apply it to its **test** predictions alone.
+
+    ``preds`` holds per-recording predictions (``scripts/eval_runs.py``
+    ``predictions.csv.gz``: ``run``, ``split``, ``recording``, ``pred``,
+    ``true``, ``cohort``). Per run: the fit set's size, ``a``, ``b``, how many
+    fit recordings / patients are also test recordings / patients (both must be
+    0; the patient is the recording name's first field), the raw and calibrated
+    val and test MAE (all / normal / abnormal) and the raw test MAE."""
+    rows = []
+    for run, g in preds.groupby("run", sort=False):
+        val, test = g[g.split == "val"], g[g.split == "test"]
+        fit = val[val.cohort.isin(fit_status)]
+        a, b = recalibration_fit(fit.pred, fit.true)
+        pat = lambda d: set(d.recording.str.split("_").str[0])   # noqa: E731
+        r = {"run": run, "fit recordings": len(fit), "a": a, "b": b,
+             "fit ∩ test recordings": len(set(fit.recording) & set(test.recording)),
+             "fit ∩ test patients": len(pat(fit) & pat(test))}
+        cal = a * test.pred + b
+        for st in ("all", "normal", "abnormal"):
+            m = np.ones(len(test), bool) if st == "all" else (test.cohort == st).to_numpy()
+            r[f"test {st}"] = float(np.mean(np.abs(test.pred[m] - test.true[m])))
+            r[f"cal. {st}"] = float(np.mean(np.abs(cal[m] - test.true[m])))
+        r["val"] = float(np.mean(np.abs(val.pred - val.true)))
+        rows.append(r)
+    return pd.DataFrame(rows)
+
+
+# Short column names of the NEDC diagnosis groups of the condition vector
+# (dataset_maker/make_condition_features.py::PATHOLOGY), in that order.
+PATHOLOGY_SHORT = {"clinical_seizure": "cl. seiz.", "electrographic_seizure": "el. seiz.", "epilepsy": "epil.",
+                   "stroke": "stroke", "tbi": "TBI", "substance": "subst.", "bipolar": "bipol.",
+                   "anxiety": "anx.", "depression": "depr.", "schizophrenia": "schiz.", "dementia": "dement.",
+                   "ms": "MS", "other": "other"}
+
+
+def tueg_pathology_mae(preds: pd.DataFrame, recordings: pd.DataFrame, min_n: int = 1) -> pd.DataFrame:
+    """MAE (Eq. (0.1)) per run on its held-out **TUEG** recordings (not in
+    TUAB), by status and by NEDC diagnosis group.
+
+    ``preds``: ``run``, ``stem``, ``pred``, ``true`` -- one row per run and
+    recording the run never trained on (a single-split run's val split, a CV
+    experiment's out-of-fold predictions). ``recordings``:
+    :func:`tueg_recordings` (``corpora``, ``status``, ``in_sheet`` and the
+    ``dx_*`` flags). A group is the union of its NEDC flags
+    (``make_condition_features.PATHOLOGY``); groups overlap (multi-hot).
+    Returns one row per run x group with ``n`` and ``MAE``; groups with fewer
+    than ``min_n`` recordings get MAE NaN."""
+    from dataset_maker.make_condition_features import PATHOLOGY
+    info = recordings.drop_duplicates("stem").set_index("stem")
+    d = preds.merge(info, left_on="stem", right_index=True, how="left")
+    d = d[~d.corpora.fillna("").str.split(",").map(lambda cs: "tuab" in cs)]
+    d["ae"] = (d.pred - d.true).abs()
+    groups = {"TUEG all": np.ones(len(d), bool), "TUEG normal": (d.status == "normal").to_numpy(),
+              "TUEG abnormal": (d.status == "abnormal").to_numpy()}
+    for key, cols in PATHOLOGY.items():
+        if key in PATHOLOGY_SHORT:
+            flag = np.zeros(len(d), bool)
+            for col in cols:
+                flag |= d[col].fillna(False).astype(bool).to_numpy() & d.in_sheet.fillna(False).to_numpy()
+            groups[PATHOLOGY_SHORT[key]] = flag
+    rows = []
+    for run, idx in d.groupby("run", sort=False).groups.items():
+        g = d.loc[idx]
+        for name, mask in groups.items():
+            m = mask[d.index.get_indexer(idx)]
+            n = int(m.sum())
+            rows.append({"run": run, "group": name, "n": n,
+                         "MAE": float(g.ae[m].mean()) if n >= min_n else float("nan")})
+    return pd.DataFrame(rows)
+
+
+def correction_leak_check(sets: pd.DataFrame, methods: Dict[str, Callable[[pd.DataFrame], pd.DataFrame]],
+                          fit_on: Sequence[str] = ("TUAB out-of-fold", "TUEG out-of-fold"),
+                          seed: int = 0) -> pd.DataFrame:
+    """Does a bias correction see the TUAB test labels? Two checks per method:
+
+    * **fit set**: the out-of-fold recordings it is fitted on that are TUAB test
+      recordings, or share a patient with one (:func:`bias_fit_check`; both
+      must be 0);
+    * **application**: the TUAB test true ages are randomly permuted within each
+      experiment and the method is run again. A method that never reads them
+      returns the same corrected predictions; ``max change`` is the largest
+      difference (years) over every experiment and test recording.
+
+    ``methods`` maps a name to a function ``sets -> corrected test rows``
+    (e.g. ``lambda s: cole_corrected_test(s)``)."""
+    chk = bias_fit_check(sets, fit_on)
+    rng = np.random.default_rng(seed)
+    shuffled = sets.copy()
+    for exp in shuffled.exp.unique():
+        m = (shuffled.set == PREDICTION_SETS[0]) & (shuffled.exp == exp)
+        shuffled.loc[m, "true"] = rng.permutation(shuffled.loc[m, "true"].to_numpy())
+    rows = []
+    for name, fn in methods.items():
+        a = fn(sets).sort_values(["exp", "stem"]).pred.to_numpy()
+        b = fn(shuffled).sort_values(["exp", "stem"]).pred.to_numpy()
+        change = float(np.max(np.abs(a - b))) if len(a) else 0.0
+        rows.append({"method": name,
+                     "fit ∩ test recordings": int(chk["fit ∩ test recordings"].max()),
+                     "fit ∩ test patients": int(chk["fit ∩ test patients"].max()),
+                     "max change (years)": change,
+                     "uses TUAB test true age": "yes" if change > 1e-9 else "no"})
+    return pd.DataFrame(rows)
+
+
+def display_name(name: str) -> str:
+    """A dataset / cohort name as the notebook shows it: the corpus names in
+    capitals (``normal_tueg_v1`` -> ``normal_TUEG_v1``,
+    ``tuab_v3.0.1_interp50-60`` -> ``TUAB_v3.0.1_interp50-60``). The directory
+    on disk keeps the lower-case name."""
+    return re.sub(r"(?<![A-Za-z])(tueg|tuab|tuh)(?![A-Za-z])", lambda m: m.group(1).upper(), name)
+
+
+# ---------------------------------------------------------------------------
+# Raw corpora and the inclusion flow to the cohorts
+
+def _missing_kind(missing) -> str:
+    m = {c.upper() for c in missing}
+    return "all 23" if not m else ("only T1/T2 missing" if m <= {"T1", "T2"} else "other channels missing")
+
+
+def _counts(d: pd.DataFrame) -> Dict[str, object]:
+    kind = d.missing_channels.map(_missing_kind)
+    return {"recordings": len(d), "patients": d.subject.nunique(),
+            "normal": int((d.status == "normal").sum()), "abnormal": int((d.status == "abnormal").sum()),
+            "no label": int((d.status == "no label").sum()),
+            "all 23 channels": int((kind == "all 23").sum()),
+            "only T1/T2 missing": int((kind == "only T1/T2 missing").sum()),
+            "other channels missing": int((kind == "other channels missing").sum())}
+
+
+def raw_corpora(t: pd.DataFrame) -> pd.DataFrame:
+    """The two raw corpora the study draws from, per recording, from
+    :func:`tueg_recordings` (``status`` = Eq. (1.2)): TUAB (with its official
+    train / eval split) and TUEG (all, and without the TUAB recordings).
+    Columns: recordings, patients, hours, age known, normal / abnormal / no
+    label and channel completeness against the 23 model channels."""
+    corp = t.corpora.str.split(",")
+    tuab = corp.map(lambda cs: "tuab" in cs)
+    groups = [("TUAB", "all", tuab),
+              ("TUAB", "train split", tuab & (t.source_split == "train")),
+              ("TUAB", "eval split (test)", tuab & (t.source_split == "eval")),
+              ("TUEG", "all", pd.Series(True, index=t.index)),
+              ("TUEG", "also in TUAB", tuab),
+              ("TUEG", "not in TUAB", ~tuab)]
+    rows = []
+    for corpus, part, m in groups:
+        d = t[m]
+        rows.append({"corpus": corpus, "part": part, **_counts(d),
+                     "hours": d.duration_sec.sum() / 3600, "age known": int(d.age.notna().sum())})
+    cols = ["corpus", "part", "recordings", "patients", "hours", "age known", "normal", "abnormal", "no label",
+            "all 23 channels", "only T1/T2 missing", "other channels missing"]
+    return pd.DataFrame(rows)[cols]
+
+
+def cohort_flow(t: pd.DataFrame, cohort_manifest: dict, tuab_split_json: str) -> pd.DataFrame:
+    """The inclusion flow of one cohort built by ``dataset_maker/make_cohort_dataset.py``,
+    replayed step by step from its recorded parameters (``manifest["cohort"]``)
+    with the builder's own functions, on :func:`tueg_recordings` ``t``. Each
+    row is the set left after the step: :func:`_counts` and the recordings the
+    step removed. The last rows are the cohort's train + val and test; they are
+    checked against the counts in the manifest."""
+    from dataset_maker import make_cohort_dataset as mcd
+    from dataset_maker import tuh_clinical as tc
+    c = cohort_manifest["cohort"]
+    exp = c["experiment"]
+    with open(os.path.join(c["source"], "manifest.json")) as f:
+        converted = {r["stem"] for r in json.load(f)["recordings"]}
+    allowed = {x.upper() for x in c.get("allow_missing") or []}
+    j = t[t.stem.isin(converted)].reset_index(drop=True)
+    steps = [("TUEG recordings (TUH index)", t)]
+    steps.append(("converted to npy (readable EDF, ≥ 60 s)", j))
+    m = j.age.between(c["min_age"], c["max_age"])
+    steps.append((f"age known, {c['min_age']}–{c['max_age']} y", j[m]))
+    m &= j.duration_sec >= 60 * c["min_minutes"]
+    steps.append((f"recording ≥ {c['min_minutes']:g} min", j[m]))
+    m &= j.missing_channels.map(lambda x: {ch.upper() for ch in x} <= allowed)
+    steps.append(("all 23 channels" if not allowed else "all 23 channels, or only " + "/".join(sorted(allowed))
+                  + " missing", j[m]))
+    if exp.startswith("normal"):
+        m &= (tc.normative_mask(j) & (j.abnormal.fillna(0).astype(int) != 1)).fillna(False).astype(bool)
+        steps.append(("normal only: report-normal, no neurological diagnosis, not sedated", j[m]))
+    pool, test = mcd.select(j, exp, min_age=c["min_age"], max_age=c["max_age"], min_minutes=c["min_minutes"],
+                            allow_missing=c.get("allow_missing") or ())
+    assert pool.equals(m), "replayed pool differs from make_cohort_dataset.select"
+    tuab_split = mcd.tuab_subject_split(tuab_split_json)
+    patient_split = None
+    if c.get("patient_split"):
+        with open(c["patient_split"]) as f:
+            patient_split = json.load(f)["subjects"]
+    split = mcd.assign_splits(j, pool, test, exp, tuab_split, val_fraction=c["val_fraction"], seed=c["seed"],
+                              patient_split=patient_split)
+    trval = split.isin(["train", "val"])
+    steps.append(("without TUAB patients (TUEG only)" if exp == "normal_tueg"
+                  else "without recordings of TUAB-test patients", j[trval]))
+    split = mcd.cap_per_subject(j, split, c["max_per_subject"], c["seed"])
+    steps.append((f"≤ {c['max_per_subject']} recordings per patient = train + val", j[split.isin(['train', 'val'])]))
+    steps.append(("test: TUAB eval recordings with a known age", j[split == "test"]))
+    rows, prev = [], None
+    for name, d in steps:
+        r = {"step": name, **_counts(d)}
+        r["removed"] = (prev - len(d)) if prev is not None and not name.startswith("test") else None
+        prev = len(d) if not name.startswith("test") else prev
+        rows.append(r)
+    counts = c["counts"]
+    want_trval = counts["train"]["n_recordings"] + counts["val"]["n_recordings"]
+    assert rows[-2]["recordings"] == want_trval, (rows[-2]["recordings"], want_trval)
+    assert rows[-1]["recordings"] == counts["test"]["n_recordings"]
+    return pd.DataFrame(rows)
+
+
+def tuab_flow(t: pd.DataFrame, age_split_json: str) -> pd.DataFrame:
+    """The inclusion flow of the phase-1 TUAB dataset (``data/age_splits.py``):
+    TUAB recordings -> known age -> all 23 channels (``make_TUAB.py`` drops
+    recordings missing any) -> TUAB's train split, divided patient-disjointly
+    into train and val, and TUAB's eval split as test. Rows as in
+    :func:`cohort_flow`; the final splits are checked against ``age_split.json``."""
+    with open(age_split_json) as f:
+        files = json.load(f)["files"]
+    stems = {s: {os.path.basename(x).rsplit("_", 1)[0] for x in v} for s, v in files.items()}
+    d = t[t.corpora.str.split(",").map(lambda cs: "tuab" in cs)]
+    steps = [("TUAB recordings (TUH index)", d)]
+    d = d[d.age.notna()]
+    steps.append(("age known (1–89 y; 90+ redacted)", d))
+    d = d[d.missing_channels.map(len) == 0]
+    steps.append(("all 23 channels", d))
+    steps.append(("TUAB train split = train + val", d[d.source_split == "train"]))
+    steps.append(("  of which train", d[d.stem.isin(stems["train"])]))
+    steps.append(("  of which val (patient-disjoint, seeded)", d[d.stem.isin(stems["val"])]))
+    steps.append(("test: TUAB eval split", d[d.source_split == "eval"]))
+    rows, prev = [], None
+    for k, (name, x) in enumerate(steps):
+        r = {"step": name, **_counts(x)}
+        r["removed"] = prev - len(x) if prev is not None and k <= 2 else None   # later rows split, not remove
+        prev = len(x) if k <= 2 else prev
+        rows.append(r)
+    out = pd.DataFrame(rows)
+    assert list(out.recordings[4:]) == [len(stems["train"]), len(stems["val"]), len(stems["test"])]
+    return out
+
+
+def raw_summary(t: pd.DataFrame, converted: Iterable[str], cohort: pd.DataFrame) -> pd.DataFrame:
+    """Raw data by corpus part and status, and what one cohort keeps of it.
+
+    Rows: TUAB train, TUAB eval (test) and TUEG recordings not in TUAB, each
+    split by status (Eq. (1.2)) with a subtotal, and the total (every TUEG
+    recording once). ``converted`` are the stems of the npy export (readable
+    EDF, at least 60 s); ``cohort`` is the cohort's ``cohort.parquet``
+    (``stem``, ``split``). Columns: patients and recordings; the recordings
+    left after "readable EDF, >= 60 s" and then "age known"; how many selected
+    recordings lack only T1/T2; selected recordings and patients; removed
+    recordings (= recordings - selected)."""
+    converted = set(converted)
+    selected = set(cohort.stem)
+    corp = t.corpora.str.split(",")
+    tuab = corp.map(lambda cs: "tuab" in cs)
+    parts = [("TUAB train", tuab & (t.source_split == "train"), ("normal", "abnormal")),
+             ("TUAB eval (test)", tuab & (t.source_split == "eval"), ("normal", "abnormal")),
+             ("TUEG (not in TUAB)", ~tuab, STATUS)]
+
+    def row(part, status, d):
+        sel = d[d.stem.isin(selected)]
+        ok = d.stem.isin(converted)
+        t1t2 = sel.missing_channels.map(_missing_kind) == "only T1/T2 missing"
+        return {"part": part, "status": status, "patients": d.subject.nunique(), "recordings": len(d),
+                "readable EDF, ≥ 60 s": int(ok.sum()), "age known": int((ok & d.age.notna()).sum()),
+                "T1/T2 missing (selected)": int(t1t2.sum()), "selected recordings": len(sel),
+                "selected patients": sel.subject.nunique(), "removed": len(d) - len(sel)}
+
+    rows = []
+    for part, mask, statuses in parts:
+        d = t[mask]
+        rows += [row(part, s, d[d.status == s]) for s in statuses]
+        rows.append(row(part, "all", d))
+    rows.append(row("TOTAL", "", t))
+    return pd.DataFrame(rows)
+
+
+REMOVAL_REASONS = (
+    "EDF shorter than 60 s (not converted)",
+    "EDF unreadable (not converted)",
+    "age unknown (missing, or 90+ redacted)",
+    "age outside the cohort's range",
+    "recording shorter than the minimum length",
+    "channels other than the allowed ones missing",
+    "patient is in the TUAB test set",
+    "over the per-patient cap",
+)
+
+
+def removal_reasons(t: pd.DataFrame, converted: Iterable[str], cohort: pd.DataFrame, cohort_manifest: dict,
+                    tuab_split_json: str) -> pd.DataFrame:
+    """Why each raw recording is not in ``cohort``: every recording counts once,
+    under the first rule of :data:`REMOVAL_REASONS` it fails, in the order
+    ``dataset_maker/make_cohort_dataset.py`` applies them (thresholds from
+    ``cohort_manifest["cohort"]``). A dropped recording that passes every rule
+    was dropped by the per-patient cap. Rows: the reasons, ``selected`` and
+    ``raw``; columns: recordings and patients for TUAB train, TUAB eval (test),
+    TUEG (not in TUAB) and the total. The removed counts match
+    :func:`raw_summary`."""
+    from dataset_maker import make_cohort_dataset as mcd
+    c = cohort_manifest["cohort"]
+    converted, selected = set(converted), set(cohort.stem)
+    allowed = {x.upper() for x in c.get("allow_missing") or []}
+    test_patients = {s for s, v in mcd.tuab_subject_split(tuab_split_json).items() if v == "test"}
+
+    def reason(r):
+        if r.stem in selected:
+            return "selected"
+        if r.stem not in converted:
+            return REMOVAL_REASONS[0] if r.duration_sec < 60 else REMOVAL_REASONS[1]
+        if pd.isna(r.age):
+            return REMOVAL_REASONS[2]
+        if not c["min_age"] <= r.age <= c["max_age"]:
+            return REMOVAL_REASONS[3]
+        if r.duration_sec < 60 * c["min_minutes"]:
+            return REMOVAL_REASONS[4]
+        if not {x.upper() for x in r.missing_channels} <= allowed:
+            return REMOVAL_REASONS[5]
+        if r.subject in test_patients:
+            return REMOVAL_REASONS[6]
+        return REMOVAL_REASONS[7]
+
+    why = t.apply(reason, axis=1)
+    corp = t.corpora.str.split(",").map(lambda cs: "tuab" in cs)
+    parts = {"TUAB train": corp & (t.source_split == "train"), "TUAB eval (test)": corp & (t.source_split == "eval"),
+             "TUEG (not in TUAB)": ~corp, "TOTAL": pd.Series(True, index=t.index)}
+    order = list(REMOVAL_REASONS) + ["selected", "raw"]
+    out = {}
+    for part, m in parts.items():
+        d = t[m].assign(why=why[m])
+        g = d.groupby("why").agg(recordings=("stem", "size"), patients=("subject", "nunique"))
+        g.loc["raw"] = [len(d), d.subject.nunique()]
+        out[part] = g.reindex(order).fillna(0).astype(int)
+    res = pd.concat(out, axis=1).rename_axis("reason")
+    removed = res.loc[list(REMOVAL_REASONS), (slice(None), "recordings")].sum()
+    kept = res.loc["selected", (slice(None), "recordings")]
+    assert (removed + kept == res.loc["raw", (slice(None), "recordings")]).all()
+    return res
+
+
+def split_sizes(age_split_json: str) -> Dict[str, int]:
+    """Recordings per split (train / val / test) of a dataset's
+    ``age_split.json``, whose entries are window files
+    ``<split>/<recording stem>_<k>.pkl``."""
+    with open(age_split_json) as f:
+        files = json.load(f)["files"]
+    return {s: len({os.path.basename(x).rsplit("_", 1)[0] for x in files.get(s, [])})
+            for s in ("train", "val", "test")}
+
+
+def flags_per_recording(t: pd.DataFrame) -> pd.DataFrame:
+    """How many of the clinical sheet's 15 diagnosis flags each TUEG recording
+    in the sheet carries (they are multi-hot: independent Y/N columns), with the
+    recordings and their normal / abnormal status (Eq. (1.2)) per count."""
+    from dataset_maker import tuh_clinical as tc
+    s = t[t.in_sheet]
+    k = s[list(tc.DIAGNOSES.values())].fillna(False).astype(bool).sum(axis=1)
+    out = pd.DataFrame({"recordings": k.value_counts(),
+                        "normal": k[s.status == "normal"].value_counts(),
+                        "abnormal": k[s.status == "abnormal"].value_counts()}).fillna(0).astype(int).sort_index()
+    out["% of sheet"] = 100.0 * out.recordings / len(s)
+    return out.rename_axis("diagnosis flags per recording")
+
+
+#: Short names of the clinical sheet's diagnosis flags, for matrix axes.
+FLAG_SHORT = {
+    "dx_electrographic_seizure": "el. seizure", "dx_clinical_seizure": "cl. seizure", "dx_stroke": "stroke",
+    "dx_epilepsy": "epilepsy", "dx_parkinsons": "Parkinson's", "dx_alzheimers": "Alzheimer's", "dx_tbi": "TBI",
+    "dx_schizophrenia": "schizophrenia", "dx_dementia": "dementia", "dx_substance": "substance",
+    "dx_anxiety": "anxiety", "dx_depression": "depression", "dx_bipolar": "bipolar", "dx_adhd": "ADHD",
+    "dx_ms": "MS",
+}
+
+
+def flag_matrix(t: pd.DataFrame) -> pd.DataFrame:
+    """Pairwise co-occurrence over the TUEG recordings in the clinical sheet:
+    entry (a, b) is the number of recordings that carry both a and b, for the
+    status (normal / abnormal, Eq. (1.2)) and the 15 diagnosis flags (most
+    frequent first). The diagonal is each item's total."""
+    s = t[t.in_sheet]
+    items = {"normal": s.status == "normal", "abnormal": s.status == "abnormal"}
+    flags = {FLAG_SHORT[c]: s[c].fillna(False).astype(bool) for c in FLAG_SHORT}
+    items.update(dict(sorted(flags.items(), key=lambda kv: -int(kv[1].sum()))))
+    x = pd.DataFrame(items).astype(int)
+    return x.T.dot(x)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 short list: one row per distinct configuration, relative to D
+
+#: What each phase-1 configuration changes relative to D (``finetune_tuab_age.json``).
+#: "4/1 ep" = E2's schedule (4 epochs, 1 warmup) instead of D's 15 / 2.
+CHANGE_VS_D: Dict[str, str] = {
+    "A": "no CAR; scored on whole recordings", "B": "no CAR", "D": "— (reference)",
+    "E2": "4/1 ep", "L1": "mixup 0.4 + EMA eval, 12 ep / 2 warmup",
+    "C2": "no CAR + layer decay 0.5, drop path 0.2, dropout 0.1, wd 0.1, clip 1",
+    "DX3": "C2's regularizer bundle (with CAR)", "F1": "4/1 ep + layer decay 0.5", "F2": "4/1 ep + dropout 0.1",
+    "F3": "4/1 ep + drop path 0.2", "F4": "4/1 ep + weight decay 0.1", "G1": "4/1 ep + head init scale 1.0",
+    "H1": "4/1 ep + layer decay 0.75", "H2": "4/1 ep + layer decay 0.85",
+    "C2-head": "C2, only the head trained", "C2-last": "C2, only the last block + head trained",
+    "M3": "4/1 ep + LoRA r16 instead of full fine-tuning (lr 1e-3, ld 1.0)",
+    "M1": "4/1 ep + mixup 0.4", "M1c": "4/1 ep + C-Mixup (σ 5 y)", "M2": "4/1 ep + EMA eval",
+    "M12": "4/1 ep + mixup 0.4 + EMA eval", "D2": "no CAR + L1 loss", "DX2": "Huber δ 2",
+    "M4": "4/1 ep + soft labels (σ 2.5 y)", "B1": "4/1 ep + age-balanced loss (sqrt-inverse)",
+    "B2": "4/1 ep + age-balanced loss (inverse)", "DX1": "codebook amplitude reconstruction (w 1)",
+    "DX4": "codebook quantization term (w 1)", "DX4b": "codebook quantization term (w 50)",
+    "C": "no CAR + 30 s windows", "D-clip1": "gradient clipping 1.0", "E1": "random crop",
+    "E1c": "random crop + clipping 1.0", "E2c": "4/1 ep + clipping 1.0", "D-cls": "class token instead of mean pooling",
+    "D-clsmean": "[mean; class token] concatenated", "N2L": "mixup 0.4 + clip 1 + attention head, 12 ep / 4 warmup",
+    "MT1": "4/1 ep + mixup 0.4 + age/abnormal multi-task head", "S1": "no pretrained weights, layer decay 1.0",
+    "S2": "no pretrained weights, 6 blocks + MLP head, mixup, tuned",
+    "S3": "S2 + label-preserving augmentation + ±800 µV clip",
+}
+#: Runs that reproduce another run with the same configuration on a different
+#: data format / scoring path and the same results: merged into that run's row.
+PHASE1_SAME_RESULT = {"D": ("D-npy", "D-cohorts")}
+#: Seed repeats of one configuration: averaged into one row.
+PHASE1_SEEDS = {"MT1": ("MT1-seed1",), "S2": ("S2-seed1",)}
+
+
+def phase1_short_list(reg: pd.DataFrame, tau: float) -> pd.DataFrame:
+    """Phase 1 as one row per distinct configuration (``registry_master_table``):
+    runs of :data:`PHASE1_SAME_RESULT` merged into their reference (cohort
+    metrics taken from whichever copy has them), seed repeats of
+    :data:`PHASE1_SEEDS` averaged. Columns: family, what changes relative to D,
+    val / test MAE with their difference to D, Norm / Ab test MAE, β, the
+    selected / total epochs, the merged runs, and whether |Δ test| exceeds the
+    single-run noise threshold ``tau`` (Eq. (5.2))."""
+    r = reg.set_index("run")
+    metrics = ["val", "test", "test_normal", "test_abnormal", "beta", "best_epoch", "epochs"]
+    rows, used = [], set()
+    for run in r.index:
+        if run in used:
+            continue
+        group = [run, *PHASE1_SAME_RESULT.get(run, ()), *PHASE1_SEEDS.get(run, ())]
+        used.update(group)
+        g = r.loc[list(group), metrics]
+        if run in PHASE1_SAME_RESULT:
+            v = g.loc[run].copy()
+            for c in ("test_normal", "test_abnormal"):
+                v[c] = g[c].dropna().iloc[0] if g[c].notna().any() else np.nan
+        else:
+            v = g.mean()
+        merged = (f"= {', '.join(PHASE1_SAME_RESULT[run])} (same results)" if run in PHASE1_SAME_RESULT else
+                  f"mean of {len(group)} seeds ({', '.join(group)})" if run in PHASE1_SEEDS else "")
+        rows.append({"config": run, "family": r.loc[run, "family"], "change vs D": CHANGE_VS_D.get(run, "?"),
+                     "val": v.val, "Δ val": v.val - r.loc["D", "val"], "test": v.test,
+                     "Δ test": v.test - r.loc["D", "test"], "Norm": v.test_normal, "Ab": v.test_abnormal,
+                     "β": v.beta, "e*/E": f"{v.best_epoch:.0f}/{v.epochs:.0f}", "runs": merged})
+    out = pd.DataFrame(rows)
+    d = out["Δ test"]
+    out["vs D"] = np.where(d <= -tau, "better", np.where(d >= tau, "worse", "n.s."))
+    out.loc[out.config == "D", "vs D"] = "reference"
+    return out
+
+
+def reeval_short_list(metrics: pd.DataFrame, checks: pd.DataFrame, reg: pd.DataFrame) -> pd.DataFrame:
+    """The eval-mode re-scoring of the phase-1 runs (``scripts/eval_runs.py``,
+    ``docs/data/phase1_reeval_*.csv``) as one row per configuration, merged like
+    :func:`phase1_short_list`: the runs of :data:`PHASE1_SAME_RESULT` and the seed
+    repeats of :data:`PHASE1_SEEDS` are averaged. Columns: MAE and R² on train
+    (the run's own 5-minute evaluation budget per recording), on train over all
+    windows (MAE), val and test, test MAE / R² on normal and abnormal recordings,
+    the generalization gap test − train, and whether every split of every
+    merged run matched its recorded ``data_split.json``."""
+    def val(run, split, cohort, col):
+        s = metrics[(metrics.run == run) & (metrics.split == split) & (metrics.cohort == cohort)]
+        return float(s[col].iloc[0]) if len(s) else np.nan
+
+    rows, used = [], set()
+    for run in reg.run:
+        if run in used:
+            continue
+        group = [run, *PHASE1_SAME_RESULT.get(run, ()), *PHASE1_SEEDS.get(run, ())]
+        used.update(group)
+        mean = lambda *a: float(np.nanmean([val(g, *a) for g in group]))   # noqa: E731
+        rows.append({
+            "config": run, "family": reg.set_index("run").loc[run, "family"],
+            "train MAE": mean("train_eval_budget", "all", "MAE"), "train R²": mean("train_eval_budget", "all", "R2"),
+            "train MAE (all windows)": mean("train", "all", "MAE"),
+            "val MAE": mean("val", "all", "MAE"), "val R²": mean("val", "all", "R2"),
+            "test MAE": mean("test", "all", "MAE"), "test R²": mean("test", "all", "R2"),
+            "test Norm MAE": mean("test", "normal", "MAE"), "test Norm R²": mean("test", "normal", "R2"),
+            "test Ab MAE": mean("test", "abnormal", "MAE"), "test Ab R²": mean("test", "abnormal", "R2"),
+            "split = recorded": "✓" if bool(checks[checks.run.isin(group)].identical.all())
+            and checks.run.isin(group).sum() == 3 * len(group) else "✗",
+            "runs": len(group)})
+    out = pd.DataFrame(rows)
+    out.insert(out.columns.get_loc("split = recorded"), "gap (test − train)", out["test MAE"] - out["train MAE"])
+    return out

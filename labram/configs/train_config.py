@@ -197,6 +197,12 @@ class EvaluationConfig(ConfigBase):
     # Score val/test (and select the best epoch) with the EMA weights instead
     # of the raw ones. Requires ``optimizer.model_ema``.
     use_ema: bool = False
+    # Metric that selects the best epoch (and drives early stopping), e.g.
+    # "pathology_macro_roc_auc" for a classification-only multi-task run;
+    # "" = the task default (accuracy / MAE). select_mode: "max", "min" or
+    # "auto" (min for the error metrics and losses, max otherwise).
+    select_metric: str = ""
+    select_mode: str = "auto"
 
 
 @dataclass
@@ -263,6 +269,9 @@ class ChannelDropConfig(ConfigBase):
       eval mode).
     * ``eval_consistency``: val/test also report the consistency and the MAE
       with a drop drawn by the same rule (seeded per batch).
+    * ``start_epoch``: the augmentation (random drop) starts at this epoch
+      (0-based); earlier epochs train on every present channel. Missing
+      channels are left out from the first epoch either way.
     """
     enabled: bool = False
     channels: List[str] = field(default_factory=list)
@@ -272,6 +281,7 @@ class ChannelDropConfig(ConfigBase):
     consistency_weight: float = 1.0
     detach_full: bool = True
     eval_consistency: bool = True
+    start_epoch: int = 0
 
 
 @dataclass

@@ -105,6 +105,8 @@ def load_age_run(run_dir: str, data_path: str, checkpoint: str = "checkpoint-bes
 
     cfg, bundle = load_age_bundle(run_dir, data_path)
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
+    from labram.data.window_selection import resolve_multitask_class_names
+    resolve_multitask_class_names(cfg, data_path)
     to_scalar = None
     if cfg.loss.regression_loss == "soft_label":
         cfg.model.nb_classes = soft_label_n_bins(cfg.loss)

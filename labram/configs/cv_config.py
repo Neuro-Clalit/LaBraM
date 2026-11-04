@@ -24,6 +24,7 @@ from labram.configs.defaults import (
     DEFAULT_CV_SHUFFLE,
     DEFAULT_CV_SPLIT_BY,
     DEFAULT_CV_SPLIT_JSON,
+    DEFAULT_CV_TEST_SET,
 )
 
 
@@ -45,6 +46,11 @@ class CrossValidationConfig(ConfigBase):
         pool: Which data is re-partitioned — ``train_val`` (keep the original
             test set untouched, cross-validate over train+val) or ``all``
             (pool train+val+test).
+        test_set: ``fold`` (default): fold k is the test set, fold (k+1)%K the
+            validation set and the remaining K-2 folds train. ``held_out``: fold
+            k is the validation set, the other K-1 folds train, and the original
+            test split (left out by ``pool='train_val'``) is every fold's test
+            set, so no data is spent on an in-pool test fold.
         split_json: Path (local or s3://) to a precomputed ``cv_split.json`` to
             reuse. Empty -> compute the folds from (split_by, seed, shuffle).
         base_dir: Base experiment/output folder for the per-fold sub-runs.
@@ -59,6 +65,7 @@ class CrossValidationConfig(ConfigBase):
     shuffle: bool = DEFAULT_CV_SHUFFLE
     seed: int = DEFAULT_CV_SEED
     pool: str = DEFAULT_CV_POOL
+    test_set: str = DEFAULT_CV_TEST_SET
     split_json: str = DEFAULT_CV_SPLIT_JSON
     base_dir: str = DEFAULT_CV_BASE_DIR
 
@@ -78,3 +85,10 @@ class CrossValidationConfig(ConfigBase):
         if self.pool not in ('train_val', 'all'):
             raise ValueError(
                 f"cross_validation.pool must be train_val|all, got {self.pool!r}")
+        if self.test_set not in ('fold', 'held_out'):
+            raise ValueError(
+                f"cross_validation.test_set must be fold|held_out, got {self.test_set!r}")
+        if self.test_set == 'held_out' and self.pool != 'train_val':
+            raise ValueError(
+                "cross_validation.test_set=held_out needs pool=train_val: the held-out "
+                "test split must stay out of the folds")

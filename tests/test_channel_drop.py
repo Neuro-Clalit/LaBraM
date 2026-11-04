@@ -149,3 +149,35 @@ def test_run_finetune_with_channel_drop_end_to_end(tmp_path):
     val = summary["best_val_stats"]
     assert "channel_drop_consistency" in summary["best_train_stats"]
     assert "channel_drop_window_mae" in val and "channel_drop_consistency" in val
+
+
+@pytest.mark.parametrize("start_epoch, dropped", [(0, True), (1, False)])
+def test_random_drop_starts_at_start_epoch(tmp_path, monkeypatch, start_epoch, dropped):
+    """channel_drop.start_epoch: with prob 1, epoch 0 drops channels only when
+    the augmentation already started; missing channels are handled either way."""
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    from labram.train import train_finetune
+    from test_window_qc import _corpus
+    seen = []
+    real = train_finetune.train_channel_drop_batch
+
+    def spy(model, samples, target, criterion, dropper, drop_all, **kw):
+        seen.append(drop_all)
+        return real(model, samples, target, criterion, dropper, drop_all, **kw)
+
+    monkeypatch.setattr(train_finetune, "train_channel_drop_batch", spy)
+    root = _corpus(tmp_path / "data")
+    out = tmp_path / "out"
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy",
+           "data.trim_start_sec": 0.0, "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0,
+           "data.num_workers": 0, "trainer.debug": True, "trainer.epochs": 1,
+           "distributed.device": "cpu", "finetune_checkpoint.finetune": "",
+           "clearml.enabled": False, "output.output_dir": str(out), "output.log_dir": str(out),
+           "channel_drop.enabled": True, "channel_drop.channels": [],
+           "channel_drop.min_drop": 1, "channel_drop.max_drop": 3, "channel_drop.prob": 1.0,
+           "channel_drop.start_epoch": start_epoch, "logging.log_model_graph": False})
+    run_finetune.main(cfg)
+    assert seen and all(d is dropped for d in seen)

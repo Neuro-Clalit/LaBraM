@@ -1,0 +1,5 @@
+setup,train recordings,test recordings,train ∩ test recordings,mean,std,"mean, test ages +shift","std, test ages +shift",= train windows' own stats,test targets moved by,normalization uses test ages
+phase 1: TUAB (D recipe),2145,274,0,48.87591662228645,17.822904511055444,48.87591662228645,17.822904511055444,True,40.0,no
+phase 2: cohort all_both_v3 (Exp4*),25613,274,0,52.34165867472678,17.585889656305174,52.34165867472678,17.585889656305174,True,40.0,no
+"phase 3: CV fold 0, test = fold (cvbase/cvctrl/cvaug)",17607,5663,0,52.48781807177334,17.282957770923442,52.48781807177334,17.282957770923442,True,40.0,no
+"phase 3: CV fold 0, test = TUAB held out (cvaugval)",23372,274,0,52.74232106918648,17.448427236159958,52.74232106918648,17.448427236159958,True,40.0,no

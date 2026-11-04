@@ -63,6 +63,8 @@ def main(argv=None):
     p.add_argument("--spot-slots", type=int, default=10)
     p.add_argument("--ondemand-slots", type=int, default=4)
     p.add_argument("--spot-wait-h", type=float, default=5.0)
+    p.add_argument("--first-mode", choices=("spot", "ondemand"), default="spot",
+                   help="mode of a fold's first attempt (ondemand: never use spot)")
     p.add_argument("--poll", type=int, default=300)
     p.add_argument("--state", default="/data/datasets/EEG-public/TUH_EEG/_state/cohort_runs/cv_scheduler_state.json")
     p.add_argument("--python", default=sys.executable)
@@ -120,7 +122,7 @@ def main(argv=None):
         for key, item in state.items():
             att = item["attempts"][-1] if item["attempts"] else None
             if att is None:
-                pending.append((key, "spot"))
+                pending.append((key, args.first_mode))
             elif att["status"] in ("Failed", "Stopped"):
                 n_od = sum(1 for a in item["attempts"] if a["mode"] == "ondemand")
                 if n_od < 2:
