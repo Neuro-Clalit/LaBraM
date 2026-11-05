@@ -125,6 +125,13 @@ pre-training already apply the linear rule (`lr x B / 128`).
 
 ## 4. Practical notes
 
+- **NCCL on ml.g5.12xlarge (4 × A10G over PCIe): the first real-GPU run hung.** In E2P (2026-11-05) all four
+  ranks initialised NCCL, then the first collective (a 1-element all-reduce) ran into the 10-minute watchdog
+  timeout. NCCL's peer-to-peer path over PCIe is a known cause of such hangs inside VMs. The next attempt
+  should set `NCCL_P2P_DISABLE=1` (e.g. `sagemaker.environment`) and a short `NCCL_TIMEOUT`-style smoke job
+  before a long run. The `aws-ofi-nccl` "initialization failed" warnings are harmless on one node (no EFA).
+  Not yet verified.
+
 - **Data loading** is per process: `data.num_workers` workers per GPU. On a
   48-vCPU g5.12xlarge with 4 GPUs, 6–10 workers each is a sensible range.
 - **SageMaker.** Multi-GPU instances: ml.g5.12xlarge / g5.24xlarge (4 × A10G),
