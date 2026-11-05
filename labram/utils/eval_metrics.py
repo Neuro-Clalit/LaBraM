@@ -246,18 +246,18 @@ def aggregate_windows(
     target = np.asarray(target)
     groups = list(groups)
 
-    # Preserve first-appearance order of case ids.
-    order: List = []
-    seen = set()
-    for g in groups:
-        if g not in seen:
-            seen.add(g)
-            order.append(g)
-    idx_by_group = {g: [i for i, gg in enumerate(groups) if gg == g] for g in order}
+    # Window indices per case in one pass (dicts keep first-appearance order).
+    # A per-case scan of all windows was O(windows x cases): ~2.5 min per call
+    # for 314k windows / 10.6k recordings.
+    idx_by_group: Dict = {}
+    for i, g in enumerate(groups):
+        idx_by_group.setdefault(g, []).append(i)
+    order: List = list(idx_by_group)
 
     # A regression prediction pools exactly like a binary score: one scalar per
     # window, averaged (or median/max) per case, with the case's constant target.
     if is_binary or is_regression:
+        tgt_flat = target.ravel()
         scores = output.astype(float).ravel()
         ent = prediction_entropy(scores, is_binary=True) if mode == 'entropy' else None
         out_rows = []
@@ -277,7 +277,7 @@ def aggregate_windows(
             else:  # vote
                 agg = float(((s >= threshold).mean() >= 0.5))
             out_rows.append(agg)
-            tgt_rows.append(float(np.asarray(target).ravel()[idx][0]))
+            tgt_rows.append(float(tgt_flat[idx[0]]))
         return np.array(out_rows).reshape(-1, 1), np.array(tgt_rows).reshape(-1, 1)
 
     # multiclass: output are logits

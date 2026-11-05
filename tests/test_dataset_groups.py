@@ -157,3 +157,37 @@ def test_run_finetune_reports_every_split_per_dataset_and_cohort(tmp_path):
     assert summary["best_train_eval_stats"]["temple_n_cases"] == 2      # 2 of 3 per dataset
     assert "harvard_normal_mae" not in summary["best_val_stats"]       # 1 case per cohort
     assert {"normal_mae", "abnormal_mae"} <= set(summary["best_test_stats"])
+
+
+def test_train_eval_every_and_eval_batch_size(tmp_path, monkeypatch):
+    """evaluation.train_eval_every=2 over 3 epochs scores train_eval after epochs
+    2 and 3 only; evaluation.eval_batch_size sets the eval loaders' batch."""
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    dg._CACHE.clear()
+    root = _mixed_corpus(tmp_path)
+    calls, batch = [], {}
+    real = tf.evaluate
+
+    def spy(data_loader, *a, **k):
+        calls.append((k.get("header"), k.get("epoch")))
+        batch[k.get("header")] = data_loader.batch_size
+        return real(data_loader, *a, **k)
+    monkeypatch.setattr(tf, "evaluate", spy)
+    out = tmp_path / "out"
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy",
+           "data.trim_start_sec": 0.0, "data.trim_end_sec": 0.0, "data.eval_minutes": 0.5,
+           "data.num_workers": 0, "data.stage_dir": "none", "trainer.batch_size": 4,
+           "trainer.epochs": 3, "optimizer.warmup_epochs": 0,
+           "evaluation.train_eval_recordings": 2, "evaluation.train_eval_every": 2,
+           "evaluation.eval_batch_size": 5,
+           "distributed.device": "cpu", "finetune_checkpoint.finetune": "",
+           "clearml.enabled": False, "output.output_dir": str(out), "output.log_dir": str(out),
+           "logging.log_model_graph": False})
+    summary = run_finetune.main(cfg)
+    assert [e for h, e in calls if h == "TrainEval:"] == [1, 2]
+    assert len([e for h, e in calls if h == "Val:"]) == 3
+    assert batch["Val:"] == 5 and batch["TrainEval:"] == 5
+    assert summary["last_train_eval_stats"]

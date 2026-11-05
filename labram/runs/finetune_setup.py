@@ -130,7 +130,8 @@ def build_train_eval_loader(dataset_train, eval_cfg, data_cfg, batch_size: int, 
                else torch.utils.data.SequentialSampler(subset))
     return torch.utils.data.DataLoader(
         subset, sampler=sampler,
-        batch_size=int(1.5 * batch_size), num_workers=num_workers,
+        batch_size=int(getattr(eval_cfg, 'eval_batch_size', 0) or 0) or int(1.5 * batch_size),
+        num_workers=num_workers,
         pin_memory=pin_memory, drop_last=False)
 
 
@@ -160,8 +161,9 @@ def build_samplers(dataset_train, dataset_val, dataset_test, num_tasks: int, glo
 
 def build_dataloaders(dataset_train, dataset_val, dataset_test,
                       sampler_train, sampler_val, sampler_test,
-                      batch_size: int, num_workers: int, pin_memory: bool) -> DataLoaders:
-    eval_batch_size = int(1.5 * batch_size)
+                      batch_size: int, num_workers: int, pin_memory: bool,
+                      eval_batch_size: int = 0) -> DataLoaders:
+    eval_batch_size = int(eval_batch_size) or int(1.5 * batch_size)
 
     train_loader = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,

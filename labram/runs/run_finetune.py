@@ -290,6 +290,7 @@ def main(config: FinetuneRunConfig, bundle=None):
         batch_size=config.trainer.batch_size,
         num_workers=config.data.num_workers,
         pin_memory=pin_memory,
+        eval_batch_size=config.evaluation.eval_batch_size,
     )
     if not config.trainer.eval and dataset_val is not None:
         # Training recordings scored like val/test (per dataset and cohort).

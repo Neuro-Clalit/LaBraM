@@ -214,6 +214,10 @@ class EvaluationConfig(ConfigBase):
     # ``train_eval``: up to this many recordings per dataset, each with its
     # first ``data.eval_minutes`` of listed training windows. 0 = off.
     train_eval_recordings: int = 500
+    # Score train_eval only every this many epochs (and always on the last).
+    train_eval_every: int = 1
+    # Batch size of the val / test / train_eval loaders; 0 = 1.5 x trainer.batch_size.
+    eval_batch_size: int = 0
     # Metric that selects the best epoch (and drives early stopping), e.g.
     # "pathology_macro_roc_auc" for a classification-only multi-task run;
     # "" = the task default (accuracy / MAE). select_mode: "max", "min" or

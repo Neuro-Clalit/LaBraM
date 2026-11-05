@@ -1257,7 +1257,9 @@ def train_loop(
                     'test', test_timer.elapsed(), int(test_stats.get('samples_processed', 0)))
                 logger.info(f"Test EEG {select_metric}: {test_stats[select_metric]:.2f}{unit}")
             train_eval_stats, train_eval_timing = {}, {}
-            if train_eval_loader is not None:
+            every = max(1, int(getattr(config.evaluation, 'train_eval_every', 1) or 1))
+            if train_eval_loader is not None and (
+                    (epoch + 1) % every == 0 or epoch + 1 == config.trainer.epochs):
                 # A fixed sample of training recordings, scored like val/test.
                 train_eval_timer = utils.PhaseTimer(device)
                 train_eval_stats = evaluate(
@@ -1289,7 +1291,8 @@ def train_loop(
                 best_val_stats = dict(val_stats)
                 best_test_stats = dict(test_stats)
                 best_train_stats = dict(train_stats)
-                best_train_eval_stats = dict(train_eval_stats)
+                if train_eval_stats:      # skipped epochs keep the last scored one
+                    best_train_eval_stats = dict(train_eval_stats)
             logger.info(f'Best {select_metric} val: {best_val:.2f}{unit}, '
                         f'test: {best_test:.2f}{unit}')
 
@@ -1300,7 +1303,8 @@ def train_loop(
                 if train_eval_stats:
                     _log_eval_stats(log_writer, train_eval_stats, head="train_eval", epoch=epoch)
             last_val_stats, last_test_stats = dict(val_stats), dict(test_stats)
-            last_train_eval_stats = dict(train_eval_stats)
+            if train_eval_stats:
+                last_train_eval_stats = dict(train_eval_stats)
             val_history.append(float(val_stats[select_metric]))
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},

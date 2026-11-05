@@ -285,6 +285,8 @@
         "use_ema": false,
         "per_dataset_metrics": true,
         "train_eval_recordings": 500,
+        "train_eval_every": 1,
+        "eval_batch_size": 0,
         "select_metric": "",
         "select_mode": "auto"
     },
