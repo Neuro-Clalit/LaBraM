@@ -66,12 +66,13 @@ LINE_REMOVAL = (NOTCH60, FIT60, INTERP60)
 NO_LINE = (BANDPASS_ONLY, INTERP50, INTERP_BOTH)
 
 
-def load_segment(edf_path: str, start_sec: float = 60.0, dur_sec: float = 120.0):
+def load_segment(edf_path: str, start_sec: float = 60.0, dur_sec: float = 120.0, canonical=None):
     """The 23 TUH channels (those present) of ``[start, start + dur)``, raw, in
-    their native sampling rate; µV via ``get_data(units='uV')`` downstream."""
+    their native sampling rate; µV via ``get_data(units='uV')`` downstream.
+    ``canonical`` maps EDF labels to TUH names (``tuh_metadata.channel_map``)."""
     import mne
     raw = mne.io.read_raw_edf(edf_path, preload=False, verbose="error")
-    present = channel_map(raw.ch_names)
+    present = channel_map(raw.ch_names, canonical)
     raw.pick([present[c] for c in TUH_CHANNELS if c in present])
     tmax = min(start_sec + dur_sec, raw.times[-1])
     tmin = max(0.0, min(start_sec, tmax - dur_sec))
@@ -147,20 +148,20 @@ def amplitude_stats(x_uv: np.ndarray, phys_max: float, fs: float) -> Dict[str, f
 
 
 def analyze_recording(edf_path: str, *, start_sec: float = 60.0, dur_sec: float = 120.0,
-                      protocols: Sequence[Protocol] = PROTOCOLS + LINE_REMOVAL[1:] + NO_LINE
-                      ) -> Dict[str, object]:
+                      protocols: Sequence[Protocol] = PROTOCOLS + LINE_REMOVAL[1:] + NO_LINE,
+                      canonical=None) -> Dict[str, object]:
     """Every measurement for one recording: raw line prominences, header filter
     and unit fields, amplitude stats, and per protocol the prominences left at
     the output plus the 55-65 Hz power share."""
     hdr = read_edf_signal_header(edf_path)
-    present = channel_map(hdr.labels)
+    present = channel_map(hdr.labels, canonical)
     idx = [hdr.labels.index(present[c]) for c in TUH_CHANNELS if c in present]
     out: Dict[str, object] = {
         "units": ",".join(sorted({hdr.units[i] for i in idx})),
         "prefilter": max((hdr.prefilters[i] for i in idx), key=len, default=""),
         "phys_max": float(np.nanmin([hdr.physical_max[i] for i in idx])),
     }
-    raw = load_segment(edf_path, start_sec, dur_sec)
+    raw = load_segment(edf_path, start_sec, dur_sec, canonical)
     fs = raw.info["sfreq"]
     x = raw.get_data(units="uV")
     out["native_sfreq"] = fs

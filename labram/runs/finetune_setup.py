@@ -101,6 +101,38 @@ class DataLoaders:
     train: torch.utils.data.DataLoader
     val: Optional[torch.utils.data.DataLoader]
     test: Optional[Union[torch.utils.data.DataLoader, List[torch.utils.data.DataLoader]]]
+    # A fixed sample of training recordings scored like val/test each epoch
+    # (``evaluation.train_eval_recordings``); None when off.
+    train_eval: Optional[torch.utils.data.DataLoader] = None
+
+
+def build_train_eval_loader(dataset_train, eval_cfg, data_cfg, batch_size: int, num_workers: int,
+                            pin_memory: bool, seed: int = 0, distributed: bool = False):
+    """The ``train_eval`` loader: up to ``eval_cfg.train_eval_recordings``
+    training recordings per source dataset, each with its first
+    ``data_cfg.eval_minutes`` of listed windows, scored sequentially with
+    per-recording ids. None when disabled or nothing can be selected."""
+    from labram.data.dataset_groups import train_eval_subset
+    n = int(getattr(eval_cfg, 'train_eval_recordings', 0) or 0)
+    if n <= 0 or dataset_train is None:
+        return None
+    windows = max(1, int(getattr(data_cfg, 'eval_minutes', 5.0) * 60
+                         // max(getattr(data_cfg, 'window_sec', 10), 1)))
+    subset = train_eval_subset(dataset_train, n, windows, seed=seed)
+    if subset is None:
+        return None
+    if getattr(eval_cfg, 'agg_windows', 'none') != 'none':
+        enable_window_ids(subset, eval_cfg.agg_case_by)
+    logger.info("train_eval: %d windows from up to %d training recordings per dataset",
+                len(subset), n)
+    # Under DDP each rank scores a shard; evaluate() gathers them back.
+    sampler = (torch.utils.data.DistributedSampler(subset, shuffle=False) if distributed
+               else torch.utils.data.SequentialSampler(subset))
+    return torch.utils.data.DataLoader(
+        subset, sampler=sampler,
+        batch_size=int(getattr(eval_cfg, 'eval_batch_size', 0) or 0) or int(1.5 * batch_size),
+        num_workers=num_workers,
+        pin_memory=pin_memory, drop_last=False)
 
 
 def build_samplers(dataset_train, dataset_val, dataset_test, num_tasks: int, global_rank: int, dist_eval: bool):
@@ -110,19 +142,16 @@ def build_samplers(dataset_train, dataset_val, dataset_test, num_tasks: int, glo
     logger.info("Sampler_train = %s", str(sampler_train))
 
     if dist_eval:
-        if dataset_val is not None and len(dataset_val) % num_tasks != 0:
-            logger.warning(
-                'Enabling distributed evaluation with an eval dataset not divisible by process number. '
-                'This will slightly alter validation results as extra duplicate entries are added to achieve '
-                'equal num of samples per-process.')
-        sampler_val = torch.utils.data.DistributedSampler(
-            dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False)
-        if isinstance(dataset_test, list):
-            sampler_test = [torch.utils.data.DistributedSampler(
-                d, num_replicas=num_tasks, rank=global_rank, shuffle=False) for d in dataset_test]
-        else:
-            sampler_test = torch.utils.data.DistributedSampler(
-                dataset_test, num_replicas=num_tasks, rank=global_rank, shuffle=False)
+        # Each rank scores every num_tasks-th sample; evaluate() all-gathers the
+        # shards back into dataset order and drops the padding duplicates the
+        # sampler adds to equalise shard sizes, so metrics are exact.
+        def shard(d):
+            return (torch.utils.data.DistributedSampler(
+                d, num_replicas=num_tasks, rank=global_rank, shuffle=False)
+                if d is not None else None)
+        sampler_val = shard(dataset_val)
+        sampler_test = ([shard(d) for d in dataset_test] if isinstance(dataset_test, list)
+                        else shard(dataset_test))
     else:
         sampler_val = torch.utils.data.SequentialSampler(dataset_val) if dataset_val is not None else None
         sampler_test = torch.utils.data.SequentialSampler(dataset_test) if dataset_test is not None else None
@@ -132,8 +161,9 @@ def build_samplers(dataset_train, dataset_val, dataset_test, num_tasks: int, glo
 
 def build_dataloaders(dataset_train, dataset_val, dataset_test,
                       sampler_train, sampler_val, sampler_test,
-                      batch_size: int, num_workers: int, pin_memory: bool) -> DataLoaders:
-    eval_batch_size = int(1.5 * batch_size)
+                      batch_size: int, num_workers: int, pin_memory: bool,
+                      eval_batch_size: int = 0) -> DataLoaders:
+    eval_batch_size = int(eval_batch_size) or int(1.5 * batch_size)
 
     train_loader = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,

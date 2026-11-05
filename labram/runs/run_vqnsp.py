@@ -162,5 +162,8 @@ def build_config(cli: argparse.Namespace) -> VQNSPRunConfig:
 if __name__ == '__main__':
     cli = parse_cli()
     config = build_config(cli)
+    from labram.utils.launch import relaunch_if_needed
+    # distributed.nproc_per_node > 1 (or -1): re-run this module under torchrun.
+    relaunch_if_needed(config.distributed.nproc_per_node, module='labram.runs.run_vqnsp')
     from labram.utils.exit_guard import run_and_exit
     run_and_exit(main, config)

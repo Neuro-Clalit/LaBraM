@@ -10,6 +10,7 @@
 
 import argparse
 import os
+import sys
 from typing import List, Optional
 
 import labram.utils as utils
@@ -90,9 +91,14 @@ def build_config(cli: argparse.Namespace):
     work_dir = checkpoint_dir() or model_dir
     if checkpoint_dir():
         config.output.auto_resume = True
-    if not config.output.output_dir:
+    # A path outside the uploaded folders (e.g. a default config's
+    # ./checkpoints/...) would be lost with the container, so it is replaced too.
+    kept = (model_dir, work_dir)
+    if not _inside(config.output.output_dir, kept):
+        _warn_rebased('output.output_dir', config.output.output_dir)
         config.output.output_dir = os.path.join(work_dir, cli.phase)
-    if not config.output.log_dir:
+    if not _inside(config.output.log_dir, kept):
+        _warn_rebased('output.log_dir', config.output.log_dir)
         config.output.log_dir = os.path.join(config.output.output_dir, 'tensorboard')
     # Each job runs in a fresh container and its uploaded model dir keeps a
     # fixed layout, so the per-run timestamp suffix is not wanted here.
@@ -103,11 +109,27 @@ def build_config(cli: argparse.Namespace):
         if cli.fold is not None and cli.fold >= 0:
             config.cross_validation.enabled = True
             config.cross_validation.fold = cli.fold
-        if config.cross_validation.enabled and not config.cross_validation.base_dir:
+        if config.cross_validation.enabled and not _inside(config.cross_validation.base_dir, kept):
+            _warn_rebased('cross_validation.base_dir', config.cross_validation.base_dir)
             # Keep every fold's outputs under the SageMaker model dir so they are
             # uploaded to S3 when the job completes.
             config.cross_validation.base_dir = os.path.join(work_dir, 'cv')
     return config
+
+
+def _inside(path: str, roots) -> bool:
+    """True when ``path`` is set and lies in one of ``roots``."""
+    if not path:
+        return False
+    path = os.path.abspath(path)
+    return any(os.path.commonpath([path, os.path.abspath(r)]) == os.path.abspath(r)
+               for r in roots if r)
+
+
+def _warn_rebased(field: str, value: str) -> None:
+    if value:
+        print(f"[sagemaker_entry] {field}={value!r} is outside the folders SageMaker uploads; "
+              f"writing under the model dir instead", flush=True)
 
 
 def checkpoint_dir() -> str:
@@ -124,7 +146,7 @@ def publish_checkpoint_outputs() -> None:
     """Copy what was trained in the checkpoint folder into the model dir, which
     SageMaker uploads as model.tar.gz, so the job's outputs keep their layout."""
     src = checkpoint_dir()
-    if not src:
+    if not src or os.environ.get('RANK', '0') != '0':      # DDP: rank 0 only
         return
     import shutil
     dst = os.environ.get('SM_MODEL_DIR', '/opt/ml/model')
@@ -160,6 +182,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     cli = parse_cli(argv)
     load_clearml_credentials()
     config = build_config(cli)
+    # Multi-GPU instance (or several instances): one DDP process per GPU via
+    # torchrun, same script and arguments; node layout from SM_HOSTS.
+    from labram.utils.launch import relaunch_if_needed
+    relaunch_if_needed(config.distributed.nproc_per_node,
+                       script=os.path.abspath(sys.argv[0]), argv=sys.argv[1:] if argv is None else argv)
     if cli.phase == 'vqnsp':
         from labram.runs.run_vqnsp import main as vqnsp_main
         vqnsp_main(config)

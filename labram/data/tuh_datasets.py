@@ -272,9 +272,19 @@ class NpyWindowsMixin:
     start within half a sample length of its grid position, kept inside
     ``sample_bounds[stem]`` (the trimmed range set by window selection), so
     every epoch sees different crops of the same recordings.
+
+    Reads (``NPY_READ``, env ``LABRAM_NPY_READ``): ``"pread"`` (default) keeps
+    an open file per recording, parses its ``.npy`` header once and reads each
+    sample with a single ``os.pread`` of exactly its bytes, with
+    ``POSIX_FADV_RANDOM`` so the kernel adds no readahead. Random windows over
+    tens of thousands of files otherwise pull in ~4x the bytes through
+    memory-map faults and readahead, which made local training I/O-bound
+    (106 MB/s EBS on a g5.2xlarge). ``"mmap"`` is the memory-mapped read.
+    Both return identical arrays.
     """
 
-    MMAP_CACHE = 256   # open memory maps per process (each holds a file descriptor)
+    MMAP_CACHE = 256   # open files / memory maps per process (each holds a file descriptor)
+    NPY_READ = os.environ.get("LABRAM_NPY_READ", "pread")
 
     def _init_npy(self):
         self.random_crop = False
@@ -336,8 +346,22 @@ class NpyWindowsMixin:
         self._mmaps[stem] = rec
         return rec
 
+    def _read_rows(self, stem, start, length):
+        """Rows ``[start, start + length)`` of ``recordings/<stem>.npy`` as a
+        ``[length, channels]`` array (fewer rows when the range runs past the
+        end, like slicing)."""
+        if self.NPY_READ != "pread" or not hasattr(os, "pread"):
+            return self._recording(stem)[start:start + length]
+        handle = self._mmaps.pop(stem, None)
+        if not isinstance(handle, _NpyFile):
+            handle = _NpyFile(os.path.join(self.root, "recordings", f"{stem}.npy"))
+            if len(self._mmaps) >= self.MMAP_CACHE:
+                _close(self._mmaps.popitem(last=False)[1])
+        self._mmaps[stem] = handle
+        return handle.rows(start, length)
+
     def __getstate__(self):
-        # DataLoader workers each open their own memory maps.
+        # DataLoader workers each open their own files / memory maps.
         state = dict(self.__dict__)
         state["_mmaps"] = OrderedDict()
         return state
@@ -365,7 +389,7 @@ class NpyWindowsMixin:
             lo, hi = max(lo, start - length // 2), min(hi - length, start + length // 2)
             if hi > lo:
                 start = int(torch.randint(lo, hi + 1, (1,)))
-        seg = self._recording(stem)[start:start + length]
+        seg = self._read_rows(stem, start, length)
         if self.keep_channels is not None:
             seg = seg[:, self.keep_channels]
         X = np.ascontiguousarray(seg.T, dtype=np.float32)
@@ -378,6 +402,41 @@ class NpyWindowsMixin:
         if self.return_id:
             return torch.from_numpy(X), Y, self.group_id(filename)
         return torch.from_numpy(X), Y
+
+
+class _NpyFile:
+    """An open ``.npy`` file: header parsed once, rows read with ``os.pread``."""
+
+    def __init__(self, path):
+        self.fh = open(path, "rb", buffering=0)
+        fd = self.fh.fileno()
+        if hasattr(os, "posix_fadvise"):
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_RANDOM)
+        version = np.lib.format.read_magic(self.fh)
+        if version == (1, 0):
+            shape, fortran, dtype = np.lib.format.read_array_header_1_0(self.fh)
+        else:
+            shape, fortran, dtype = np.lib.format.read_array_header_2_0(self.fh)
+        if fortran or len(shape) != 2:
+            raise ValueError(f"{path}: expected a C-ordered 2-D array, got shape {shape}")
+        self.offset, self.shape, self.dtype = self.fh.tell(), shape, np.dtype(dtype)
+        self.row_bytes = shape[1] * self.dtype.itemsize
+
+    def rows(self, start, length):
+        stop = min(start + length, self.shape[0])
+        if start < 0 or stop <= start:          # out of range: the caller's shape check fails
+            return np.empty((0, self.shape[1]), self.dtype)
+        buf = os.pread(self.fh.fileno(), (stop - start) * self.row_bytes,
+                       self.offset + start * self.row_bytes)
+        return np.frombuffer(buf, self.dtype).reshape(-1, self.shape[1])
+
+    def close(self):
+        self.fh.close()
+
+
+def _close(handle):
+    if isinstance(handle, _NpyFile):
+        handle.close()
 
 
 _MANIFEST_CACHE = {}

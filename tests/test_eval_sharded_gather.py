@@ -136,3 +136,17 @@ def test_evaluate_on_a_shard_covers_only_the_local_slice(tuab_dataset):
     cells = ["cm_tp", "cm_tn", "cm_fp", "cm_fn"]
     assert sum(stats[f"window_{c}"] for c in cells) == 3
     assert sum(stats[c] for c in cells) == 2
+
+
+def test_aggregate_windows_linear_matches_naive_grouping():
+    from labram.utils.eval_metrics import aggregate_windows
+    rng = np.random.default_rng(3)
+    groups = list(rng.permutation([f"r{i}" for i in range(40) for _ in range(5)]))
+    ages = {f"r{i}": float(i) for i in range(40)}
+    pred = rng.normal(size=(len(groups), 1))
+    true = np.array([[ages[g]] for g in groups])
+    order = list(dict.fromkeys(groups))
+    p, t = aggregate_windows(pred, true, groups, "median", False, is_regression=True)
+    expect = [np.median([pred[i, 0] for i, g in enumerate(groups) if g == c]) for c in order]
+    np.testing.assert_allclose(p[:, 0], expect)
+    assert t[:, 0].tolist() == [ages[c] for c in order]

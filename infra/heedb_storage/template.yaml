@@ -1,0 +1,130 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Private storage for the Harvard EEG Database (HEEDB, BDSP credentialed access).
+  The DUA forbids redistribution, so the bucket is private, KMS-encrypted with its
+  own key, TLS-only, and readable only by this account's principals and the
+  LaBraM data-prep / SageMaker roles. Layout: HEEDB/v4.1/{metadata,raw,scan,index,npy,cohorts}/.
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: heedb-private-574441342949
+  ReaderRoles:
+    Type: CommaDelimitedList
+    Default: labram-dataprep-job,SageMakerExecutionRole
+    Description: IAM roles (names) that read raw data and write derived data.
+
+Resources:
+  DataKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: HEEDB private data key
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AccountAdmin
+            Effect: Allow
+            Principal: {AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"}
+            Action: kms:*
+            Resource: "*"
+
+  DataKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/heedb-private
+      TargetKeyId: !Ref DataKey
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt DataKey.Arn
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          # Raw EDFs are read once for conversion, then rarely: let S3 tier them.
+          - Id: raw-intelligent-tiering
+            Status: Enabled
+            Prefix: HEEDB/v4.1/raw/
+            Transitions:
+              - StorageClass: INTELLIGENT_TIERING
+                TransitionInDays: 0
+          # Versioning guards against accidental deletes; old versions expire.
+          - Id: expire-noncurrent
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+          - Id: abort-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - {Key: project, Value: labram}
+        - {Key: data, Value: heedb-dua}
+
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt DataBucket.Arn
+              - !Sub "${DataBucket.Arn}/*"
+            Condition: {Bool: {aws:SecureTransport: "false"}}
+          - Sid: DenyOtherAccounts
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt DataBucket.Arn
+              - !Sub "${DataBucket.Arn}/*"
+            Condition: {StringNotEquals: {aws:PrincipalAccount: !Ref AWS::AccountId}}
+
+  ReaderPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: heedb-private-data
+      Description: Read raw HEEDB and write derived data in the private bucket.
+      Roles: !Ref ReaderRoles
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: [s3:ListBucket, s3:GetBucketLocation]
+            Resource: !GetAtt DataBucket.Arn
+          - Effect: Allow
+            Action: [s3:GetObject, s3:PutObject, s3:AbortMultipartUpload]
+            Resource: !Sub "${DataBucket.Arn}/*"
+          - Effect: Allow
+            Action: [kms:Decrypt, kms:GenerateDataKey, kms:DescribeKey]
+            Resource: !GetAtt DataKey.Arn
+
+Outputs:
+  Bucket:
+    Value: !Ref DataBucket
+  KeyArn:
+    Value: !GetAtt DataKey.Arn
+  ReaderPolicyArn:
+    Value: !Ref ReaderPolicy

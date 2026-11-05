@@ -63,6 +63,18 @@ def test_bias_corrections_undo_a_linear_shrinkage():
         apply_bias_correction(pred, p, "age_level")
 
 
+def test_quadratic_gap_correction_removes_curved_bias():
+    """Gemein et al. 2024: gap = pred - age ~ quadratic in age, subtracted."""
+    age = np.linspace(18, 90, 60)
+    pred = age + 8.0 - 0.3 * (age - 18) + 0.002 * (age - 50) ** 2   # curved shrinkage
+    p = fit_bias_correction(pred, age)
+    np.testing.assert_allclose(apply_bias_correction(pred, p, "quadratic_gap", age), age, atol=1e-8)
+    lin = apply_bias_correction(pred, p, "age_level", age)
+    assert np.abs(lin - age).max() > 0.5                            # linear leaves the curve
+    with pytest.raises(ValueError):
+        apply_bias_correction(pred, p, "quadratic_gap")
+
+
 def test_band_powers_find_alpha():
     fs, t = 200.0, np.arange(2000) / 200.0
     x = np.sin(2 * np.pi * 10.0 * t)[None] + 0.01 * np.random.default_rng(0).standard_normal((1, 2000))

@@ -37,7 +37,7 @@ from labram.runs.codebook_setup import (
     CodebookRegLayerAssigner, build_codebook_classifier, loss_config_from_codebook_reg,
 )
 from labram.runs.finetune_setup import (
-    build_dataloaders, build_samplers, enable_window_ids, freeze_except,
+    build_dataloaders, build_samplers, build_train_eval_loader, enable_window_ids, freeze_except,
     load_finetune_checkpoint, required_time_patches, subset_for_debug,
 )
 from labram.optim_factory import (
@@ -113,6 +113,13 @@ def main(config: FinetuneRunConfig, bundle=None):
     # For finetune, config.distributed.device defaults to 'auto', which
     # setup_environment resolves to cuda/mps/cpu.
     device, num_tasks, global_rank = runner_common.setup_environment(config)
+    if config.trainer.global_batch_size:
+        # Same effective batch on any number of GPUs (batch_size = per-GPU cap).
+        per_gpu, update_freq = runner_common.resolve_global_batch(
+            config.trainer.global_batch_size, num_tasks, config.trainer.batch_size)
+        logger.info("global_batch_size=%d over %d GPU(s): per-GPU batch %d x update_freq %d",
+                    config.trainer.global_batch_size, num_tasks, per_gpu, update_freq)
+        config.trainer.batch_size, config.trainer.update_freq = per_gpu, update_freq
 
     if config.trainer.enable_deepspeed:
         utils.create_ds_config(config.output, config.trainer, config.optimizer)
@@ -233,6 +240,12 @@ def main(config: FinetuneRunConfig, bundle=None):
                 enable_window_ids(split_ds, config.evaluation.agg_case_by)
 
     num_tasks, global_rank = utils.get_world_size(), utils.get_rank()
+    if num_tasks > 1 and not config.distributed.dist_eval:
+        # Under DDP every evaluation is sharded across ranks and gathered back
+        # (exact: the sampler's padding duplicates are dropped), instead of
+        # every rank scoring the whole split.
+        logger.info("DDP with %d ranks: sharding val/test/train_eval across ranks", num_tasks)
+        config.distributed.dist_eval = True
     sampler_train, sampler_val, sampler_test = build_samplers(
         dataset_train, dataset_val, dataset_test,
         num_tasks, global_rank, config.distributed.dist_eval,
@@ -277,7 +290,14 @@ def main(config: FinetuneRunConfig, bundle=None):
         batch_size=config.trainer.batch_size,
         num_workers=config.data.num_workers,
         pin_memory=pin_memory,
+        eval_batch_size=config.evaluation.eval_batch_size,
     )
+    if not config.trainer.eval and dataset_val is not None:
+        # Training recordings scored like val/test (per dataset and cohort).
+        loaders.train_eval = build_train_eval_loader(
+            dataset_train, config.evaluation, config.data, config.trainer.batch_size,
+            config.data.num_workers, pin_memory, seed=config.distributed.seed,
+            distributed=config.distributed.dist_eval and num_tasks > 1)
 
     model = get_model(config)
     patch_size = model.patch_size
@@ -346,10 +366,7 @@ def main(config: FinetuneRunConfig, bundle=None):
             args=_ds_args, model=model, model_parameters=optimizer_params,
             dist_init_required=not config.distributed.distributed)
     else:
-        if config.distributed.distributed:
-            model = torch.nn.parallel.DistributedDataParallel(
-                model, device_ids=[config.distributed.gpu], find_unused_parameters=True)
-            model_without_ddp = model.module
+        model, model_without_ddp = runner_common.wrap_distributed(config.distributed, model)
         optimizer = create_optimizer(
             config.optimizer, model_without_ddp, skip_list=skip_weight_decay_list,
             get_num_layer=assigner.get_layer_id if assigner else None,
@@ -463,5 +480,8 @@ def build_config(cli: argparse.Namespace) -> FinetuneRunConfig:
 if __name__ == '__main__':
     cli = parse_cli()
     config = build_config(cli)
+    from labram.utils.launch import relaunch_if_needed
+    # distributed.nproc_per_node > 1 (or -1): re-run this module under torchrun.
+    relaunch_if_needed(config.distributed.nproc_per_node, module='labram.runs.run_finetune')
     from labram.utils.exit_guard import run_and_exit
     run_and_exit(main, config)

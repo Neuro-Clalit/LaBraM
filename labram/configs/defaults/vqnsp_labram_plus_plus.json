@@ -20,6 +20,9 @@
         "device": "cuda",
         "seed": 0,
         "dist_eval": true,
+        "nproc_per_node": 1,
+        "backend": "auto",
+        "find_unused_parameters": true,
         "distributed": false,
         "gpu": 0
     },
@@ -65,7 +68,8 @@
         "debug_samples": 16,
         "early_stopping": false,
         "early_stopping_patience": 3,
-        "early_stopping_min_delta": 0.0
+        "early_stopping_min_delta": 0.0,
+        "global_batch_size": 0
     },
     "data": {
         "py/object": "labram.configs.data_config.DataConfig",

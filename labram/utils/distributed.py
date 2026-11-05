@@ -201,13 +201,49 @@ def init_distributed_mode(args):
 
     args.distributed = True
 
-    torch.cuda.set_device(args.gpu)
-    args.dist_backend = 'nccl'
-    print('| distributed init (rank {}): {}, gpu {}'.format(
-        args.rank, args.dist_url, args.gpu), flush=True)
-    torch.distributed.init_process_group(
-        backend=args.dist_backend, init_method=args.dist_url,
-        world_size=args.world_size, rank=args.rank,
-    )
+    # NCCL for GPUs; gloo when there is no CUDA (or a CPU run was asked for).
+    args.dist_backend = resolve_backend(getattr(args, 'backend', 'auto'),
+                                        getattr(args, 'device', 'auto'))
+    if args.dist_backend == 'nccl':
+        torch.cuda.set_device(args.gpu)
+    if dist.is_initialized():
+        # A second run in the same process (e.g. in-process CV folds) reuses
+        # the existing process group.
+        setup_for_distributed(args.rank == 0)
+        return
+    print('| distributed init (rank {}): {}, gpu {}, backend {}'.format(
+        args.rank, args.dist_url, args.gpu, args.dist_backend), flush=True)
+    init_kwargs = {}
+    if args.dist_backend == 'nccl':
+        # Bind the group to this rank's GPU (no barrier device guessing).
+        init_kwargs['device_id'] = torch.device('cuda', args.gpu)
+    try:
+        torch.distributed.init_process_group(
+            backend=args.dist_backend, init_method=args.dist_url,
+            world_size=args.world_size, rank=args.rank, **init_kwargs)
+    except TypeError:          # torch < 2.3: no device_id argument
+        torch.distributed.init_process_group(
+            backend=args.dist_backend, init_method=args.dist_url,
+            world_size=args.world_size, rank=args.rank)
     torch.distributed.barrier()
     setup_for_distributed(args.rank == 0)
+
+
+def resolve_backend(backend: str = 'auto', device: str = 'auto') -> str:
+    """``auto`` -> ``nccl`` when CUDA is available and the run is not pinned to
+    the CPU, else ``gloo``."""
+    if backend and backend != 'auto':
+        return backend
+    if torch.cuda.is_available() and str(device) not in ('cpu', 'mps'):
+        return 'nccl'
+    return 'gloo'
+
+
+def cleanup_distributed() -> None:
+    """Destroy the process group (after a synchronising barrier) so every rank
+    exits cleanly instead of leaving NCCL communicators to the interpreter."""
+    if is_dist_avail_and_initialized():
+        try:
+            dist.barrier()
+        finally:
+            dist.destroy_process_group()

@@ -73,6 +73,13 @@ class TrainerConfig(ConfigBase):
     early_stopping: bool = False
     early_stopping_patience: int = 3
     early_stopping_min_delta: float = 0.0
+    # Fine-tune only. When > 0, the effective batch per optimizer step, kept
+    # the same whatever the number of GPUs: batch_size becomes the per-GPU cap
+    # and per-GPU batch / update_freq are derived from it
+    # (labram/runs/common.py::resolve_global_batch), so a recipe tuned on one
+    # GPU keeps its LR and schedule on N GPUs. 0 = batch_size is per GPU and the
+    # effective batch is batch_size x update_freq x GPUs.
+    global_batch_size: int = 0
 
 
 @dataclass
@@ -197,6 +204,20 @@ class EvaluationConfig(ConfigBase):
     # Score val/test (and select the best epoch) with the EMA weights instead
     # of the raw ones. Requires ``optimizer.model_ema``.
     use_ema: bool = False
+    # Report every evaluated split per source dataset as well as overall:
+    # ``{dataset}_*`` and ``{dataset}_{normal,abnormal,unlabelled}_*``, where the
+    # dataset is the manifest row's corpus family (``harvard`` = HEEDB,
+    # ``temple`` = TUH; ``labram/data/dataset_groups.py``).
+    per_dataset_metrics: bool = True
+    # Evaluate a fixed sample of training recordings every epoch, like val/test
+    # (no mixup/augmentation, windows pooled per recording), as split
+    # ``train_eval``: up to this many recordings per dataset, each with its
+    # first ``data.eval_minutes`` of listed training windows. 0 = off.
+    train_eval_recordings: int = 500
+    # Score train_eval only every this many epochs (and always on the last).
+    train_eval_every: int = 1
+    # Batch size of the val / test / train_eval loaders; 0 = 1.5 x trainer.batch_size.
+    eval_batch_size: int = 0
     # Metric that selects the best epoch (and drives early stopping), e.g.
     # "pathology_macro_roc_auc" for a classification-only multi-task run;
     # "" = the task default (accuracy / MAE). select_mode: "max", "min" or
@@ -293,6 +314,18 @@ class DistributedConfig(ConfigBase):
     device: str = DEFAULT_DEVICE
     seed: int = DEFAULT_SEED
     dist_eval: bool = DEFAULT_DIST_EVAL
+    # Multi-GPU (DDP) without typing torchrun: processes per machine, one per
+    # GPU; -1 = every visible GPU, 1 = single process. Above 1 the entry point
+    # relaunches itself under torchrun (labram/utils/launch.py). Under DDP the
+    # val/test/train_eval loaders are always sharded across ranks and gathered
+    # back (dist_eval is implied), so no rank repeats the whole evaluation.
+    nproc_per_node: int = 1
+    # Process-group backend: auto = nccl on CUDA, gloo otherwise.
+    backend: str = 'auto'
+    # DDP: True tolerates parameters that get no gradient in a step (heads or
+    # branches a config does not use) at the cost of an extra graph traversal;
+    # False is faster when every trainable parameter is used.
+    find_unused_parameters: bool = True
     # Runtime fields — set by setup_environment after init_distributed_mode runs.
     distributed: bool = False
     gpu: int = 0

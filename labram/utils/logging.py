@@ -132,7 +132,9 @@ class SmoothedValue(object):
         """Warning: does not synchronize the deque."""
         if not is_dist_avail_and_initialized():
             return
-        t = torch.tensor([self.count, self.total], dtype=torch.float64, device='cuda')
+        # NCCL reduces CUDA tensors only; gloo (CPU runs) reduces CPU tensors.
+        device = 'cuda' if dist.get_backend() == 'nccl' else 'cpu'
+        t = torch.tensor([self.count, self.total], dtype=torch.float64, device=device)
         dist.barrier()
         dist.all_reduce(t)
         t = t.tolist()

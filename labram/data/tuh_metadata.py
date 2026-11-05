@@ -351,6 +351,9 @@ class EdfSignalHeader:
     physical_min: Tuple[float, ...] = ()
     physical_max: Tuple[float, ...] = ()
     prefilters: Tuple[str, ...] = ()
+    samples_per_record: Tuple[int, ...] = ()
+    digital_min: Tuple[float, ...] = ()
+    digital_max: Tuple[float, ...] = ()
 
     @property
     def duration_sec(self) -> float:
@@ -363,10 +366,21 @@ def read_edf_signal_header(path: str) -> EdfSignalHeader:
         head = fh.read(EDF_HEADER_BYTES)
         if len(head) < EDF_HEADER_BYTES:
             raise ValueError(f"{path}: truncated EDF header ({len(head)} bytes)")
-        n_signals = int(head[252:256])
-        block = fh.read(n_signals * 256)
+        block = fh.read(edf_header_size(head) - EDF_HEADER_BYTES)
+    return parse_edf_signal_header(head, block, source=path)
+
+
+def edf_header_size(head: bytes) -> int:
+    """Total header bytes (``256 * (ns + 1)``) from the first 256 header bytes."""
+    return EDF_HEADER_BYTES * (int(head[252:256]) + 1)
+
+
+def parse_edf_signal_header(head: bytes, block: bytes, *, source: str = "EDF") -> EdfSignalHeader:
+    """``EdfSignalHeader`` from the 256-byte main header and the ``256 * ns``
+    signal block -- so a header fetched by an S3 range read parses like a file."""
+    n_signals = int(head[252:256])
     if len(block) < n_signals * 256:
-        raise ValueError(f"{path}: truncated signal header")
+        raise ValueError(f"{source}: truncated signal header")
     n_records = int(head[236:244])
     record_duration = float(head[244:252])
 
@@ -396,7 +410,10 @@ def read_edf_signal_header(path: str) -> EdfSignalHeader:
         units=tuple(field(16 + 80, 8)),
         physical_min=floats(field(16 + 80 + 8, 8)),
         physical_max=floats(field(16 + 80 + 16, 8)),
-        prefilters=tuple(field(16 + 80 + 8 * 5, 80)))
+        prefilters=tuple(field(16 + 80 + 8 * 5, 80)),
+        samples_per_record=tuple(samples),
+        digital_min=floats(field(16 + 80 + 8 * 3, 8)),
+        digital_max=floats(field(16 + 80 + 8 * 4, 8)))
 
 
 def canonical_channel(label: str) -> Optional[str]:
@@ -407,11 +424,30 @@ def canonical_channel(label: str) -> Optional[str]:
     return None
 
 
-def channel_map(labels: Iterable[str]) -> Dict[str, str]:
-    """``{canonical name: raw EDF label}`` for the TUH channels present (first wins)."""
+# Bare BIDS-style labels ('Fp1', 'T7', 'EEG C3-Ref'): the 10-10 names of the
+# four temporal/parietal sites map onto TUH's old 10-20 names.
+_BARE_CHANNEL_RE = re.compile(r"^(?:EEG\s+)?(?P<name>[A-Z0-9]+)(?:-(?:REF|LE|AVG))?$")
+NEW_TO_OLD_1020 = {"T7": "T3", "T8": "T4", "P7": "T5", "P8": "T6"}
+
+
+def bids_canonical_channel(label: str) -> Optional[str]:
+    """'Fp1' / 'T7' / 'EEG C3-Ref' -> 'FP1' / 'T3' / 'C3' if it is one of the 23
+    TUH channels (new 10-10 names mapped to the old ones), else None."""
+    match = _BARE_CHANNEL_RE.match(label.strip().upper())
+    if not match:
+        return None
+    name = NEW_TO_OLD_1020.get(match["name"], match["name"])
+    return name if name in _TUH_CHANNEL_SET else None
+
+
+def channel_map(labels: Iterable[str], canonical=None) -> Dict[str, str]:
+    """``{canonical name: raw EDF label}`` for the TUH channels present (first
+    wins). ``canonical`` maps a label to a TUH name (default: the TUH
+    ``EEG X-REF`` form; ``bids_canonical_channel`` for bare BIDS labels)."""
+    canonical = canonical or canonical_channel
     found: Dict[str, str] = {}
     for label in labels:
-        name = canonical_channel(label)
+        name = canonical(label)
         if name is not None and name not in found:
             found[name] = label
     return found

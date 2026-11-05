@@ -124,3 +124,36 @@ def test_missing_manifest_is_a_clear_error(tmp_path):
     (tmp_path / "processed_npy").mkdir()
     with pytest.raises(FileNotFoundError, match="manifest"):
         prepare_TUAB_age_dataset(str(tmp_path), data_format="npy")
+
+
+def _all_items(ds):
+    torch.manual_seed(7)                  # same random crops on both read paths
+    return [ds[i][0] for i in range(len(ds))]
+
+
+@pytest.mark.parametrize("cache", [256, 2])          # 2: files evicted and reopened
+def test_pread_and_mmap_reads_are_identical(corpus, monkeypatch, cache):
+    from labram.data.tuh_datasets import NpyWindowsMixin, _NpyFile
+    out = {}
+    for mode in ("mmap", "pread"):
+        monkeypatch.setattr(NpyWindowsMixin, "NPY_READ", mode)
+        monkeypatch.setattr(NpyWindowsMixin, "MMAP_CACHE", cache)
+        b = apply_window_selection(_bundle(corpus, "npy"), WindowSelection(trim_start_sec=60, window_sec=20))
+        enable_random_crop(b.train)
+        b.train.keep_channels = [0, 3, 5, 22]
+        out[mode] = _all_items(b.train) + _all_items(b.val)
+        if mode == "pread":
+            handles = list(b.train._mmaps.values())
+            assert handles and all(isinstance(h, _NpyFile) for h in handles)
+            assert len(b.train._mmaps) <= cache
+    assert len(out["mmap"]) == len(out["pread"]) > 0
+    assert all(torch.equal(a, b) for a, b in zip(out["mmap"], out["pread"]))
+
+
+def test_pread_out_of_range_crop_is_an_error(corpus, monkeypatch):
+    from labram.data.tuh_datasets import NpyWindowsMixin
+    monkeypatch.setattr(NpyWindowsMixin, "NPY_READ", "pread")
+    ds = _bundle(corpus, "npy").test
+    ds.files = [ds.files[0].rsplit("_", 1)[0] + "_999.pkl"]      # past the end
+    with pytest.raises(ValueError, match="out of range"):
+        ds._load(0)                       # (__getitem__ wraps it in its retry error)

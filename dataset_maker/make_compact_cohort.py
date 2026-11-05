@@ -28,15 +28,21 @@ split, so the folds and every fold's samples match the full cohort's.
 
     python -m dataset_maker.make_compact_cohort --src .../cohorts/all_both_v3 \\
         --dst .../cohorts/all_both_v3_compact --verify 2000
+
+``--src`` and ``--dst`` may both be ``s3://`` prefixes (cohorts too large for
+local disk, e.g. HEEDB): the sidecars are fetched to a temp dir for the window
+selection, and each recording is read, sliced and written back to S3 in memory.
 """
 import argparse
+import io
 import json
 import os
 import random
 import shutil
 import sys
+import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 import numpy as np
 import torch
@@ -91,26 +97,87 @@ def _cv_windows(root, selection):
     return kept, files
 
 
+def _s3(uri):
+    bucket, _, key = uri[5:].partition("/")
+    return bucket, key
+
+
+_CLIENT = None
+
+
+def _client():
+    global _CLIENT
+    if _CLIENT is None:
+        import boto3
+        from botocore.config import Config
+        _CLIENT = boto3.client("s3", config=Config(max_pool_connections=128,
+                                                    retries={"max_attempts": 8, "mode": "adaptive"}))
+    return _CLIENT
+
+
 def _write(job):
     src, dst, ks = job
-    x = np.load(src, mmap_mode="r")
+    if src.startswith("s3://"):
+        x = np.load(io.BytesIO(_client().get_object(Bucket=_s3(src)[0], Key=_s3(src)[1])["Body"].read()))
+    else:
+        x = np.load(src, mmap_mode="r")
     out = np.empty((len(ks) * W, x.shape[1]), dtype=x.dtype)
     for i, k in enumerate(ks):
         out[i * W:(i + 1) * W] = x[k * W:(k + 1) * W]
-    np.save(dst, out)
+    if dst.startswith("s3://"):
+        buf = io.BytesIO()
+        np.save(buf, out)
+        _client().put_object(Bucket=_s3(dst)[0], Key=_s3(dst)[1], Body=buf.getvalue())
+    else:
+        np.save(dst, out)
     return out.nbytes
 
 
-def build(src, dst, selection, threads=16, cv=False):
-    manifest = json.load(open(os.path.join(src, "manifest.json")))
-    kept, files = selected_windows(src, selection, cv=cv)
-    os.makedirs(os.path.join(dst, "recordings"), exist_ok=True)
+def _reset_client():
+    """Process-pool initializer: boto3 clients must not cross a fork."""
+    global _CLIENT
+    _CLIENT = None
+
+
+def _fetch_sidecars(src, tmp):
+    """The sidecars of an s3:// cohort into ``tmp`` (no recordings)."""
+    bucket, prefix = _s3(src.rstrip("/"))
+    for page in _client().get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix + "/",
+                                                                      Delimiter="/"):
+        for o in page.get("Contents", []):
+            name = o["Key"].rsplit("/", 1)[-1]
+            if name:
+                _client().download_file(bucket, o["Key"], os.path.join(tmp, name))
+
+
+def build(src, dst, selection, threads=16, cv=False, processes=0):
+    if src.startswith("s3://"):
+        if not dst.startswith("s3://"):
+            raise ValueError("an s3:// --src needs an s3:// --dst")
+        with tempfile.TemporaryDirectory() as tmp:
+            _fetch_sidecars(src, tmp)
+            return _build(tmp, src.rstrip("/"), dst.rstrip("/"), selection, threads, cv, processes)
+    return _build(src, src, dst, selection, threads, cv, processes)
+
+
+def _build(side, src, dst, selection, threads, cv, processes=0):
+    """``side``: local dir with the source sidecars; ``src``/``dst``: where the
+    recordings are read from / written to (local dirs or s3:// prefixes)."""
+    remote = dst.startswith("s3://")
+    manifest = json.load(open(os.path.join(side, "manifest.json")))
+    kept, files = selected_windows(side, selection, cv=cv)
+    if not remote:
+        os.makedirs(os.path.join(dst, "recordings"), exist_ok=True)
     rows = [dict(r) for r in manifest["recordings"] if r["stem"] in kept]
     jobs = [(os.path.join(src, "recordings", f"{r['stem']}.npy"),
              os.path.join(dst, "recordings", f"{r['stem']}.npy"), kept[r["stem"]]) for r in rows]
     t0, total, sizes = time.time(), 0, {}
-    with ThreadPoolExecutor(threads) as pool:
-        for i, (job, nbytes) in enumerate(zip(jobs, pool.map(_write, jobs)), 1):
+    # S3 slicing is CPU-bound under the GIL (download, np.load, np.save):
+    # --processes spreads it over worker processes (jobs are small tuples).
+    pool = (ProcessPoolExecutor(processes, initializer=_reset_client) if processes
+            else ThreadPoolExecutor(threads))
+    with pool:
+        for i, (job, nbytes) in enumerate(zip(jobs, pool.map(_write, jobs, chunksize=8 if processes else 1)), 1):
             total += nbytes
             sizes[job[0]] = nbytes
             if i % 2000 == 0:
@@ -123,18 +190,26 @@ def build(src, dst, selection, threads=16, cv=False):
     out = {k: v for k, v in manifest.items() if k not in ("recordings", "n_recordings", "n_windows")}
     out.update(n_recordings=len(rows), n_windows=sum(r["n_windows"] for r in rows),
                n_stored_windows=sum(len(kept[r["stem"]]) for r in rows), recordings=rows,
-               compact={"source": os.path.abspath(src), "selection": selection.__dict__,
-                        "mode": "cv" if cv else "fixed"})
-    json.dump(out, open(os.path.join(dst, "manifest.json"), "w"))
-    split = json.load(open(os.path.join(src, "age_split.json")))
+               compact={"source": src if src.startswith("s3://") else os.path.abspath(src),
+                        "selection": selection.__dict__, "mode": "cv" if cv else "fixed"})
+    split = json.load(open(os.path.join(side, "age_split.json")))
     # Same order as the source's selected files: sample indices (hence the
     # seeded shuffle and per-epoch draws) must match the full cohort.
     split["files"] = {s: files.get(s, []) for s in split["files"]}
+    names = COPY + tuple(f for f in os.listdir(side) if f.endswith(".npz") and f != "window_stats.npz")
+    if remote:
+        bucket, prefix = _s3(dst)
+        _client().put_object(Bucket=bucket, Key=f"{prefix}/manifest.json", Body=json.dumps(out).encode())
+        _client().put_object(Bucket=bucket, Key=f"{prefix}/age_split.json", Body=json.dumps(split).encode())
+        for name in names:
+            if os.path.exists(os.path.join(side, name)):
+                _client().upload_file(os.path.join(side, name), bucket, f"{prefix}/{name}")
+        return total, out
+    json.dump(out, open(os.path.join(dst, "manifest.json"), "w"))
     json.dump(split, open(os.path.join(dst, "age_split.json"), "w"))
-    for name in COPY + tuple(f for f in os.listdir(src)
-                             if f.endswith(".npz") and f != "window_stats.npz"):
-        if os.path.exists(os.path.join(src, name)):
-            shutil.copy2(os.path.join(src, name), os.path.join(dst, name))
+    for name in names:
+        if os.path.exists(os.path.join(side, name)):
+            shutil.copy2(os.path.join(side, name), os.path.join(dst, name))
     return total, out
 
 
@@ -164,6 +239,8 @@ def main(argv=None):
                    help="fine-tune config whose data.* window selection the runs use")
     p.add_argument("--set", nargs="*", default=[], help="config overrides, e.g. data.eval_minutes=5")
     p.add_argument("--threads", type=int, default=16)
+    p.add_argument("--processes", type=int, default=0,
+                   help="worker processes instead of threads (CPU-bound S3 slicing)")
     p.add_argument("--verify", type=int, default=0, help="bit-compare N random samples per split")
     p.add_argument("--cv", action="store_true",
                    help="store every recording's training and evaluation windows (cross-validation)")
@@ -173,7 +250,7 @@ def main(argv=None):
     if selection.quality_filter:
         raise SystemExit("compact copies do not carry window_stats.npz: drop the quality filter")
     print(f"selection: {selection}")
-    total, out = build(args.src, args.dst, selection, args.threads, cv=args.cv)
+    total, out = build(args.src, args.dst, selection, args.threads, cv=args.cv, processes=args.processes)
     print(f"{args.dst}: {out['n_recordings']} recordings, {out['n_stored_windows']} of "
           f"{out['n_windows']} windows stored, {total / 1e9:.1f} GB")
     if args.verify:

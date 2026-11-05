@@ -20,6 +20,14 @@ dir given (its ``manifest.json`` lists the recordings):
 
     python -m dataset_maker.make_condition_features \\
         /data/.../cohorts/all_both_v2 /data/.../tuab/v3.0.1/edf/processed_npy_interp50-60
+
+HEEDB recordings get the same vectors from the TUH-aligned ``dx_*`` flags of a
+HEEDB cohort's ``labels.parquet`` (``--extra-clinical``; per-patient ICD-10
+codes, so <NA> = no health record, counted as absent like a session missing
+from the NEDC sheet). A joint TUH + HEEDB cohort takes both:
+
+    python -m dataset_maker.make_condition_features /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1 \\
+        --extra-clinical /data/datasets/HEEDB/v4.1/cohorts/heedb_routine_v1/labels.parquet
 """
 import argparse
 import json
@@ -70,6 +78,22 @@ def pathology_vector(flags):
     return v
 
 
+def merge_clinical(clinical, extra):
+    """Append other corpora's per-recording dx flags (``stem`` + any of the
+    ``dx_*`` columns of :data:`PATHOLOGY`; missing columns are <NA>)."""
+    dx_cols = [c for cols in PATHOLOGY.values() for c in cols]
+    parts = [clinical] + [e[["stem"] + [c for c in dx_cols if c in e]] for e in extra]
+    out = pd.concat(parts, ignore_index=True)
+    dup = out["stem"].duplicated(keep=False) & out["stem"].isin(
+        set().union(*[set(e["stem"]) for e in extra]) if extra else set())
+    if dup.any():
+        raise ValueError(f"stems in more than one clinical source: {sorted(out.stem[dup])[:3]}")
+    for c in dx_cols:                      # a flag no source has: unknown (<NA>)
+        if c not in out:
+            out[c] = pd.NA
+    return out
+
+
 def build(root, clinical, out_name=DEFAULT_NAME):
     rows = json.load(open(os.path.join(root, "manifest.json")))["recordings"]
     meta_path = os.path.join(root, "age_metadata.json")
@@ -94,8 +118,11 @@ def main(argv=None):
     p.add_argument("--index", default=DEFAULT_INDEX)
     p.add_argument("--sheet", default=DEFAULT_SHEET)
     p.add_argument("--name", default=DEFAULT_NAME)
+    p.add_argument("--extra-clinical", action="append", default=[],
+                   help="parquet with stem + dx_* columns (e.g. a HEEDB cohort's labels.parquet)")
     args = p.parse_args(argv)
     clinical = tc.join_index(pd.read_parquet(args.index), tc.load_sheet(args.sheet))
+    clinical = merge_clinical(clinical, [pd.read_parquet(x) for x in args.extra_clinical])
     for root in args.roots:
         out, status, pathology = build(root, clinical, args.name)
         print(f"{out}: {len(status)} recordings; status "

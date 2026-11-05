@@ -51,12 +51,14 @@ def setup_environment(config, init_cudnn_benchmark: bool = True) -> Tuple[torch.
         dist_url=dist_cfg.dist_url,
         world_size=dist_cfg.world_size,
         local_rank=dist_cfg.local_rank,
+        backend=getattr(dist_cfg, 'backend', 'auto'),
+        device=dist_cfg.device,
     )
     utils.init_distributed_mode(_ns)
     dist_cfg.distributed = getattr(_ns, 'distributed', False)
     dist_cfg.gpu = getattr(_ns, 'gpu', 0)
 
-    device_str = getattr(_ns, 'device', dist_cfg.device)
+    device_str = dist_cfg.device
     if device_str == 'auto':
         if torch.cuda.is_available():
             device_str = 'cuda'
@@ -65,6 +67,9 @@ def setup_environment(config, init_cudnn_benchmark: bool = True) -> Tuple[torch.
         else:
             device_str = 'cpu'
     device = torch.device(device_str)
+    if device.type == 'cuda' and dist_cfg.distributed and device.index is None:
+        # Each DDP rank owns one GPU (its LOCAL_RANK).
+        device = torch.device('cuda', dist_cfg.gpu)
     dist_cfg.device = str(device)
 
     seed = dist_cfg.seed + utils.get_rank()
@@ -504,13 +509,44 @@ def build_dataloader_list(
 
 
 def wrap_distributed(dist_cfg: DistributedConfig, model: torch.nn.Module) -> Tuple[torch.nn.Module, torch.nn.Module]:
-    """DDP-wrap model when dist_cfg.distributed is true. Returns (model, model_without_ddp)."""
+    """DDP-wrap model when dist_cfg.distributed is true. Returns (model, model_without_ddp).
+
+    Every rank holds a replica (DDP broadcasts rank 0's weights at
+    construction), trains on its own shard of each batch, and the gradients are
+    averaged across ranks by bucketed all-reduce overlapped with the backward
+    pass, so every replica takes the same optimizer step.
+    ``gradient_as_bucket_view`` lets the gradients alias the communication
+    buckets (one copy less, less memory)."""
     if dist_cfg.distributed:
+        on_gpu = next(model.parameters()).is_cuda
         wrapped = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[dist_cfg.gpu], find_unused_parameters=True,
+            model, device_ids=[dist_cfg.gpu] if on_gpu else None,
+            find_unused_parameters=getattr(dist_cfg, 'find_unused_parameters', True),
+            gradient_as_bucket_view=True,
         )
         return wrapped, wrapped.module
     return model, model
+
+
+def resolve_global_batch(global_batch: int, world_size: int, max_per_gpu: int) -> Tuple[int, int]:
+    """``(per-GPU batch, update_freq)`` that make ``global_batch`` samples per
+    optimizer step on ``world_size`` GPUs, with at most ``max_per_gpu`` per
+    forward pass (more gradient-accumulation micro-steps instead):
+
+        update_freq = ceil(global_batch / (world_size * max_per_gpu))
+        per_gpu     = global_batch / (world_size * update_freq)   (must be whole)
+    """
+    if global_batch <= 0:
+        raise ValueError("global_batch_size must be positive")
+    world_size, max_per_gpu = max(int(world_size), 1), max(int(max_per_gpu), 1)
+    update_freq = -(-global_batch // (world_size * max_per_gpu))
+    per_gpu, rem = divmod(global_batch, world_size * update_freq)
+    if rem or per_gpu < 1:
+        raise ValueError(
+            f"trainer.global_batch_size={global_batch} cannot be split evenly over {world_size} "
+            f"GPU(s) x {update_freq} accumulation step(s) (per-GPU cap {max_per_gpu}); use a "
+            f"multiple of {world_size * update_freq}")
+    return per_gpu, update_freq
 
 
 def make_lr_schedule(optim_cfg: OptimizerConfig, trainer_cfg: TrainerConfig, num_training_steps_per_epoch: int) -> np.ndarray:
@@ -625,7 +661,8 @@ def flatten_summary_metrics(summary: Any) -> dict:
 
     if _is_num(summary.get('best_epoch')) and summary['best_epoch'] >= 0:
         flat['best_epoch'] = summary['best_epoch']
-    for key, prefix in (('best_val_stats', 'val'), ('best_test_stats', 'test')):
+    for key, prefix in (('best_val_stats', 'val'), ('best_test_stats', 'test'),
+                        ('best_train_eval_stats', 'train_eval')):
         for k, v in (summary.get(key) or {}).items():
             # MSE is left out: RMSE reports the same error in the target's units.
             if _is_num(v) and k not in ('mse', 'window_mse'):
@@ -673,7 +710,10 @@ def log_summary_metrics(log_writer: Any, summary: Any, config: Any = None,
     return flat
 
 
-SUMMARY_TABLE_SPLITS = ('train', 'val', 'test')
+SUMMARY_TABLE_SPLITS = ('train', 'train_eval', 'val', 'test')
+# Group prefixes of the per-cohort / per-dataset metrics (train_finetune._cohort_metrics).
+SUMMARY_COHORTS = ('normal', 'abnormal', 'unlabelled')
+SUMMARY_DATASETS = ('harvard', 'temple', 'unknown')
 # Metric columns of the summary tables, in display order. Loss-term columns
 # (``*_loss``) follow ``loss``, and ``window_*`` variants follow the case-level
 # set. Confusion-matrix counts, timing and optimizer state are left out.
@@ -700,8 +740,10 @@ def _summary_table_columns(keys: set) -> List[str]:
     # pooling, so they are not repeated in the window_* columns.
     window = [f'window_{m}' for m in metrics
               if f'window_{m}' in keys and not m.startswith(('pred_', 'target_'))]
-    cohorts = [f'{c}_{m}' for c in ('normal', 'abnormal')
-               for m in ('mae', 'rmse', 'r2', 'pearson_r', 'n_cases') if f'{c}_{m}' in keys]
+    groups = list(SUMMARY_COHORTS) + [
+        g for d in SUMMARY_DATASETS for g in (d, *(f'{d}_{c}' for c in SUMMARY_COHORTS))]
+    cohorts = [f'{g}_{m}' for g in groups
+               for m in ('mae', 'rmse', 'r2', 'pearson_r', 'n_cases') if f'{g}_{m}' in keys]
     return (['loss'] if 'loss' in keys else []) + terms \
         + [m for m in metrics if m in keys] + window + cohorts
 

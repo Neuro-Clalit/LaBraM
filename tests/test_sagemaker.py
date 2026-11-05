@@ -1018,6 +1018,22 @@ def test_entry_build_config_sets_fold_and_output(tmp_path, monkeypatch):
     assert config.cross_validation.base_dir.startswith(str(tmp_path / 'model'))
 
 
+def test_entry_rebases_output_paths_outside_the_model_dir(tmp_path, monkeypatch):
+    """A default config's ./checkpoints/... would stay in the container and be
+    lost (no model.tar.gz), so it is moved under the model dir."""
+    from labram.runs import sagemaker_entry as entry
+    model = tmp_path / 'model'
+    monkeypatch.setenv('SM_MODEL_DIR', str(model))
+    cli = entry.parse_cli(['--config', 'labram/configs/defaults/finetune_tuab_age.json'])
+    config = entry.build_config(cli)
+    assert config.output.output_dir == str(model / 'finetune')
+    assert config.output.log_dir == str(model / 'finetune' / 'tensorboard')
+    inside = str(model / 'mine')
+    cli = entry.parse_cli(['--config', 'labram/configs/defaults/finetune_tuab_age.json',
+                           '--set', f'output.output_dir={inside}'])
+    assert entry.build_config(cli).output.output_dir == inside       # already uploaded: kept
+
+
 def test_entry_build_config_phase_vqnsp(tmp_path, monkeypatch):
     from labram.configs.run_configs import VQNSPRunConfig
     from labram.runs import sagemaker_entry as entry

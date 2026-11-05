@@ -20,6 +20,9 @@
         "device": "auto",
         "seed": 0,
         "dist_eval": false,
+        "nproc_per_node": 1,
+        "backend": "auto",
+        "find_unused_parameters": true,
         "distributed": false,
         "gpu": 0
     },
@@ -62,7 +65,8 @@
         "debug_samples": 16,
         "early_stopping": false,
         "early_stopping_patience": 3,
-        "early_stopping_min_delta": 0.0
+        "early_stopping_min_delta": 0.0,
+        "global_batch_size": 0
     },
     "data": {
         "py/object": "labram.configs.data_config.DataConfig",
@@ -277,6 +281,10 @@
         "agg_windows": "mean",
         "agg_case_by": "recording",
         "use_ema": false,
+        "per_dataset_metrics": true,
+        "train_eval_recordings": 500,
+        "train_eval_every": 1,
+        "eval_batch_size": 0,
         "select_metric": "",
         "select_mode": "auto"
     },

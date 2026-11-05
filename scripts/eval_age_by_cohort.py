@@ -1,5 +1,9 @@
 #!/usr/bin/env python
-"""Score trained brain-age models per cohort: all / normal / abnormal recordings.
+"""Score trained brain-age models per cohort and per source dataset.
+
+Groups: all / normal / abnormal / unlabelled recordings, and -- for cohorts whose
+manifest rows carry a corpus -- the same per dataset (``harvard`` = HEEDB,
+``temple`` = TUH; ``labram/data/dataset_groups.py``), e.g. ``harvard_normal``.
 
 For each run directory (holding ``run_config.yaml`` and a checkpoint), rebuild
 the model and the exact val/test samples from the run's own config (window
@@ -39,10 +43,12 @@ from labram.data.window_selection import (
 from labram.eval.loading import load_run_config
 from labram.losses import build_downstream_criterion, regression_output, soft_label_n_bins
 from labram.runs.finetune_setup import enable_window_ids
+from labram.data.dataset_groups import UNKNOWN, dataset_lookup
 from labram.runs.run_finetune import get_model
 from labram.train.channel_drop import ChannelDropper
 
 METRICS = ["mae", "rmse", "r2", "pearson_r"]
+COHORTS = ("normal", "abnormal", "unlabelled")
 
 
 def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, session=False,
@@ -51,7 +57,12 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
     each batch's full model output before ``to_scalar`` (e.g. every multi-task
     column)."""
     enable_window_ids(dataset, "recording")
-    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False,
+    # Under DDP (--nproc-per-node) each rank predicts every world_size-th
+    # window; the shards are gathered back in dataset order below.
+    sharded = utils.get_world_size() > 1
+    sampler = (torch.utils.data.DistributedSampler(dataset, shuffle=False) if sharded
+               else torch.utils.data.SequentialSampler(dataset))
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=sampler,
                                          num_workers=num_workers, pin_memory=True)
     channel_indices = utils.get_channel_indices(ch_names)
     # With channel_drop, every sample runs on its present (non-zero) channels.
@@ -80,7 +91,14 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
             preds.append(out.float().squeeze(-1).cpu())
             targets.append(y.float())
             recs.extend(rec)
-    return torch.cat(preds).numpy(), torch.cat(targets).numpy(), recs
+    pred, true = torch.cat(preds).numpy(), torch.cat(targets).numpy()
+    if sharded:
+        if logits_out:                     # gathered in the same (dataset) order
+            local = torch.cat(logits_out).numpy()
+            full, _, _ = utils.gather_sharded_eval(local, true, recs, total=len(dataset))
+            logits_out[:] = [torch.from_numpy(full)]
+        pred, true, recs = utils.gather_sharded_eval(pred, true, recs, total=len(dataset))
+    return pred, true, recs
 
 
 def _per_recording(pred, true, recs, target_stats, pred_stats=None):
@@ -115,6 +133,20 @@ def train_target_stats(cfg, train_data_path):
     return apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data)).target_stats
 
 
+def logged_target_stats(run_dir):
+    """(mean, std) of the training targets as the run logged them
+    (``Age target normalization (selected train): mean=.. std=..`` in
+    ``log/run.log``); exact for CV folds, whose config stores none."""
+    import re
+    path = os.path.join(run_dir, "log", "run.log")
+    with open(path) as fh:
+        for line in fh:
+            m = re.search(r"Age target normalization.*mean=([-\d.]+) std=([-\d.]+)", line)
+            if m:
+                return float(m.group(1)), float(m.group(2))
+    raise ValueError(f"{path}: no 'Age target normalization' line")
+
+
 def _window_names(dataset):
     """Window file names of ``dataset`` in loader order (leaves concatenated)."""
     from labram.data.window_selection import _leaves
@@ -124,7 +156,7 @@ def _window_names(dataset):
 def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None,
                  train_data_path=None, window_qc=True, session_features=None, return_windows=False,
                  tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None, num_workers=8,
-                 class_probs=False):
+                 class_probs=False, pred_stats=None):
     """Score one run on ``splits``. With ``return_windows`` each split also
     carries its window-level predictions (``windows``: names, recording ids,
     predicted / true age in years) and the result the run's window settings
@@ -132,7 +164,8 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     ``class_probs`` a multi-task run's splits also carry ``class_probs``:
     recording -> the mean sigmoid probability of its windows per class column
     (status, diagnosis groups; as training's per-recording metrics), and the
-    result its ``class_names``."""
+    result its ``class_names``. ``pred_stats`` (mean, std) de-normalizes the
+    predictions (default: from ``train_data_path``, else the scored data's own)."""
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
     if stage_dir is not None:                 # e.g. "none": read in place, no NVMe copy
@@ -162,7 +195,8 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
     from labram.data.window_selection import resolve_multitask_class_names
     resolve_multitask_class_names(cfg, train_data_path or data_path)   # the training cohort holds the targets
-    pred_stats = train_target_stats(cfg, train_data_path) if train_data_path else None
+    if pred_stats is None and train_data_path:
+        pred_stats = train_target_stats(cfg, train_data_path)
     to_scalar = None
     if bundle.task == "regression" and cfg.loss.regression_loss == "soft_label":
         cfg.model.nb_classes = soft_label_n_bins(cfg.loss)
@@ -197,10 +231,20 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
                                     num_workers=num_workers, logits_out=logits,
                                     age_input=getattr(cfg.model, "age_input", "off") != "off")
         ids, p, t = _per_recording(pred, true, recs, bundle.target_stats, pred_stats)
-        cohort = np.array([labels.get(r) for r in ids])   # group ids are recording stems
+        # group ids are recording stems; no label = unlabelled (e.g. HEEDB without a report)
+        cohort = np.array([labels.get(r) if labels.get(r) in ("normal", "abnormal")
+                           else "unlabelled" for r in ids])
+        source = dataset_lookup(getattr(bundle, split))
+        family = np.array([source.get(r, UNKNOWN) for r in ids])
+        groups = [("all", np.ones(len(ids), bool))] + [(c, cohort == c) for c in COHORTS]
+        if source:                         # per dataset (harvard / temple) x cohort
+            for ds in sorted(set(family)):
+                groups += [(ds, family == ds)] + [(f"{ds}_{c}", (family == ds) & (cohort == c))
+                                                  for c in COHORTS]
         out = {}
-        for name, mask in (("all", np.ones(len(ids), bool)), ("normal", cohort == "normal"),
-                           ("abnormal", cohort == "abnormal")):
+        for name, mask in groups:
+            if mask.sum() < 2:
+                continue
             m = utils.regression_metrics_fn(p[mask], t[mask], METRICS)
             out[name] = {"n": int(mask.sum()), **{k: float(v) for k, v in m.items()}}
         out["predictions"] = {r: float(v) for r, v in zip(ids, p)}
@@ -231,13 +275,28 @@ def main():
     ap.add_argument("--train-data-path", default=None,
                     help="the run's own training data, when --data-path is another cohort: "
                          "predictions are de-normalized with its training-target stats")
+    ap.add_argument("--pred-stats-from-log", action="store_true",
+                    help="de-normalize predictions with the training-target stats each run logged "
+                         "(log/run.log; exact for CV folds) -- for scoring on another cohort")
+    ap.add_argument("--stage-dir", default=None, help="override data.stage_dir (e.g. 'none')")
     ap.add_argument("--no-window-qc", action="store_true",
                     help="ignore the run's signal-quality window rejection: score every window")
     ap.add_argument("--session-features", default=None,
                     help="session-feature file for --data-path (default: the run's own)")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--nproc-per-node", type=int, default=1,
+                    help="GPUs to predict on (one DDP process each; -1 = all visible GPUs). "
+                         "Windows are sharded across processes and gathered on rank 0.")
     args = ap.parse_args()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    from labram.utils.launch import relaunch_if_needed
+    relaunch_if_needed(args.nproc_per_node, script=os.path.abspath(__file__))
+    ns = argparse.Namespace(dist_on_itp=False, dist_url="env://", world_size=1, local_rank=-1,
+                            backend="auto", device="auto")
+    utils.init_distributed_mode(ns)
+    if getattr(ns, "distributed", False) and torch.cuda.is_available():
+        device = torch.device("cuda", ns.gpu)
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     results = {}
     for item in args.run:
         name, run_dir = item.split("=", 1)
@@ -245,14 +304,19 @@ def main():
                                      device, args.batch_size, args.data_format,
                                      train_data_path=args.train_data_path,
                                      window_qc=not args.no_window_qc,
-                                     session_features=args.session_features)
+                                     session_features=args.session_features,
+                                     pred_stats=logged_target_stats(run_dir) if args.pred_stats_from_log else None,
+                                     stage_dir=args.stage_dir)
+        if not utils.is_main_process():
+            continue
         for split, cohorts in results[name]["splits"].items():
             print(f"{name:14s} {split:4s} " + "  ".join(
                 f"{c}: n={v['n']} MAE={v['mae']:.2f} R2={v['r2']:.2f}" for c, v in cohorts.items()
                 if c != "predictions"))
-    if args.out:
+    if args.out and utils.is_main_process():
         with open(args.out, "w") as fh:
             json.dump(results, fh, indent=2)
+    utils.cleanup_distributed()
 
 
 if __name__ == "__main__":
