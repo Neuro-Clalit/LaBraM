@@ -414,5 +414,62 @@ display(numbered_table(lh.loc[:, lh.notna().any()], "4.3", "HEEDB lift (Eq. 4.2)
 if os.path.exists(FINDINGS):
     md(open(FINDINGS).read())
 
+# ------------------------------------------------------------------ 6
+md(r"""
+## 6. The classes predicted by E2P, the pathology model
+
+E2P (`/data/runs/heedb/submit_e2p_1gpu.sh`, docs/heedb_onboarding_plan.md) trains on the joint TUH + HEEDB cohort
+`tuh_heedb_v1`, on E2 / E2L's split, a **multi-label** classifier without an age prediction: 18 independent
+sigmoid outputs. Its targets are `multitask_targets_v2.npz` (`dataset_maker/make_multitask_targets.py`):
+
+* `status_abnormal`: the EEG report's verdict (1 = abnormal);
+* 13 NEDC diagnosis groups: `clinical_seizure`, `electrographic_seizure`, `epilepsy`, `stroke`, `tbi`,
+  `substance`, `bipolar`, `anxiety`, `depression`, `schizophrenia`, `dementia` (incl. Alzheimer's), `ms` and
+  `other` (Parkinson's, ADHD). TUH from the NEDC sheet; HEEDB from the ICD-10 based `dx_*` flags;
+* 4 HEEDB ICD-10 groups: `headache_disorders` (incl. migraine), `sleep_disorders`,
+  `intracranial_and_spinal_tumors`, `movement_and_cerebellar_disorders` (unknown for TUH).
+
+A label is unknown, and left out of the loss and the metrics, when the recording has no report verdict (status),
+when its session is not in the NEDC sheet (TUH), when the patient has no ICD-10 record (HEEDB), or when the
+dataset does not code the group at all (blank rows below).
+
+### Table 6.1. Targets: known labels, positives and prevalence per dataset
+
+All splits together. `known` = recordings whose label is known, `positive` = positives, `%` = prevalence,
+Eq. (3.1).
+""")
+code(r"""
+mt = ca.multitask_target_stats()
+order = list(dict.fromkeys(mt.target))
+tot = mt.groupby(["target", "dataset"], sort=False)[["known", "positive"]].sum(min_count=1).unstack("dataset")
+tot = tot.reindex(order)
+for d in ("TUH", "HEEDB"):
+    tot[("%", d)] = 100 * tot[("positive", d)] / tot[("known", d)].replace(0, np.nan)
+tot = tot.reindex(columns=pd.MultiIndex.from_product([["known", "positive", "%"], ["TUH", "HEEDB"]]))
+display(numbered_table(tot, "6.1", "E2P targets per dataset", precision=1))
+""")
+md(r"""
+### Table 6.2. Positives per split and dataset
+
+Positive recordings of each target in the train / validation / test splits (E2's split). TUH test is TUAB eval:
+the NEDC sheet hardly annotates diagnoses for TUAB sessions (Section 1), so the TUH test split has almost no
+pathology positives, and TUH pathology can only be judged on validation. HEEDB counts under 10 are blank.
+""")
+code(r"""
+pos = mt.pivot_table(index="target", columns=["split", "dataset"], values="positive", aggfunc="first", sort=False)
+pos = pos.reindex(order).reindex(columns=pd.MultiIndex.from_product([["train", "val", "test"], ["TUH", "HEEDB"]]))
+display(numbered_table(pos, "6.2", "Positives per split and dataset", precision=0))
+""")
+md(r"""
+### Table 6.3. Prevalence per split and dataset (%)
+
+Eq. (3.1) per split and dataset, among the recordings whose label is known.
+""")
+code(r"""
+prv = mt.pivot_table(index="target", columns=["split", "dataset"], values="prevalence %", aggfunc="first", sort=False)
+prv = prv.reindex(order).reindex(columns=pd.MultiIndex.from_product([["train", "val", "test"], ["TUH", "HEEDB"]]))
+display(numbered_table(prv, "6.3", "Prevalence per split and dataset (%)", precision=1))
+""")
+
 nb = nbf.v4.new_notebook(cells=cells, metadata={"kernelspec": {"name": "python3", "display_name": "Python 3"}})
 nbf.write(nb, "notebooks/clinical_records_analytics.ipynb")

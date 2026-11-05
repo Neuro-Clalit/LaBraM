@@ -350,3 +350,38 @@ def co_occurrence(df: pd.DataFrame, corpus: str, names: Iterable[str], k: int = 
             pos = int(xb[m].fillna(False).sum())
             out.loc[a, b] = 100 * pos / m.sum() if m.sum() >= k and (corpus != "HEEDB" or pos == 0 or pos >= k) else np.nan
     return out
+
+
+# ------------------------------------------------------------------ multi-task targets
+
+JOINT_COHORT = "/data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1"
+
+
+def multitask_target_stats(root: str = JOINT_COHORT, name: str = "multitask_targets_v2.npz",
+                           k: int = SMALL_CELL) -> pd.DataFrame:
+    """Per target (``dataset_maker/make_multitask_targets.py``), dataset (TUH /
+    HEEDB, from the stem) and split of the cohort's ``age_split.json``: the
+    recordings with the label known, the positives and the prevalence (%).
+    HEEDB positive counts under ``k`` (and their prevalence) are blank."""
+    from labram.data.tuh_metadata import recording_stem
+    z = np.load(os.path.join(root, name))
+    stems, targets, names = list(z["stems"]), z["targets"], [str(n) for n in z["names"]]
+    files = json.load(open(os.path.join(root, "age_split.json")))["files"]
+    split = {}
+    for s, fs in files.items():
+        for f in fs:
+            split.setdefault(recording_stem(f), s)
+    rows = []
+    sp = np.array([split.get(s, "unused") for s in stems])
+    ds = np.array(["HEEDB" if s.startswith("sub-") else "TUH" for s in stems])
+    for j, target in enumerate(names):
+        col = targets[:, j]
+        for d in ("TUH", "HEEDB"):
+            for s in ("train", "val", "test"):
+                m = (ds == d) & (sp == s) & np.isfinite(col)
+                n, pos = int(m.sum()), int(np.nansum(col[m]))
+                hide = d == "HEEDB" and 0 < pos < k
+                rows.append({"target": target.replace("pathology/", ""), "dataset": d, "split": s,
+                             "known": n, "positive": np.nan if hide else pos,
+                             "prevalence %": np.nan if hide or n == 0 else 100 * pos / n})
+    return pd.DataFrame(rows)
