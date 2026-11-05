@@ -39,7 +39,8 @@ from labram.eval.age_analysis import apply_bias_correction, fit_bias_correction 
 
 METHODS = ("none", "cole", "age_level", "quadratic_gap")
 LABELS = {"E0": "TUH only (exp4noear)", "E1": "E1 HEEDB only", "E2": "E2 TUH+HEEDB",
-          "E2c": "E2c TUH+HEEDB + conditions", "E1+E2": "E1+E2 mean"}
+          "E2c": "E2c TUH+HEEDB + conditions", "E2L": "E2L TUH+HEEDB, 16 epochs",
+          "E1+E2": "E1+E2 mean"}
 COHORTS = ("all", "normal", "abnormal", "unlabelled")
 SMALL_CELL = 10
 
@@ -148,7 +149,7 @@ def plot_bag_by_age(datas, params, corpus, path):
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
     a = axes.ravel()
     colors = {"E0": "tab:gray", "E1": "tab:blue", "E2": "tab:orange", "E2c": "tab:purple",
-              "E1+E2": "tab:green"}
+              "E2L": "tab:red", "E1+E2": "tab:green"}
     edges = [18, 30, 40, 50, 60, 70, 80, 100]
     names = ["18-29", "30s", "40s", "50s", "60s", "70s", "80+"]
     for m, d in datas.items():
