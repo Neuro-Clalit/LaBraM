@@ -19,6 +19,24 @@ ignores the NaN entries (``losses/regression.py::MultiTaskAgeCriterion``), so
 recordings with no label still train the age head.
 
     python -m dataset_maker.make_multitask_targets /data/.../cohorts/all_both_v3_anymiss
+
+A joint TUH + HEEDB cohort (``make_joint_cohort.py``) takes the HEEDB labels
+with ``--extra-clinical <heedb cohort>/labels.parquet`` and is written as
+``multitask_targets_v2.npz`` (``--name``). For HEEDB recordings (stems
+``sub-...``) the diagnosis groups come from the TUH-aligned ``dx_*`` flags,
+which are per-patient ICD-10 codes:
+
+* a patient without any health record has every group unknown (NaN), never 0;
+* a group the neurology ICD extract never codes (no positive in the whole
+  file, e.g. TBI or the psychiatric groups) is unknown for every HEEDB
+  recording;
+* ``--extra-groups`` adds HEEDB ICD-10 groups (``icd_*`` columns, e.g.
+  headache) as further targets, unknown for TUH recordings.
+
+    python -m dataset_maker.make_multitask_targets /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1 \\
+        --extra-clinical /data/datasets/HEEDB/v4.1/cohorts/heedb_routine_v1/labels.parquet \\
+        --extra-groups headache_disorders sleep_disorders intracranial_and_spinal_tumors \\
+                       movement_and_cerebellar_disorders --name multitask_targets_v2.npz
 """
 import argparse
 import json
@@ -51,15 +69,53 @@ def targets_for(stems, meta, clinical):
     return out
 
 
-def build(root, clinical, out_name=DEFAULT_NAME):
+def heedb_targets_for(stems, meta, labels, extra_groups=()):
+    """``[N, 1 + len(GROUPS) + len(extra_groups)]`` targets of HEEDB recordings
+    from a HEEDB cohort's ``labels.parquet`` (see the module doc)."""
+    info = labels.drop_duplicates("stem").set_index("stem")
+    # The ICD-based dx flags are known exactly for patients with a health record
+    # (heedb_index.health_record); dx_electrographic_seizure comes from the report.
+    record_cols = [c for c in info.columns if c.startswith("dx_") and c != "dx_electrographic_seizure"]
+    coded = {g: any(c in info and info[c].astype("boolean").fillna(False).any()
+                    for c in PATHOLOGY[g]) for g in GROUPS}
+    out = np.full((len(stems), 1 + len(GROUPS) + len(extra_groups)), np.nan, dtype=np.float32)
+    for i, stem in enumerate(stems):
+        label = (meta.get(stem) or {}).get("label")
+        if label in ("normal", "abnormal"):
+            out[i, 0] = float(label == "abnormal")
+        if stem not in info.index:
+            continue
+        row = info.loc[stem]
+        if not any(pd.notna(row[c]) for c in record_cols):       # no health record
+            continue
+        for k, group in enumerate(GROUPS, start=1):
+            if coded[group]:
+                out[i, k] = float(any(bool(row[c]) for c in PATHOLOGY[group]
+                                      if c in row and pd.notna(row[c])))
+        for k, group in enumerate(extra_groups, start=1 + len(GROUPS)):
+            v = row.get(f"icd_{group}")
+            out[i, k] = float(bool(v)) if pd.notna(v) else 0.0
+    return out
+
+
+def build(root, clinical, out_name=DEFAULT_NAME, extra=None, extra_groups=()):
     rows = json.load(open(os.path.join(root, "manifest.json")))["recordings"]
     meta_path = os.path.join(root, "age_metadata.json")
     meta = json.load(open(meta_path))["recordings"] if os.path.exists(meta_path) else {}
     stems = [r["stem"] for r in rows]
-    targets = targets_for(stems, meta, clinical)
+    is_heedb = np.array([s.startswith("sub-") for s in stems]) if extra is not None else \
+        np.zeros(len(stems), bool)
+    targets = np.full((len(stems), 1 + len(GROUPS) + len(extra_groups)), np.nan, np.float32)
+    tuh = [s for s, h in zip(stems, is_heedb) if not h]
+    if tuh:
+        targets[~is_heedb, :1 + len(GROUPS)] = targets_for(tuh, meta, clinical)
+    if is_heedb.any():
+        targets[is_heedb] = heedb_targets_for([s for s, h in zip(stems, is_heedb) if h], meta,
+                                              extra, extra_groups)
     out = os.path.join(root, out_name)
     np.savez(out, stems=np.array(stems), targets=targets,
-             names=np.array(["status_abnormal"] + [f"pathology/{g}" for g in GROUPS]))
+             names=np.array(["status_abnormal"] + [f"pathology/{g}" for g in GROUPS]
+                            + [f"pathology/{g}" for g in extra_groups]))
     return out, targets
 
 
@@ -69,14 +125,20 @@ def main(argv=None):
     p.add_argument("--index", default=DEFAULT_INDEX)
     p.add_argument("--sheet", default=DEFAULT_SHEET)
     p.add_argument("--name", default=DEFAULT_NAME)
+    p.add_argument("--extra-clinical", default=None,
+                   help="a HEEDB cohort's labels.parquet, for the HEEDB recordings of a joint cohort")
+    p.add_argument("--extra-groups", nargs="*", default=[],
+                   help="HEEDB ICD-10 groups (icd_<name> columns) added as targets")
     args = p.parse_args(argv)
     clinical = tc.join_index(pd.read_parquet(args.index), tc.load_sheet(args.sheet))
+    extra = pd.read_parquet(args.extra_clinical) if args.extra_clinical else None
     for root in args.roots:
-        out, t = build(root, clinical, args.name)
+        out, t = build(root, clinical, args.name, extra, tuple(args.extra_groups))
+        names = list(np.load(out)["names"])
         known = np.isfinite(t)
-        print(f"{out}: {len(t)} recordings; status known {int(known[:, 0].sum())} "
-              f"(abnormal {int(np.nansum(t[:, 0]))}); pathology known {int(known[:, 1].sum())}; "
-              + ", ".join(f"{g} {int(np.nansum(t[:, k]))}" for k, g in enumerate(GROUPS, start=1)))
+        print(f"{out}: {len(t)} recordings")
+        for k, name in enumerate(names):
+            print(f"  {name:45s} known {int(known[:, k].sum()):6d}  positive {int(np.nansum(t[:, k])):6d}")
 
 
 if __name__ == "__main__":

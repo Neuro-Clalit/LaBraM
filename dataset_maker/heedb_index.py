@@ -331,6 +331,19 @@ def load_patients(meta_dir: str) -> pd.DataFrame:
     }).drop_duplicates(["site", "patient_id"])
 
 
+def health_record(index: pd.DataFrame) -> pd.Series:
+    """True for recordings whose patient has an ICD-10 record: listed in the
+    neurology ICD file (any ``icd_<category>`` flag known) or ``ICD10Count > 0``
+    in HEEDB_patients.csv. ``ICD10Count`` alone is not enough: it is 0 or
+    missing for many patients who have neurology codes (all of I0008 / I0009,
+    15 % of S0001)."""
+    cats = [c for c in index.columns if c.startswith("icd_") and c not in ("icd_count", "icd_codes")]
+    in_file = index[cats].notna().any(axis=1) if cats else pd.Series(False, index=index.index)
+    counted = pd.to_numeric(index.get("icd_count"), errors="coerce").fillna(0).gt(0) \
+        if "icd_count" in index else pd.Series(False, index=index.index)
+    return (in_file | counted).astype(bool)
+
+
 def code_flags(codes: pd.Series, mapping: Dict[str, Sequence[str]]) -> pd.DataFrame:
     """Boolean column per mapping key: any code starts with one of its prefixes
     (codes are space-joined strings; NA codes give NA flags)."""
@@ -353,9 +366,10 @@ def tuh_aligned_flags(index: pd.DataFrame) -> pd.DataFrame:
     * ``f_*`` from report findings (``FINDING_TO_TUH``);
     * ``abnormal_report``, ``any_neuro_dx``, ``sedated``, ``in_sheet``,
       ``label`` exactly as the TUH pipeline defines them."""
-    has_icd = index["icd_count"].fillna(0).gt(0) & index["icd_codes"].notna()
+    has_icd = health_record(index)
     has_atc = index["medication_count"].fillna(0).gt(0) & index["atc_codes"].notna()
-    dx = code_flags(index["icd_codes"].where(has_icd), ICD_TO_TUH)
+    # A patient with a record but no neurology code has every flag False.
+    dx = code_flags(index["icd_codes"].astype("string").fillna("").where(has_icd), ICD_TO_TUH)
     med = code_flags(index["atc_codes"].where(has_atc), ATC_TO_TUH)
     out = pd.concat([dx, med], axis=1)
     out["dx_electrographic_seizure"] = index.get("find_seizure", pd.Series(pd.NA, index=index.index))

@@ -310,3 +310,13 @@ def test_brain_age_tables_recalibration_and_groups():
     assert set(t["cohort"]["cohort"]) == {"all", "normal", "abnormal", "unlabelled"}
     assert set(t["site"]["site"]) == {"S0001", "I0002"}
     assert t["decade"]["n"].sum() == 400 and "R2" not in t["decade"]
+
+
+def test_health_record_uses_icd_file_or_count():
+    idx = pd.DataFrame({"icd_headache_disorders": pd.array([True, False, pd.NA, pd.NA], dtype="boolean"),
+                        "icd_count": [0, float("nan"), 5, float("nan")],
+                        "icd_codes": ["G40.9", "", None, None]})
+    assert hx.health_record(idx).tolist() == [True, True, True, False]
+    dx = hx.code_flags(idx["icd_codes"].astype("string").fillna("").where(hx.health_record(idx)),
+                       hx.ICD_TO_TUH)
+    assert dx["dx_epilepsy"].tolist()[:3] == [True, False, False] and pd.isna(dx["dx_epilepsy"][3])
