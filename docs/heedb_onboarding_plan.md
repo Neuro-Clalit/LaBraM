@@ -377,6 +377,27 @@ and per dataset x cohort (`harvard_*`, `temple_*`, e.g. `temple_abnormal_mae`). 
 overfitting per dataset. E1/E2 were launched before this change. Their per-dataset numbers
 come from `scripts/eval_age_by_cohort.py`, which reports the same groups.
 
+### Health-record analytics and E2P, the pathology classifier (2026-11-05)
+- **Health-record fix.** `heedb_index.health_record`: a patient has an ICD-10 record when listed in the
+  neurology ICD file or `ICD10Count > 0`. Before, only `ICD10Count > 0` counted, but it is 0 or missing for many
+  coded patients (all of I0008/I0009, 15 % of S0001).
+  - `dx_*` are now known for 90 % of adult routine recordings instead of 43 %.
+  - Positives grew by about 50 %: epilepsy 15.4K → 23.1K, stroke 5.5K → 7.4K.
+  - `heedb_index.parquet` and `heedb_routine_v1/labels.parquet` were regenerated (backups `*.bak_20261105`).
+  - The E2c condition vectors were built before the fix.
+- **Analytics.** `notebooks/clinical_records_analytics.ipynb` (+ PDF) covers TUAB, the TUH cohort and HEEDB:
+  - age × sex × report verdict;
+  - 21 pathology categories (headache/migraine, sleep, tumour and others), by age group and sex, with the
+    abnormal-EEG excess and co-occurrence;
+  - report abnormality types and their lift per pathology.
+- **E2P** (`/data/runs/heedb/submit_e2p.sh`, SageMaker `labram-heedb-e2p-pathology-2026-11-05-19-51-36-294`).
+  - **Recipe:** E2L's scenario on the same split (16 epochs / 4 warm-up, batch 256, lr 2.8e-4, patience 5) as a
+    status + 17-group classifier without age prediction. This is `main`'s Exp4cls recipe: multi-task head,
+    class-balanced pathology loss, `loss.age_weight=0`, epoch selected on pathology macro ROC-AUC.
+  - **Targets:** `multitask_targets_v2.npz`, the 13 NEDC groups + headache / sleep / tumour / movement disorders.
+  - **Hardware:** one ml.g5.12xlarge with 4-GPU DDP (global batch 256 = 4 × 64), the first real-GPU use of
+    `distributed.nproc_per_node`.
+
 ### Local training on all data (decided 2026-11-02)
 The user wants to be able to train locally on all of TUH + HEEDB, not only on SageMaker.
 - **Disk:** `/data` (`vol-0e556358439755c10`, gp3, 500 MB/s, 6000 IOPS) is 1.5 TB with 1.465 TB used.
