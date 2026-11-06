@@ -191,3 +191,13 @@ def test_train_eval_every_and_eval_batch_size(tmp_path, monkeypatch):
     assert len([e for h, e in calls if h == "Val:"]) == 3
     assert batch["Val:"] == 5 and batch["TrainEval:"] == 5
     assert summary["last_train_eval_stats"]
+
+
+def test_per_class_roc_auc_is_logged(caplog):
+    import logging
+    stats = {"abnormal_roc_auc": 0.85, "pathology_stroke_roc_auc": 0.8, "pathology_stroke_n_pos": 12,
+             "pathology_macro_roc_auc": 0.7}
+    with caplog.at_level(logging.INFO, logger=tf.logger.name):
+        tf._log_dataset_breakdown(stats, {}, {}, "pathology_macro_roc_auc")
+    line = [r.getMessage() for r in caplog.records if "per class" in r.getMessage()][0]
+    assert "status=0.850" in line and "stroke=0.800(12)" in line and "macro" not in line

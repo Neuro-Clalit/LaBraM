@@ -832,6 +832,17 @@ def _log_dataset_breakdown(val_stats, test_stats, train_eval_stats, metric) -> N
                  and not k.startswith('window_') and _is_scalar(v)]
         if parts:
             logger.info("%s EEG %s by dataset/cohort: %s", split, metric, "  ".join(sorted(parts)))
+        # Multi-task classification: ROC-AUC (positives) of the status and of
+        # every diagnosis group, readable in the job log while it runs.
+        per_class = [(k[:-len('_roc_auc')], v, stats.get(k.replace('_roc_auc', '_n_pos')))
+                     for k, v in stats.items()
+                     if k.startswith('pathology_') and k.endswith('_roc_auc')
+                     and k != 'pathology_macro_roc_auc' and _is_scalar(v)]
+        if per_class or 'abnormal_roc_auc' in stats:
+            head = ([f"status={stats['abnormal_roc_auc']:.3f}"] if 'abnormal_roc_auc' in stats else [])
+            logger.info("%s ROC-AUC per class: %s", split, "  ".join(
+                head + [f"{n[len('pathology_'):]}={v:.3f}" + (f"({int(c)})" if c is not None else "")
+                        for n, v, c in per_class]))
 
 
 def _cohort_of(label) -> str:
