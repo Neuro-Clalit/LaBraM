@@ -225,7 +225,7 @@ class FinetuneModelConfig(ConfigBase):
     input_clip_uv: float = 0.0
     # PyTorch's fused scaled_dot_product_attention in every transformer block
     # (same maths as the explicit softmax(q k^T) v, fewer and faster kernels).
-    fused_attention: bool = False
+    fused_attention: bool = True
     init_scale: float = conf_consts.DEFAULT_FINETUNE_INIT_SCALE
     nb_classes: int = conf_consts.DEFAULT_FINETUNE_NB_CLASSES
     # "classification" or "regression". Both use nb_classes == 1 for a single

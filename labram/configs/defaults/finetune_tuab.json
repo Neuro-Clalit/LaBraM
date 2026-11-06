@@ -175,7 +175,7 @@
         "session_head_dim": 32,
         "depth": null,
         "input_clip_uv": 0.0,
-        "fused_attention": false,
+        "fused_attention": true,
         "init_scale": 0.001,
         "nb_classes": 0,
         "task": "classification",
@@ -285,7 +285,7 @@
         "use_ema": false,
         "per_dataset_metrics": true,
         "train_eval_recordings": 500,
-        "train_eval_every": 1,
+        "train_eval_every": 4,
         "eval_batch_size": 0,
         "select_metric": "",
         "select_mode": "auto"
