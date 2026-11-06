@@ -76,7 +76,7 @@ def per_class(preds: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def wide(table: pd.DataFrame, run: str, dataset: str = "all") -> pd.DataFrame:
+def wide(table: pd.DataFrame, run: str, dataset: str = "all", label_split: str = "val") -> pd.DataFrame:
     """One row per target: val / test / train :data:`METRICS` and positives."""
     t = table[(table.run == run) & (table.dataset == dataset)]
     out = t.pivot_table(index="target", columns="split",
@@ -85,7 +85,15 @@ def wide(table: pd.DataFrame, run: str, dataset: str = "all") -> pd.DataFrame:
             if (m, s) in out.columns]
     out = out[cols]
     out.columns = [f"{s} {m}" for m, s in cols]
-    return out.reindex(list(dict.fromkeys(t.target)))
+    out = out.reindex(list(dict.fromkeys(t.target)))
+    return out.rename(index=class_labels(t, label_split))
+
+
+def class_labels(t: pd.DataFrame, split: str = "val") -> dict:
+    """``target -> "target (prevalence %, positives in K)"`` on ``split``, e.g.
+    ``stroke (11.3%, 0.7K)``."""
+    s = t[t.split == split].drop_duplicates("target").set_index("target")
+    return {k: f"{k} ({100 * r.prevalence:.1f}%, {r.positives / 1000:.1f}K)" for k, r in s.iterrows()}
 
 
 def main():
