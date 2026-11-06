@@ -61,6 +61,30 @@ def bench(cfg, train, ch_names, batch, workers, fused, steps, warmup, device):
             "peak_mem_gb": torch.cuda.max_memory_allocated() / 2 ** 30}
 
 
+def bench_eval(cfg, val, ch_names, batch, workers, steps, warmup, device):
+    from labram.runs.finetune_setup import enable_window_ids
+    model = get_model(cfg).to(device).eval()
+    loader = torch.utils.data.DataLoader(val, batch_size=batch, shuffle=True, num_workers=workers,
+                                         pin_memory=True, persistent_workers=workers > 0)
+    ci = utils.get_channel_indices(ch_names)
+    torch.cuda.reset_peak_memory_stats()
+    it = iter(loader)
+    with torch.no_grad():
+        for step in range(warmup + steps):
+            if step == warmup:
+                torch.cuda.synchronize()
+                t0 = time.perf_counter()
+            x = next(it)[0]
+            x = rearrange(x.float().to(device, non_blocking=True) / 100, "B N (A T) -> B N A T", T=200)
+            with torch.amp.autocast("cuda"):
+                model(x, ci)
+    torch.cuda.synchronize()
+    dt = time.perf_counter() - t0
+    del loader, it
+    return {"eval_batch": batch, "workers": workers, "samples_per_s": steps * batch / dt,
+            "peak_mem_gb": torch.cuda.max_memory_allocated() / 2 ** 30}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", default="labram/configs/defaults/finetune_tuab_age.json")
@@ -71,12 +95,17 @@ def main():
     p.add_argument("--steps", type=int, default=150)
     p.add_argument("--warmup", type=int, default=20)
     p.add_argument("--epoch-samples", type=int, default=1733329, help="samples per epoch to project")
+    p.add_argument("--eval-batch", type=int, nargs="*", default=[],
+                   help="also time inference (no grad, AMP) on the val split at these batch sizes")
     p.add_argument("--out", default=None)
     args = p.parse_args()
     cfg = FinetuneRunConfig.load_config(args.config, **{"data.data_path": args.data_path,
                                                          "finetune_checkpoint.finetune": ""})
     bundle = get_dataset_bundle(cfg.data.dataset, args.data_path, data_format=cfg.data.data_format)
     bundle = apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
+    if cfg.data.drop_channels:            # serve the channels the run trains on
+        from labram.data.channel_selection import drop_channels
+        drop_channels(bundle, cfg.data.drop_channels)
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
     device = torch.device("cuda")
     rows = []
@@ -88,6 +117,13 @@ def main():
         print(f"batch {batch:4d}  workers {workers:2d}  fused {int(fused)}  "
               f"{r['samples_per_s']:7.0f} samples/s  {r['ms_per_step']:6.1f} ms/step  "
               f"{r['peak_mem_gb']:5.1f} GB  epoch {r['epoch_min']:5.1f} min", flush=True)
+        torch.cuda.empty_cache()
+    for batch in args.eval_batch:          # inference only (val/test/train_eval loaders)
+        r = bench_eval(cfg, bundle.val, bundle.ch_names, batch, args.workers[0], args.steps // 2,
+                       args.warmup, device)
+        rows.append(r)
+        print(f"eval batch {batch:4d}  workers {args.workers[0]:2d}  {r['samples_per_s']:7.0f} samples/s  "
+              f"{r['peak_mem_gb']:5.1f} GB", flush=True)
         torch.cuda.empty_cache()
     if args.out:
         json.dump(rows, open(args.out, "w"), indent=1)

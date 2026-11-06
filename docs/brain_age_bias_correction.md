@@ -4,7 +4,8 @@ Real vs predicted age and the brain-age gap before and after bias correction
 for the TUH-only baseline (`exp4anymiss-noear-nolabel`, "E0" here), E1
 (HEEDB only), E2 (TUH + HEEDB), E2c (E2 + clinical condition inputs: report status
 normal/abnormal/not available and 14 pathology flags, `model.session_features=head`;
-trained locally on the same split) and the mean of E1 and E2. Test sets:
+trained locally on the same split), E2L (E2 trained 16 epochs; Table 3.1/3.2 rows added 2026-11-06) and the
+mean of E1 and E2. Test sets:
 **TUAB eval** (274 recordings: 149 normal, 125 abnormal) and the full
 **HEEDB held-out test** (7,338 recordings: 1,518 normal, 2,253 abnormal,
 3,567 unlabelled). Every correction is fitted on the **validation recordings
@@ -121,6 +122,8 @@ with fewer than 10 recordings are not shown.
 | E1+E2 | quadratic | **5.00** | 4.34 | **5.79** | 0.12 | +3.4 | 2e-5 | 0.66 |
 | E2c (+ conditions) | none | 6.82 | 5.20 | 8.76 | −0.64 | −0.2 | 0.83 | 0.48 |
 | E2c (+ conditions) | quadratic | 5.23 | 4.25 | 6.40 | 0.08 | +4.2 | 8e-7 | 0.68 |
+| **E2L** (16 epochs) | none | **6.55** | **4.91** | 8.50 | −0.60 | +0.1 | 0.90 | 0.49 |
+| E2L (16 epochs) | quadratic | 5.31 | 4.29 | 6.52 | 0.04 | +4.0 | 6e-6 | 0.66 |
 
 ### Table 3.2. HEEDB test (7,338), correction fitted on HEEDB val normal
 
@@ -135,6 +138,8 @@ with fewer than 10 recordings are not shown.
 | E1+E2 | quadratic | 5.25 | 4.98 | 5.57 | 0.14 | +2.5 | 3e-29 | 0.62 |
 | E2c (+ conditions) | none | 7.29 | 7.31 | 7.72 | −0.70 | −0.6 | 0.08 | 0.48 |
 | E2c (+ conditions) | quadratic | 5.25 | 4.98 | 5.92 | 0.09 | +3.1 | 6e-43 | 0.64 |
+| **E2L** (16 epochs) | none | **7.02** | **7.12** | **7.56** | −0.65 | −0.9 | 5e-3 | 0.47 |
+| E2L (16 epochs) | quadratic | 5.46 | 5.13 | 5.86 | 0.12 | +2.5 | 3e-28 | 0.62 |
 
 Cole's inversion removes the age trend too ($r$ ≈ 0) but raises the MAE in every
 case (TUAB E2 6.70 → 7.79, HEEDB 7.27 → 8.20): it is the deployable choice
@@ -174,6 +179,11 @@ when the true age is unknown, at that cost. Full rows in the CSV.
   both corpora (TUAB 6.82 vs 6.70, HEEDB 7.29 vs 7.27). Its corrected abnormal − normal gap is
   larger (TUAB +4.2 vs +3.9, HEEDB +3.1 vs +2.4; AUROC 0.68/0.64 vs 0.67/0.62), but E2c *sees*
   the abnormal label, so part of that separation is the label itself, not EEG evidence.
+
+- **Longer training (E2L):** 16 epochs, with the epoch picked on val (12), give the lowest raw errors:
+  TUAB 6.55 (normal 4.91) and HEEDB 7.02, against 6.70 / 7.27 for E2. After the quadratic correction the
+  two are equivalent (TUAB normal 4.29 vs 4.24; HEEDB 5.46 vs 5.18). The longer schedule lowers the
+  spread of the raw errors, not the age-independent part of the gap.
 
 ## 5. Reproduce
 
