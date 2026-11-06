@@ -8,7 +8,11 @@ stems start with ``sub-``) x target: recordings with a known label, positives,
 ROC-AUC, PR-AUC; at probability 0.5 (as training logs them) the balanced
 accuracy, balanced error and F1; and at the validation best-F1 threshold
 ``t_val`` of the same run / dataset / target (chosen on val, carried over to
-test and train) the F1 and balanced error (``*_tval``).
+test and train) the F1 and balanced error (``*_tval``); and the best values
+over all thresholds of the split itself -- the maximum F1 (``f1_best`` at
+``t_f1``) and the minimum balanced error (``balanced_error_best`` at ``t_be``,
+the Youden point). The ``*_best`` values are optimistic outside validation
+(threshold chosen on the scored labels).
 Targets with one class only in a cell are skipped; HEEDB cells with fewer than
 10 positives are dropped (DUA small-cell rule).
 
@@ -20,7 +24,18 @@ import numpy as np
 import pandas as pd
 
 SMALL_CELL = 10
-METRICS = ["roc_auc", "pr_auc", "balanced_accuracy", "balanced_error", "f1", "f1_tval", "balanced_error_tval"]
+METRICS = ["roc_auc", "pr_auc", "balanced_accuracy", "balanced_error", "f1", "f1_tval", "balanced_error_tval",
+           "f1_best", "t_f1", "balanced_error_best", "t_be"]
+
+
+def min_balanced_error(y: np.ndarray, s: np.ndarray):
+    """``(threshold, balanced error)`` minimising the balanced error (maximising
+    Youden's J = TPR - FPR) over the ROC thresholds."""
+    from sklearn.metrics import roc_curve
+    fpr, tpr, thr = roc_curve(y, s)
+    be = 1 - (tpr + 1 - fpr) / 2
+    i = int(np.argmin(be))
+    return float(min(thr[i], 1.0)), float(be[i])
 
 
 def _cells(p: pd.DataFrame):
@@ -49,6 +64,10 @@ def per_class(preds: pd.DataFrame) -> pd.DataFrame:
                "roc_auc": roc_auc_score(y, s), "pr_auc": average_precision_score(y, s),
                "balanced_accuracy": 1 - at05["balanced_error"],
                "balanced_error": at05["balanced_error"], "f1": at05["f1"]}
+        t_f1 = best_f1_threshold(y, s)
+        t_be, be_best = min_balanced_error(y, s)
+        row.update({"f1_best": threshold_metrics(y, s, t_f1)["f1"], "t_f1": t_f1,
+                    "balanced_error_best": be_best, "t_be": t_be})
         t = t_val.get((run, target, ds))
         if t is not None:
             at_t = threshold_metrics(y, s, t)
@@ -57,7 +76,7 @@ def per_class(preds: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def wide(table: pd.DataFrame, run: str, dataset: str = "all") -> pd.DataFrame:
+def wide(table: pd.DataFrame, run: str, dataset: str = "all", label_split: str = "val") -> pd.DataFrame:
     """One row per target: val / test / train :data:`METRICS` and positives."""
     t = table[(table.run == run) & (table.dataset == dataset)]
     out = t.pivot_table(index="target", columns="split",
@@ -66,7 +85,17 @@ def wide(table: pd.DataFrame, run: str, dataset: str = "all") -> pd.DataFrame:
             if (m, s) in out.columns]
     out = out[cols]
     out.columns = [f"{s} {m}" for m, s in cols]
-    return out.reindex(list(dict.fromkeys(t.target)))
+    out = out.reindex(list(dict.fromkeys(t.target)))
+    return out.rename(index=class_labels(t, label_split))
+
+
+def class_labels(t: pd.DataFrame, split: str = "val") -> dict:
+    """``target -> "target (positives / known labels in K, prevalence %)"`` on
+    ``split``, e.g. ``stroke (0.7K / 6.6K, 11.3%)``: the prevalence is the
+    positives' share of the recordings whose label is known."""
+    s = t[t.split == split].drop_duplicates("target").set_index("target")
+    return {k: f"{k} ({r.positives / 1000:.1f}K / {r.known / 1000:.1f}K, {100 * r.prevalence:.1f}%)"
+            for k, r in s.iterrows()}
 
 
 def main():
