@@ -370,6 +370,32 @@ Final checkpoint (epoch 8), scored offline:
   recordings slightly more (`docs/brain_age_bias_correction.md`). E2c receives the abnormal label
   as input, so that separation is not EEG evidence.
 
+### E2L: E2 trained 16 epochs, locally (2026-11-04 → 11-06)
+- **Recipe.** E2 (TUH + HEEDB, same split, EEG-only), 16 epochs with 4 warm-up epochs, 20 → 12 loader
+  workers, on the local A10G (`/data/runs/heedb/run_e2l.sh`, then `resume_e2l.sh` / `resume_e2l_bs256.sh`).
+  - Epochs 1–6 ran at batch 512 / lr 4e-4. Throughput was no higher than at 256 (the GPU saturates at 256;
+    `scripts/benchmark_finetune_speed.py`), and val jumped from 7.67 to 8.41 at epoch 6.
+  - From epoch 7: batch 256 / lr 2.8e-4 on the same cosine schedule, resumed from the epoch-6 checkpoint.
+- **Speedups found while running it:**
+  - `pread` loader (`NPY_READ`): exact window reads instead of memory-map faults, read amplification
+    4.4× → 1.06×; the g5.2xlarge's 106 MB/s EBS baseline was the limit.
+  - Linear-time window pooling in evaluation (`aggregate_windows`): ≈ 2.5 min → 0.16 s per call.
+  - `evaluation.train_eval_every=4`.
+  - Result: epoch time 2h50m → 68 min (60.5 training + 7 evaluation), against 89 min for E2 on SageMaker.
+- **Result** (best epoch 12, val 7.24; epochs 13–16 at 7.30–7.41 as the learning rate reached 0):
+
+| | E2L | E2 | E1 | TUH only (`Exp4noearEEG`) |
+|---|---|---|---|---|
+| TUAB eval all / normal / abnormal | **6.55 / 4.91 / 8.50** | 6.70 / 5.13 / 8.56 | 6.90 / 5.83 / 8.18 | 7.48 / 5.75 / 9.54 |
+| HEEDB test (7,338) | **7.02** | 7.27 | 7.27 | 9.82 |
+| Train-eval Harvard / Temple at the last epoch | 5.30 / 3.66 | 6.05 / 4.69 | 6.14 / – | – |
+
+- **Over-fitting:** E2L over-fits more (Temple train-eval 3.66 vs val about 7.3), so the epoch is picked on val.
+- **Significance:** the gain over E2 (0.15 on TUAB, 0.25 on HEEDB) is below the 0.38-year 2-run noise threshold
+  of the brain-age summary, i.e. a trend.
+- **Summary notebook:** `notebooks/brain_age_research_summary.ipynb`, phase 4: Tables 2.11–2.13 and
+  Figures 2.2–2.3, with the age error per pathology.
+
 ### Per-dataset reporting (from the runs after E1/E2)
 Every fine-tune now reports each split overall, per cohort (normal / abnormal / unlabelled)
 and per dataset x cohort (`harvard_*`, `temple_*`, e.g. `temple_abnormal_mae`). A
