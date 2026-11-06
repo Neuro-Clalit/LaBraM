@@ -5,7 +5,10 @@ Reads the per-recording prediction table of ``scripts/eval_multitask_classificat
 (``run, split, recording, target, p, y``; ``y`` NaN = unknown) and writes, per
 run x split x dataset (``all`` / ``TUH`` / ``HEEDB``, from the recording id: HEEDB
 stems start with ``sub-``) x target: recordings with a known label, positives,
-ROC-AUC, PR-AUC and the balanced accuracy at probability 0.5 (as training logs it).
+ROC-AUC, PR-AUC; at probability 0.5 (as training logs them) the balanced
+accuracy, balanced error and F1; and at the validation best-F1 threshold
+``t_val`` of the same run / dataset / target (chosen on val, carried over to
+test and train) the F1 and balanced error (``*_tval``).
 Targets with one class only in a cell are skipped; HEEDB cells with fewer than
 10 positives are dropped (DUA small-cell rule).
 
@@ -17,32 +20,49 @@ import numpy as np
 import pandas as pd
 
 SMALL_CELL = 10
+METRICS = ["roc_auc", "pr_auc", "balanced_accuracy", "balanced_error", "f1", "f1_tval", "balanced_error_tval"]
 
 
-def per_class(preds: pd.DataFrame) -> pd.DataFrame:
-    from sklearn.metrics import average_precision_score, balanced_accuracy_score, roc_auc_score
-    p = preds.dropna(subset=["y"]).copy()
-    p["dataset"] = np.where(p["recording"].astype(str).str.startswith("sub-"), "HEEDB", "TUH")
-    rows = []
+def _cells(p: pd.DataFrame):
     for (run, split, target), g in p.groupby(["run", "split", "target"], sort=False):
         for ds, sub in (("all", g), ("TUH", g[g.dataset == "TUH"]), ("HEEDB", g[g.dataset == "HEEDB"])):
             y, s = sub["y"].to_numpy().astype(int), sub["p"].to_numpy()
-            pos = int(y.sum())
-            if len(np.unique(y)) < 2 or (ds == "HEEDB" and pos < SMALL_CELL):
+            if len(np.unique(y)) < 2 or (ds == "HEEDB" and int(y.sum()) < SMALL_CELL):
                 continue
-            rows.append({"run": run, "split": split, "dataset": ds, "target": target,
-                         "known": len(y), "positives": pos, "prevalence": pos / len(y),
-                         "roc_auc": roc_auc_score(y, s), "pr_auc": average_precision_score(y, s),
-                         "balanced_accuracy": balanced_accuracy_score(y, (s >= 0.5).astype(int))})
+            yield run, split, target, ds, y, s
+
+
+def per_class(preds: pd.DataFrame) -> pd.DataFrame:
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from sklearn.metrics import average_precision_score, roc_auc_score
+    from labram.eval.binary_metrics import best_f1_threshold, threshold_metrics
+    p = preds.dropna(subset=["y"]).copy()
+    p["dataset"] = np.where(p["recording"].astype(str).str.startswith("sub-"), "HEEDB", "TUH")
+    t_val = {(run, target, ds): best_f1_threshold(y, s)
+             for run, split, target, ds, y, s in _cells(p) if split == "val"}
+    rows = []
+    for run, split, target, ds, y, s in _cells(p):
+        at05 = threshold_metrics(y, s, 0.5)
+        row = {"run": run, "split": split, "dataset": ds, "target": target,
+               "known": len(y), "positives": int(y.sum()), "prevalence": y.mean(),
+               "roc_auc": roc_auc_score(y, s), "pr_auc": average_precision_score(y, s),
+               "balanced_accuracy": 1 - at05["balanced_error"],
+               "balanced_error": at05["balanced_error"], "f1": at05["f1"]}
+        t = t_val.get((run, target, ds))
+        if t is not None:
+            at_t = threshold_metrics(y, s, t)
+            row.update({"t_val": t, "f1_tval": at_t["f1"], "balanced_error_tval": at_t["balanced_error"]})
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
 def wide(table: pd.DataFrame, run: str, dataset: str = "all") -> pd.DataFrame:
-    """One row per target: val / test / train ROC-AUC, PR-AUC, balanced accuracy."""
+    """One row per target: val / test / train :data:`METRICS` and positives."""
     t = table[(table.run == run) & (table.dataset == dataset)]
     out = t.pivot_table(index="target", columns="split",
-                        values=["roc_auc", "pr_auc", "balanced_accuracy", "positives"], sort=False)
-    cols = [(m, s) for s in ("val", "test", "train") for m in ("roc_auc", "pr_auc", "balanced_accuracy", "positives")
+                        values=METRICS + ["positives"], sort=False)
+    cols = [(m, s) for s in ("val", "test", "train") for m in METRICS + ["positives"]
             if (m, s) in out.columns]
     out = out[cols]
     out.columns = [f"{s} {m}" for m, s in cols]
