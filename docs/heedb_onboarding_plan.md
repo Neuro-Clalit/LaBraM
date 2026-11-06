@@ -424,6 +424,53 @@ come from `scripts/eval_age_by_cohort.py`, which reports the same groups.
   - **Hardware:** one ml.g5.12xlarge with 4-GPU DDP (global batch 256 = 4 × 64), the first real-GPU use of
     `distributed.nproc_per_node`.
 
+### E2P results: pathology classifier (completed 2026-11-06)
+SageMaker `labram-heedb-e2p-pathology-2026-11-05-20-52-14-760` (ml.g5.16xlarge, 1 GPU, 16 epochs at about 71 min).
+The best epoch is 11: val pathology macro ROC-AUC 0.72, test 0.66.
+
+**Scoring.** `/data/runs/heedb/score_e2p.sh`, using `scripts/eval_multitask_classification.py` and
+`scripts/multitask_per_class_table.py`:
+- **Output:** `docs/data/e2p_per_class.csv`, per split (val, test, a 2,000-recording training sample) ×
+  dataset (all / TUH / HEEDB) × class.
+- **Metrics:**
+  - ROC-AUC, PR-AUC;
+  - balanced accuracy, balanced error and F1 at 0.5;
+  - F1 and balanced error at the validation best-F1 threshold;
+  - best F1 and minimum balanced error over all thresholds.
+
+**Read the per-dataset rows.** Pooled ROC-AUCs are inflated by the prevalence gap between the datasets
+(e.g. epilepsy 35 % in HEEDB vs 1.5 % in TUH): pooled 0.785, but 0.61 within TUH and 0.66 within HEEDB.
+
+| Class | HEEDB val ROC-AUC | HEEDB best F1 / bal. err | HEEDB test ROC-AUC | TUH val ROC-AUC (Exp4cls) |
+|---|---|---|---|---|
+| status_abnormal | **0.876** | 0.836 / 0.190 | 0.873 | 0.811 (0.813) |
+| clinical_seizure | 0.659 | 0.555 / 0.386 | 0.661 | 0.760 (0.783) |
+| electrographic_seizure | 0.678 | 0.236 / 0.361 | 0.673 | 0.867 (0.964) |
+| epilepsy | 0.658 | 0.554 / 0.388 | 0.661 | 0.613 (0.698) |
+| stroke | 0.716 | 0.313 / 0.333 | 0.728 | 0.778 (0.795) |
+| depression | 0.611 | 0.361 / 0.414 | 0.598 | 0.724 (0.558) |
+| dementia | **0.758** | 0.278 / 0.305 | **0.788** | 0.782 (0.865) |
+| ms | 0.678 | 0.051 / 0.340 | 0.594 | 0.505 (0.538) |
+| other (Parkinson's, ADHD) | 0.601 | 0.129 / 0.419 | 0.604 | 0.781 (0.585) |
+| headache_disorders | 0.615 | 0.457 / 0.417 | 0.610 | – |
+| sleep_disorders | 0.635 | 0.398 / 0.404 | 0.636 | – |
+| intracranial_and_spinal_tumors | **0.811** | 0.368 / 0.266 | **0.776** | – |
+| movement_and_cerebellar_disorders | 0.642 | 0.298 / 0.392 | 0.646 | – |
+| tbi / substance / bipolar / anxiety / schizophrenia (TUH only) | – | – | – | 0.72 / 0.61 / 0.67 / 0.81 / 0.57 (0.76 / 0.63 / 0.65 / 0.73 / 0.74) |
+
+- **Status.** The status is the strong output: HEEDB val ROC-AUC 0.876, best F1 0.84 at balanced error 0.19;
+  test 0.873. On TUH val it equals Exp4cls (0.811 vs 0.813).
+- **Diagnosis groups.** They are detectable but weak inside HEEDB: ROC-AUC 0.60–0.81, best in tumours
+  (0.81) and dementia (0.76), poorest in headache, sleep, depression and "other" (0.60–0.64), as the
+  clinical-records report predicted (lifetime, undated ICD codes).
+- **Threshold 0.5.** Every rare group has balanced accuracy 0.50 at 0.5: the model never predicts
+  positive there. A per-class threshold (validation best-F1 or Youden) is needed for use.
+- **Against Exp4cls on TUH val.** Adding HEEDB did not improve the TUH groups. Most are within the noise
+  of their 7–185 positives; depression and "other" are higher, electrographic seizure, epilepsy,
+  dementia and schizophrenia lower.
+- **Overfitting.** Training-sample ROC-AUC reaches 0.99 for status on TUH and 0.96 on HEEDB, against
+  0.81 / 0.88 on val.
+
 ### Local training on all data (decided 2026-11-02)
 The user wants to be able to train locally on all of TUH + HEEDB, not only on SageMaker.
 - **Disk:** `/data` (`vol-0e556358439755c10`, gp3, 500 MB/s, 6000 IOPS) is 1.5 TB with 1.465 TB used.
