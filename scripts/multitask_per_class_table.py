@@ -90,10 +90,12 @@ def wide(table: pd.DataFrame, run: str, dataset: str = "all", label_split: str =
 
 
 def class_labels(t: pd.DataFrame, split: str = "val") -> dict:
-    """``target -> "target (prevalence %, positives in K)"`` on ``split``, e.g.
-    ``stroke (11.3%, 0.7K)``."""
+    """``target -> "target (positives / known labels in K, prevalence %)"`` on
+    ``split``, e.g. ``stroke (0.7K / 6.6K, 11.3%)``: the prevalence is the
+    positives' share of the recordings whose label is known."""
     s = t[t.split == split].drop_duplicates("target").set_index("target")
-    return {k: f"{k} ({100 * r.prevalence:.1f}%, {r.positives / 1000:.1f}K)" for k, r in s.iterrows()}
+    return {k: f"{k} ({r.positives / 1000:.1f}K / {r.known / 1000:.1f}K, {100 * r.prevalence:.1f}%)"
+            for k, r in s.iterrows()}
 
 
 def main():
