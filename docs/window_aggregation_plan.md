@@ -438,14 +438,64 @@ curve (MAE vs. coverage, deferring by $\sigma_c$ or by attention entropy);
   unchanged, so the normal/abnormal branch gets the recording-level pooling
   for free; its BCE then also stops inheriting labels per window.
 
+## 8. Recommended references per method
+
+Table 8.1 names, for every proposed estimator, the reference to read first (the
+method's origin or its cleanest statement), the reference closest to our
+problem (EEG, recording-level labels, or brain age), and what to take from
+each. Full citations are in the reference list below.
+
+### Table 8.1. Reading list by method
+
+| Method | Read first (the method) | Closest to our problem | What to take from them |
+|---|---|---|---|
+| A1 inverse-variance pooling, TTA spread (Eq. (3.1)) | Cochran 1954 (precision-weighted combination of estimates; the meta-analysis fixed-effect estimator); Ayhan & Berens 2018 and Wang et al. 2019 (test-time augmentation as an aleatoric-uncertainty estimate) | Gemein et al. 2024 (random crops within a recording as the natural TTA for EEG) | the estimator and its optimality condition (independent windows, known variances); TTA variance as the plug-in variance, with the caveat that it measures sensitivity to the perturbation, not error |
+| A2 Huber M-estimate (Eq. (3.2)) | Huber 1964; Huber & Ronchetti 2009 (M-estimators of location, IRLS solution, breakdown point) | Engemann et al. 2022 (robust covariance averaging over epochs for M/EEG) | the $\delta$ choice (tune on val, start at 1.345 x MAD), the fixed-point iteration, and the trimmed mean as its non-iterative cousin |
+| A3 learned softmax weights on descriptors (Eq. (3.3)) | Wolpert 1992 and Breiman 1996 (stacked generalization: fit the combiner on held-out predictions); Geifman & El-Yaniv 2017 (selective prediction, risk-coverage curves) | Ilse et al. 2018 (the same softmax-weighted mean with a learned score, which A3 is the hand-crafted-feature version of) | fit the combiner only on out-of-sample predictions; report risk-coverage curves rather than a single MAE |
+| B1 attention MIL with quality prior (Eqs. (4.1)-(4.3)) | Ilse, Tomczak & Welling 2018 (gated attention pooling, bag-level loss); Lu et al. 2021, *CLAM* (attention MIL at scale in clinical imaging, instance-level clustering constraint); Shi et al. 2020 (loss-based attention, instance-and-bag consistency) | Ma et al. 2026, *BridgeMIL* (EEG, one label per subject; shows inherited window labels are unreliable and MIL aggregation wins across backbones); Xiao et al. 2025, *EmotionMIL* (sub-bag / pseudo-bag augmentation for EEG segments) | the pooling operator and the bag loss; CLAM's recipe for stabilizing attention on few bags; BridgeMIL's finding that subject count, not window count, limits accuracy, which argues for adding TUEG recordings |
+| B1 confidence and interpretability of $\alpha_i$ | Schmidt et al. 2023 (attention Gaussian process: a distribution over attention weights); Castro-Macias et al. 2025 (probabilistic smooth attention, uncertainty maps) | Sibilano et al. 2023 (attention over 10 s EEG epochs for subject-level diagnosis) | how to turn attention into a calibrated per-window and per-recording confidence, and how to validate it (uncertainty-error correlation) |
+| B2 heteroscedastic windows, precision pooling (Eq. (4.4)) | Nix & Weigend 1994 (mean-and-variance network, Gaussian NLL); Kendall & Gal 2017 (aleatoric vs. epistemic, the $\tfrac12\log\sigma^2$ term); Lakshminarayanan et al. 2017 (deep ensembles for calibrated regression) | Aviv et al. 2025, *MoGU* (predicted variance as the gating weight of a mixture); Jin et al. 2023 (uncertainty-aware EEG network that flags low-confidence epochs for expert review) | the loss, the known failure mode (variance absorbs the error if the mean head is weak; warm up with a fixed variance), and how a precision-weighted combination of experts is trained |
+| B3 recording transformer over window embeddings (Eq. (4.5)) | Lee et al. 2019, *Set Transformer* (attention over sets, pooling by multi-head attention with a learned seed = our recording token); Zaheer et al. 2017, *Deep Sets* (sum-decomposable set functions, the theory behind mean / attention pooling); Shao et al. 2021, *TransMIL* (transformer over instance embeddings with positional encoding) | Phan et al. 2019, *SeqSleepNet* (sequence-to-sequence over 30 s epochs: the standard hierarchical epoch-then-recording design in sleep EEG); EVA-Net (sequence model over EEG epochs for brain age) | the hierarchical two-level design, the seed-token pooling (PMA), set normalization and residual rules for deep set models (Zhang et al. 2022) |
+| C1 codebook histogram of the recording (Eq. (5.1)) | Sivic & Zisserman 2003 and Csurka et al. 2004 (bag of visual words: histograms of vector-quantized local descriptors as a global representation); van den Oord et al. 2017 (VQ-VAE) and Jiang et al. 2024 (LaBraM, the VQNSP codebook itself) | Engemann et al. 2022 (a global second-order statistic over all epochs as the recording descriptor; same spirit, different statistic) | histogram normalization (square root / tf-idf) and why a frequency vector over the whole recording is robust to a few bad windows |
+| C2 fusion with handcrafted global features (Eqs. (5.2)-(5.3)) | Wolpert 1992 (stacking); Sabbagh et al. 2020 (filter-bank Riemann tangent-space features as a recording-level predictor) | Engemann et al. 2022 (the same features as the benchmark baseline on TUAB); this repo's `eeg_feature_extraction.md` (6.72 y with ridge) | stack first, fuse later; the handcrafted vector is a recording-level quantity and must be joined at the recording level |
+| C3 self-supervised aggregator pretraining (Eq. (5.4)) | Bardes, Ponce & LeCun 2022, *VICReg* (invariance + variance + covariance terms, no negatives); Lee et al. 2021, *VIbCReg* (VICReg adapted to time series and ECG) | Banville et al. 2021 (self-supervision on clinical EEG from *temporal* structure: relative positioning, temporal shuffling, CPC; the "nearby windows agree" positive pairs); Ma et al. 2026, *BridgeMIL* stage 1 (sub-bag alignment within subject) | the loss and its collapse guards; the EEG-specific positive-pair definitions; the identity caveat (*The Identity Trap*, arXiv 2606.06647) and why pathology needs cross-session positives |
+
 ## References
 
-- Gemein, Schirrmeister, Boedecker, Ball. *Brain age revisited: investigating the state vs. trait hypotheses of EEG-derived brain-age dynamics with deep learning.* Imaging Neuroscience 2024 (arXiv:2310.07029).
+- Aviv et al. *MoGU: mixture-of-Gaussians with uncertainty-based gating for time series forecasting.* arXiv 2025.
+- Ayhan, Berens. *Test-time data augmentation for estimation of heteroscedastic aleatoric uncertainty in deep neural networks.* MIDL 2018.
+- Banville, Chehab, Hyvarinen, Engemann, Gramfort. *Uncovering the structure of clinical EEG signals with self-supervised learning.* J. Neural Eng. 2021.
+- Bardes, Ponce, LeCun. *VICReg: variance-invariance-covariance regularization for self-supervised learning.* ICLR 2022.
+- Breiman. *Stacked regressions.* Machine Learning 1996.
+- Castro-Macias et al. *Probabilistic smooth attention for deep multiple instance learning in medical imaging.* Pattern Recognition 2025.
+- Cochran. *The combination of estimates from different experiments.* Biometrics 1954.
+- Csurka, Dance, Fan, Willamowski, Bray. *Visual categorization with bags of keypoints.* ECCV workshop 2004.
 - Engemann et al. *A reusable benchmark of brain-age prediction from M/EEG resting-state signals.* NeuroImage 2022.
+- Gemein, Schirrmeister, Boedecker, Ball. *Brain age revisited: investigating the state vs. trait hypotheses of EEG-derived brain-age dynamics with deep learning.* Imaging Neuroscience 2024 (arXiv:2310.07029).
+- Geifman, El-Yaniv. *Selective classification for deep neural networks.* NeurIPS 2017.
+- Huber. *Robust estimation of a location parameter.* Ann. Math. Statist. 1964; Huber, Ronchetti. *Robust Statistics*, 2nd ed., Wiley 2009.
 - Ilse, Tomczak, Welling. *Attention-based deep multiple instance learning.* ICML 2018.
+- Jiang, Zhao, Lu. *Large brain model for learning generic representations with tremendous EEG data in BCI (LaBraM).* ICLR 2024.
+- Jin et al. *Uncertainty-aware denoising network for artifact removal in EEG signals.* IEEE TNSRE 2023.
+- Kendall, Gal. *What uncertainties do we need in Bayesian deep learning for computer vision?* NeurIPS 2017.
+- Lakshminarayanan, Pritzel, Blundell. *Simple and scalable predictive uncertainty estimation using deep ensembles.* NeurIPS 2017.
+- Lee, Lee, Kim, Kosiorek, Choi, Teh. *Set Transformer: a framework for attention-based permutation-invariant neural networks.* ICML 2019.
+- Lee et al. *VIbCReg: variance-invariance-better-covariance regularization for self-supervised learning on time series.* arXiv 2021.
+- Lu et al. *Data-efficient and weakly supervised computational pathology on whole-slide images (CLAM).* Nature Biomedical Engineering 2021.
 - Ma et al. *Rethinking EEG-based disease diagnosis: decoupling instance representation learning from subject-level supervision (BridgeMIL).* arXiv 2026.
+- Nix, Weigend. *Estimating the mean and variance of the target probability distribution.* ICNN 1994.
+- Phan, Andreotti, Cooray, Chen, De Vos. *SeqSleepNet: end-to-end hierarchical recurrent neural network for sequence-to-sequence automatic sleep staging.* IEEE TNSRE 2019.
+- Sabbagh, Ablin, Varoquaux, Gramfort, Engemann. *Predictive regression modeling with MEG/EEG: from source power to signal covariance using Riemannian geometry.* NeuroImage 2020.
+- Schmidt et al. *Probabilistic attention based on Gaussian processes for deep multiple instance learning.* IEEE TNNLS 2023.
+- Shao et al. *TransMIL: transformer based correlated multiple instance learning for whole slide image classification.* NeurIPS 2021.
+- Shi et al. *Loss-based attention for deep multiple instance learning.* AAAI 2020.
+- Sibilano et al. *An attention-based deep learning approach for the classification of subjective cognitive decline and mild cognitive impairment using resting-state EEG.* J. Neural Eng. 2023.
+- Sivic, Zisserman. *Video Google: a text retrieval approach to object matching in videos.* ICCV 2003.
+- van den Oord, Vinyals, Kavukcuoglu. *Neural discrete representation learning (VQ-VAE).* NeurIPS 2017.
+- Wang, Li, Aertsen, Deprest, Ourselin, Vercauteren. *Aleatoric uncertainty estimation with test-time augmentation for medical image segmentation with convolutional neural networks.* Neurocomputing 2019.
+- Wolpert. *Stacked generalization.* Neural Networks 1992.
 - Xiao et al. *EmotionMIL: an end-to-end multiple instance learning framework for emotion recognition from EEG signals.* IEEE TAC 2025.
-- Schmidt et al. *Probabilistic attention based on Gaussian processes for deep multiple instance learning.* IEEE TNNLS 2023; Castro-Macias et al. *Probabilistic smooth attention for deep MIL in medical imaging.* Pattern Recognition 2025.
-- Kendall, Gal. *What uncertainties do we need in Bayesian deep learning for computer vision?* NeurIPS 2017. Aviv et al. *MoGU: mixture-of-Gaussians with uncertainty-based gating.* arXiv 2025.
+- Zaheer, Kottur, Ravanbakhsh, Poczos, Salakhutdinov, Smola. *Deep Sets.* NeurIPS 2017.
+- Zhang, Tozzo, Higgins, Ranganath. *Set norm and equivariant skip connections: putting the deep in Deep Sets.* ICML 2022.
 - *The Identity Trap in EEG foundation models.* arXiv 2606.06647.
 - EVA-Net, arXiv 2511.15393 (brain age as anomaly detection with a sequence model over EEG epochs); BioSerenity-E1 fine-tuning for whole-recording abnormality, arXiv 2505.21507; LEAD, arXiv 2502.01678.
