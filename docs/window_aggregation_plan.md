@@ -109,6 +109,14 @@ sum, on cached window predictions of existing runs
 (Table 1.2, row 5), but it gives the confidence signal the clinical use needs
 (which recordings to trust) and a baseline the trained variants must beat.
 All three estimators below plug into `scripts/age_artifact_pooling.py`.
+Each one produces a weight $w_i\ge 0$ per window and pools with the weighted
+mean of Eq. (3.0); they differ only in where $w_i$ comes from:
+
+$$
+\hat y_c=\frac{\sum_{i\in W_c} w_i\,\hat y_i}{\sum_{i\in W_c} w_i},
+\qquad w_i\equiv 1\ \text{recovers Eq. (1.1)}.
+\tag{3.0}
+$$
 
 **A1, inverse-variance pooling with test-time augmentation.** Score each window
 $M$ times under label-preserving perturbations (random crop offset of up to
@@ -124,20 +132,29 @@ $$
 
 with $\varepsilon = 1\ \text{y}^2$ to cap the weight of a window that happens
 to be invariant. A window whose prediction flips under a 5 s shift is not
-reading a trait.
+reading a trait. Eq. (3.1) is the precision-weighted mean, the minimum-variance
+combination when the windows are independent noisy measurements of $y_c$ with
+known variances; the TTA spread stands in for the unknown variance.
 
 **A2, robust location instead of the mean.** The Huber M-estimate of the
 recording age, solved by iteratively re-weighted means
 (`scipy.optimize` or three fixed-point steps from the median):
 
 $$
-\hat y_c^{\text{M}}=\arg\min_{\mu}\sum_{i\in W_c}\rho_\delta\bigl(\hat y_i-\mu\bigr),\qquad
-w_i=\min\Bigl(1,\ \frac{\delta}{\lvert\hat y_i-\mu\rvert}\Bigr),\qquad \delta=5\ \text{y},
+\begin{aligned}
+\hat y_c^{\text{M}}&=\arg\min_{\mu}\sum_{i\in W_c}\rho_\delta\bigl(\hat y_i-\mu\bigr),\qquad
+\rho_\delta(r)=\begin{cases}\tfrac12 r^2,&\lvert r\rvert\le\delta\\ \delta\lvert r\rvert-\tfrac12\delta^2,&\lvert r\rvert>\delta\end{cases}\\
+w_i&=\min\Bigl(1,\ \frac{\delta}{\lvert\hat y_i-\mu\rvert}\Bigr),\qquad \delta=5\ \text{y},
+\end{aligned}
 \tag{3.2}
 $$
 
-which is the mean when the windows agree and the median when a few are wild;
-the 10 %-trimmed mean is the non-iterative stand-in.
+where the weights $w_i$ are those of the fixed-point iteration (start at the
+median, recompute $\mu$ from Eq. (3.0) with these $w_i$, repeat three times).
+Windows within $\delta$ of the consensus count fully; the farther a window
+sits from it, the less it counts. With no outliers this is exactly the mean,
+with a few wild windows it behaves like the median; the 10 %-trimmed mean is
+the non-iterative stand-in.
 
 **A3, learned pooling weights from window descriptors.** The smallest "learn
 the weights" model: a softmax over a linear score of per-window descriptors
@@ -154,9 +171,11 @@ $$
 
 fitted on the validation recordings $\mathcal V$ (six to eight parameters,
 so cross-validate over val folds and report the test MAE of the val-selected
-$\theta$). If $\theta^\star$ comes out near zero the descriptors carry no
-pooling information and we stop here; if not, the same descriptors become the
-*prior* term of Eq. (4.2).
+$\theta$). This is the smallest model that *learns* the weights: a linear
+score of each window's descriptors, normalized over the recording. If
+$\theta^\star$ comes out near zero the descriptors carry no pooling
+information and we stop here, having learned that cheaply; if not, the same
+descriptors become the *prior* term of Eq. (4.2).
 
 Deliverable: one table per run (M1, M1c, MT1, the CV folds) with mean,
 median, Eqs. (3.1)-(3.3), and a recording-level selective-prediction curve
@@ -169,9 +188,12 @@ Make the recording the training unit. A bag of $K$ windows of one recording
 goes through the shared encoder, a learned pooling produces one recording
 embedding, the head predicts once and the loss is taken once, on the
 recording label. Nothing is predicted for an individual window, so no window
-is asked to "be 65". This is attention-based MIL (Ilse et al. 2018) with the
-LaBraM encoder as the instance network, the design BridgeMIL found to beat
-inherited labels across backbones.
+is asked to "be 65": under Eq. (1.2) a muscle-only window of a 65-year-old
+is told to output 65, and the cheapest way to comply is to recognize the
+recording; under Eq. (4.3) the same window can simply receive a small weight.
+This is attention-based MIL (Ilse et al. 2018) with the LaBraM encoder as the
+instance network, the design BridgeMIL found to beat inherited labels across
+backbones.
 
 **Bags.** Each epoch, every training recording contributes one bag of $K$
 windows drawn without replacement from its selected windows (random crop
@@ -218,7 +240,13 @@ where $\mathbf V,\mathbf U\in\mathbb R^{L\times D}$ ($L = 128$),
 $\mathbf w\in\mathbb R^{L}$, $\boldsymbol\beta$ has one entry per descriptor,
 $g$ is the existing head (linear, MLP or multi-task), $\mathcal B$ is the
 batch of recordings, $H(\alpha_c)=-\sum_i\alpha_i\log\alpha_i$ and
-$\lambda_H\in[0, 0.1]$ (0 = plain MIL). $\alpha_i$ is the learned per-window
+$\lambda_H\in[0, 0.1]$ (0 = plain MIL). In Eq. (4.2) the $\tanh$ branch
+scores a window's content and the sigmoid branch gates it (Ilse et al.'s
+gated attention); $\boldsymbol\beta^{\top}q_i$ lets the model learn directly
+that a high-EMG window deserves a low weight; the temperature $\tau$ sets how
+peaked the weights may get. The entropy term of Eq. (4.3) penalizes attention
+that collapses onto one window, which would recreate window-level
+memorization through the back door. $\alpha_i$ is the learned per-window
 confidence the question asks for: it is logged per recording and must be
 checked against the EMG index (section 6).
 
@@ -236,10 +264,12 @@ $$
 
 This is Eq. (3.1) learned end to end: the only way a bad window can avoid
 hurting the recording loss is to declare a large $\sigma_i^2$, so the model
-learns to flag its own unreliable windows (Kendall & Gal 2017), and
-$\sigma_c$ is a calibrated recording-level confidence. B2 keeps the head
-window-local, so it is the smaller change from the current code; B1 lets
-windows interact through $z_c$ and is the more expressive one.
+learns to flag its own unreliable windows (Kendall & Gal 2017), while the
+$\tfrac12\log\sigma_c^2$ term stops it from declaring everything
+uncertain. $\sigma_c$ is a calibrated recording-level confidence. B2 keeps
+the head window-local and cannot collapse the way B1 can, so it is the
+smaller change from the current code; B1 lets windows interact through
+$z_c$ and is the more expressive one.
 
 **Variant B3, a recording transformer.** Replace Eq. (4.2) by one or two
 transformer blocks over the window embeddings with a learned recording token
@@ -312,14 +342,38 @@ $$
 
 i.e. `session_features=head` applied to $z_c$ instead of to a window's
 pooled feature, which is where it belongs: the handcrafted vector describes
-the recording, not the window. A stacking baseline (ridge on
-$[\hat y_c^{\text{LaBraM}}, \hat y_c^{\text{ridge}}]$ fitted on val) tells
-how much the two views disagree before any joint training.
+the recording, not the window ($\mathbf P$ projects the $d_s$-dimensional
+handcrafted vector to 32 dimensions before concatenation). The cheaper first
+check is stacking, Eq. (5.3): a two-coefficient ridge on the two recording
+estimates, fitted on val, whose weights say how much the two views disagree
+before any joint training:
+
+$$
+\hat y_c^{\text{stack}}=a_0+a_1\,\hat y_c^{\text{LaBraM}}+a_2\,\hat y_c^{\text{ridge}},
+\qquad (a_0,a_1,a_2)=\arg\min\sum_{c\in\mathcal V}\bigl(\hat y_c^{\text{stack}}-y_c\bigr)^2+\lambda\lVert a\rVert^2 .
+\tag{5.3}
+$$
 
 **C3, recording-level self-supervision for the aggregator (BridgeMIL stage
 1).** Pretrain the pooling on the 10x larger TUEG corpus without labels:
 pull together two sub-bags of the same recording and two neighbouring
-windows, with variance/covariance regularization (VICReg) to avoid collapse.
+windows, with variance/covariance regularization (VICReg) to avoid collapse,
+Eq. (5.4): for two sub-bags $B_c^{(1)}, B_c^{(2)}$ of the same recording with
+pooled embeddings $z_c^{(1)}, z_c^{(2)}$ (Eq. (4.2)), over a batch of $n$
+recordings with embedding dimension $D$,
+
+$$
+\begin{aligned}
+\mathcal L_{\text{ssl}}&=\frac1n\sum_{c}\bigl\lVert z_c^{(1)}-z_c^{(2)}\bigr\rVert^2
++\lambda_v\sum_{d=1}^{D}\max\Bigl(0,\ 1-\sqrt{\operatorname{Var}_c(z_{cd})+\epsilon}\Bigr)\\
+&\quad+\lambda_c\sum_{d\ne d'}\operatorname{Cov}_c(z)_{dd'}^{2},
+\end{aligned}
+\tag{5.4}
+$$
+
+where the first term pulls the two views of one recording together, the
+variance term keeps every embedding dimension spread across the batch (no
+collapse to a constant) and the covariance term decorrelates the dimensions.
 It makes $z_c$ a stable recording descriptor before any age label is seen.
 Caveat from *The Identity Trap*: this objective *is* a subject-identity
 objective. It is harmless for age (a trait of the subject, and the splits are
