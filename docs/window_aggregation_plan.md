@@ -186,6 +186,8 @@ regression analogue of `labram/eval/aggregation.py::selective_accuracy`.
 
 ## 4. Proposal B: train on recordings, not windows (the main lever)
 
+**Implementation plan for B1 (2026-11-08):** [`b1_attention_mil_plan.md`](b1_attention_mil_plan.md).
+
 Make the recording the training unit. A bag of $K$ windows of one recording
 goes through the shared encoder, a learned pooling produces one recording
 embedding, the head predicts once and the loss is taken once, on the
