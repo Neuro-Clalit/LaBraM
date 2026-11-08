@@ -145,7 +145,8 @@ def channel_inventory(names: Sequence[str]) -> Dict[str, object]:
         "has_ekg": any("EKG" in n or "ECG" in n for n in names),
         "has_emg": "EMG" in names,
         "has_eog": "LOC" in names and "ROC" in names,
-        "has_photic_channel": "PHOTIC" in names,
+        # TUEG labels it 'PHOTIC-REF' (-> PHOTIC) or 'PHOTIC PH' (kept as is)
+        "has_photic_channel": any(n.startswith("PHOTIC") for n in names),
         # Sphenoidal electrodes are placed for temporal-lobe epilepsy work-ups.
         "has_sphenoidal": "SP1" in names or "SP2" in names,
         "has_numbered_extra": any(n.isdigit() for n in names),
