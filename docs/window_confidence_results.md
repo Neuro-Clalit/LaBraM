@@ -616,6 +616,27 @@ $\rho=\operatorname{Spearman}(\kappa_c, a_c)$ per dataset × cohort over val
 | − mean TTA SD | −0.18 / −0.15 | −0.14 / −0.12 | −0.18 / −0.13 | −0.28 / −0.23 | −0.21 / −0.19 | −0.22 / −0.18 |
 | − A3 weight concentration | −0.02 / −0.00 | +0.02 / +0.01 | −0.09 / −0.08 | −0.14 / −0.14 | −0.09 / −0.11 | −0.08 / −0.11 |
 
+### Table 5.4b. Selective MAE per dataset and report cohort, test
+
+For each test cohort: the MAE of all its recordings (A3 pooling), then the
+MAE@80 % and MAE@50 % of Eq. (4.3) when the cohort's least confident 20 % /
+50 % are deferred by each confidence, then $\rho$ of the learned confidence. Each
+cell gives E2L / E2. The TUH cohorts have 149 / 125 recordings, so their cells
+move by several tenths of a year from one recording.
+
+| cohort (n) | all | learned @80 % | learned @50 % | TTA SD @80 % | TTA SD @50 % | A3 conc. @50 % | $\rho$ learned |
+|---|---|---|---|---|---|---|---|
+| TUH normal (149) | 4.90 / 5.10 | 4.88 / 5.12 | 4.31 / 4.37 | 4.76 / 5.19 | 4.47 / 4.25 | 4.86 / 4.97 | −0.15 / −0.12 |
+| TUH abnormal (125) | 8.67 / 8.61 | 8.03 / 7.85 | **6.72** / 7.27 | 7.88 / 7.78 | 7.22 / 7.24 | 7.62 / 8.36 | −0.23 / −0.21 |
+| HEEDB normal (1,518) | 6.15 / 6.33 | **5.21 / 5.44** | **4.41 / 4.68** | 5.71 / 6.00 | 4.82 / 5.12 | 5.46 / 5.49 | −0.37 / −0.33 |
+| HEEDB abnormal (2,253) | 6.83 / 6.97 | **6.06 / 6.21** | **5.43 / 5.59** | 6.36 / 6.44 | 5.81 / 5.96 | 6.37 / 6.31 | −0.28 / −0.26 |
+| HEEDB unlabelled (3,567) | 6.18 / 6.27 | **5.60 / 5.68** | **4.84 / 5.11** | 5.76 / 5.90 | 5.30 / 5.67 | 5.82 / 5.87 | −0.30 / −0.26 |
+
+On every HEEDB cohort, the learned confidence beats the TTA SD by 0.4–0.6 y at
+50 % coverage, and the largest drop is on HEEDB normal (6.15 → 4.41 y). On the
+small TUH cohorts the two are within noise of each other, apart from E2L TUH
+abnormal (6.72 vs. 7.22 y).
+
 ### Figure 5.2. Risk-coverage of the learned confidence, test
 
 The y axis is MAE@$\kappa$ (Eq. (4.3), A3 pooling) against coverage, for the
