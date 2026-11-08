@@ -117,7 +117,34 @@ with a 2,000-resample percentile interval over recordings
 | A3 | −0.54 [−0.59, −0.49] | +0.03 [−0.09, +0.17] | −0.56 [−0.61, −0.50] | −0.66 [−0.72, −0.61] | −0.69 [−0.75, −0.63] |
 | A3 vs. median | −0.18 [−0.23, −0.15] (HEEDB) | 0.00 [−0.13, +0.14] | | | −0.25 [−0.29, −0.20] (HEEDB) |
 
-Table 2.1 and Table 2.2 show three things:
+### Table 2.3. Test MAE (y) by dataset and report cohort
+
+The same MAE as Table 2.1, test split only, per source dataset × report
+cohort (normal / abnormal from the clinical report; HEEDB recordings without
+a report are "unlabelled"; TUH test has no unlabelled recordings). Each cell
+gives E2L / E2. The last rows give the paired change vs. the mean, as in
+Table 2.2, with 95 % bootstrap CIs for E2L.
+
+| pooling | TUH normal (149) | TUH abnormal (125) | HEEDB normal (1,518) | HEEDB abnormal (2,253) | HEEDB unlabelled (3,567) |
+|---|---|---|---|---|---|
+| mean (reported) | 4.91 / 5.13 | 8.50 / 8.56 | 7.12 / 7.43 | 7.56 / 7.83 | 6.64 / 6.86 |
+| median | 4.91 / 5.13 | 8.56 / 8.62 | 6.57 / 6.79 | 7.17 / 7.37 | 6.34 / 6.51 |
+| trimmed 10 % | 4.88 / 5.08 | 8.48 / 8.57 | 6.84 / 7.13 | 7.37 / 7.61 | 6.47 / 6.67 |
+| TTA mean | 4.95 / 5.14 | 8.57 / 8.58 | 7.13 / 7.45 | 7.53 / 7.81 | 6.62 / 6.87 |
+| A1 | 4.92 / 5.11 | 8.59 / 8.60 | 7.08 / 7.39 | 7.52 / 7.79 | 6.58 / 6.81 |
+| A2 | 4.91 / 5.11 | 8.56 / 8.61 | 6.57 / 6.79 | 7.17 / 7.37 | 6.34 / 6.51 |
+| A3 | **4.90** / 5.21 | 8.58 / 8.59 | **6.27 / 6.44** | **6.95 / 7.09** | **6.22 / 6.32** |
+| Δ median, E2L | +0.00 [−0.10, +0.11] | +0.07 [−0.06, +0.21] | −0.55 [−0.67, −0.43] | −0.38 [−0.46, −0.31] | −0.30 [−0.35, −0.25] |
+| Δ A3, E2L | −0.01 [−0.15, +0.14] | +0.09 [−0.14, +0.36] | −0.84 [−0.98, −0.70] | −0.61 [−0.72, −0.50] | −0.41 [−0.48, −0.34] |
+
+On val (larger TUH cohorts: 1,388 normal, 1,676 abnormal, 358 unlabelled), the
+TUH cells also stay within 0.15 y of the mean under every rule. The HEEDB
+cells repeat the test pattern: A3 vs. mean is −0.90 / −0.66 / −0.42 y on
+normal / abnormal / unlabelled for E2L (`docs/data/window_confidence/E2L_pooling_mae.csv`).
+The largest gain is on **HEEDB normal** recordings, which under mean pooling
+are worse than HEEDB unlabelled ones (7.12 vs. 6.64 y), and after A3 are about level with them.
+
+Table 2.1, Table 2.2 and Table 2.3 show three things:
 
 * **All of the gain is on HEEDB.** On TUH no pooling rule beats the mean by
   more than 0.08 y, on val (3,422 recordings) or on test. The median (= A2) is

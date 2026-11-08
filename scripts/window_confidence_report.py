@@ -38,6 +38,9 @@ GROUPS = {
     "normal": lambda d: d["cohort"] == "normal",
     "abnormal": lambda d: d["cohort"] == "abnormal",
 }
+# dataset x report cohort, e.g. "harvard_normal"
+GROUPS.update({f"{ds}_{c}": (lambda d, ds=ds, c=c: (d["dataset"] == ds) & (d["cohort"] == c))
+               for ds in ("temple", "harvard") for c in ("normal", "abnormal", "unlabelled")})
 
 
 def val_mae(rec):
