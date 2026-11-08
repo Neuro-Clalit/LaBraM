@@ -199,7 +199,7 @@ POOLED_ON = {"A1": "tta_mean", "A2": "pred", "A3": "pred"}
 
 
 # ---------------------------------------------- weights vs. window errors
-def _spearman(a, b) -> float:
+def spearman(a, b) -> float:
     a, b = np.asarray(a, float), np.asarray(b, float)
     if len(a) < 3 or np.ptp(a) == 0 or np.ptp(b) == 0:
         return np.nan
@@ -221,12 +221,12 @@ def weight_error_correlation(df: pd.DataFrame, weight: str, err: str,
     rho_rec = []
     for _, g in df.groupby(KEY, sort=False):
         if len(g) >= min_windows:
-            rho_rec.append(_spearman(g[weight], g[err]))
+            rho_rec.append(spearman(g[weight], g[err]))
     rho_rec = np.asarray(rho_rec)
     rho_rec = rho_rec[np.isfinite(rho_rec)]
     rank = df.groupby(KEY, sort=False)[weight].rank(pct=True, method="average")
     excess = df[err] - df.groupby(KEY, sort=False)[err].transform("mean")
-    return {"rho_pooled": _spearman(df[weight], df[err]),
+    return {"rho_pooled": spearman(df[weight], df[err]),
             "rho_within": float(rho_rec.mean()) if len(rho_rec) else np.nan,
             "frac_neg": float((rho_rec < 0).mean()) if len(rho_rec) else np.nan,
             "err_low_w": float(excess[rank <= 0.2].mean()),
@@ -289,7 +289,7 @@ def recording_confidence(df: pd.DataFrame, weights: pd.DataFrame, eps: float = 1
 UNCERTAINTIES = ("u_A1_se", "u_A1_tta", "u_A2_mad", "u_A2_down", "u_A3_conc", "u_sd", "u_emg")
 
 
-def _age_stratified_spearman(u, err, age, n_bins: int = 10) -> float:
+def age_stratified_spearman(u, err, age, n_bins: int = 10) -> float:
     """Spearman of ``u`` and ``err`` within age deciles, averaged with the bin
     sizes as weights: removes the part of the association that only says
     'older recordings have larger errors and noisier windows'."""
@@ -297,7 +297,7 @@ def _age_stratified_spearman(u, err, age, n_bins: int = 10) -> float:
     rs, ns = [], []
     for b in np.unique(bins):
         m = bins == b
-        r = _spearman(u[m], err[m])
+        r = spearman(u[m], err[m])
         if np.isfinite(r):
             rs.append(r)
             ns.append(m.sum())
@@ -335,8 +335,8 @@ def confidence_error_table(rec: pd.DataFrame, conf: pd.DataFrame,
             continue
         for m in measures:
             rows.append({"group": name, "measure": m, "n": len(g),
-                         "rho": _spearman(g[m], g["abs_err"]),
-                         "rho_age_strat": _age_stratified_spearman(
+                         "rho": spearman(g[m], g["abs_err"]),
+                         "rho_age_strat": age_stratified_spearman(
                              g[m].to_numpy(), g["abs_err"].to_numpy(), g["age"].to_numpy()),
                          **risk_coverage(g[m], g["abs_err"])})
     return pd.DataFrame(rows)

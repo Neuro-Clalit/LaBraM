@@ -228,6 +228,49 @@ Figure 3.1 and Table 3.1 give the window-level answer:
   window-level error on this cohort. Large amplitude (`max_abs`) is a weak
   warning sign.
 
+### Figure 3.2. Excess window error by weight quintile, per dataset and report cohort
+
+Same quantity as Figure 3.1 (mean $\Delta_i$ of Eq. (3.1), years), here by
+within-recording weight *quintile* and per dataset × report cohort. Val and
+test are pooled so the TUH cohorts have enough recordings (A3's val weights
+are cross-fitted, so no window is weighted by a $\theta$ fitted on its own
+recording). E2L is drawn solid, E2 dashed. Panels: (a) TUH normal, (b) HEEDB
+normal, (c) TUH abnormal, (d) HEEDB abnormal, (e) TUH unlabelled, (f) HEEDB
+unlabelled; $n$ is in each panel title.
+
+![Figure 3.2](figures/window_confidence_weight_rank_cohorts.png)
+
+### Table 3.1b. Within-recording weight–error correlation per cohort, val + test
+
+$\rho_{\text{within}}$ of Eq. (3.1), then the share of recordings with
+$\rho<0$, per dataset × cohort (`cohort_tables`;
+`docs/data/window_confidence/E2*_cohort_corr.csv`). Each cell gives E2L / E2.
+
+| weight | TUH normal (1,537) | TUH abnormal (1,801) | TUH unlab. (358) | HEEDB normal (3,011) | HEEDB abnormal (4,432) | HEEDB unlab. (7,087) |
+|---|---|---|---|---|---|---|
+| A1 $\rho_{\text{within}}$ | −0.03 / −0.04 | −0.02 / −0.03 | +0.00 / +0.00 | −0.02 / −0.03 | +0.02 / +0.00 | −0.03 / −0.05 |
+| A2 $\rho_{\text{within}}$ | −0.27 / −0.24 | −0.24 / −0.23 | −0.21 / −0.25 | −0.36 / −0.35 | −0.31 / −0.30 | −0.32 / −0.31 |
+| A3 $\rho_{\text{within}}$ | −0.06 / −0.07 | −0.05 / −0.05 | −0.04 / −0.06 | −0.20 / −0.22 | −0.18 / −0.19 | −0.15 / −0.17 |
+| A1 share $\rho<0$ | 0.53 / 0.56 | 0.51 / 0.51 | 0.50 / 0.49 | 0.52 / 0.53 | 0.48 / 0.50 | 0.53 / 0.55 |
+| A2 share $\rho<0$ | 0.73 / 0.71 | 0.69 / 0.69 | 0.68 / 0.72 | 0.81 / 0.81 | 0.77 / 0.78 | 0.80 / 0.80 |
+| A3 share $\rho<0$ | 0.60 / 0.61 | 0.58 / 0.59 | 0.56 / 0.57 | 0.73 / 0.76 | 0.72 / 0.73 | 0.70 / 0.72 |
+
+Figure 3.2 and Table 3.1b break the window-level result down by cohort:
+
+* **The weight–error relation is the same within each dataset across report
+  cohorts**: normal, abnormal and unlabelled recordings give nearly identical
+  curves. The difference is between **datasets**.
+* **On HEEDB** (Figure 3.2(b, d, f)), the lowest-weight A2/A3 quintile is
+  4–5.5 y (A2) and 2.5–3.8 y (A3) worse than the recording average. The A1
+  U-shape appears in every HEEDB cohort: the most invariant quintile is
+  +0.7 to +1.5 y.
+* **On TUH** (Figure 3.2(a, c, e)), all curves are flat by comparison. A2's
+  bottom quintile is still +1.6 to +2 y, but A3 is barely informative
+  ($\rho_{\text{within}}\approx -0.05$) and A1 not at all. TUH windows within a
+  recording are roughly interchangeable, which is why no pooling rule helps
+  there (Table 2.3).
+* E2 (dashed) lies on top of E2L in every panel.
+
 ### Table 3.2. Windows by within-recording TTA-variance decile, E2L test
 
 The columns are the median $\sigma_i$ (Eq. (1.1)), the median descriptors and
@@ -365,6 +408,49 @@ scores. The dashed line is the oracle and the dotted line is random deferral.
 Mean pooling, all 7,612 test recordings. (a) E2L, (b) E2.
 
 ![Figure 4.2](figures/window_confidence_risk_coverage.png)
+
+### Figure 4.3. Recording MAE by uncertainty quintile, per dataset and report cohort
+
+The y axis is the mean $a_c$ (years, mean pooling) per quintile of each score
+of Eq. (4.1) (5 = least confident), for E2L, val and test pooled. Panels as
+in Figure 3.2: (a) TUH normal, (b) HEEDB normal, (c) TUH abnormal, (d) HEEDB
+abnormal, (e) TUH unlabelled, (f) HEEDB unlabelled.
+
+![Figure 4.3](figures/window_confidence_deciles_cohorts.png)
+
+### Table 4.3. Recording uncertainty vs. recording error per cohort, val + test
+
+$\rho$ of Eq. (4.2) per dataset × cohort, then $\rho_{\text{age}}$ (here
+within age *quintiles* of the cohort). Each cell gives E2L / E2.
+
+| score | TUH normal | TUH abnormal | TUH unlab. | HEEDB normal | HEEDB abnormal | HEEDB unlab. |
+|---|---|---|---|---|---|---|
+| A1 mean TTA SD, $\rho$ | +0.18 / +0.15 | +0.14 / +0.12 | +0.18 / +0.14 | +0.13 / +0.08 | +0.13 / +0.11 | +0.17 / +0.11 |
+| A2 down-weighted share, $\rho$ | +0.12 / +0.14 | +0.00 / +0.01 | +0.19 / +0.20 | +0.15 / +0.14 | +0.14 / +0.15 | +0.16 / +0.13 |
+| A3 weight concentration, $\rho$ | +0.01 / +0.04 | −0.03 / −0.02 | +0.12 / +0.07 | +0.11 / +0.09 | +0.07 / +0.06 | +0.08 / +0.08 |
+| SD of windows, $\rho$ | +0.15 / +0.13 | +0.03 / +0.03 | +0.17 / +0.17 | +0.17 / +0.17 | +0.12 / +0.13 | +0.13 / +0.12 |
+| mean EMG ratio, $\rho$ | +0.02 / +0.01 | +0.03 / +0.03 | +0.01 / +0.04 | +0.13 / +0.12 | +0.06 / +0.05 | +0.03 / +0.04 |
+| A1 mean TTA SD, $\rho_{\text{age}}$ | +0.17 / +0.18 | +0.18 / +0.20 | +0.14 / +0.12 | +0.26 / +0.26 | +0.24 / +0.26 | +0.24 / +0.25 |
+| A2 down-weighted share, $\rho_{\text{age}}$ | +0.13 / +0.18 | +0.03 / +0.06 | +0.15 / +0.20 | +0.21 / +0.24 | +0.17 / +0.20 | +0.19 / +0.21 |
+| SD of windows, $\rho_{\text{age}}$ | +0.15 / +0.17 | +0.06 / +0.09 | +0.16 / +0.15 | +0.16 / +0.15 | +0.06 / +0.06 | +0.14 / +0.15 |
+
+Figure 4.3 and Table 4.3 break the recording-level result down by cohort:
+
+* **The mean TTA SD is the only score that works in every cohort**
+  ($\rho$ = 0.13–0.18, age-stratified 0.14–0.26). Its most confident quintile
+  is the best-predicted quintile in 5 of 6 panels, and its least confident
+  quintile is the worst in all 6.
+* **TUH abnormal is the exception for the spread-based scores.** The window SD and the
+  A2 share carry no signal there ($\rho\approx 0$, Figure 4.3(c)). Only
+  the TTA SD separates the least confident quintile (10.1 y vs. 6.5 y for
+  the most confident). A plausible reading is that abnormal TUH recordings
+  have abnormal but *consistent* windows, so window disagreement does not
+  flag them.
+* **The EMG ratio is informative only on HEEDB normal** ($\rho$ = 0.13), where
+  its lowest quintile has 5.8 y MAE vs. 6.3–8.2 y for the others. Everywhere else it is
+  about 0, and on TUH normal its lowest-EMG quintile is among the *worst*.
+* **A3's weight concentration is a confidence only on HEEDB** (0.07–0.11).
+  On TUH it is about 0.
 
 The recording-level answer, from Table 4.1, Table 4.2, Figure 4.1 and Figure 4.2:
 

@@ -207,6 +207,92 @@ LABELS = {"A1": "A1 inverse TTA variance", "A2": "A2 Huber", "A3": "A3 learned s
           "u_sd": "SD of windows", "u_emg": "mean EMG ratio", "oracle": "oracle (true error)"}
 
 
+COHORTS = [(ds, c) for c in ("normal", "abnormal", "unlabelled") for ds in ("temple", "harvard")]
+DATASET_NAME = {"temple": "TUH", "harvard": "HEEDB"}
+COHORT_MEASURES = ("u_A1_tta", "u_A2_down", "u_A3_conc", "u_sd", "u_emg")
+
+
+def cohort_tables(df, w, recs, conf, n_bins=5):
+    """Per dataset x report cohort, over val + test together (A3 val weights
+    are cross-fitted): the window-level excess error by within-recording
+    weight-rank bin and the within-recording Spearman of each weight with its
+    window's |error|; the recording-level mean |error| (mean pooling) by
+    uncertainty bin and the Spearman of each uncertainty score with it."""
+    err = {"pred": (df.pred - df.age).abs(), "tta_mean": (df.tta_mean - df.age).abs()}
+    d = df.assign(err_pred=err["pred"], err_tta=err["tta_mean"], **{c: w[c] for c in w})
+    rec = recs["mean"].merge(conf, on=wc.KEY)
+    curves, rows = {}, []
+    for ds, c in COHORTS:
+        g = d[(d.dataset == ds) & (d.cohort == c)]
+        r = rec[(rec.dataset == ds) & (rec.cohort == c)]
+        if len(r) < 20:
+            continue
+        cur = curves[(ds, c)] = {"n_rec": len(r), "window": {}, "record": {}}
+        for method in ("A1", "A2", "A3"):
+            e = "err_tta" if wc.POOLED_ON[method] == "tta_mean" else "err_pred"
+            cur["window"][method] = wc.excess_error_by_weight_rank(g, f"w_{method}", e, n_bins).to_dict()
+            st = wc.weight_error_correlation(g, f"w_{method}", e)
+            rows.append({"dataset": ds, "cohort": c, "level": "window", "score": method,
+                         "n_rec": len(r), "rho": st["rho_within"], "frac_neg": st["frac_neg"]})
+        for m in COHORT_MEASURES:
+            b = pd.qcut(r[m].rank(method="first"), n_bins, labels=False) + 1
+            cur["record"][m] = r.groupby(b)["abs_err"].mean().to_dict()
+            rows.append({"dataset": ds, "cohort": c, "level": "recording", "score": m,
+                         "n_rec": len(r), "rho": wc.spearman(r[m], r["abs_err"]),
+                         "rho_age_strat": wc.age_stratified_spearman(
+                             r[m].to_numpy(), r["abs_err"].to_numpy(), r["age"].to_numpy(), 5)})
+    return curves, pd.DataFrame(rows)
+
+
+def cohort_figures(results, fig_dir):
+    """Figures 3.2 / 4.3: one panel per dataset x cohort (TUH left, HEEDB
+    right; rows normal / abnormal / unlabelled). Window level: E2L solid, the
+    benchmark dashed. Recording level: the first run only."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from labram.eval.age_plots import assert_max_columns, panel_labels
+    names = list(results)[:2]
+    colors = {"A1": "C0", "A2": "C1", "A3": "C2", "u_A1_tta": "C0", "u_A2_down": "C1",
+              "u_A3_conc": "C2", "u_sd": "C3", "u_emg": "C4"}
+    paths = {}
+    for level, keys, xlabel, ylabel, fname in (
+            ("window", ("A1", "A2", "A3"), "within-recording weight quintile (1 = lowest weight)",
+             "excess window |error| (y)", "window_confidence_weight_rank_cohorts.png"),
+            ("record", COHORT_MEASURES, "recording uncertainty quintile (5 = least confident)",
+             "recording MAE, mean pooling (y)", "window_confidence_deciles_cohorts.png")):
+        fig, axes = plt.subplots(3, 2, figsize=(14, 13.5), sharex=True)
+        flat = []
+        for ax, (ds, c) in zip(axes.ravel(), COHORTS):
+            flat.append(ax)
+            first = results[names[0]]["cohort_curves"].get((ds, c))
+            if first is None:
+                ax.set_title(f"{DATASET_NAME[ds]} {c}: no recordings")
+                ax.axis("off")
+                continue
+            runs = names if level == "window" else names[:1]
+            for k in keys:
+                for name, ls in zip(runs, ("-", "--")):
+                    curve = results[name]["cohort_curves"][(ds, c)][level][k]
+                    ax.plot(list(curve), list(curve.values()), ls=ls, marker="o", ms=4,
+                            color=colors[k], label=f"{LABELS[k]} ({name})" if level == "window" else LABELS[k])
+            if level == "window":
+                ax.axhline(0, color="0.6", lw=0.8)
+            ax.set_title(f"{DATASET_NAME[ds]} {c}, n = {first['n_rec']} recordings")
+            ax.set_ylabel(ylabel)
+        for ax in axes[-1]:
+            ax.set_xlabel(xlabel)
+            ax.set_xticks(range(1, 6))
+        axes[0][0].legend(fontsize=7)
+        fig.tight_layout()
+        panel_labels([a for a in flat if a.axison])
+        assert_max_columns(fig)
+        paths[level] = os.path.join(fig_dir, fname)
+        fig.savefig(paths[level], dpi=110)
+        plt.close(fig)
+    return paths
+
+
 def figures(results, fig_dir):
     import matplotlib
     matplotlib.use("Agg")
@@ -284,6 +370,8 @@ def main():
         win, rank_curves = window_tables(df, w)
         conf_t, curves, conf = confidence_tables(df, w, recs)
         tta_sd = float(np.sqrt(df.tta_var).median())
+        cohort_curves, cohort_stats = cohort_tables(df, w, recs, conf)
+        cohort_stats.to_csv(os.path.join(args.out_dir, f"{name}_cohort_corr.csv"), index=False)
         boot = bootstrap_delta(recs).assign(run=name)
         boot.to_csv(os.path.join(args.out_dir, f"{name}_pooling_delta_ci.csv"), index=False)
         prof = tta_profile(df, curve_split(df))
@@ -292,6 +380,7 @@ def main():
         by_pos.to_csv(os.path.join(args.out_dir, f"{name}_error_by_position.csv"), index=False)
         skips.to_csv(os.path.join(args.out_dir, f"{name}_skip_first.csv"), index=False)
         results[name] = {"settings": settings, "rank_curves": rank_curves, "curves": curves,
+                         "cohort_curves": cohort_curves,
                          "mae": mae, "window": win.assign(run=name), "conf": conf_t.assign(run=name),
                          "median_tta_sd": tta_sd, "n_windows": len(df)}
         mae.to_csv(os.path.join(args.out_dir, f"{name}_pooling_mae.csv"), index=False)
@@ -320,6 +409,7 @@ def main():
         json.dump(summary, fh, indent=2, default=float)
     if args.fig_dir:
         print(figures(results, args.fig_dir))
+        print(cohort_figures(results, args.fig_dir))
 
 
 if __name__ == "__main__":
