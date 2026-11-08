@@ -1,0 +1,398 @@
+# Window confidence vs. error: Proposal A on E2L and E2
+
+Results note, 2026-11-08. It implements Proposal A of
+[`window_aggregation_plan.md`](window_aggregation_plan.md) (A1 inverse
+TTA-variance, A2 Huber, A3 learned softmax weights, section 3 there) and
+answers two questions before any of them is trusted:
+
+1. **Window level.** Does the weight a method gives a window track that
+   window's own error, especially *within* a recording, which is the only place
+   pooling can use it?
+2. **Recording level.** Does a per-recording confidence built from its windows
+   track the recording's error, so that the least confident recordings can be
+   flagged?
+
+The run under test is **E2L** (TUH + HEEDB, 16 epochs, the last successful
+run). The benchmark is **E2** (same recipe, data and split, 8 epochs). Both use
+the identical val/test windows, so every difference below is paired.
+
+Code: `scripts/window_confidence_predict.py` (scoring, TTA, descriptors),
+`labram/eval/window_confidence.py` (weights, correlations, confidences),
+`scripts/window_confidence_report.py` (tables and figures). Tables are in
+`docs/data/window_confidence/`, and the window caches are in
+`/data/runs/heedb/window_conf/` (outside git, 543k windows per run).
+
+## 1. Setup
+
+### Table 1.1. Runs and data
+
+| | E2L | E2 |
+|---|---|---|
+| run dir | `/data/runs/heedb/e2l/finetune_20261104_215141_883` | `/data/runs/heedb/e2_r2/finetune` |
+| training | 16 ep, batch 512 → 256, best epoch 11 | 8 ep, best epoch 7 |
+| cohort | `tuh_heedb_v1`, 19 channels (A1/A2/T1/T2 dropped) | same |
+| val recordings | 10,614 (TUH 3,422 + HEEDB 7,192) | same |
+| test recordings | 7,612 (TUH 274 + HEEDB 7,338) | same |
+| windows | 30 × 10 s per recording after the 60 s start trim (5 min), 542,758 in val + test | same |
+| mean-pooled MAE, val / test (y) | 7.25 / 7.00 | 7.43 / 7.25 |
+
+The mean-pooled MAEs reproduce the runs' logged and offline-scored values
+exactly (`/data/runs/heedb/scores/E2{,L}_{tuab,heedb}_valtest.json`, to 0.001 y).
+
+**Test-time augmentation.** Each window $i$ is scored $M = 5$ times: the
+window itself ($\hat y_{i1} = \hat y_i$, the prediction the runs report), its
+hemisphere-flipped copy, two crops shifted by $U(-5, 5)$ s inside the trimmed
+recording, and a third shifted crop that is also flipped. The crop offsets are
+seeded per window, so both runs see the same copies. With $y_c$ the age of
+recording $c$ and $W_c$ its windows, every age is in years:
+
+$$
+\bar y_i=\frac1M\sum_{m=1}^{M}\hat y_{im},\qquad
+\sigma_i^2=\frac1M\sum_{m=1}^{M}\bigl(\hat y_{im}-\bar y_i\bigr)^2 .
+\tag{1.1}
+$$
+
+The median TTA SD $\sigma_i$ is 2.02 y for E2L and 1.90 y for E2.
+
+**Window descriptors** $q_i$ are computed from the raw window ($\mu$V), after a
+common-average reference over the channels that carry signal (`descriptors`):
+the EMG ratio $P_{30\text{–}45}/P_{1\text{–}45}$ (the channel mean `emg` and
+the channel max `emg_max`), `max_abs`, the mean and minimum channel SD
+(`amp_uv`, `min_std`), $\log(1+\sigma_i^2)$, the distance
+$\lvert\hat y_i-\operatorname{median}_{W_c}\hat y\rvert$ and the minute
+within the 5 min stretch.
+
+**Weights and pooling** (Eqs. (3.0)–(3.3) of the plan;
+`labram/eval/window_confidence.py`). Every method pools
+$\hat y_c=\sum_i w_i \tilde y_i/\sum_i w_i$:
+
+$$
+\text{A1: } w_i=\frac{1}{\sigma_i^2+\varepsilon},\ \tilde y_i=\bar y_i;\qquad
+\text{A2: } w_i=\min\Bigl(1,\frac{\delta}{\lvert\hat y_i-\mu_c\rvert}\Bigr),\ \tilde y_i=\hat y_i;
+\tag{1.2}
+$$
+
+$$
+\text{A3: } w_i=\frac{\exp(\theta^\top z_i)}{\sum_{j\in W_c}\exp(\theta^\top z_j)},\ \tilde y_i=\hat y_i,\qquad
+\theta=\arg\min_\theta \frac1{\lvert\mathcal V\rvert}\sum_{c\in\mathcal V}\operatorname{Huber}_{1}\bigl(\hat y_c^{\theta}-y_c\bigr)+10^{-3}\lVert\theta\rVert^2 ,
+\tag{1.3}
+$$
+
+where $\mu_c$ is the Huber location found by 10 fixed-point steps from the
+median (`huber_weights`), $z_i$ is $q_i$ standardized with val statistics, and
+$\mathcal V$ is the set of val recordings. $\varepsilon$ is chosen on val from
+$\{0.25, 1, 4, 16, 64\}$ (picked: 16 y² for both runs) and $\delta$ from
+$\{0.5, \dots, 12\}$ (picked: 0.5 y for E2L, 1 y for E2). The A3 weights on val
+are cross-fitted (5 recording folds), and test uses the $\theta$ fitted on all
+of val.
+
+## 2. Pooled MAE
+
+### Table 2.1. Recording MAE (y) by pooling, val / test
+
+Each cell is the MAE $\frac1N\sum_c\lvert\hat y_c-y_c\rvert$ for one pooling
+rule of Eq. (1.2) / (1.3), or for the mean, the median, the 10 %-trimmed mean,
+or the plain mean of $\bar y_i$ (`tta_mean`).
+
+| pooling | E2L all | E2L TUH | E2L HEEDB | E2 all | E2 TUH | E2 HEEDB |
+|---|---|---|---|---|---|---|
+| mean (reported) | 7.25 / 7.00 | 7.28 / 6.54 | 7.23 / 7.02 | 7.43 / 7.25 | 7.31 / 6.70 | 7.49 / 7.27 |
+| median | 6.99 / 6.64 | 7.31 / 6.58 | 6.84 / 6.64 | 7.12 / 6.83 | 7.31 / 6.72 | 7.03 / 6.83 |
+| trimmed 10 % | 7.10 / 6.81 | 7.27 / 6.52 | 7.02 / 6.82 | 7.27 / 7.04 | 7.30 / 6.67 | 7.25 / 7.05 |
+| TTA mean | 7.21 / 6.99 | 7.21 / 6.60 | 7.21 / 7.01 | 7.41 / 7.26 | 7.27 / 6.71 | 7.48 / 7.28 |
+| A1 inverse TTA variance | 7.18 / 6.96 | 7.20 / 6.59 | 7.17 / 6.97 | 7.37 / 7.21 | 7.25 / 6.70 | 7.43 / 7.23 |
+| A2 Huber | 6.99 / 6.64 | 7.31 / 6.57 | 6.84 / 6.64 | 7.12 / 6.83 | 7.31 / 6.71 | 7.03 / 6.83 |
+| A3 learned softmax | **6.85 / 6.46** | 7.29 / 6.58 | **6.64 / 6.46** | **6.94 / 6.59** | 7.28 / 6.75 | **6.78 / 6.58** |
+
+### Table 2.2. Paired change vs. mean pooling, test (y, 95 % bootstrap CI)
+
+The cells give $\Delta=\frac1N\sum_c\bigl(\lvert\hat y_c^{\text{method}}-y_c\rvert-\lvert\hat y_c^{\text{mean}}-y_c\rvert\bigr)$,
+with a 2,000-resample percentile interval over recordings
+(`bootstrap_delta`). Negative is better.
+
+| pooling | E2L all | E2L TUH (n = 274) | E2L HEEDB | E2 all | E2 HEEDB |
+|---|---|---|---|---|---|
+| A1 | −0.05 [−0.07, −0.03] | +0.05 [−0.04, +0.15] | −0.05 [−0.07, −0.03] | −0.04 [−0.06, −0.02] | −0.04 [−0.06, −0.03] |
+| A2 (≈ median) | −0.36 [−0.40, −0.32] | +0.03 [−0.05, +0.11] | −0.38 [−0.42, −0.34] | −0.43 [−0.46, −0.39] | −0.44 [−0.48, −0.41] |
+| A3 | −0.54 [−0.59, −0.49] | +0.03 [−0.09, +0.17] | −0.56 [−0.61, −0.50] | −0.66 [−0.72, −0.61] | −0.69 [−0.75, −0.63] |
+| A3 vs. median | −0.18 [−0.23, −0.15] (HEEDB) | 0.00 [−0.13, +0.14] | | | −0.25 [−0.29, −0.20] (HEEDB) |
+
+Table 2.1 and Table 2.2 show three things:
+
+* **All of the gain is on HEEDB.** On TUH no pooling rule beats the mean by
+  more than 0.08 y, on val (3,422 recordings) or on test. The median (= A2) is
+  even slightly worse there (+0.03 [+0.01, +0.06] y on E2L val). This matches
+  Table 14.2 of `age_regression.md` for TUAB.
+* **A2 is the median.** Val selects the smallest $\delta$, where Huber equals
+  the median. A2 adds nothing on top of it.
+* **A3 is the best rule:** −0.54 y on E2L test and −0.66 y on E2, which is
+  0.18–0.25 y better than the median on HEEDB. The ranking is the same on both
+  runs, and E2L stays ahead of E2 under every rule. Section 3.3 shows where the
+  A3 gain comes from.
+
+## 3. Do window weights track window errors?
+
+With window error $e_i=\hat y_i-y_c$ (A1 uses $\bar y_i-y_c$, the value it pools):
+
+$$
+\rho_{\text{within}}=\frac1{\lvert C\rvert}\sum_{c\in C}\operatorname{Spearman}_{i\in W_c}\bigl(w_i,\lvert e_i\rvert\bigr),\qquad
+\Delta_i=\lvert e_i\rvert-\frac1{\lvert W_c\rvert}\sum_{j\in W_c}\lvert e_j\rvert ,
+\tag{3.1}
+$$
+
+$$
+s_{\text{within}}=\frac{\operatorname{Var}_i\bigl(e_i-\bar e_{c(i)}\bigr)}{\operatorname{Var}_i\bigl(\bar e_{c(i)}\bigr)+\operatorname{Var}_i\bigl(e_i-\bar e_{c(i)}\bigr)},\qquad
+\bar e_c=\frac1{\lvert W_c\rvert}\sum_{i\in W_c}e_i ,
+\tag{3.2}
+$$
+
+where $C$ is the set of recordings with at least 5 windows, and the variances
+are sample variances over windows (`weight_error_correlation`,
+`error_variance_split`). $\rho_{\text{within}} < 0$ means that, inside a
+recording, a larger weight goes with a smaller error. $\Delta_i$ is a window's
+excess error over its recording. $s_{\text{within}}$ is the share of
+window-error variance that changes within a recording, which is the only part
+any re-weighting of a recording's own windows can remove.
+
+### Table 3.1. Weight vs. own window error, test
+
+The columns are: $\rho_{\text{pooled}}$ (Spearman over all windows), $\rho_{\text{within}}$ (Eq. (3.1)),
+the share of recordings with a negative within-recording $\rho$, and the mean
+$\Delta_i$ (Eq. (3.1)) of each recording's lowest-weight and highest-weight
+quintiles. For the descriptor rows the "weight" is $-x$, so a negative $\rho$
+means that a larger value goes with a larger error. Each cell gives E2L / E2.
+
+| weight | $\rho_{\text{pooled}}$ | $\rho_{\text{within}}$ | share $\rho<0$ | $\Delta$ low-w (y) | $\Delta$ high-w (y) |
+|---|---|---|---|---|---|
+| A1 $1/(\sigma_i^2+\varepsilon)$ | −0.11 / −0.10 | **−0.01 / −0.03** | 0.51 / 0.53 | +0.45 / +0.51 | **+1.06 / +0.97** |
+| A2 Huber | −0.31 / −0.30 | −0.33 / −0.32 | 0.79 / 0.80 | +4.31 / +4.25 | −1.58 / −1.49 |
+| A3 softmax | −0.17 / −0.18 | −0.17 / −0.18 | 0.71 / 0.73 | +2.75 / +2.78 | −1.23 / −1.28 |
+| −EMG ratio (mean) | +0.03 / +0.03 | +0.04 / +0.04 | 0.45 / 0.44 | −0.02 / −0.01 | +1.24 / +1.25 |
+| −EMG ratio (max) | +0.05 / +0.05 | +0.06 / +0.06 | 0.43 / 0.42 | −0.18 / −0.17 | +1.66 / +1.68 |
+| −max \|x\| | −0.08 / −0.09 | −0.07 / −0.07 | 0.61 / 0.61 | +1.55 / +1.59 | +0.19 / +0.18 |
+
+$s_{\text{within}}$ (Eq. (3.2)) on test is 0.34 for E2L and 0.30 for E2 (val:
+0.29 and 0.27). About **two thirds of the window error is shared by all
+windows of a recording**, so no pooling of those windows can remove it.
+
+### Figure 3.1. Excess window error by within-recording weight decile
+
+The y axis is the mean $\Delta_i$ (Eq. (3.1), years) per decile of the
+within-recording weight rank (1 = the lowest weight in its recording), on
+test, for all 7,612 recordings. (a) E2L, (b) E2.
+
+![Figure 3.1](figures/window_confidence_weight_rank.png)
+
+Figure 3.1 and Table 3.1 give the window-level answer:
+
+* **A2 and A3 weights track window error, and monotonically.** In about 80 %
+  (A2) and 71 % (A3) of recordings, the lower-weight windows are the
+  worse-predicted ones. The bottom decile is 6.5 y (A2) and 3.7 y (A3) worse
+  than the recording's average window. The A2 result is partly built in: a
+  window far from its recording's median is usually far from the truth too,
+  because most of the error is shared (Eq. (3.2)).
+* **A1 (TTA spread) does not track error within a recording**
+  ($\rho_{\text{within}}\approx 0$). The relation is U-shaped: the *most*
+  invariant windows (top weight decile) are 1.9 y worse than average, as bad
+  as the least invariant ones (Figure 3.1).
+* **EMG power is not a reliability signal here.** If anything, high-EMG
+  windows err *less* ($\rho_{\text{within}}$ = +0.04 for $-$EMG). The
+  "muscle reads young" effect of the TUAB analysis does not show up as a
+  window-level error on this cohort. Large amplitude (`max_abs`) is a weak
+  warning sign.
+
+### Table 3.2. Windows by within-recording TTA-variance decile, E2L test
+
+The columns are the median $\sigma_i$ (Eq. (1.1)), the median descriptors and
+the mean $\lvert\bar y_i-y_c\rvert$ per decile of the within-recording
+$\sigma_i^2$ rank (`tta_profile`). Decile 1 holds the most invariant windows.
+
+| decile | TTA SD (y) | mean ch. SD (µV) | max \|x\| (µV) | min ch. SD (µV) | \|error\| (y) |
+|---|---|---|---|---|---|
+| 1 | 0.56 | 14.6 | 113 | 6.6 | **9.91** |
+| 2 | 1.02 | 16.3 | 133 | 7.8 | 8.22 |
+| 3–8 | 1.35–2.88 | 16.1–17.1 | 130–146 | 7.9–8.3 | 7.34–7.68 |
+| 9 | 3.43 | 18.0 | 159 | 8.6 | 7.87 |
+| 10 | 4.70 | 22.0 | 219 | 9.6 | 9.02 |
+
+Table 3.2 explains the U shape. The most invariant windows are
+**low-amplitude windows** (14.6 µV mean channel SD vs. about 16.3 µV, weakest
+channel 6.6 µV). They are stable under shift and flip because they carry
+little signal, not because the model reads them well. Decile 10 holds the
+high-amplitude, artifact-like windows. TTA spread therefore needs an
+amplitude floor, or a two-sided weight, before it can serve as a confidence.
+On its own it is not one.
+
+### Table 3.3. Window error by position, and pooling after skipping the first windows
+
+The upper rows give the mean $\lvert e_i\rvert$ (y) of the $k$-th window after
+the 60 s start trim, on test. The lower rows give the recording MAE (y) when
+each recording's first $k$ windows are skipped before mean pooling
+(`position_tables`). Each cell gives E2L / E2.
+
+| | k = 0 | 1 | 2 | 3 | 6 | 9 | 11 |
+|---|---|---|---|---|---|---|---|
+| HEEDB window \|error\| | 13.0 / 13.1 | 12.2 / 12.3 | 11.2 / 11.3 | 10.4 / 10.5 | 8.7 / 8.8 | 7.9 / 8.1 | 7.9 / 7.9 |
+| TUH window \|error\| | 7.7 / 7.8 | 7.5 / 7.7 | 6.9 / 7.0 | 7.2 / 7.3 | 7.5 / 7.6 | 7.1 / 7.1 | 7.0 / 7.3 |
+
+| skip first | 0 | 1 | 3 | 6 | 12 |
+|---|---|---|---|---|---|
+| HEEDB test, mean | 7.02 / 7.27 | 6.92 / 7.16 | 6.77 / 6.99 | 6.63 / 6.83 | 6.55 / 6.73 |
+| HEEDB val, mean | 7.23 / 7.49 | 7.13 / 7.37 | 6.96 / 7.18 | 6.83 / 7.03 | 6.73 / 6.93 |
+| TUH val, mean | 7.28 / 7.31 | 7.28 / 7.32 | 7.29 / 7.33 | 7.31 / 7.34 | 7.35 / 7.38 |
+
+**This is where most of the HEEDB gain comes from.** In HEEDB, the first
+~1.5 min after the 60 s trim are much worse (13 y window error, settling to
+~7.9 y by window 9), while TUH is flat. Plain mean pooling over minutes 3–6
+(skip 12) already gets HEEDB test from 7.02 to 6.55 y (E2L), most of the way
+to A3's 6.46. A3 found the same thing on its own: its largest coefficients
+weight later minutes up ($\theta_{\text{minute}}$ = +0.57 per minute for E2L,
++0.68 for E2) and penalize TTA variance and amplitude. The cause is
+not established yet; the start of a routine HEEDB recording plausibly holds
+electrode settling or activation procedures. Skipping windows also leaves
+fewer windows per recording, so the fair fix is to *move* the 5 min budget
+later for HEEDB (`data.trim_start_sec` of about 180–240 s), not to shorten it.
+That needs re-scoring, and probably retraining, because training sees the
+same early windows.
+
+## 4. Does recording confidence track recording error?
+
+Per-recording uncertainty scores $u_c$, where higher means less confident
+(`recording_confidence`):
+
+$$
+\begin{aligned}
+u^{\text{A1-se}}_c&=\Bigl(\sum_{i\in W_c}\frac1{\sigma_i^2+1}\Bigr)^{-1/2},&
+u^{\text{A1-tta}}_c&=\frac1{\lvert W_c\rvert}\sum_{i\in W_c}\sigma_i,&
+u^{\text{A2-mad}}_c&=1.4826\operatorname*{median}_{i\in W_c}\lvert\hat y_i-\operatorname{median}_{W_c}\hat y\rvert,\\
+u^{\text{A2-down}}_c&=1-\frac1{\lvert W_c\rvert}\sum_{i\in W_c}w_i^{\text{A2}},&
+u^{\text{A3-conc}}_c&=1-\frac{1}{\lvert W_c\rvert\sum_{i\in W_c}(w_i^{\text{A3}})^2},&
+u^{\text{sd}}_c&=\operatorname{SD}_{i\in W_c}(\hat y_i),\quad u^{\text{emg}}_c=\overline{\text{emg}}_{W_c}.
+\end{aligned}
+\tag{4.1}
+$$
+
+Each score is scored against the mean-pooled recording error
+$a_c=\lvert\hat y_c-y_c\rvert$:
+
+$$
+\rho=\operatorname{Spearman}_c(u_c,a_c),\qquad
+\rho_{\text{age}}=\frac{\sum_b n_b\,\operatorname{Spearman}_{c\in b}(u_c,a_c)}{\sum_b n_b},
+\tag{4.2}
+$$
+
+$$
+\operatorname{MAE}@\kappa=\frac{1}{\lceil\kappa N\rceil}\sum_{k=1}^{\lceil\kappa N\rceil}a_{(k)},\qquad
+\operatorname{AURC}=\frac1N\sum_{k=1}^{N}\frac1k\sum_{j=1}^{k}a_{(j)} ,
+\tag{4.3}
+$$
+
+where $b$ runs over the age deciles of the group, and $a_{(k)}$ is the error of
+the recording with the $k$-th smallest $u_c$
+(`confidence_error_table`, `risk_coverage`). $\rho_{\text{age}}$ removes the
+part of the association that only reflects age (errors and window noise both
+change with age). MAE@$\kappa$ is the error left when the
+$1-\kappa$ least confident recordings are deferred. AURC is its average over
+all coverages. The floor is the oracle that defers by $a_c$ itself, and the
+ceiling is the plain MAE (random deferral).
+
+### Table 4.1. Recording uncertainty vs. recording error, test, all 7,612 recordings
+
+Columns: Eqs. (4.2)–(4.3). Each cell gives E2L / E2. The plain MAE is 7.00 / 7.25 y.
+The oracle AURC is 2.92 / 3.06 y.
+
+| score | $\rho$ | $\rho_{\text{age}}$ | MAE@80 % | MAE@50 % | AURC |
+|---|---|---|---|---|---|
+| A1 pooled SE | 0.10 / 0.06 | 0.23 / 0.25 | 6.75 / 7.05 | 6.60 / 7.00 | 6.37 / 6.78 |
+| A1 mean TTA SD | 0.14 / 0.10 | **0.28 / 0.30** | 6.67 / 6.96 | **6.30 / 6.69** | **6.14 / 6.56** |
+| A2 MAD of windows | 0.14 / 0.11 | 0.23 / 0.24 | 6.65 / 6.93 | 6.45 / 6.71 | 6.26 / 6.58 |
+| A2 down-weighted share | 0.14 / 0.13 | 0.21 / 0.25 | 6.65 / 6.90 | 6.44 / 6.67 | 6.31 / 6.51 |
+| A3 weight concentration | 0.09 / 0.08 | 0.12 / 0.15 | 6.84 / 7.07 | 6.63 / 6.91 | 6.60 / 6.78 |
+| SD of windows | 0.14 / 0.14 | 0.14 / 0.14 | 6.74 / 6.97 | 6.52 / 6.64 | 6.29 / 6.60 |
+| mean EMG ratio | 0.04 / 0.04 | 0.04 / 0.05 | 6.86 / 7.12 | 6.66 / 6.89 | 6.94 / 7.16 |
+
+### Table 4.2. The same on TUH val (3,422 recordings, the larger TUH split)
+
+The plain MAE is 7.28 / 7.31 y. The oracle AURC is 2.90 / 2.99 y.
+
+| score | $\rho$ | $\rho_{\text{age}}$ | MAE@80 % | MAE@50 % | AURC |
+|---|---|---|---|---|---|
+| A1 pooled SE | 0.18 / 0.15 | 0.21 / 0.22 | 6.85 / 6.95 | 6.40 / 6.57 | 6.04 / 6.29 |
+| A1 mean TTA SD | 0.17 / 0.15 | 0.20 / 0.22 | 6.77 / 6.93 | 6.44 / 6.60 | 6.13 / 6.35 |
+| A2 MAD of windows | 0.08 / 0.08 | 0.11 / 0.13 | 7.10 / 7.06 | 7.06 / 6.96 | 6.96 / 6.92 |
+| A3 weight concentration | −0.01 / 0.01 | 0.00 / 0.03 | 7.23 / 7.28 | 7.35 / 7.24 | 7.56 / 7.45 |
+| mean EMG ratio | 0.00 / 0.00 | 0.00 / 0.00 | 7.06 / 7.12 | 7.21 / 7.20 | 7.46 / 7.41 |
+
+### Figure 4.1. Recording MAE by uncertainty decile, test
+
+The y axis is the mean $a_c$ (years) per decile of each score of Eq. (4.1)
+(10 = least confident), with mean pooling, for all 7,612 test recordings.
+(a) E2L, (b) E2.
+
+![Figure 4.1](figures/window_confidence_deciles.png)
+
+### Figure 4.2. Risk-coverage curves, test
+
+The y axis is MAE@$\kappa$ (Eq. (4.3)) against the coverage $\kappa$ for four
+scores. The dashed line is the oracle and the dotted line is random deferral.
+Mean pooling, all 7,612 test recordings. (a) E2L, (b) E2.
+
+![Figure 4.2](figures/window_confidence_risk_coverage.png)
+
+The recording-level answer, from Table 4.1, Table 4.2, Figure 4.1 and Figure 4.2:
+
+* **There is a correlation, but it is weak.** The best scores reach
+  $\rho\approx 0.14$, or 0.28–0.30 within age deciles. Mean TTA SD is the most
+  useful score on both runs and both datasets. Deferring the least confident
+  half lowers MAE from 7.00 to 6.30 y on E2L, about a quarter of the way to
+  the oracle. Most of the effect sits in the extreme deciles: the least
+  confident 10 % of recordings has MAE ≈ 9 y vs. 5–6.5 y for the most confident
+  (Figure 4.1).
+* **TTA spread is useful per recording even though it is useless per window.**
+  A recording whose windows are *on average* unstable is a harder recording
+  (Table 4.1). Within a recording, the ranking of windows by stability does
+  not follow their errors (Table 3.1).
+* **The A3 weights make a poor confidence**, and so does EMG power
+  ($\rho\le 0.09$, and about 0 on TUH). A3 learns *which* windows to use, not
+  how good the result is.
+* **The age-stratified $\rho$ is higher than the plain one.** Within an age
+  band, uncertainty predicts error better. Across ages, the large
+  regression-to-the-mean errors of the youngest and oldest recordings are not
+  matched by noisier windows, which dilutes the plain correlation.
+* **E2 (the benchmark) shows the same pattern** at a lower level. Nothing in
+  Sections 3–4 is specific to the longer-trained E2L, and E2L's extra epochs
+  did not make the window confidences more or less informative.
+
+## 5. Conclusions and next steps
+
+1. **Window weights vs. window errors:** yes for A2/A3
+   ($\rho_{\text{within}}$ = −0.33 / −0.17, monotone in Figure 3.1). No for A1:
+   TTA invariance flags low-amplitude windows as reliable, but they are bad
+   windows (Table 3.2).
+2. **Recording confidence vs. recording error:** a real but weak signal
+   ($\rho$ ≤ 0.14, 0.30 age-stratified). It is good enough to flag the worst
+   decile of recordings, not to replace an error bar. The best score is the
+   mean TTA SD.
+3. **Pooling gains** (A3 −0.54 y on E2L test) are **HEEDB-only** and mostly
+   undo the bad first 1.5 minutes after the trim (Table 3.3). The cleaner fix
+   is a data fix: a later HEEDB eval/training window (`trim_start_sec` of about
+   180–240 s for `corpus == heedb`). Re-score E2L with it first; if it holds,
+   retrain. Expect most of the A3 margin to disappear once that is done.
+4. About 2/3 of window error is shared by the recording (Eq. (3.2)). That
+   bounds what any post-hoc pooling can do and supports Proposal B (training on
+   recordings, plan section 4) as the main lever.
+5. For A1 to be usable: add an amplitude floor (zero weight for windows with
+   the minimum channel SD below ~7 µV) or a two-sided weight, and re-test
+   Table 3.1.
+
+Reproduce (about 15 min of setup plus 35 min on one A10G for val + test, both
+runs in one pass; the report takes about 10 min on CPU):
+
+```bash
+PYTHONPATH=. python scripts/window_confidence_predict.py \
+  --data-path /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1 \
+  --run E2L=/data/runs/heedb/e2l/finetune_20261104_215141_883 \
+  --run E2=/data/runs/heedb/e2_r2/finetune --out-dir /data/runs/heedb/window_conf
+PYTHONPATH=. python scripts/window_confidence_report.py --in-dir /data/runs/heedb/window_conf \
+  --run E2L --run E2 --out-dir /data/runs/heedb/window_conf/report --fig-dir docs/figures
+```

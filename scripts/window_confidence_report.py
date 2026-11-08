@@ -30,7 +30,7 @@ import pandas as pd
 from labram.eval import window_confidence as wc
 
 EPS_GRID = (0.25, 1.0, 4.0, 16.0, 64.0)
-DELTA_GRID = (2.0, 3.0, 5.0, 8.0, 12.0)
+DELTA_GRID = (0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0)
 GROUPS = {
     "all": lambda d: np.ones(len(d), bool),
     "temple": lambda d: d["dataset"] == "temple",
@@ -91,6 +91,63 @@ def mae_table(recs):
 def curve_split(df):
     """Split the figures show: test, else (smoke runs) val."""
     return "test" if (df["split"] == "test").any() else "val"
+
+
+def bootstrap_delta(recs, base="mean", n_boot=2000, seed=0):
+    """Paired bootstrap over recordings of MAE(method) - MAE(base), per split x
+    group: point estimate and 95 % percentile interval (years)."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    ref = recs[base]
+    for method, rec in recs.items():
+        if method == base:
+            continue
+        d = rec.merge(ref[wc.KEY + ["abs_err"]], on=wc.KEY, suffixes=("", "_base"))
+        for split, ds in d.groupby("split"):
+            for g, f in GROUPS.items():
+                m = np.asarray(f(ds), bool)
+                diff = (ds["abs_err"] - ds["abs_err_base"]).to_numpy()[m]
+                if len(diff) < 20:
+                    continue
+                boots = diff[rng.integers(0, len(diff), (n_boot, len(diff)))].mean(1)
+                lo, hi = np.percentile(boots, [2.5, 97.5])
+                rows.append({"method": method, "split": split, "group": g, "n": len(diff),
+                             "delta_mae": float(diff.mean()), "ci_lo": float(lo), "ci_hi": float(hi)})
+    return pd.DataFrame(rows)
+
+
+def tta_profile(df, split):
+    """Windows by within-recording TTA-variance decile (1 = most invariant):
+    median TTA SD, signal descriptors and the mean |error| of the TTA mean."""
+    d = df[df["split"] == split]
+    rank = d.groupby(wc.KEY, sort=False)["tta_var"].rank(pct=True, method="average")
+    dec = np.ceil(rank * 10).clip(1, 10).astype(int).rename("decile")
+    err = (d["tta_mean"] - d["age"]).abs()
+    return d.assign(tta_sd=np.sqrt(d["tta_var"]), abs_err=err).groupby(dec).agg(
+        tta_sd=("tta_sd", "median"), amp_uv=("amp_uv", "median"), max_abs=("max_abs", "median"),
+        min_std=("min_std", "median"), emg=("emg", "median"), abs_err=("abs_err", "mean"))
+
+
+SKIPS = (0, 1, 3, 6, 12)
+
+
+def position_tables(df):
+    """Window position effects: mean |error| by window index within the
+    evaluated stretch (0 = first window after the start trim), per split x
+    dataset, and the mean / median pooled MAE when each recording's first
+    ``k`` windows are skipped (``k`` in ``SKIPS``)."""
+    k = (df["window"] - df.groupby(wc.KEY, sort=False)["window"].transform("min")).rename("k")
+    ae = (df["pred"] - df["age"]).abs()
+    by_pos = ae.groupby([df["split"], df["dataset"], k]).mean().rename("abs_err").reset_index()
+    rows = []
+    for skip in SKIPS:
+        sub = df[k >= skip]
+        med = sub.groupby(wc.KEY, sort=False)["pred"].transform("median")
+        for pooling, rec in (("mean", wc.pool(sub)), ("median", wc.pool(sub.assign(pred=med)))):
+            for (split, ds), g in rec.groupby(["split", "dataset"]):
+                rows.append({"skip": skip, "pooling": pooling, "split": split, "dataset": ds,
+                             "mae": float(g["abs_err"].mean())})
+    return by_pos, pd.DataFrame(rows)
 
 
 def window_tables(df, w):
@@ -172,9 +229,12 @@ def figures(results, fig_dir):
 
     fig, axes = plt.subplots(1, len(names), figsize=(14, 4.5), sharey=True, squeeze=False)
     for ax, name in zip(axes[0], names):
-        for m in ("u_A1_se", "u_A2_mad", "u_A3_conc", "u_emg", "oracle"):
+        for m in ("u_A1_tta", "u_A2_down", "u_A3_conc", "u_emg", "oracle"):
             cov, risk = results[name]["curves"][m]
             ax.plot(cov * 100, risk, label=LABELS[m], ls="--" if m == "oracle" else "-")
+        full = results[name]["curves"]["oracle"][1][-1]
+        ax.axhline(full, color="0.5", lw=0.8, ls=":", label="random deferral (= all recordings)")
+        ax.set_ylim(0, full * 1.25)
         ax.set_xlabel("coverage (% of recordings kept)")
         ax.set_title(f"{name}, test, mean pooling")
         ax.set_xlim(10, 100)
@@ -189,7 +249,7 @@ def figures(results, fig_dir):
     fig, axes = plt.subplots(1, len(names), figsize=(14, 4.5), sharey=True, squeeze=False)
     for ax, name in zip(axes[0], names):
         for m, vals in results[name]["curves"]["_deciles"].items():
-            if m in ("u_A1_se", "u_A2_mad", "u_A3_conc", "u_emg"):
+            if m in ("u_A1_tta", "u_A2_down", "u_A3_conc", "u_sd", "u_emg"):
                 ax.plot(range(1, len(vals) + 1), vals, marker="o", label=LABELS[m])
         ax.set_xlabel("recording uncertainty decile (10 = least confident)")
         ax.set_title(f"{name}, test, mean pooling")
@@ -221,6 +281,13 @@ def main():
         win, rank_curves = window_tables(df, w)
         conf_t, curves, conf = confidence_tables(df, w, recs)
         tta_sd = float(np.sqrt(df.tta_var).median())
+        boot = bootstrap_delta(recs).assign(run=name)
+        boot.to_csv(os.path.join(args.out_dir, f"{name}_pooling_delta_ci.csv"), index=False)
+        prof = tta_profile(df, curve_split(df))
+        prof.to_csv(os.path.join(args.out_dir, f"{name}_tta_profile.csv"))
+        by_pos, skips = position_tables(df)
+        by_pos.to_csv(os.path.join(args.out_dir, f"{name}_error_by_position.csv"), index=False)
+        skips.to_csv(os.path.join(args.out_dir, f"{name}_skip_first.csv"), index=False)
         results[name] = {"settings": settings, "rank_curves": rank_curves, "curves": curves,
                          "mae": mae, "window": win.assign(run=name), "conf": conf_t.assign(run=name),
                          "median_tta_sd": tta_sd, "n_windows": len(df)}
@@ -235,6 +302,12 @@ def main():
             print({k: round(v, 3) for k, v in settings["theta"].items()})
             print(mae[mae.group.isin(["all", "temple", "harvard"])]
                   .pivot_table(index="method", columns=["split", "group"], values="mae").round(3))
+            print(boot[boot.group.isin(["all", "temple", "harvard"])].round(3).to_string(index=False))
+            print(prof.round(2))
+            print(by_pos[by_pos.k < 12].pivot_table(index=["split", "dataset"], columns="k",
+                                                     values="abs_err").round(1))
+            print(skips.pivot_table(index=["pooling", "skip"], columns=["split", "dataset"],
+                                    values="mae").round(3))
             print(win.round(3))
             print(conf_t[conf_t.group.isin(["all", "temple", "harvard"]) & (conf_t.split == curve_split(df))]
                   .round(3).to_string(index=False))

@@ -177,6 +177,8 @@ $\theta^\star$ comes out near zero the descriptors carry no pooling
 information and we stop here, having learned that cheaply; if not, the same
 descriptors become the *prior* term of Eq. (4.2).
 
+**Results (2026-11-08, E2L vs. E2):** [`window_confidence_results.md`](window_confidence_results.md). A3 −0.54 y on E2L test, all of it on HEEDB and mostly from down-weighting the first ~1.5 min after the trim. The A2/A3 weights track window error within recordings, but the TTA spread (A1) does not. Recording confidence vs. error: $\rho\le 0.14$ (0.30 within age deciles).
+
 Deliverable: one table per run (M1, M1c, MT1, the CV folds) with mean,
 median, Eqs. (3.1)-(3.3), and a recording-level selective-prediction curve
 (coverage vs. MAE when the least confident recordings are deferred), the
