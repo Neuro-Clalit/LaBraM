@@ -23,7 +23,7 @@ aborting the run.
 | EDF recording field | `session_number`, `token_number`, `year`, `equipment_tag` | the date is anonymised to 01-JAN-YYYY 00:00, so only the year survives; the session number says *which* TUH EEG session of the patient this is (n-th, in date order over all of TUH), not how many sessions the patient has |
 | EDF signal headers | `sfreq`, `physical_max_uv`, `n_signals`, `has_emg`, `has_eog`, `has_photic_channel`, `has_sphenoidal`, `has_numbered_extra`, `duration_min` | amplifier and montage fingerprint |
 | EKG lead | `ekg_hr_bpm`, `ekg_rr_std_ms`, `ekg_valid_frac` | R-peak detection on the 5–30 Hz band-passed lead, polarity-agnostic |
-| Photic channel | `photic_performed`, `photic_stim_sec` | stimulator pulse train |
+| Photic channel | `photic_performed`, `photic_stim_sec` | stimulator pulse train (per-cohort inventory and signal check: [`stim_channels.md`](stim_channels.md); `has_photic_channel` counted only `PHOTIC-REF` before 2026-11-08 and missed `PHOTIC PH`, so tables built earlier undercount it) |
 | Device trend channels | `trend_suppr_mean`, `trend_suppr_gt50_frac`, `trend_bursts_mean`, `trend_ibi_mean` | 1-Hz burst-suppression trends (`SUPPR`, `BURSTS`, `IBI`) written by the acquisition software; all-zero means not computed, so the value is NaN |
 | EEG quality (19 scalp channels) | `q_*` | clipping, flat/high-amplitude 10-s epochs, flat/noisy electrodes, 50/60 Hz mains ratio |
 | qEEG (common average, 0.5–45 Hz, median over 10-s epochs) | `qeeg_*` | relative band powers, slowing ratio, posterior dominant rhythm (PDR) frequency and prominence, aperiodic slope, hemispheric asymmetry, kurtosis |
