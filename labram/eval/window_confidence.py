@@ -73,11 +73,13 @@ def huber_weights(df: pd.DataFrame, pred: str = "pred", delta: float = 5.0,
     return w, pd.Series(mu, index=df.index)
 
 
-def descriptor_matrix(df: pd.DataFrame, pred: str = "pred") -> pd.DataFrame:
+def descriptor_matrix(df: pd.DataFrame, pred: str = "pred", extra: Sequence[str] = ()) -> pd.DataFrame:
     """A3 inputs ``q_i``: log EMG ratio (channel mean and max), log max |x|,
     log mean / minimum channel std, log TTA variance, distance of the window's
     prediction from its recording's median, and the minute of the window
-    within the evaluated stretch."""
+    within the evaluated stretch; then the ``extra`` columns of ``df`` (e.g.
+    the spectrogram descriptors of ``labram/eval/window_descriptors.py``),
+    coefficient-of-variation columns (``*_cv_*``) as ``log(1 + x)``."""
     g = df.groupby(KEY, sort=False)
     q = pd.DataFrame(index=df.index)
     q["log_emg"] = np.log(df["emg"].clip(lower=1e-6))
@@ -88,7 +90,27 @@ def descriptor_matrix(df: pd.DataFrame, pred: str = "pred") -> pd.DataFrame:
     q["log_tta_var"] = np.log1p(df["tta_var"])
     q["dist_median"] = (df[pred] - g[pred].transform("median")).abs()
     q["minute"] = (df["window"] - g["window"].transform("min")) / 6.0
-    return q[list(DESCRIPTORS)]
+    q = q[list(DESCRIPTORS)]
+    for c in extra:
+        v = df[c].astype(float)
+        q[c] = np.log1p(v.clip(lower=0)) if "_cv_" in c else v
+    return q.replace([np.inf, -np.inf], np.nan)
+
+
+def subject_of(stem: str) -> str:
+    """Subject of a recording stem: TUH ``aaaaaafx_s006_t004`` -> ``aaaaaafx``,
+    HEEDB ``sub-I0002150000076_ses-1_task-EEG`` -> ``sub-I0002150000076``."""
+    if stem.startswith("sub-"):
+        return stem.split("_ses", 1)[0]
+    return stem.split("_", 1)[0]
+
+
+def subject_folds(recordings: Sequence[str], n_folds: int = 5, seed: int = 0) -> np.ndarray:
+    """Fold index per recording, with every subject's recordings in one fold."""
+    subjects = np.array([subject_of(r) for r in recordings])
+    uniq = np.unique(subjects)
+    fold = dict(zip(uniq, np.random.default_rng(seed).permutation(len(uniq)) % n_folds))
+    return np.array([fold[s] for s in subjects])
 
 
 def softmax_weights(q: np.ndarray, theta: np.ndarray, codes: np.ndarray) -> np.ndarray:
@@ -131,35 +153,52 @@ def fit_softmax_pooling(q: np.ndarray, y_win: np.ndarray, age: np.ndarray, codes
     return theta.detach().numpy()
 
 
-def a3_weights(df: pd.DataFrame, fit_split: str = "val", n_folds: int = 5,
-               seed: int = 0) -> Tuple[np.ndarray, pd.Series]:
+def a3_weights(df: pd.DataFrame, fit_split: str = "val", n_folds: int = 5, seed: int = 0,
+               extra: Sequence[str] = (), l2: float = 1e-3) -> Tuple[np.ndarray, pd.Series]:
     """A3 weights for every window: ``fit_split`` recordings get cross-fitted
-    weights (``theta`` fitted on the other folds of ``fit_split``), every other
-    split the ``theta`` fitted on all of ``fit_split``. Descriptors are
-    standardized with ``fit_split`` statistics. Returns ``(weights, theta)``."""
-    q = descriptor_matrix(df)
+    weights (``theta`` fitted on the other folds of ``fit_split``; folds by
+    subject, :func:`subject_folds`), every other split the ``theta`` fitted on
+    all of ``fit_split``. Descriptors (:func:`descriptor_matrix` with
+    ``extra``) are standardized with ``fit_split`` statistics, missing values
+    set to the mean and clipped at +-6 SD. Returns ``(weights, theta)``,
+    ``theta`` per standardized descriptor."""
+    q = descriptor_matrix(df, extra=extra)
     fit = (df["split"] == fit_split).to_numpy()
-    mu, sd = q[fit].mean(), q[fit].std().replace(0, 1)
-    qz = ((q - mu) / sd).to_numpy(float)
+    mu, sd = q[fit].mean(), q[fit].std().replace(0, 1).fillna(1)
+    qz = ((q - mu) / sd).fillna(0.0).clip(-6, 6).to_numpy(float)
     codes = df.groupby(KEY, sort=False).ngroup().to_numpy()
     y, age = df["pred"].to_numpy(float), df["age"].to_numpy(float)
 
     def fit_on(mask):
         sub = codes[mask]
         _, local = np.unique(sub, return_inverse=True)
-        return fit_softmax_pooling(qz[mask], y[mask], age[mask], local)
+        return fit_softmax_pooling(qz[mask], y[mask], age[mask], local, l2=l2)
 
     theta = fit_on(fit)
     w = softmax_weights(qz, theta, codes)
-    recs = np.unique(codes[fit])
-    fold = np.random.default_rng(seed).permutation(len(recs)) % n_folds
-    fold_of = dict(zip(recs, fold))
-    win_fold = np.array([fold_of.get(c, -1) for c in codes])
+    first = pd.Series(df["recording"].to_numpy()).groupby(codes).first()
+    rec_fold = dict(zip(first.index, subject_folds(first.to_list(), n_folds, seed)))
+    win_fold = np.where(fit, [rec_fold[c] for c in codes], -1)
     for k in range(n_folds):
         th = fit_on(fit & (win_fold != k))
         sel = fit & (win_fold == k)
         w[sel] = softmax_weights(qz[sel], th, np.unique(codes[sel], return_inverse=True)[1])
-    return w, pd.Series(theta / sd.to_numpy(), index=q.columns)   # per raw descriptor unit
+    return w, pd.Series(theta, index=q.columns)
+
+
+def tune_a3(df: pd.DataFrame, extra: Sequence[str] = (), l2_grid: Sequence[float] = (1e-4, 1e-3, 1e-2),
+            fit_split: str = "val") -> Tuple[np.ndarray, pd.Series, float, Dict[float, float]]:
+    """:func:`a3_weights` with the L2 strength that gives the lowest
+    cross-fitted ``fit_split`` recording MAE. Returns ``(weights, theta, l2,
+    {l2: val MAE})``."""
+    scores, best = {}, None
+    for l2 in l2_grid:
+        w, theta = a3_weights(df, fit_split, extra=extra, l2=l2)
+        rec = pool(df, w)
+        scores[l2] = float(rec.loc[rec["split"] == fit_split, "abs_err"].mean())
+        if best is None or scores[l2] < scores[best[2]]:
+            best = (w, theta, l2)
+    return best[0], best[1], best[2], scores
 
 
 # ------------------------------------------------------------------ pooling
@@ -346,3 +385,128 @@ def regression_row(rec: pd.DataFrame) -> Dict[str, float]:
     e = rec["err"].to_numpy(float)
     return {"n": len(e), "mae": float(np.abs(e).mean()), "rmse": float(np.sqrt((e ** 2).mean())),
             "r": float(np.corrcoef(rec["pred"], rec["age"])[0, 1])}
+
+
+# ------------------------------------------- rejection and learned confidence
+def relative_weight(df: pd.DataFrame, w) -> np.ndarray:
+    """``w_i * |W_c|``: a window's weight relative to its recording's uniform
+    weight (1 = average, 0.5 = half the average)."""
+    n = df.groupby(KEY, sort=False)["pred"].transform("size").to_numpy()
+    return np.asarray(w, float) * n
+
+
+def reject_windows(df: pd.DataFrame, w, threshold: float, min_keep: int = 3,
+                   pooled: str = "mean") -> pd.DataFrame:
+    """Pool each recording over the windows whose relative weight
+    (:func:`relative_weight`) is at least ``threshold``; every recording keeps
+    its ``min_keep`` highest-weight windows. ``pooled="mean"`` averages the kept
+    windows, ``"weighted"`` keeps their weights ``w``. Adds ``frac_kept``."""
+    r = relative_weight(df, w)
+    rank = pd.Series(-r, index=df.index).groupby([df[k] for k in KEY], sort=False).rank(method="first")
+    keep = (r >= threshold) | (rank.to_numpy() <= min_keep)
+    weights = keep.astype(float) * (np.asarray(w, float) if pooled == "weighted" else 1.0)
+    rec = pool(df, weights)
+    kept = pd.Series(keep.astype(float)).groupby(
+        [df[k].to_numpy() for k in KEY], sort=False).mean().to_numpy()
+    rec["frac_kept"] = kept
+    return rec
+
+
+def recording_features(df: pd.DataFrame, w, extra: Sequence[str] = ()) -> pd.DataFrame:
+    """Per-recording inputs of the learned confidence (:func:`fit_confidence`),
+    all available at test time: the A3 pooled age ``pred_a3``; the spread of
+    the window predictions -- SD, MAD, A3-weighted SD and the gaps between the
+    mean, median and A3 estimates; the A3 weight profile -- ``1 - ESS / n``,
+    largest relative weight and normalized weight entropy; the mean and
+    A3-weighted mean TTA SD; the mean and SD over windows of every descriptor of
+    :func:`descriptor_matrix` (with ``extra``); and ``is_heedb``."""
+    w = np.asarray(w, float)
+    q = descriptor_matrix(df, extra=extra)
+    keys = [df[k].to_numpy() for k in KEY]
+    y = df["pred"].to_numpy(float)
+    d = pd.DataFrame({"y": y, "w": w, "wy": w * y, "tta_sd": np.sqrt(df["tta_var"].to_numpy(float)),
+                      "wlogw": -w * np.log(np.clip(w, 1e-12, None)), "w2": w ** 2})
+    g = d.groupby(keys, sort=False)
+    out = pd.DataFrame({"n": g["y"].size(), "mean": g["y"].mean(), "sd": g["y"].std(),
+                        "pred_a3": g["wy"].sum() / g["w"].sum()})
+    a3 = out["pred_a3"].reindex(pd.MultiIndex.from_arrays(keys)).to_numpy()
+    d["wdev2"] = w * (y - a3) ** 2
+    d["absdev"] = np.abs(y - d.groupby(keys, sort=False)["y"].transform("median").to_numpy())
+    d["w_tta"] = w * d["tta_sd"]
+    g = d.groupby(keys, sort=False)
+    out["median"] = g["y"].median()
+    out["mad"] = 1.4826 * g["absdev"].median()
+    out["wsd"] = np.sqrt(g["wdev2"].sum())
+    out["gap_mean_a3"] = (out["mean"] - out["pred_a3"]).abs()
+    out["gap_median_a3"] = (out["median"] - out["pred_a3"]).abs()
+    out["conc"] = 1.0 - 1.0 / (g["w2"].sum() * out["n"])
+    out["max_relw"] = g["w"].max() * out["n"]
+    out["w_entropy"] = g["wlogw"].sum() / np.log(out["n"].clip(lower=2))
+    out["tta_sd_mean"] = g["tta_sd"].mean()
+    out["tta_sd_w"] = g["w_tta"].sum()
+    qg = q.groupby(keys, sort=False)
+    out = out.join(qg.mean().add_prefix("mean_")).join(qg.std().add_prefix("sd_"))
+    out = out.drop(columns=["mean", "median"]).reset_index()
+    out.columns = KEY + list(out.columns[2:])
+    first = df.groupby(KEY, sort=False)[["dataset", "cohort", "age"]].first().reset_index()
+    out = first.merge(out, on=KEY, validate="one_to_one")
+    out["is_heedb"] = (out["dataset"] == "harvard").astype(float)
+    return out
+
+
+# never model inputs: identifiers, the label, and any error column merged on
+CONF_META = ("split", "recording", "dataset", "cohort", "age", "n", "abs_err", "err")
+
+
+def fit_confidence(feats: pd.DataFrame, abs_err, kind: str = "hgb", fit_split: str = "val",
+                   n_folds: int = 5, seed: int = 0) -> np.ndarray:
+    """Learned recording uncertainty: a regressor of ``log(1 + |error|)`` on
+    :func:`recording_features`, fitted on ``fit_split`` (cross-fitted there, by
+    subject, :func:`subject_folds`) and applied unchanged to every other split.
+    ``kind``: ``"ridge"`` (standardized, alpha 10) or ``"hgb"`` (histogram
+    gradient boosting, 300 trees of depth 3, learning rate 0.05, 100 recordings
+    per leaf). Returns the predicted ``log(1 + |error|)`` per row (higher = less
+    confident)."""
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    from sklearn.linear_model import Ridge
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.impute import SimpleImputer
+
+    cols = [c for c in feats.columns if c not in CONF_META]
+    X = feats[cols].to_numpy(float)
+    X[~np.isfinite(X)] = np.nan
+    yv = np.log1p(np.asarray(abs_err, float))
+    fit = (feats["split"] == fit_split).to_numpy()
+
+    def model():
+        if kind == "ridge":
+            return make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), Ridge(alpha=10.0))
+        return HistGradientBoostingRegressor(max_iter=300, max_depth=3, learning_rate=0.05,
+                                             min_samples_leaf=100, random_state=seed)
+
+    out = model().fit(X[fit], yv[fit]).predict(X)
+    folds = subject_folds(feats.loc[fit, "recording"].to_list(), n_folds, seed)
+    idx = np.flatnonzero(fit)
+    for k in range(n_folds):
+        tr, te = idx[folds != k], idx[folds == k]
+        out[te] = model().fit(X[tr], yv[tr]).predict(X[te])
+    return out
+
+
+def reject_records(u_ref, u, abs_err, fractions: Sequence[float] = (0.05, 0.1, 0.2, 0.3, 0.5)) -> pd.DataFrame:
+    """Reject records whose uncertainty exceeds the ``1 - f`` quantile of
+    ``u_ref`` (the val scores) for each target reject fraction ``f``; per
+    ``f``: realized reject share on ``u``, MAE of kept / rejected records, and
+    the kept-MAE gain over keeping all."""
+    u, err = np.asarray(u, float), np.asarray(abs_err, float)
+    rows = [{"target_reject": 0.0, "threshold": np.inf, "rejected": 0.0,
+             "mae_kept": float(err.mean()), "mae_rejected": np.nan, "gain": 0.0}]
+    for f in fractions:
+        thr = float(np.quantile(u_ref, 1 - f))
+        rej = u > thr
+        rows.append({"target_reject": f, "threshold": thr, "rejected": float(rej.mean()),
+                     "mae_kept": float(err[~rej].mean()),
+                     "mae_rejected": float(err[rej].mean()) if rej.any() else np.nan,
+                     "gain": float(err.mean() - err[~rej].mean())})
+    return pd.DataFrame(rows)

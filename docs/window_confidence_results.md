@@ -476,17 +476,229 @@ The recording-level answer, from Table 4.1, Table 4.2, Figure 4.1 and Figure 4.2
   Sections 3–4 is specific to the longer-trained E2L, and E2L's extra epochs
   did not make the window confidences more or less informative.
 
-## 5. Conclusions and next steps
+## 5. Tuning A3 on val: spectrogram descriptors, rejection, learned confidence
+
+Every choice in this section (L2 strength, descriptor set, rejection
+threshold, pooling, confidence model) is made on **val**, with
+cross-fitting over 5 folds grouped by subject (`subject_folds`). Test is
+only used for reporting. Code: `scripts/window_spectral_descriptors.py`
+(one model-free pass, 3,800 windows/s), `labram/eval/window_descriptors.py`,
+`scripts/window_confidence_tuning.py`; tables in
+`docs/data/window_confidence/tuning/`.
+
+**Spectrogram descriptors** (per window, after the common-average reference
+over present channels, channel-averaged unless stated):
+
+* **STFT**, 18 features from 2 s Hann frames with a 0.5 s hop (`stft_descriptors`):
+  log total 1–45 Hz power, log relative power in delta / theta / alpha /
+  beta / gamma and 45–70 Hz, the coefficient of variation of each band's power
+  over frames, spectral entropy, the aperiodic log-log slope over 2–40 Hz
+  (alpha excluded), alpha peak frequency and prominence, the across-channel SD
+  of log power, and log(max / median) frame power.
+* **Wavelet**, 16 features from complex Morlet wavelets at 16 log-spaced
+  frequencies, 1–45 Hz, 6 cycles, 1 s edges dropped (`cwt_descriptors`):
+  per band, log relative power, burstiness (CV over time) and log
+  peak-to-median power; plus wavelet entropy.
+
+### Table 5.1. A3 by descriptor set, recording MAE (y)
+
+Each row is A3 of Eq. (1.3) with one descriptor set and its L2 chosen on val
+from $\{10^{-4}, 10^{-3}, 10^{-2}\}$. Val is cross-fitted. $\rho_{\text{within}}$
+(Eq. (3.1)) is on test. Each cell gives E2L / E2.
+
+| descriptors | # | val all | test all | test HEEDB | test TUH | $\rho_{\text{within}}$ test |
+|---|---|---|---|---|---|---|
+| base (Eq. (1.3)) | 8 | 6.85 / 6.94 | 6.46 / 6.59 | 6.46 / 6.59 | 6.56 / 6.74 | −0.17 / −0.18 |
+| base + STFT | 26 | 6.77 / 6.87 | 6.39 / 6.52 | 6.38 / 6.51 | 6.58 / 6.72 | −0.16 / −0.18 |
+| base + wavelet | 24 | 6.77 / 6.88 | 6.39 / 6.51 | 6.38 / 6.50 | 6.58 / 6.71 | −0.16 / −0.18 |
+| **base + STFT + wavelet** (selected on val) | 42 | **6.75 / 6.86** | **6.38 / 6.50** | **6.37 / 6.49** | 6.62 / 6.70 | −0.16 / −0.18 |
+| *mean pooling, for reference* | | 7.25 / 7.43 | 7.00 / 7.25 | 7.02 / 7.27 | 6.54 / 6.70 | |
+
+Spectrogram descriptors improve A3 by a further **0.08–0.09 y** on test
+(0.08–0.09 y on val too), on HEEDB. STFT and wavelet descriptors are
+interchangeable, and both together add little over either alone. TUH is
+unchanged. The largest standardized coefficients (E2L) are: across-channel
+SD of log power −1.29 (one deviant channel → low weight), weakest-channel SD
+−1.23 (a flat channel → *higher* weight once the other terms are held), log
+total power +1.16, EMG ratio −1.15, TTA variance −0.88, wavelet theta/delta
+peak-to-median −0.80 (transient bursts → low weight), aperiodic slope +0.80.
+Several of these are collinear (power, amplitude, `max_abs`), so read them as
+a group, not one by one.
+
+### Table 5.2. Window rejection by A3 weight, recording MAE (y)
+
+Windows whose relative A3 weight $r_i=w_i\lvert W_c\rvert$ (1 = the
+recording's average weight) is below a threshold $t$ are dropped; every
+recording keeps its 3 highest-weight windows. The rest are pooled by their
+mean (`reject_windows`):
+
+$$
+K_c(t)=\{i\in W_c: r_i\ge t\}\cup\operatorname{top}_3(r),\qquad
+\hat y_c=\frac1{\lvert K_c(t)\rvert}\sum_{i\in K_c(t)}\hat y_i .
+\tag{5.1}
+$$
+
+The rows below use mean pooling of the kept windows, which val selected over
+keeping their A3 weights. Each cell gives E2L / E2; "kept" is the share of
+test windows kept.
+
+| $t$ | kept | val all | test all | test HEEDB | test TUH |
+|---|---|---|---|---|---|
+| 0 (= mean pooling) | 1.00 / 1.00 | 7.25 / 7.43 | 7.00 / 7.25 | 7.02 / 7.27 | 6.54 / 6.70 |
+| 0.1 | 0.86 / 0.82 | 6.87 / 6.98 | 6.49 / 6.66 | 6.49 / 6.66 | 6.54 / 6.73 |
+| 0.25 | 0.76 / 0.70 | 6.82 / 6.91 | 6.43 / 6.58 | 6.43 / 6.57 | 6.56 / 6.75 |
+| 0.5 | 0.60 / 0.54 | 6.77 / 6.86 | 6.39 / 6.53 | 6.39 / 6.52 | 6.57 / 6.73 |
+| 0.75 | 0.46 / 0.42 | 6.75 / **6.84** | 6.38 / **6.49** | 6.37 / 6.48 | 6.56 / 6.76 |
+| 1.0 | 0.35 / 0.33 | **6.75** / 6.84 | **6.39** / 6.49 | 6.38 / 6.49 | 6.61 / 6.73 |
+| 1.25 | 0.27 / 0.26 | 6.76 / 6.85 | 6.40 / 6.50 | 6.39 / 6.49 | 6.65 / 6.75 |
+| *A3 weights, no rejection* | 1.00 | 6.75 / 6.86 | 6.38 / 6.50 | 6.37 / 6.49 | 6.62 / 6.70 |
+
+### Figure 5.1. Recording MAE against the window-rejection threshold
+
+The y axis is the recording MAE (years) of Eq. (5.1) against $t$, test solid
+and val dashed, for HEEDB, TUH and all recordings. The dotted line marks the
+val-selected $t$. (a) E2L, (b) E2.
+
+![Figure 5.1](figures/window_confidence_window_rejection.png)
+
+Table 5.2 and Figure 5.1 show that hard window rejection works, but gives the
+same MAE as A3's soft weights. Dropping the 15 % lowest-weight windows
+($t=0.1$) already takes HEEDB test from 7.02 to 6.49 y. Val picks
+$t = 0.75$–1, which keeps only about 1/3–1/2 of the windows, and lands at 6.38 /
+6.49 y, the same as A3 with all windows weighted. On **TUH, rejection never
+helps**: the curves are flat on val and slightly rising on test.
+
+### Table 5.3. Learned recording confidence vs. recording error, test
+
+A regressor predicts the A3-pooled recording error from recording-level
+summaries (`recording_features`, `fit_confidence`). The inputs are the A3
+pooled age, the window-prediction SD / MAD / A3-weighted SD, the gaps
+between the mean, median and A3 estimates, the A3 weight profile
+($1-\text{ESS}/n$, max relative weight, entropy), the mean and A3-weighted
+TTA SD, the mean and SD over windows of every A3 descriptor, and a HEEDB flag:
+
+$$
+\hat u_c=f(\mathbf x_c)\approx\log\bigl(1+\lvert\hat y_c^{\text{A3}}-y_c\rvert\bigr),\qquad
+\kappa_c=-\hat u_c ,
+\tag{5.2}
+$$
+
+where $f$ is ridge (standardized inputs, $\alpha=10$) or histogram gradient
+boosting (300 trees, depth 3, learning rate 0.05, 100 recordings per leaf).
+It is fitted on val and cross-fitted there, by subject. **$\kappa_c$ is the
+confidence**, and a useful one is *negatively* correlated with the error: the
+$\rho$ below is $\operatorname{Spearman}(\kappa_c, a_c)$, with $a_c$ the
+A3-pooled absolute error and MAE@ / AURC from Eq. (4.3). Each cell gives
+E2L / E2; val selected boosting + spectrogram for both runs (val $\rho$
+−0.29 / −0.27).
+
+| confidence $\kappa_c$ | $\rho$ | $\rho_{\text{age}}$ | MAE@80 % | MAE@50 % | AURC |
+|---|---|---|---|---|---|
+| learned, ridge | −0.28 / −0.27 | −0.24 / −0.26 | 5.83 / 5.96 | 5.08 / 5.24 | 4.81 / 4.99 |
+| learned, boosting | −0.30 / −0.28 | −0.27 / −0.29 | 5.71 / 5.81 | 5.03 / 5.17 | 4.72 / 4.93 |
+| learned, ridge + spectrogram | −0.29 / −0.27 | −0.24 / −0.25 | 5.71 / 5.84 | 5.04 / 5.19 | 4.77 / 4.97 |
+| **learned, boosting + spectrogram** | **−0.31 / −0.28** | **−0.28 / −0.28** | **5.66 / 5.83** | **4.92 / 5.15** | **4.67 / 4.91** |
+| − mean TTA SD (best single score, section 4) | −0.22 / −0.18 | −0.23 / −0.25 | 5.94 / 6.09 | 5.34 / 5.61 | 5.13 / 5.41 |
+| − A3-weighted SD of windows | −0.20 / −0.16 | −0.20 / −0.21 | 6.03 / 6.16 | 5.63 / 5.85 | 5.38 / 5.63 |
+| − A3 weight concentration | −0.08 / −0.10 | −0.10 / −0.14 | 6.22 / 6.26 | 5.93 / 5.94 | 5.96 / 5.90 |
+
+The MAE of all test recordings (A3 pooling) is 6.38 / 6.50 y, and the oracle
+AURC is 2.57 / 2.66 y.
+
+### Table 5.4. Learned confidence per dataset and report cohort, val + test
+
+$\rho=\operatorname{Spearman}(\kappa_c, a_c)$ per dataset × cohort over val
+(cross-fitted) and test. Each cell gives E2L / E2.
+
+| confidence | TUH normal (1,537) | TUH abnormal (1,801) | TUH unlab. (358) | HEEDB normal (3,011) | HEEDB abnormal (4,432) | HEEDB unlab. (7,087) |
+|---|---|---|---|---|---|---|
+| learned, boosting + spectrogram | −0.23 / −0.20 | −0.21 / −0.17 | −0.15 / −0.14 | **−0.36 / −0.32** | −0.29 / −0.27 | −0.30 / −0.27 |
+| − mean TTA SD | −0.18 / −0.15 | −0.14 / −0.12 | −0.18 / −0.13 | −0.28 / −0.23 | −0.21 / −0.19 | −0.22 / −0.18 |
+| − A3 weight concentration | −0.02 / −0.00 | +0.02 / +0.01 | −0.09 / −0.08 | −0.14 / −0.14 | −0.09 / −0.11 | −0.08 / −0.11 |
+
+### Figure 5.2. Risk-coverage of the learned confidence, test
+
+The y axis is MAE@$\kappa$ (Eq. (4.3), A3 pooling) against coverage, for the
+selected learned confidence, mean TTA SD and A3 weight concentration. The
+dashed line is the oracle and the dotted line is random deferral. All 7,612
+test recordings. (a) E2L, (b) E2.
+
+![Figure 5.2](figures/window_confidence_learned_risk_coverage.png)
+
+### Figure 5.3. Recording MAE by uncertainty quintile per cohort, E2L
+
+The y axis is the mean $a_c$ (A3 pooling) per quintile of $\hat u_c$ (5 = least
+confident), val (cross-fitted) and test. Panels: (a) TUH normal, (b) HEEDB
+normal, (c) TUH abnormal, (d) HEEDB abnormal, (e) TUH unlabelled, (f) HEEDB
+unlabelled.
+
+![Figure 5.3](figures/window_confidence_learned_cohorts.png)
+
+### Table 5.5. Record rejection at val-set thresholds, test
+
+The threshold for a target reject share $f$ is the $(1-f)$ quantile of
+$\hat u_c$ on all val recordings. It is applied unchanged to test
+(`reject_records`):
+
+$$
+\tau_f=Q_{1-f}\bigl(\{\hat u_c\}_{c\in\mathcal V}\bigr),\qquad
+\text{reject } c \iff \hat u_c>\tau_f .
+\tag{5.3}
+$$
+
+The columns give the realized rejected share on test, the MAE of the kept and
+of the rejected recordings, and the gain over keeping all of them (6.38 / 6.50 y).
+The learned confidence is the selected one; mean TTA SD is the reference.
+Each cell gives E2L / E2.
+
+| target $f$ (val) | rejected (test) | MAE kept | MAE rejected | gain | gain with mean TTA SD |
+|---|---|---|---|---|---|
+| 5 % | 2.4 % / 2.7 % | 6.18 / 6.28 | 14.8 / 14.6 | 0.20 / 0.23 | 0.15 / 0.16 |
+| 10 % | 5.9 % / 6.3 % | 6.01 / 6.15 | 12.3 / 11.8 | 0.37 / 0.36 | 0.24 / 0.23 |
+| 20 % | 13.0 % / 13.9 % | 5.82 / 5.93 | 10.2 / 10.1 | 0.56 / 0.58 | 0.41 / 0.38 |
+| 30 % | 22.4 % / 22.5 % | 5.61 / 5.76 | 9.0 / 9.1 | 0.77 / 0.74 | 0.56 / 0.49 |
+| 50 % | 46.8 % / 45.9 % | 5.04 / 5.29 | 7.9 / 7.9 | 1.35 / 1.22 | 0.94 / 0.79 |
+
+On HEEDB test, the 20 % val threshold rejects 13 % and keeps MAE 5.81 / 5.92 y.
+On TUH test (274 recordings) it rejects 12 % / 16 % and keeps 6.08 / 6.04 y
+(from 6.62 / 6.70 y).
+
+The confidence answer, from Table 5.3, Table 5.4, Table 5.5, Figure 5.2 and Figure 5.3:
+
+* **A confidence learned on val is clearly better than any single score.**
+  $\rho$ = −0.31 vs. −0.22 for the mean TTA SD (E2L test), and the gain holds in
+  every cohort except TUH unlabelled (358 recordings). Deferring half of the
+  recordings leaves MAE 4.92 y instead of 5.34 y. Boosting beats ridge, and the
+  spectrogram summaries add about 0.01–0.02 in $\rho$: small but consistent.
+* **The extremes are where it pays.** The 5 % val threshold rejects 2.4 % of
+  test recordings with **14.8 y** mean error. The least confident HEEDB-normal
+  quintile has about 9.7 y vs. 3.0 y for the most confident (Figure 5.3(b)).
+  For flagging recordings to review, this is the useful operating point.
+* **Val thresholds transfer conservatively.** Test is an easier split (A3 MAE
+  6.38 vs. 6.75 on val), so a val quantile rejects fewer test recordings than
+  targeted (13 % for a 20 % target). A rule that must hit a coverage exactly
+  should calibrate on the deployment distribution.
+* **A3's own weights still make a poor confidence** ($\rho\approx-0.1$). The
+  per-window weights are useful for pooling, but whether the recording as a
+  whole is reliable needs the recording-level model of Eq. (5.2).
+* **E2 shows the same ranking** everywhere, about 0.02–0.03 weaker.
+
+## 6. Conclusions and next steps
 
 1. **Window weights vs. window errors:** yes for A2/A3
    ($\rho_{\text{within}}$ = −0.33 / −0.17, monotone in Figure 3.1). No for A1:
    TTA invariance flags low-amplitude windows as reliable, but they are bad
    windows (Table 3.2).
-2. **Recording confidence vs. recording error:** a real but weak signal
-   ($\rho$ ≤ 0.14, 0.30 age-stratified). It is good enough to flag the worst
-   decile of recordings, not to replace an error bar. The best score is the
-   mean TTA SD.
-3. **Pooling gains** (A3 −0.54 y on E2L test) are **HEEDB-only** and mostly
+2. **Recording confidence vs. recording error:** single scores give a real
+   but weak signal ($\rho$ ≤ 0.14, 0.30 age-stratified; the best is the mean
+   TTA SD). A confidence **learned on val** (Eq. (5.2), boosting on
+   recording summaries + spectrogram descriptors) reaches $\rho$ = −0.31 vs.
+   the A3 error on test (−0.22 for the TTA SD, −0.08 for A3's own weights) in
+   every cohort but TUH unlabelled. Its 5 % val threshold rejects 2.4 % of
+   test recordings with 14.8 y mean error (Table 5.5). Use it to flag
+   recordings, not as an error bar.
+3. **Pooling gains** (A3 −0.54 y on E2L test, −0.62 y with the spectrogram
+   descriptors of Table 5.1; hard window rejection, Table 5.2, gives the same) are **HEEDB-only** and mostly
    undo the bad first 1.5 minutes after the trim (Table 3.3). The cleaner fix
    is a data fix: a later HEEDB eval/training window (`trim_start_sec` of about
    180–240 s for `corpus == heedb`). Re-score E2L with it first; if it holds,
@@ -497,6 +709,13 @@ The recording-level answer, from Table 4.1, Table 4.2, Figure 4.1 and Figure 4.2
 5. For A1 to be usable: add an amplitude floor (zero weight for windows with
    the minimum channel SD below ~7 µV) or a two-sided weight, and re-test
    Table 3.1.
+
+6. Section 5 runs on top of the same caches. Spectral pass:
+   `scripts/window_spectral_descriptors.py --data-path ... --run-dir <E2L dir>
+   --out /data/runs/heedb/window_conf/spectral_descriptors.parquet` (about 10 min);
+   analysis: `scripts/window_confidence_tuning.py --in-dir /data/runs/heedb/window_conf
+   --spectral .../spectral_descriptors.parquet --run E2L --run E2 --out-dir
+   /data/runs/heedb/window_conf/tuning --fig-dir docs/figures` (about 45 min on CPU).
 
 Reproduce (about 15 min of setup plus 35 min on one A10G for val + test, both
 runs in one pass; the report takes about 10 min on CPU):

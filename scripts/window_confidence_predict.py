@@ -37,80 +37,10 @@ from einops import rearrange
 
 import labram.utils as utils
 from labram.data.dataset_groups import UNKNOWN, dataset_lookup
-from labram.data.tuh_datasets import WINDOW_SAMPLES
-from labram.data.window_selection import _leaves
 from labram.eval.age_analysis import load_age_run
+from labram.eval.window_descriptors import FS, TTAWindows, quality_descriptors
 from labram.train.augment import hemisphere_permutation
 from labram.train.channel_drop import ChannelDropper
-
-FS = 200.0
-EMG_BAND, TOTAL_BAND = (30.0, 45.0), (1.0, 45.0)
-
-
-class TTAWindows(torch.utils.data.Dataset):
-    """Every window of a (window-selected npy) dataset as ``n_crops + 1``
-    copies: the window itself and ``n_crops`` crops whose start moves by at most
-    ``pad`` samples, kept inside the recording's trimmed range. One read per
-    window (the window plus ``pad`` on each side). Crop offsets are seeded per
-    window, so every run and every re-run sees the same copies."""
-
-    def __init__(self, dataset, n_crops: int, pad: int, seed: int = 0):
-        self.leaves = _leaves(dataset)
-        self.starts = np.cumsum([0] + [len(leaf.files) for leaf in self.leaves])
-        self.n_crops, self.pad, self.seed = n_crops, pad, seed
-
-    def __len__(self):
-        return int(self.starts[-1])
-
-    def _locate(self, i):
-        li = bisect.bisect_right(self.starts, i) - 1
-        leaf = self.leaves[li]
-        return leaf, leaf.files[i - self.starts[li]]
-
-    def stem(self, i):
-        leaf, filename = self._locate(i)
-        return os.path.basename(filename)[:-4].rsplit(leaf._recording_sep, 1)[0]
-
-    def __getitem__(self, i):
-        leaf, filename = self._locate(i)
-        stem, k = os.path.basename(filename)[:-4].rsplit(leaf._recording_sep, 1)
-        length = WINDOW_SAMPLES * leaf.windows_per_item
-        start = int(k) * WINDOW_SAMPLES
-        lo, hi = leaf.sample_bounds.get(stem) or (0, leaf._n_samples(stem))
-        a, b = max(lo, start - self.pad), min(hi, start + length + self.pad)
-        a, b = min(a, start), max(b, start + length)
-        seg = leaf._read_rows(stem, a, b - a)
-        if leaf.keep_channels is not None:
-            seg = seg[:, leaf.keep_channels]
-        x = np.ascontiguousarray(seg.T, dtype=np.float32)
-        rng = np.random.default_rng((self.seed, i))
-        offsets = [start] + [int(o) for o in rng.integers(a, b - length + 1, self.n_crops)]
-        copies = np.stack([x[:, o - a:o - a + length] for o in offsets])
-        y = leaf._label_fn(None, filename)
-        shift = (np.asarray(offsets[1:]) - start) / FS
-        return torch.from_numpy(copies), torch.as_tensor(y).float(), stem, int(k), torch.from_numpy(shift)
-
-
-def descriptors(x: torch.Tensor) -> dict:
-    """Quality descriptors of a batch of raw windows ``(B, C, L)`` in uV, over
-    the channels that carry signal, after common-average reference."""
-    present = (x.abs().amax(-1) > 0).float()                     # (B, C)
-    n = present.sum(1).clamp_min(1)
-    car = (x - (x * present[..., None]).sum(1, keepdim=True) / n[:, None, None]) * present[..., None]
-    spec = torch.fft.rfft(car, dim=-1).abs().pow(2)
-    freqs = torch.fft.rfftfreq(x.shape[-1], 1 / FS).to(x.device)
-    band = lambda lo, hi: spec[..., (freqs >= lo) & (freqs < hi)].sum(-1)   # noqa: E731
-    rel = band(*EMG_BAND) / band(*TOTAL_BAND).clamp_min(1e-12)   # (B, C)
-    std = car.std(-1)
-    big = torch.finfo(std.dtype).max
-    return {
-        "emg": ((rel * present).sum(1) / n),
-        "emg_max": (rel * present).amax(1),
-        "max_abs": (car.abs().amax(-1) * present).amax(1),
-        "amp_uv": (std * present).sum(1) / n,
-        "min_std": torch.where(present > 0, std, torch.full_like(std, big)).amin(1),
-    }
-
 
 def score(model, dropper, x, channel_indices):
     """Window outputs (z-scored age) of ``x`` ``(B, C, L)`` in uV."""
@@ -168,7 +98,7 @@ def predict_split(runs, split, args, device):
             for (name, run), dropper in zip(runs, droppers):
                 out = score(run.model, dropper, x, channel_indices)
                 preds[name].append(out.reshape(len(batch), b).T.cpu())
-            for key, v in descriptors(base).items():
+            for key, v in quality_descriptors(base).items():
                 desc.setdefault(key, []).append(v.float().cpu())
             rows["recording"] += list(stem)
             rows["window"] += [int(v) for v in k]

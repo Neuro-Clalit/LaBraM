@@ -77,3 +77,49 @@ def test_recording_confidence_and_risk_coverage():
     sd = t.set_index("measure").loc["u_sd"]
     assert sd["rho"] > 0.15 and sd["mae@50"] < sd["mae@100"]
     assert sd["aurc_oracle"] <= sd["aurc"]
+
+
+def test_subject_of_and_folds():
+    assert wc.subject_of("aaaaaafx_s006_t004") == "aaaaaafx"
+    assert wc.subject_of("sub-I0002150000076_ses-1_task-EEG") == "sub-I0002150000076"
+    recs = ["aaaa_s001_t000", "aaaa_s002_t000", "bbbb_s001_t000", "sub-X_ses-1_task-EEG",
+            "sub-X_ses-2_task-EEG"]
+    f = wc.subject_folds(recs, n_folds=2)
+    assert f[0] == f[1] and f[3] == f[4]
+
+
+def test_reject_windows_threshold_zero_is_mean_and_min_keep():
+    df = _windows(n_rec=10)
+    w = np.random.default_rng(0).dirichlet(np.ones(20), 10).ravel()
+    none = wc.reject_windows(df, w, 0.0)
+    assert np.allclose(none["pred"], wc.pool(df)["pred"]) and np.allclose(none["frac_kept"], 1.0)
+    strict = wc.reject_windows(df, w, 1e9, min_keep=3)
+    assert np.allclose(strict["frac_kept"], 3 / 20)
+
+
+def test_learned_confidence_and_record_rejection():
+    df = _windows(n_rec=300, n_win=10, noisy_frac=0.0)
+    noisy = df.recording.isin([f"r{i}" for i in range(0, 300, 3)])
+    df.loc[noisy, "pred"] += np.random.default_rng(1).normal(0, 20, noisy.sum())
+    df = wc.add_tta_stats(df)
+    w, _ = wc.a3_weights(df)
+    feats = wc.recording_features(df, w)
+    rec = wc.pool(df, w)
+    assert len(feats) == len(rec) and {"wsd", "conc", "tta_sd_mean", "pred_a3"} <= set(feats)
+    assert np.allclose(feats["pred_a3"], rec["pred"])
+    u = wc.fit_confidence(feats, rec["abs_err"], kind="ridge")
+    test = (feats["split"] == "test").to_numpy()
+    assert wc.spearman(u[test], rec["abs_err"][test]) > 0
+    tab = wc.reject_records(u[~test], u[test], rec["abs_err"][test], fractions=(0.3,))
+    assert tab.loc[1, "mae_kept"] <= tab.loc[0, "mae_kept"]
+
+
+def test_fit_confidence_ignores_error_columns():
+    df = _windows(n_rec=100, n_win=10)
+    w, _ = wc.a3_weights(df)
+    rec = wc.pool(df, w)
+    feats = wc.recording_features(df, w).merge(rec[wc.KEY + ["abs_err"]], on=wc.KEY)
+    u = wc.fit_confidence(feats, feats["abs_err"], kind="ridge")
+    test = (feats["split"] == "test").to_numpy()
+    # pure noise recordings: a leak of abs_err would give rho ~ 1
+    assert abs(wc.spearman(u[test], feats["abs_err"][test])) < 0.6
