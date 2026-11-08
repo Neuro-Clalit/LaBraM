@@ -81,26 +81,33 @@ class AgeRun:
         return getattr(self.bundle, name)
 
 
-def load_age_bundle(run_dir: str, data_path: str):
+def load_age_bundle(run_dir: str, data_path: str, stage_dir: Optional[str] = None):
     """``(run config, window-selected dataset bundle)`` of ``run_dir`` -- the
-    exact samples the run was evaluated on, without building its model."""
+    exact samples the run was evaluated on (window selection and
+    ``data.drop_channels``), without building its model. ``stage_dir``
+    overrides ``data.stage_dir`` (``"none"``: read in place)."""
     from labram.data import get_dataset_bundle
     from labram.data.window_selection import WindowSelection, apply_window_selection
     from labram.eval.loading import load_run_config
 
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
+    if stage_dir is not None:
+        cfg.data.stage_dir = stage_dir
     from labram.data.staging import stage_bundle
 
     bundle = get_dataset_bundle(cfg.data.dataset, data_path, data_format=cfg.data.data_format)
     bundle = apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
+    if cfg.data.drop_channels:
+        from labram.data.channel_selection import drop_channels
+        drop_channels(bundle, cfg.data.drop_channels)
     stage_bundle(bundle, cfg.data.stage_dir, reserve_gb=cfg.data.stage_reserve_gb,
                  splits=("val", "test", "train"))     # analyses read val/test first
     return cfg, bundle
 
 
 def load_age_run(run_dir: str, data_path: str, checkpoint: str = "checkpoint-best.pth",
-                 device: Optional[str] = None) -> AgeRun:
+                 device: Optional[str] = None, stage_dir: Optional[str] = None) -> AgeRun:
     """Rebuild ``run_dir``'s model (EMA weights when the run selected on them)
     and its window-selected train/val/test datasets."""
     import labram.models.registry  # noqa: F401  (registers the timm models)
@@ -108,7 +115,7 @@ def load_age_run(run_dir: str, data_path: str, checkpoint: str = "checkpoint-bes
     from labram.losses import build_downstream_criterion, regression_output, soft_label_n_bins
     from labram.runs.run_finetune import get_model
 
-    cfg, bundle = load_age_bundle(run_dir, data_path)
+    cfg, bundle = load_age_bundle(run_dir, data_path, stage_dir)
     cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
     from labram.data.window_selection import resolve_multitask_class_names
     resolve_multitask_class_names(cfg, data_path)
