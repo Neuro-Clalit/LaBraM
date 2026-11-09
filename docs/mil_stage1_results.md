@@ -251,9 +251,9 @@ about 15 min locally.
 | W6 | M2-hq (4 branches) | SM g5.2xlarge | done | 6.55 | **6.09** | 6.15 / **6.09** | 6.49 | 3.77 (2.78) |
 | W7 | M1-q + retention 0.1 | SM g5.2xlarge | done | 6.54 | 6.12 | 6.06 / 6.12 | 6.44 | 3.98 (**2.56**) |
 | F0 | window-level control, from `labram-base` | local | done, best epoch 9 | 7.79 | 7.64 | 6.89 / 7.67 | — | 6.54 (1.25) |
-| F2 | M1-q, from `labram-base` | local | done, best epoch 10 | **7.05** | **6.69** | 6.99 / 6.68 | 7.09 | 5.96 (1.09) |
+| F2 | M1-q, from `labram-base` | local | done, best epoch 10 | 7.05 | 6.69 | 6.99 / 6.68 | 7.09 | 5.96 (1.09) |
 | F1 | M0 bag, from `labram-base` | local | done, best epoch 10 | 7.28 | 6.98 | 6.84 / 6.99 | 6.98 | 6.29 (0.99) |
-| F3 | M1-hq + time, from `labram-base` | local | running (epoch 9 of 12: val 7.03, test 6.69, train-eval 6.05, gap 0.98; final values due ~23:00 UTC) | | | | | |
+| F3 | M1-hq + time, from `labram-base` | local | done, best epoch 11 | 6.95 | 6.57 | 6.80 / 6.56 | 8.10 | 5.92 (1.03) |
 
 ### Table 5.2. Stage 3 test MAE per dataset and cohort (final epoch)
 
@@ -280,37 +280,55 @@ architecture and the attention input make no difference beyond about
 0.33 y. Retention (W7) is the only setting that narrows the train-eval gap
 (2.56 vs 2.78–2.92), without costing accuracy.
 
-### Table 5.3. Stage 4 per epoch: window-level F0 vs. bag-level M1-q F2, both from `labram-base` (val / test / train-eval, years)
+### Table 5.3. Stage 4 per epoch: window-level F0 vs. bag-level F2 (M1-q), F1 (mean) and F3 (M1-hq + time), all from `labram-base` (val / test / train-eval, years)
 
-| epoch | F0 val | F0 test | F0 train-eval | F0 gap | F2 val | F2 test | F2 train-eval | F2 gap | F1 val | F1 test | F1 train-eval | F1 gap |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 0 | 9.75 | 9.81 | 9.13 | 0.62 | 10.14 | 9.87 | 9.78 | 0.36 | 10.59 | 10.12 | 10.42 | 0.17 |
-| 1 | 9.97 | 10.16 | 9.33 | 0.64 | 9.02 | 8.53 | 8.36 | 0.66 | 8.88 | 8.47 | 8.17 | 0.71 |
-| 2 | 9.22 | 9.32 | 8.47 | 0.75 | 8.35 | 8.19 | 8.01 | 0.34 | 8.94 | 8.88 | 8.41 | 0.53 |
-| 3 | 9.03 | 9.11 | 8.27 | 0.76 | 7.97 | 7.56 | 7.58 | 0.39 | 8.48 | 8.06 | 7.81 | 0.67 |
-| 4 | 8.28 | 8.19 | 7.42 | 0.86 | **7.69** | **7.31** | 7.14 | **0.55** | 8.29 | 7.96 | 7.78 | 0.51 |
-| 5 | 8.60 | 8.61 | 7.62 | 0.98 | 7.62 | 7.27 | 6.81 | 0.81 | 8.01 | 7.62 | 7.18 | 0.83 |
-| 6 | 8.36 | 8.35 | 7.36 | 1.00 | 7.73 | 7.46 | 7.09 | 0.64 | 7.68 | 7.33 | 6.95 | 0.73 |
-| 7 | 8.22 | 8.18 | 7.18 | 1.04 | 7.24 | 6.85 | 6.44 | 0.80 | 7.52 | 7.16 | 6.76 | 0.76 |
-| 8 | 8.00 | 7.95 | 6.90 | 1.10 | 7.32 | 6.93 | 6.41 | 0.91 | 7.50 | 7.13 | 6.50 | 1.00 |
-| 9 | 7.79 | 7.64 | 6.54 | 1.25 | 7.11 | 6.75 | 6.03 | 1.08 | 7.43 | 7.12 | 6.48 | 0.95 |
-| 10 | 7.82 | 7.70 | 6.61 | 1.21 | **7.05** | **6.69** | 5.96 | 1.09 | **7.28** | **6.98** | 6.29 | 0.99 |
-| 11 | 7.79 | 7.67 | 6.57 | 1.22 | 7.09 | 6.73 | 5.97 | 1.12 | 7.29 | 6.98 | 6.28 | 1.01 |
+| epoch | F0 val | F0 test | F0 train-eval | F0 gap | F2 val | F2 test | F2 train-eval | F2 gap | F1 val | F1 test | F1 train-eval | F1 gap | F3 val | F3 test | F3 gap |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | 9.75 | 9.81 | 9.13 | 0.62 | 10.14 | 9.87 | 9.78 | 0.36 | 10.59 | 10.12 | 10.42 | 0.17 | 9.74 | 9.46 | 0.19 |
+| 1 | 9.97 | 10.16 | 9.33 | 0.64 | 9.02 | 8.53 | 8.36 | 0.66 | 8.88 | 8.47 | 8.17 | 0.71 | 9.81 | 9.62 | 0.75 |
+| 2 | 9.22 | 9.32 | 8.47 | 0.75 | 8.35 | 8.19 | 8.01 | 0.34 | 8.94 | 8.88 | 8.41 | 0.53 | 8.75 | 8.59 | 0.60 |
+| 3 | 9.03 | 9.11 | 8.27 | 0.76 | 7.97 | 7.56 | 7.58 | 0.39 | 8.48 | 8.06 | 7.81 | 0.67 | 8.06 | 7.75 | 0.46 |
+| 4 | 8.28 | 8.19 | 7.42 | 0.86 | **7.69** | **7.31** | 7.14 | **0.55** | 8.29 | 7.96 | 7.78 | 0.51 | 7.94 | 7.60 | 0.71 |
+| 5 | 8.60 | 8.61 | 7.62 | 0.98 | 7.62 | 7.27 | 6.81 | 0.81 | 8.01 | 7.62 | 7.18 | 0.83 | 7.89 | 7.51 | 0.93 |
+| 6 | 8.36 | 8.35 | 7.36 | 1.00 | 7.73 | 7.46 | 7.09 | 0.64 | 7.68 | 7.33 | 6.95 | 0.73 | 7.47 | 7.11 | 0.84 |
+| 7 | 8.22 | 8.18 | 7.18 | 1.04 | 7.24 | 6.85 | 6.44 | 0.80 | 7.52 | 7.16 | 6.76 | 0.76 | 7.19 | 6.83 | 0.90 |
+| 8 | 8.00 | 7.95 | 6.90 | 1.10 | 7.32 | 6.93 | 6.41 | 0.91 | 7.50 | 7.13 | 6.50 | 1.00 | 7.30 | 6.89 | 0.93 |
+| 9 | 7.79 | 7.64 | 6.54 | 1.25 | 7.11 | 6.75 | 6.03 | 1.08 | 7.43 | 7.12 | 6.48 | 0.95 | 7.03 | 6.69 | 0.98 |
+| 10 | 7.82 | 7.70 | 6.61 | 1.21 | **7.05** | **6.69** | 5.96 | 1.09 | **7.28** | **6.98** | 6.29 | 0.99 | 6.95 | 6.57 | 1.01 |
+| 11 | 7.79 | 7.67 | 6.57 | 1.22 | 7.09 | 6.73 | 5.97 | 1.12 | 7.29 | 6.98 | 6.28 | 1.01 | **6.95** | **6.57** | 1.03 |
 
 Both runs see 8 windows per recording per epoch: 12 epochs × 0.68 M
 windows, far less than E2L's about 40 M, which is why F0 ends above E2L
 (7.79 vs 7.24 val).
 
-### Table 5.4. Stage 4 final, test MAE per dataset and cohort (F0 best epoch 9, F2 best epoch 10)
+### Table 5.4. Stage 4 final, test MAE per dataset and cohort (F0 best epoch 9, F1 and F2 best epoch 10, F3 best epoch 11)
 
 | run | all | TUH normal (149) | TUH abnormal (125) | HEEDB normal (1,518) | HEEDB abnormal (2,253) | HEEDB unlabelled (3,567) |
 |---|---|---|---|---|---|---|
 | E2L (reference, 16 epochs, all windows) | 7.00 | 4.91 | 8.49 | 7.12 | 7.56 | 6.63 |
 | F0 window-level | 7.64 | 5.34 | 8.75 | 7.87 | 8.12 | 7.30 |
 | F1 bag, mean pooling | 6.98 | **5.28** | **8.70** | 7.15 | 7.39 | 6.67 |
-| F2 bag, M1-q | **6.69** | 5.40 | 8.88 | **6.63** | **7.09** | **6.45** |
+| F2 bag, M1-q | 6.69 | 5.40 | 8.88 | 6.63 | 7.09 | 6.45 |
+| F3 bag, M1-hq + time | **6.57** | **5.27** | **8.62** | **6.50** | **6.92** | **6.35** |
 
 What Table 5.3 and Table 5.4 show:
+
+* **F3 (gated attention on features + descriptors + time encoding) is the
+  best model trained from `labram-base`**: 6.95 val / 6.57 test at epoch 11,
+  against F2's 7.05 / 6.69, F1's 7.28 / 6.98 and E2L's 7.24 / 7.00. It is
+  better than F2 in every test cohort:
+  - HEEDB normal 6.63 → 6.50, abnormal 7.09 → 6.92, unlabelled 6.45 → 6.35;
+  - TUAB normal 5.40 → 5.27, abnormal 8.88 → 8.62.
+
+  Its gap (1.03) is between F1's (0.99) and F2's (1.09). In the warm starts,
+  time encoding (W5) memorized the most, but from scratch it does not. F3
+  differs from F2 in two ways at once: the attention also reads the encoder
+  features, and it gets the time encoding. This run cannot separate them.
+  It is still 0.4–0.5 y behind the warm starts (W4 6.51 / 6.10), which
+  saw about 40 M windows through E2L before bag training.
+* **All three bag runs converge by epochs 10–11** (F2 and F3 both have a
+  bump at epoch 8). 12 epochs are enough at 8 windows per recording per
+  epoch.
 
 * **From the same pretrained start and the same data budget, the bag-level
   model wins by a wide margin**: F2 is at 7.05 val / 6.69 test against F0's
@@ -654,6 +672,7 @@ The four panels:
 | F0 window, from base (12 ep) | 9.75 → 7.79 (ep 9) | 9.13 → 6.57 | 0.62 → 1.22 | 0.76 | converged (val flat over epochs 9–11), steadily rising gap |
 | F1 bag mean, from base | 10.59 → 7.28 (ep 10) | 10.42 → 6.28 | 0.17 → 1.01 | 0.80 | converged (epochs 10–11 flat); gap 0.99 at best vs F0's 1.25 |
 | F2 bag gated q, from base | 10.14 → 7.05 (ep 10) | 9.78 → 5.96 | 0.36 → 1.09 | 0.81 | converged (epochs 9–11 flat); at F0's val level (7.7–7.8) its gap is 0.55 vs 1.25 |
+| F3 bag gated hq + time, from base | 9.74 → 6.95 (ep 11) | 9.55 → 5.92 | 0.19 → 1.03 | 0.77 | converged (epochs 10–11 flat, 6.953 → 6.950); the best from-scratch run, 0.10 y below F2 at a slightly smaller gap |
 
 What Table 9.1 and Figure 9.1 show:
 
@@ -986,17 +1005,17 @@ Launcher: `scripts/mil_runs/submit_grid.sh` (jobs `X1`–`X6`); X2 also runs on
 the local GPU (`scripts/mil_runs/run_local_abmil.sh trainer.epochs=20
 mil.freeze_encoder_epochs=4`). ClearML project `LaBraM/heedb_mil`.
 
-### Table 12.1. Jobs
+### Table 12.1. Jobs (status 2026-11-09 23:40 UTC)
 
 | job | pool | attention reads | retention | bag | where | status |
 |---|---|---|---|---|---|---|
-| X1 | gated (W4) | $h$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | epoch 5; ETA ~06:45 UTC, 10 Nov |
-| X2 | ungated (L1) | $h$ | — | 32 × 8 | SM g5.4xlarge **spot** | epoch 2; ETA ~05:00 |
-| X2 (local) | as X2 | | | | local GPU, queued after F3 | starts ~23:00; ETA ~07:30 |
-| X3 | gated | $h$ + $q$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | epoch 5; ETA ~07:00 |
-| X4 | ungated | $h$ + $q$ | — | 32 × 8 | SM g5.2xlarge on-demand | epoch 5; ETA ~07:00 |
-| X5 | gated (X1) | $h$ | 0.1 | 16 × K, K ~ U{8..32} | SM g5.2xlarge on-demand | epoch 2; ~33 min per frozen epoch |
-| X6 | gated (X1) | $h$ | 0.1 | 8 × K, K ~ U{8..64} | SM g5.4xlarge on-demand | waiting for capacity |
+| X1 | gated (W4) | $h$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | epoch 7; ~34 min per trained epoch; ETA ~07:00 UTC, 10 Nov |
+| X2 | ungated (L1) | $h$ | — | 32 × 8 | SM g5.4xlarge **spot** | epoch 6; ~20 min per trained epoch; ETA ~04:30 |
+| X2 (local) | as X2 | | | | local GPU, started 23:01 after F3 | epoch 3; ETA ~05:30 |
+| X3 | gated | $h$ + $q$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | epoch 7; ~31 min per trained epoch; ETA ~06:30 |
+| X4 | ungated | $h$ + $q$ | — | 32 × 8 | SM g5.2xlarge on-demand | epoch 7; ETA ~06:30 |
+| X5 | gated (X1) | $h$ | 0.1 | 16 × K, K ~ U{8..32} | SM g5.2xlarge on-demand | epoch 4 (first trained, 0.77 s/step, ~73 min per epoch); ETA ~19:30, 10 Nov |
+| X6 | gated (X1) | $h$ | 0.1 | 8 × K, K ~ U{8..64} | SM g5.4xlarge on-demand (resubmitted) | epoch 0 (0.14 s/step frozen); ETA roughly 36 h, ~12:00, 11 Nov |
 
 Infrastructure notes:
 - **X6, first attempt** (spot `g5.4xlarge`) stopped logging silently in
@@ -1024,10 +1043,11 @@ Infrastructure notes:
 |---|---|---|---|---|---|
 | 0 (frozen) | 6.69 / 6.33 / 4.23 | 6.67 / 6.30 / 4.25 | 6.66 / 6.31 / 4.17 | 6.65 / 6.25 / 4.17 | 6.66 / 6.29 / 4.26 |
 | 1 (frozen) | 6.65 / 6.26 / 4.18 | 6.66 / 6.28 / 4.15 | 6.65 / 6.27 / 4.15 | 6.64 / 6.24 / 4.16 | 6.83 / 6.48 / 4.31 |
-| 2 (frozen) | 6.64 / 6.24 / 4.16 | | **6.62 / 6.22** / 4.13 | 6.64 / 6.23 / 4.15 | |
-| 3 (frozen) | 6.64 / 6.23 / 4.19 | | 6.63 / 6.23 / 4.16 | 6.65 / 6.24 / 4.17 | |
-| 4 (encoder trained) | **6.60** / **6.22** / 4.14 | | 6.73 / 6.34 / 4.24 | 6.89 / 6.46 / 4.54 | |
-| 5 | 6.64 / — / — | | | | |
+| 2 (frozen) | 6.64 / 6.24 / 4.16 | 6.63 / 6.22 / 4.16 | 6.62 / 6.22 / 4.13 | 6.64 / 6.23 / 4.15 | 6.64 / 6.22 / 4.18 |
+| 3 (frozen) | 6.64 / 6.23 / 4.19 | 6.65 / 6.24 / 4.15 | 6.63 / 6.23 / 4.16 | 6.65 / 6.24 / 4.17 | 6.64 / 6.23 / 4.16 |
+| 4 (encoder trained) | 6.60 / 6.22 / 4.14 | 6.67 / 6.27 / 4.27 | 6.73 / 6.34 / 4.24 | 6.89 / 6.46 / 4.54 | |
+| 5 | 6.64 / 6.19 / 4.13 | 6.67 / **6.16** / 3.95 | 6.91 / 6.49 / 4.43 | 6.78 / 6.30 / 4.07 | |
+| 6 | 6.64 / 6.24 / 3.94 | | **6.57** / **6.16** / 3.95 | 6.59 / 6.20 / 3.86 | |
 
 The references:
 
@@ -1042,24 +1062,23 @@ The references:
 What Table 12.2 shows so far:
 
 * **Training only the pool and head plateaus at 6.62–6.65 val / 6.22–6.24
-  test by epoch 2.** This is about 0.05 y above the Stage 1 pools, which
-  saw all 30 windows per bag for 15 epochs. Adding descriptors to the
-  attention input (X3, X4) changes nothing in this phase (within 0.03 y).
-* **The first epoch with the encoder trained (epoch 4) separates the runs
-  by retention.**
-  - X1 (retention) improves to 6.60 / 6.22.
-  - X3 (retention, $h$ + $q$) loses 0.10 y.
-  - X4 (no retention) loses 0.24 y val, and its train-eval also rises
-    (4.17 → 4.54).
-  - So training the encoder at almost the peak LR, after 4 epochs of a
-    pool fitted to fixed features, first disrupts the features. Retention
-    damps the disruption. Whether X4 recovers is open.
-  - The W runs unfroze at epoch 1, after one epoch of pool training, and
-    showed no such drop.
-* **X5 (random bag sizes) got worse in its second frozen epoch** (6.66 →
-  6.83 val, with train-eval also up). That is an optimization effect: with
-  16 recordings per step and bags of 8–32 windows, the 5×-LR pool and head
-  get noisier gradients. It is too early to judge.
-* **The F3 row of Table 5.1** (from `labram-base`, gated $h$ + $q$ + time)
-  shows epoch 9: 7.03 val / 6.69 test, already level with F2 (7.05 /
-  6.69). Its final epochs and per-cohort values follow when it finishes.
+  test by epoch 2** in every run, X5 included. This is about 0.05 y above
+  the Stage 1 pools, which saw all 30 windows per bag for 15 epochs. Adding
+  descriptors to the attention input (X3, X4) changes nothing in this phase.
+* **Unfreezing at almost the peak LR first disrupts, then recovers.**
+  - Without retention, X4 loses 0.24 y val at epoch 4.
+  - With retention, X3 loses 0.10 at epoch 4 and 0.28 at epoch 5.
+  - Both recover by epoch 6 to the best val so far (X3 6.57 / 6.16,
+    X4 6.59 / 6.20), with train-eval falling fast (3.86–3.95).
+  - X1 (retention, $h$ only) never dropped, but has not improved either
+    (6.60–6.64).
+  - The W runs unfroze after one epoch of pool training and showed no such
+    drop.
+* **X5's dip at epoch 1 was transient** (back to 6.64 by epoch 2). Its
+  trained epochs take ~73 min on `g5.2xlarge` (0.77 s/step), so it ends a
+  day after the others.
+* **The val-train-eval gap is growing again** (2.6–2.9 at epoch 6). The
+  remaining 13 epochs decide whether the longer schedule beats W4's 6.51 or
+  only memorizes more.
+* **F3 finished** (Tables 5.1, 5.3, 5.4, 9.1): 6.95 / 6.57, the best
+  model trained from `labram-base`.
