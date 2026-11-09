@@ -233,24 +233,48 @@ about 15 min locally.
 - Stage 3 W2 runs on on-demand and W3 on spot `g5.4xlarge` (32 workers).
 - W4–W7 run on on-demand `g5.2xlarge` with 10 workers.
 
-### Table 5.1. Jobs and results so far (recording MAE in years; the train-eval − val gap measures memorization)
+### Table 5.1. Jobs and final results (2026-11-09 08:30 UTC; recording MAE in years)
 
-| job | config | where | status | val | test | test TUH / HEEDB | train-eval (gap) |
-|---|---|---|---|---|---|---|---|
-| E2L | reference, best epoch 11 | — | — | 7.24 | 7.00 | 6.55 / 7.02 | 4.63 (2.61) |
-| W0 | window-level control, warm start | SM g5.2xlarge spot | epoch 0 of 4 done | 7.53 | 7.34 | 6.68 / 7.36 | 4.99 (2.54) |
-| W1 | M0 bag (mean of embeddings), warm start | SM g5.4xlarge | **done**, epoch 3 | 6.82 | 6.44 | 6.19 / 6.45 | 3.93 (2.89) |
-| L1 | ungated ABMIL on $h$ (section 6) | local | **done**, epoch 3 | **6.55** | **6.09** | 6.11 / 6.09 | 3.71 (2.84) |
-| W2 | M1-q | SM g5.4xlarge | rerun 05:25 | | | | |
-| W3 | M3-q | SM g5.4xlarge spot | rerun 05:25 | | | | |
-| W4 | M1-h (gated) | SM g5.2xlarge | rerun 05:25 | | | | |
-| W5 | M1-hq + time | SM g5.2xlarge | rerun 05:25 | | | | |
-| W6 | M2-hq | SM g5.2xlarge | rerun 05:25 | | | | |
-| W7 | M1-q + retention 0.1 | SM g5.2xlarge | rerun 05:25 | | | | |
-| F0 | window-level control, from `labram-base` | local | running (1st) | | | | |
-| F2 | M1-q, from `labram-base` | local | queued (2nd) | | | | |
-| F1 | M0 bag, from `labram-base` | local | queued (3rd) | | | | |
-| F3 | M1-hq + time, from `labram-base` | local | queued (4th) | | | | |
+"Mean-pool" is the same model's mean of its window predictions (test).
+"Gap" is val minus train-eval, the memorization measure.
+
+| job | config | where | status | val | test | test TUH / HEEDB | test mean-pool | train-eval (gap) |
+|---|---|---|---|---|---|---|---|---|
+| E2L | reference, best epoch 11 | — | — | 7.24 | 7.00 | 6.54 / 7.02 | — | 4.63 (2.61) |
+| W0 | window-level control, warm start | SM g5.2xlarge spot | epoch 1 of 4 (slow, resumed once) | 7.65 | 7.52 | 6.83 / 7.54 | — | 5.06 (2.59) |
+| W1 | M0 bag (mean of embeddings) | SM g5.4xlarge | done | 6.82 | 6.44 | 6.19 / 6.45 | 6.44 | 3.93 (2.89) |
+| L1 | ungated ABMIL on $h$ (section 6) | local | done | 6.55 | **6.09** | 6.11 / **6.09** | 6.49 | 3.71 (2.84) |
+| W2 | M1-q (gated, descriptors) | SM g5.4xlarge | done | 6.61 | 6.13 | 6.09 / 6.13 | 6.43 | 3.77 (2.84) |
+| W3 | M3-q (sigmoid, descriptors) | SM g5.4xlarge spot | done | 6.59 | 6.12 | **6.05** / 6.12 | 6.42 | 3.81 (2.78) |
+| W4 | M1-h (gated, features) | SM g5.2xlarge | done | **6.51** | 6.10 | 6.16 / 6.10 | 6.50 | 3.69 (2.82) |
+| W5 | M1-hq + time | SM g5.2xlarge | done | 6.55 | 6.10 | 6.23 / 6.10 | 6.69 | 3.63 (2.92) |
+| W6 | M2-hq (4 branches) | SM g5.2xlarge | done | 6.55 | **6.09** | 6.15 / **6.09** | 6.49 | 3.77 (2.78) |
+| W7 | M1-q + retention 0.1 | SM g5.2xlarge | done | 6.54 | 6.12 | 6.06 / 6.12 | 6.44 | 3.98 (**2.56**) |
+| F0 | window-level control, from `labram-base` | local | epoch 8 of 12 | 8.00 | 8.18 (ep. 7) | | | 7.18 (ep. 7) |
+| F2 | M1-q, from `labram-base` | local | queued | | | | | |
+| F1 | M0 bag, from `labram-base` | local | queued | | | | | |
+| F3 | M1-hq + time, from `labram-base` | local | queued | | | | | |
+
+### Table 5.2. Stage 3 test MAE per dataset and cohort (final epoch)
+
+| job | TUH normal (149) | TUH abnormal (125) | HEEDB normal (1,518) | HEEDB abnormal (2,253) | HEEDB unlabelled (3,567) |
+|---|---|---|---|---|---|
+| E2L | 4.91 | 8.49 | 7.12 | 7.56 | 6.63 |
+| W0 (epoch 1) | 5.23 | 8.73 | 7.71 | 8.07 | 7.13 |
+| W1 | 4.53 | 8.16 | 6.26 | 7.16 | 6.07 |
+| L1 | 4.41 | 8.13 | **5.71** | 6.79 | **5.80** |
+| W2 | 4.45 | 8.04 | 5.78 | 6.82 | 5.84 |
+| W3 | 4.41 | **8.00** | 5.77 | 6.83 | 5.83 |
+| W4 | 4.45 | 8.20 | 5.72 | 6.77 | 5.83 |
+| W5 | 4.39 | 8.42 | 5.72 | 6.77 | 5.83 |
+| W6 | 4.45 | 8.18 | 5.72 | 6.77 | 5.81 |
+| W7 | **4.36** | 8.07 | 5.83 | **6.73** | 5.87 |
+
+All attention runs end at 6.09–6.13 test and 6.51–6.61 val. The
+architecture and the attention input make no difference beyond about
+0.05 y, while they all beat end-to-end mean pooling (W1, 6.44) by about
+0.33 y. Retention (W7) is the only setting that narrows the train-eval gap
+(2.56 vs 2.78–2.92), without costing accuracy.
 
 What W1 and L1 already show, against the matched M0 bag model W1:
 
