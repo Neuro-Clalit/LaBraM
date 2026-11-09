@@ -468,3 +468,89 @@ What Tables 7.1–7.3 and Figure 7.1 show:
   0.68× the uniform weight, and later minutes 1.08–1.13×.
 * **It only works on HEEDB.** On TUH, ρ is about 0: TUH windows are roughly
   interchangeable, as in Proposal A.
+
+## 8. All experiments per dataset and cohort
+
+Recording MAE in years, E2L's split. Test has 149 TUH normal, 125 TUH
+abnormal, 1,518 HEEDB normal, 2,253 HEEDB abnormal and 3,567 HEEDB
+unlabelled recordings (TUH test has no unlabelled ones). Val has 1,388 /
+1,676 / 1,493 / 2,179 / 3,520 (plus 358 TUH unlabelled).
+
+The rows are grouped by stage:
+- **A**: post-hoc weights on E2L's predictions (`window_confidence_results.md`, A3 with the base descriptors);
+- **S1**: Stage 1, pools trained on frozen E2L features with the `train` protocol (val chose the epoch, so S1 val numbers are slightly optimistic; test is honest);
+- **S3**: Stage 3, end-to-end bag training from E2L, 4 epochs, final epoch;
+- **S4**: Stage 4, from `labram-base`, 12 epochs, best val epoch. F1 and F3 are still running.
+
+All rows are in `docs/data/mil_summary/all_experiments_by_cohort.csv`,
+including the `val_cf` Stage 1 protocol.
+
+### Table 8.1. Test MAE per cohort
+
+| experiment | all | TUH | HEEDB | TUH normal | TUH abnormal | HEEDB normal | HEEDB abnormal | HEEDB unlabelled |
+|---|---|---|---|---|---|---|---|---|
+| E2L (reference: mean of window predictions) | 7.00 | 6.55 | 7.02 | 4.91 | 8.50 | 7.12 | 7.56 | 6.64 |
+| A3: post-hoc learned window weights | 6.46 | 6.58 | 6.46 | 4.90 | 8.58 | 6.27 | 6.95 | 6.22 |
+| S1 M0: mean pooling + head refit (frozen features) | 6.50 | 6.23 | 6.51 | 4.50 | 8.29 | 6.42 | 7.09 | 6.19 |
+| S1 M1-h: gated attention, features | 6.20 | 6.23 | 6.20 | 4.63 | 8.14 | 5.84 | 6.80 | 5.97 |
+| S1 M1-q: gated attention, descriptors | 6.20 | 6.30 | 6.19 | 4.59 | 8.34 | 5.86 | 6.76 | 5.98 |
+| S1 M1-hq: gated, features + descriptors | 6.19 | 6.21 | 6.19 | 4.65 | 8.07 | 5.83 | 6.79 | 5.96 |
+| S1 M1-hq + time encoding | 6.22 | 6.23 | 6.22 | 4.63 | 8.14 | 5.90 | 6.82 | 5.98 |
+| S1 M2-hq: 4-branch gated | 6.19 | 6.15 | 6.19 | 4.55 | 8.06 | 5.85 | 6.80 | 5.96 |
+| S1 M3-q: sigmoid gates, descriptors | 6.19 | 6.34 | 6.18 | 4.64 | 8.37 | 5.82 | 6.75 | 5.98 |
+| S1 M3-h: sigmoid gates, features | 6.21 | 6.30 | 6.21 | 4.70 | 8.20 | 5.84 | 6.81 | 5.99 |
+| S1 M4-hq: learned-query attention | 6.18 | 6.28 | 6.17 | 4.59 | 8.31 | 5.83 | 6.76 | 5.95 |
+| S1 M4-hq-sa: + self-attention block | 6.17 | 6.23 | 6.17 | 4.57 | 8.22 | 5.84 | 6.78 | 5.93 |
+| S3 W0: window-level control (4 more epochs) | 7.17 | 6.58 | 7.19 | 4.96 | 8.52 | 7.30 | 7.78 | 6.78 |
+| S3 W1: bag, mean pooling | 6.44 | 6.19 | 6.45 | 4.53 | 8.16 | 6.26 | 7.16 | 6.07 |
+| S3 L1: ABMIL ungated, features | 6.09 | 6.11 | 6.09 | 4.41 | 8.13 | 5.71 | 6.79 | 5.80 |
+| S3 W4: gated, features | 6.10 | 6.16 | 6.10 | 4.45 | 8.20 | 5.72 | 6.77 | 5.83 |
+| S3 W2: gated, descriptors | 6.13 | 6.09 | 6.13 | 4.45 | 8.04 | 5.78 | 6.82 | 5.84 |
+| S3 W3: sigmoid gates, descriptors | 6.12 | 6.05 | 6.12 | 4.41 | 8.00 | 5.77 | 6.83 | 5.83 |
+| S3 W5: gated, features + descriptors + time | 6.10 | 6.23 | 6.10 | 4.39 | 8.42 | 5.72 | 6.77 | 5.83 |
+| S3 W6: 4-branch gated | 6.09 | 6.15 | 6.09 | 4.45 | 8.18 | 5.72 | 6.77 | 5.81 |
+| S3 W7: gated, descriptors + retention | 6.12 | 6.06 | 6.12 | 4.36 | 8.07 | 5.83 | 6.73 | 5.87 |
+| S4 F0: window-level, from labram-base | 7.64 | 6.89 | 7.67 | 5.34 | 8.75 | 7.87 | 8.12 | 7.30 |
+| S4 F2: bag, gated on descriptors, from labram-base | 6.69 | 6.99 | 6.68 | 5.40 | 8.88 | 6.63 | 7.09 | 6.45 |
+
+### Table 8.2. Val MAE per cohort
+
+| experiment | all | TUH | HEEDB | TUH normal | TUH abnormal | HEEDB normal | HEEDB abnormal | HEEDB unlabelled |
+|---|---|---|---|---|---|---|---|---|
+| E2L (reference: mean of window predictions) | 7.25 | 7.28 | 7.23 | 6.47 | 7.74 | 7.02 | 7.91 | 6.90 |
+| A3: post-hoc learned window weights | 6.85 | 7.29 | 6.64 | 6.48 | 7.73 | 6.12 | 7.25 | 6.48 |
+| S1 M0: mean pooling + head refit (frozen features) | 6.86 | 7.26 | 6.66 | 6.43 | 7.72 | 6.29 | 7.32 | 6.41 |
+| S1 M1-h: gated attention, features | 6.59 | 7.22 | 6.29 | 6.35 | 7.71 | 5.70 | 6.92 | 6.16 |
+| S1 M1-q: gated attention, descriptors | 6.60 | 7.21 | 6.31 | 6.36 | 7.69 | 5.74 | 6.92 | 6.18 |
+| S1 M1-hq: gated, features + descriptors | 6.59 | 7.23 | 6.29 | 6.36 | 7.72 | 5.70 | 6.93 | 6.15 |
+| S1 M1-hq + time encoding | 6.62 | 7.22 | 6.34 | 6.34 | 7.74 | 5.77 | 6.96 | 6.19 |
+| S1 M2-hq: 4-branch gated | 6.59 | 7.21 | 6.29 | 6.34 | 7.71 | 5.74 | 6.93 | 6.13 |
+| S1 M3-q: sigmoid gates, descriptors | 6.60 | 7.21 | 6.30 | 6.36 | 7.70 | 5.73 | 6.89 | 6.18 |
+| S1 M3-h: sigmoid gates, features | 6.61 | 7.25 | 6.31 | 6.37 | 7.76 | 5.75 | 6.89 | 6.19 |
+| S1 M4-hq: learned-query attention | 6.57 | 7.19 | 6.28 | 6.31 | 7.69 | 5.71 | 6.87 | 6.15 |
+| S1 M4-hq-sa: + self-attention block | 6.59 | 7.25 | 6.27 | 6.38 | 7.74 | 5.67 | 6.92 | 6.12 |
+| S3 W0: window-level control (4 more epochs) | 7.37 | 7.37 | 7.37 | 6.59 | 7.84 | 7.17 | 8.04 | 7.04 |
+| S3 W1: bag, mean pooling | 6.82 | 7.37 | 6.55 | 6.44 | 7.85 | 6.04 | 7.35 | 6.28 |
+| S3 L1: ABMIL ungated, features | 6.55 | 7.28 | 6.20 | 6.32 | 7.81 | 5.53 | 6.96 | 6.01 |
+| S3 W4: gated, features | 6.51 | 7.23 | 6.17 | 6.35 | 7.68 | 5.50 | 6.87 | 6.02 |
+| S3 W2: gated, descriptors | 6.61 | 7.34 | 6.26 | 6.44 | 7.80 | 5.59 | 7.01 | 6.09 |
+| S3 W3: sigmoid gates, descriptors | 6.59 | 7.30 | 6.26 | 6.37 | 7.79 | 5.64 | 6.96 | 6.08 |
+| S3 W5: gated, features + descriptors + time | 6.55 | 7.23 | 6.22 | 6.26 | 7.77 | 5.58 | 6.93 | 6.05 |
+| S3 W6: 4-branch gated | 6.55 | 7.27 | 6.21 | 6.35 | 7.79 | 5.52 | 6.92 | 6.05 |
+| S3 W7: gated, descriptors + retention | 6.54 | 7.20 | 6.22 | 6.33 | 7.65 | 5.62 | 6.90 | 6.06 |
+| S4 F0: window-level, from labram-base | 7.79 | 7.49 | 7.93 | 6.84 | 7.83 | 7.91 | 8.54 | 7.56 |
+| S4 F2: bag, gated on descriptors, from labram-base | 7.05 | 7.62 | 6.78 | 6.73 | 8.05 | 6.45 | 7.41 | 6.52 |
+
+Per cohort, Tables 8.1–8.2 show:
+
+* **HEEDB normal** gains most: 7.12 → 5.71–5.86 on test with any attention
+  model (frozen or end-to-end), and 7.02 → 5.50–5.74 on val.
+* **HEEDB abnormal** gains 7.56 → 6.73–6.83; **HEEDB unlabelled** 6.64 →
+  5.80–5.99.
+* **TUH normal**: test improves 4.91 → 4.36–4.65, but val stays at
+  6.26–6.43 (E2L 6.47). The test cohort is small (149), so this is mostly a
+  head-recalibration effect and not robust.
+* **TUH abnormal** is not improved by any method (test 8.0–8.4 vs 8.50,
+  val 7.65–7.85 vs 7.74).
+* **From scratch (F0 vs F2)** every HEEDB cohort gains about 1 y, and TUH gets
+  slightly worse (val TUH abnormal 7.83 → 8.05).
