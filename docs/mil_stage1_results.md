@@ -251,8 +251,8 @@ about 15 min locally.
 | W6 | M2-hq (4 branches) | SM g5.2xlarge | done | 6.55 | **6.09** | 6.15 / **6.09** | 6.49 | 3.77 (2.78) |
 | W7 | M1-q + retention 0.1 | SM g5.2xlarge | done | 6.54 | 6.12 | 6.06 / 6.12 | 6.44 | 3.98 (**2.56**) |
 | F0 | window-level control, from `labram-base` | local | done, epoch 11 | 7.79 | 7.67 | 6.90 / 7.70 | — | 6.57 (1.22) |
-| F2 | M1-q, from `labram-base` | local | running, epoch 4 of 12 | 7.69 | 7.31 | 7.64 / 7.30 | 7.61 | 7.14 (0.55) |
-| F1 | M0 bag, from `labram-base` | local | queued | | | | | |
+| F2 | M1-q, from `labram-base` | local | done, best epoch 10 | **7.05** | **6.69** | 6.99 / 6.68 | 7.09 | 5.96 (1.09) |
+| F1 | M0 bag, from `labram-base` | local | running, epoch 0 of 12 | 10.59 | 10.12 | | 10.12 | 10.42 (0.17) |
 | F3 | M1-hq + time, from `labram-base` | local | queued | | | | | |
 
 ### Table 5.2. Stage 3 test MAE per dataset and cohort (final epoch)
@@ -289,22 +289,44 @@ architecture and the attention input make no difference beyond about
 | 2 | 9.22 | 9.32 | 8.47 | 0.75 | 8.35 | 8.19 | 8.01 | 0.34 |
 | 3 | 9.03 | 9.11 | 8.27 | 0.76 | 7.97 | 7.56 | 7.58 | 0.39 |
 | 4 | 8.28 | 8.19 | 7.42 | 0.86 | **7.69** | **7.31** | 7.14 | **0.55** |
-| 5 | 8.60 | 8.61 | 7.62 | 0.98 | | | | |
-| 6 | 8.36 | 8.35 | 7.36 | 1.00 | | | | |
-| 7 | 8.22 | 8.18 | 7.18 | 1.04 | | | | |
-| 8 | 8.00 | 7.95 | 6.90 | 1.10 | | | | |
-| 9 | 7.79 | 7.64 | 6.54 | 1.25 | | | | |
-| 10 | 7.82 | 7.70 | 6.61 | 1.21 | | | | |
-| 11 | 7.79 | 7.67 | 6.57 | 1.22 | | | | |
+| 5 | 8.60 | 8.61 | 7.62 | 0.98 | 7.62 | 7.27 | 6.81 | 0.81 |
+| 6 | 8.36 | 8.35 | 7.36 | 1.00 | 7.73 | 7.46 | 7.09 | 0.64 |
+| 7 | 8.22 | 8.18 | 7.18 | 1.04 | 7.24 | 6.85 | 6.44 | 0.80 |
+| 8 | 8.00 | 7.95 | 6.90 | 1.10 | 7.32 | 6.93 | 6.41 | 0.91 |
+| 9 | 7.79 | 7.64 | 6.54 | 1.25 | 7.11 | 6.75 | 6.03 | 1.08 |
+| 10 | 7.82 | 7.70 | 6.61 | 1.21 | **7.05** | **6.69** | 5.96 | 1.09 |
+| 11 | 7.79 | 7.67 | 6.57 | 1.22 | 7.09 | 6.73 | 5.97 | 1.12 |
 
 Both runs see 8 windows per recording per epoch: 12 epochs × 0.68 M
 windows, far less than E2L's about 40 M, which is why F0 ends above E2L
-(7.79 vs 7.24 val). At epoch 4, the bag model F2 is 0.6 y ahead of F0 on
-val and 0.9 y on test, with a smaller train-eval gap (0.55 vs 0.86). F2 is
-already better than F0's *final* epoch. The gap of F0 widens steadily
-(0.62 → 1.22); F2's has stayed at 0.34–0.66 so far, the first sign that the
-recording-level loss memorizes less. F2 is weaker on TUH at this stage
-(val TUH 8.01 vs HEEDB 7.53).
+(7.79 vs 7.24 val).
+
+### Table 5.4. Stage 4 final, test MAE per dataset and cohort (F0 best epoch 9, F2 best epoch 10)
+
+| run | all | TUH normal (149) | TUH abnormal (125) | HEEDB normal (1,518) | HEEDB abnormal (2,253) | HEEDB unlabelled (3,567) |
+|---|---|---|---|---|---|---|
+| E2L (reference, 16 epochs, all windows) | 7.00 | 4.91 | 8.49 | 7.12 | 7.56 | 6.63 |
+| F0 window-level | 7.64 | 5.34 | 8.75 | 7.87 | 8.12 | 7.30 |
+| F2 bag, M1-q | **6.69** | 5.40 | 8.88 | **6.63** | **7.09** | **6.45** |
+
+What Table 5.3 and Table 5.4 show:
+
+* **From the same pretrained start and the same data budget, the bag-level
+  model wins by a wide margin**: F2 is at 7.05 val / 6.69 test against F0's
+  7.79 / 7.64, a difference of 0.74 / 0.95 y. F2 was ahead from epoch 1
+  onward, and it beats E2L on test (6.69 vs 7.00) after seeing about 1/5 of
+  E2L's windows.
+* **It memorizes less at a given val error.** The gap grows in both runs, but
+  F2 reaches F0's final val error (7.79) at epoch 3, with a gap of 0.39
+  instead of 1.22. At its best epoch, F2's gap is 1.09 while its val error is
+  0.74 y lower. The recording-level loss slows memorization; it does not
+  stop it.
+* **The whole gain is on HEEDB** (normal 7.87 → 6.63, abnormal 8.12 → 7.09,
+  unlabelled 7.30 → 6.45). TUH is unchanged or slightly worse (normal 5.34 →
+  5.40, abnormal 8.75 → 8.88; TUH val 7.62 vs F0's 7.49).
+* **Within F2, attention is worth 0.4 y** (test 6.69 vs its own mean of window
+  predictions 7.09). F1, the mean-pool bag run from scratch (running), will
+  separate the effect of the recording loss from that of the attention.
 
 What W1 and L1 already show, against the matched M0 bag model W1:
 
