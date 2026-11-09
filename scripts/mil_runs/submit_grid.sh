@@ -6,6 +6,9 @@
 #
 #   scripts/mil_runs/submit_grid.sh --dry_run          # preview every job
 #   scripts/mil_runs/submit_grid.sh                    # submit (detached)
+# Streamed (FastFile) reads are latency-bound: W0 ran 2.2 s/step on ml.g5.2xlarge
+# with 16 loader workers (1.85 s of it waiting for data), so the default is
+# ml.g5.4xlarge with 32 workers (override with INSTANCE=..., WORKERS=...).
 #   ONLY="W2 W3" scripts/mil_runs/submit_grid.sh       # a subset
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -15,12 +18,12 @@ E2L_CKPT=s3://eeg-data-public/HEEDB/v4.1/derived/models/E2L/checkpoint-best.pth
 BASE=(data.data_path=s3://eeg-data-public/HEEDB/v4.1/cohorts/tuh_heedb_v1_compact data.data_format=npy
   'data.drop_channels=["A1","A2","T1","T2"]' channel_drop.enabled=true channel_drop.prob=0.0
   channel_drop.consistency_weight=0.0 channel_drop.eval_consistency=false
-  data.num_workers=16 mixup.enabled=true model.fused_attention=true model.use_mean_pooling=false
+  data.num_workers=${WORKERS:-32} mixup.enabled=true model.fused_attention=true model.use_mean_pooling=false
   evaluation.agg_windows=mean evaluation.train_eval_every=1
   trainer.early_stopping=false output.output_dir= output.log_dir=
   clearml.enabled=true clearml.project_name=LaBraM/heedb_mil
   sagemaker.enabled=true sagemaker.role=arn:aws:iam::574441342949:role/SageMakerExecutionRole
-  sagemaker.input_mode=FastFile sagemaker.instance_type=ml.g5.2xlarge sagemaker.volume_size_gb=200
+  sagemaker.input_mode=FastFile sagemaker.instance_type=${INSTANCE:-ml.g5.4xlarge} sagemaker.volume_size_gb=200
   sagemaker.use_spot=true sagemaker.on_demand_fallback=true sagemaker.max_run_sec=86400
   sagemaker.wait=false sagemaker.stream_logs=false)
 # Stage 3: warm start from E2L; 4 epochs, lr 1e-4, 1 warm-up epoch.
@@ -51,7 +54,7 @@ NAMES=${ONLY:-"W0 W1 W2 W3 W4 W5 W6 W7 F0 F1 F2 F3"}
 for name in $NAMES; do
   read -r -a over <<< "${JOBS[$name]}"
   echo "=== $name: ${JOBS[$name]}"
-  "$PY" -m labram.runs.submit_sagemaker --phase finetune \
+  "$PY" -m labram.runs.submit_sagemaker --phase finetune --detach \
     --config labram/configs/defaults/finetune_tuab_age.json "${EXTRA[@]}" --set "${BASE[@]}" "${over[@]}" \
     clearml.task_name="heedb_mil_${name}" "clearml.tags=[\"heedb\",\"mil\",\"${name}\"]" \
     sagemaker.job_name_prefix="labram-mil-${name,,}"
