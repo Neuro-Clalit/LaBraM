@@ -36,15 +36,15 @@ SCRATCH=(optimizer.lr=0.00028 optimizer.warmup_epochs=2 trainer.epochs=12)
 # Bag mode: 32 recordings x 8 windows per step (= E2L's 256 windows); eval bags = 30 windows.
 BAG=(mil.enabled=true mil.bag_size=8 trainer.batch_size=32 evaluation.eval_batch_size=12
   mil.head_lr_scale=5.0 mil.entropy_weight=0.01 mil.dropout=0.1)
-# Longer warm start, encoder frozen for the first 4 epochs (pool + head only),
-# then trained for 6 (10 epochs; the cosine LR is at 0.75 x peak at the switch).
-LONG=(finetune_checkpoint.finetune=$E2L_CKPT optimizer.lr=0.0001 optimizer.warmup_epochs=1 trainer.epochs=10
-  mil.freeze_encoder_epochs=4)
+# Long warm start (all X runs): encoder frozen for the first 4 epochs (pool +
+# head only), then trained for 16 (20 epochs; the cosine LR, 1 warm-up epoch,
+# is at ~0.94 x peak when the encoder unfreezes). Up to ~40 h for X6, so the
+# job cap is 72 h.
+LONG=(finetune_checkpoint.finetune=$E2L_CKPT optimizer.lr=0.0001 optimizer.warmup_epochs=1 trainer.epochs=20
+  mil.freeze_encoder_epochs=4 sagemaker.max_run_sec=259200)
 # Random bag sizes: K drawn per recording, uniform over 8..32 (16 recordings per
-# step, <= 512 windows) or 8..64 (8 recordings, <= 512 windows). Each epoch reads
-# ~2.5x / ~4x the windows of K = 8, so 2 frozen + 4 trained epochs.
-KBAG=(finetune_checkpoint.finetune=$E2L_CKPT optimizer.lr=0.0001 optimizer.warmup_epochs=1 trainer.epochs=6
-  mil.freeze_encoder_epochs=2)
+# step, <= 512 windows) or 8..64 (8 recordings, <= 512 windows); an epoch reads
+# ~2.5x / ~4x the windows of K = 8.
 K32="mil.bag_size_choices=[$(seq -s, 8 32)] trainer.batch_size=16"
 K64="mil.bag_size_choices=[$(seq -s, 8 64)] trainer.batch_size=8"
 # Window-level control: 8 windows per recording per epoch, batch 256 windows.
@@ -65,8 +65,8 @@ declare -A JOBS=(
   [X2]="${LONG[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
   [X3]="${LONG[*]} ${BAG[*]} mil.pool=gated mil.score_input=hq mil.retention_weight=0.1"
   [X4]="${LONG[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=hq"
-  [X5]="${KBAG[*]} ${BAG[*]} mil.pool=gated mil.score_input=h mil.retention_weight=0.1 $K32"
-  [X6]="${KBAG[*]} ${BAG[*]} mil.pool=gated mil.score_input=h mil.retention_weight=0.1 $K64"
+  [X5]="${LONG[*]} ${BAG[*]} mil.pool=gated mil.score_input=h mil.retention_weight=0.1 $K32"
+  [X6]="${LONG[*]} ${BAG[*]} mil.pool=gated mil.score_input=h mil.retention_weight=0.1 $K64"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"
