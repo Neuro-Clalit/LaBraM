@@ -85,3 +85,24 @@ def test_descriptor_norm():
 def test_descriptor_norm_fits_cpu_data_on_a_gpu_module():
     norm = DescriptorNorm(3).cuda().fit(torch.randn(100, 3))
     assert norm.mean.device.type == "cuda"
+
+
+def test_ungated_abmil_has_no_gate():
+    pool = build_bag_pool("gated", 16, gated=False)
+    assert pool.U is None
+    h, q, mask, t = _bag()
+    z, alpha, _ = pool.eval()(h, mask)
+    assert torch.allclose(alpha.sum(-1), torch.ones(3), atol=1e-5)
+
+
+def test_mil_config_gated_flag_reaches_the_pool():
+    from labram.configs.train_config import MILConfig
+    from labram.train.train_mil import attach_mil
+
+    class M(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.head = torch.nn.Linear(16, 1)
+
+    m = attach_mil(M(), MILConfig(enabled=True, pool="gated", gated=False))
+    assert m.mil.pool.U is None

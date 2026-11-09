@@ -396,6 +396,7 @@
         "pool": "gated",
         "score_input": "h",
         "attn_dim": 128,
+        "gated": true,
         "branches": 1,
         "heads": 4,
         "self_attention": false,

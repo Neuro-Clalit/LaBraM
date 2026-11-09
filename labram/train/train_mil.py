@@ -71,6 +71,7 @@ def attach_mil(model: torch.nn.Module, mil_cfg) -> torch.nn.Module:
               time_encoding=mil_cfg.time_encoding)
     if mil_cfg.pool == "gated":
         kw.update(attn_dim=mil_cfg.attn_dim, branches=mil_cfg.branches,
+                  gated=getattr(mil_cfg, "gated", True),
                   temperature=mil_cfg.temperature, topk_mask_prob=mil_cfg.topk_mask_prob)
     elif mil_cfg.pool == "sigmoid":
         kw.update(attn_dim=mil_cfg.attn_dim)

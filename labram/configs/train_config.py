@@ -318,7 +318,8 @@ class MILConfig(ConfigBase):
     of a recording's eval-budget windows (``eval_max_windows`` caps them).
     ``trainer.batch_size`` then counts bags.
 
-    * ``pool``: ``mean`` (M0) | ``gated`` (M1; ``branches > 1`` = M2) |
+    * ``pool``: ``mean`` (M0) | ``gated`` (M1; ``branches > 1`` = M2;
+      ``gated=false`` = the original, ungated ABMIL score) |
       ``sigmoid`` (M3) | ``query`` (M4); ``score_input``: what the attention
       scores see -- ``h`` (encoder features), ``q`` (window descriptors) or ``hq``.
     * ``entropy_weight``: ``lambda (log n - H(alpha))`` against attention collapse
@@ -339,6 +340,9 @@ class MILConfig(ConfigBase):
     pool: str = "gated"
     score_input: str = "h"
     attn_dim: int = 128
+    # gated attention (tanh * sigmoid, Ilse et al.'s gated variant); False =
+    # the original ABMIL score w^T tanh(V h)
+    gated: bool = True
     branches: int = 1
     heads: int = 4
     self_attention: bool = False
