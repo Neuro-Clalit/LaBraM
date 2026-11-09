@@ -57,6 +57,52 @@ def parse_cli() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _check_mil_supported(config, is_regression_task: bool) -> None:
+    """``mil.enabled`` works with the plain / multi-task regression heads."""
+    config.mil.validate()
+    if not is_regression_task:
+        raise ValueError("mil.enabled needs the regression (brain-age) task")
+    m = config.model
+    if m.codebook_reg.enabled or m.lora.enabled or m.session_features != "off" \
+            or m.condition_on_abnormal or m.age_input != "off":
+        raise ValueError("mil.enabled is not supported with codebook_reg, lora, session features, "
+                         "condition_on_abnormal or age_input")
+    if m.head_type not in ("linear", "mlp", "multitask"):
+        raise ValueError(f"mil.enabled needs head_type linear, mlp or multitask, got {m.head_type!r}")
+    if config.loss.regression_loss == "soft_label":
+        raise ValueError("mil.enabled needs a scalar age loss, not soft_label")
+    if config.trainer.enable_deepspeed or config.data.age_bin_sampling:
+        raise ValueError("mil.enabled is not supported with DeepSpeed or data.age_bin_sampling")
+    if config.data.window_sec != 10:
+        raise ValueError("mil.enabled works on 10 s windows (data.window_sec=10)")
+
+
+def _bag_collate():
+    from labram.data.bags import collate_bags
+    return collate_bags
+
+
+def _bag_train_eval_loader(dataset_train_windows, config, pin_memory: bool, distributed: bool):
+    """``train_eval`` in bag mode: the usual fixed sample of training
+    recordings (their first eval_minutes of windows), one bag each."""
+    from labram.data.bags import RecordingBagDataset, collate_bags
+    from labram.data.dataset_groups import train_eval_subset
+    n = int(getattr(config.evaluation, 'train_eval_recordings', 0) or 0)
+    if n <= 0:
+        return None
+    windows = max(1, int(config.data.eval_minutes * 60 // config.data.window_sec))
+    subset = train_eval_subset(dataset_train_windows, n, windows, seed=config.distributed.seed)
+    if subset is None:
+        return None
+    bags = RecordingBagDataset(subset, train=False, max_windows=config.mil.eval_max_windows)
+    sampler = (torch.utils.data.DistributedSampler(bags, shuffle=False) if distributed
+               else torch.utils.data.SequentialSampler(bags))
+    batch = int(getattr(config.evaluation, 'eval_batch_size', 0) or 0) or config.trainer.batch_size
+    return torch.utils.data.DataLoader(bags, sampler=sampler, batch_size=batch,
+                                       num_workers=config.data.num_workers, pin_memory=pin_memory,
+                                       drop_last=False, collate_fn=collate_bags)
+
+
 def get_model(config: FinetuneRunConfig):
     time_patches = required_time_patches(config.data)
     if config.model.codebook_reg.enabled:
@@ -92,6 +138,9 @@ def get_model(config: FinetuneRunConfig):
     if m.fused_attention:
         from labram.layers.attention import set_fused_attention
         set_fused_attention(model, True)
+    if getattr(config, 'mil', None) is not None and config.mil.enabled:
+        from labram.train.train_mil import attach_mil
+        attach_mil(model, config.mil)
     if m.lora.enabled:
         # Injected before the pretrained checkpoint loads: the base weights keep
         # their keys, the LoRA factors are new (B = 0, so the model is unchanged
@@ -239,6 +288,20 @@ def main(config: FinetuneRunConfig, bundle=None):
             if split_ds is not None:
                 enable_window_ids(split_ds, config.evaluation.agg_case_by)
 
+    # Recording-level MIL (mil.enabled): every split becomes a bag dataset, one
+    # item per recording; the window-level training set is kept for train_eval.
+    mil_on = getattr(config, 'mil', None) is not None and config.mil.enabled
+    dataset_train_windows = dataset_train
+    if mil_on:
+        _check_mil_supported(config, is_regression_task)
+        from labram.data.bags import wrap_bags
+        dataset_train = wrap_bags(dataset_train, config.mil, True)
+        dataset_val = wrap_bags(dataset_val, config.mil, False)
+        dataset_test = ([wrap_bags(d, config.mil, False) for d in dataset_test]
+                        if isinstance(dataset_test, list) else wrap_bags(dataset_test, config.mil, False))
+        logger.info("MIL: %d training bags of %d windows (pool=%s, score_input=%s)",
+                    len(dataset_train), config.mil.bag_size, config.mil.pool, config.mil.score_input)
+
     num_tasks, global_rank = utils.get_world_size(), utils.get_rank()
     if num_tasks > 1 and not config.distributed.dist_eval:
         # Under DDP every evaluation is sharded across ranks and gathered back
@@ -260,7 +323,7 @@ def main(config: FinetuneRunConfig, bundle=None):
             dataset_train, config.data.age_bin_width, config.data.age_range,
             num_replicas=num_tasks, rank=global_rank, seed=config.distributed.seed)
         logger.info("Sampler_train = %s", sampler_train)
-    elif config.data.train_minutes_per_epoch and not config.trainer.eval:
+    elif config.data.train_minutes_per_epoch and not config.trainer.eval and not mil_on:
         # A fresh random subset of each recording's training samples per epoch.
         from labram.data.samplers import RecordingSubsetSampler
         per_recording = max(1, int(config.data.train_minutes_per_epoch * 60
@@ -291,8 +354,12 @@ def main(config: FinetuneRunConfig, bundle=None):
         num_workers=config.data.num_workers,
         pin_memory=pin_memory,
         eval_batch_size=config.evaluation.eval_batch_size,
+        collate_fn=_bag_collate() if mil_on else None,
     )
-    if not config.trainer.eval and dataset_val is not None:
+    if mil_on and not config.trainer.eval and dataset_val is not None:
+        loaders.train_eval = _bag_train_eval_loader(
+            dataset_train_windows, config, pin_memory, distributed=config.distributed.dist_eval and num_tasks > 1)
+    elif not config.trainer.eval and dataset_val is not None:
         # Training recordings scored like val/test (per dataset and cohort).
         loaders.train_eval = build_train_eval_loader(
             dataset_train, config.evaluation, config.data, config.trainer.batch_size,
@@ -372,6 +439,9 @@ def main(config: FinetuneRunConfig, bundle=None):
             get_num_layer=assigner.get_layer_id if assigner else None,
             get_layer_scale=assigner.get_scale if assigner else None)
         loss_scaler = NativeScaler()
+        if mil_on:
+            from labram.train.train_mil import split_head_lr
+            split_head_lr(optimizer, model_without_ddp, config.mil.head_lr_scale)
 
     nb_classes = config.model.nb_classes
     task = config.model.task
@@ -423,6 +493,10 @@ def main(config: FinetuneRunConfig, bundle=None):
         model_ema_enabled=config.optimizer.model_ema,
     )
 
+    if mil_on and model_without_ddp.mil.needs_descriptors:
+        from labram.train.train_mil import fit_descriptor_norm
+        fit_descriptor_norm(model_without_ddp, loaders.train, device, config.mil.descriptor_fit_batches)
+
     if config.trainer.eval:
         # loaders.test may be a single loader or a list; normalize to a list.
         test_loaders = loaders.test if isinstance(loaders.test, list) else [loaders.test]
@@ -432,8 +506,15 @@ def main(config: FinetuneRunConfig, bundle=None):
         # for classification, the regression metrics for a scalar target.
         summary_keys = metrics if is_regression else ('accuracy', 'balanced_accuracy')
         collected = {k: [] for k in summary_keys}
+        if mil_on:
+            import functools
+            from labram.train.train_mil import evaluate_bags
+            evaluate_fn = functools.partial(evaluate_bags, mil_cfg=config.mil,
+                                            out_dir=config.output.output_dir)
+        else:
+            evaluate_fn = evaluate
         for data_loader in test_loaders:
-            test_stats = evaluate(data_loader, model, device, header='Test:',
+            test_stats = evaluate_fn(data_loader, model, device, header='Test:',
                                   ch_names=ch_names, metrics=metrics,
                                   is_binary=(nb_classes == 1 and not is_regression),
                                   nb_classes=nb_classes, eval_cfg=config.evaluation,

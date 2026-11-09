@@ -389,5 +389,28 @@
         "detach_full": true,
         "eval_consistency": true,
         "start_epoch": 0
+    },
+    "mil": {
+        "py/object": "labram.configs.train_config.MILConfig",
+        "enabled": false,
+        "bag_size": 8,
+        "bag_size_choices": [],
+        "eval_max_windows": 0,
+        "pool": "gated",
+        "score_input": "h",
+        "attn_dim": 128,
+        "branches": 1,
+        "heads": 4,
+        "self_attention": false,
+        "temperature": 1.0,
+        "topk_mask_prob": 0.0,
+        "dropout": 0.1,
+        "time_encoding": false,
+        "entropy_weight": 0.01,
+        "head_lr_scale": 1.0,
+        "freeze_encoder_epochs": 0,
+        "retention_weight": 0.0,
+        "descriptor_fit_batches": 50,
+        "save_weights": true
     }
 }

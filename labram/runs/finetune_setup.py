@@ -162,7 +162,7 @@ def build_samplers(dataset_train, dataset_val, dataset_test, num_tasks: int, glo
 def build_dataloaders(dataset_train, dataset_val, dataset_test,
                       sampler_train, sampler_val, sampler_test,
                       batch_size: int, num_workers: int, pin_memory: bool,
-                      eval_batch_size: int = 0) -> DataLoaders:
+                      eval_batch_size: int = 0, collate_fn=None) -> DataLoaders:
     eval_batch_size = int(eval_batch_size) or int(1.5 * batch_size)
 
     train_loader = torch.utils.data.DataLoader(
@@ -171,6 +171,7 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=True,
+        collate_fn=collate_fn,
     )
 
     if dataset_val is None:
@@ -182,6 +183,7 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=False,
+        collate_fn=collate_fn,
     )
 
     if dataset_test is None:          # e.g. a cohort without a test split
@@ -193,6 +195,7 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
             num_workers=num_workers,
             pin_memory=pin_memory,
             drop_last=False,
+            collate_fn=collate_fn,
         ) for d, s in zip(dataset_test, sampler_test)]
     else:
         test_loader = torch.utils.data.DataLoader(
@@ -201,6 +204,7 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
             num_workers=num_workers,
             pin_memory=pin_memory,
             drop_last=False,
+            collate_fn=collate_fn,
         )
 
     return DataLoaders(train=train_loader, val=val_loader, test=test_loader)
@@ -270,7 +274,12 @@ def load_finetune_checkpoint(model: torch.nn.Module, ckpt_cfg) -> None:
         for key, value in checkpoint_model.items():
             if key.startswith('student.'):
                 new_dict[key[len('student.'):]] = value
-        checkpoint_model = new_dict
+        if new_dict:
+            checkpoint_model = new_dict
+        else:
+            # A fine-tuned checkpoint (e.g. a warm start from a previous run)
+            # has plain keys; filtering it would load nothing at all.
+            logger.info("No 'student.' keys in %s: loading its weights unfiltered", ckpt_cfg.finetune)
 
     state_dict = model.state_dict()
     for k in ['head.weight', 'head.bias']:

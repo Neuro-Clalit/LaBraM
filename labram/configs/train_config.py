@@ -305,6 +305,66 @@ class ChannelDropConfig(ConfigBase):
     start_epoch: int = 0
 
 
+
+@dataclass
+class MILConfig(ConfigBase):
+    """Recording-level multiple-instance (bag) training (``labram/train/train_mil.py``,
+    ``docs/b1_attention_mil_plan.md``). Off unless ``enabled``.
+
+    A training item is one recording: ``bag_size`` of its windows (drawn at
+    random every epoch; ``bag_size_choices`` draws the size per bag), encoded
+    by the transformer, pooled by ``pool`` into one recording embedding that
+    the existing head reads; the loss is per recording. Val/test bags are all
+    of a recording's eval-budget windows (``eval_max_windows`` caps them).
+    ``trainer.batch_size`` then counts bags.
+
+    * ``pool``: ``mean`` (M0) | ``gated`` (M1; ``branches > 1`` = M2) |
+      ``sigmoid`` (M3) | ``query`` (M4); ``score_input``: what the attention
+      scores see -- ``h`` (encoder features), ``q`` (window descriptors) or ``hq``.
+    * ``entropy_weight``: ``lambda (log n - H(alpha))`` against attention collapse
+      (softmax pools); ``topk_mask_prob``: hide a branch's top window at random.
+    * ``head_lr_scale``: LR multiplier of the pool and head over the top
+      encoder layer; ``freeze_encoder_epochs``: encoder features under no_grad
+      for the first epochs (pool + head only); ``retention_weight``: MSE of the
+      window features to those of the initial (frozen) encoder (BridgeMIL).
+    * ``descriptor_fit_batches``: training batches used to fit the descriptor
+      standardization (stored in the checkpoint) when ``score_input`` uses ``q``.
+    * ``save_weights``: write per-window pooling weights of val/test per epoch
+      to ``<output_dir>/analysis/``.
+    """
+    enabled: bool = False
+    bag_size: int = 8
+    bag_size_choices: List[int] = field(default_factory=list)
+    eval_max_windows: int = 0
+    pool: str = "gated"
+    score_input: str = "h"
+    attn_dim: int = 128
+    branches: int = 1
+    heads: int = 4
+    self_attention: bool = False
+    temperature: float = 1.0
+    topk_mask_prob: float = 0.0
+    dropout: float = 0.1
+    time_encoding: bool = False
+    entropy_weight: float = 0.01
+    head_lr_scale: float = 1.0
+    freeze_encoder_epochs: int = 0
+    retention_weight: float = 0.0
+    descriptor_fit_batches: int = 50
+    save_weights: bool = True
+
+    def validate(self) -> None:
+        if not self.enabled:
+            return
+        if self.pool not in ("mean", "gated", "sigmoid", "query"):
+            raise ValueError(f"mil.pool must be mean, gated, sigmoid or query, got {self.pool!r}")
+        if self.score_input not in ("h", "q", "hq"):
+            raise ValueError(f"mil.score_input must be h, q or hq, got {self.score_input!r}")
+        if self.bag_size < 1 or any(k < 1 for k in self.bag_size_choices):
+            raise ValueError("mil.bag_size (and bag_size_choices) must be >= 1")
+        if self.head_lr_scale <= 0:
+            raise ValueError("mil.head_lr_scale must be > 0")
+
 @dataclass
 class DistributedConfig(ConfigBase):
     world_size: int = DEFAULT_WORLD_SIZE

@@ -45,6 +45,7 @@ from labram.configs.train_config import (
     MixupConfig,
     AugmentConfig,
     ChannelDropConfig,
+    MILConfig,
     OutputConfig,
     ShutdownConfig,
     TrainerConfig,
@@ -205,6 +206,8 @@ class FinetuneRunConfig(RunConfig):
     # Whole-batch dropout of named channels + full/dropped consistency loss, and
     # per-sample handling of recordings without them (opt-in).
     channel_drop: ChannelDropConfig = field(default_factory=ChannelDropConfig)
+    # Recording-level multiple-instance (bag) training (opt-in).
+    mil: MILConfig = field(default_factory=MILConfig)
     # K-fold cross-validation (opt-in). Disabled -> single train/val/test run.
     cross_validation: CrossValidationConfig = field(default_factory=CrossValidationConfig)
     optimizer: OptimizerConfig = field(

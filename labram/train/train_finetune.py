@@ -1117,6 +1117,15 @@ def train_loop(
     import time
     import labram.runs.common as runner_common
 
+    # Recording-level MIL (mil.enabled): bag versions of the epoch and the eval.
+    train_epoch_fn, evaluate_fn = train_one_epoch, evaluate
+    if getattr(config, 'mil', None) is not None and config.mil.enabled:
+        import functools
+        from labram.train.train_mil import evaluate_bags, train_one_epoch_bags
+        train_epoch_fn = functools.partial(train_one_epoch_bags, mil_cfg=config.mil)
+        evaluate_fn = functools.partial(evaluate_bags, mil_cfg=config.mil,
+                                        out_dir=config.output.output_dir)
+
     lr_schedule_values = runner_common.make_lr_schedule(
         config.optimizer, config.trainer, num_training_steps_per_epoch)
     wd_schedule_values = runner_common.make_wd_schedule(
@@ -1200,7 +1209,7 @@ def train_loop(
             log_writer.set_step(epoch * num_training_steps_per_epoch * config.trainer.update_freq)
 
         train_timer = utils.PhaseTimer(device)
-        train_stats = train_one_epoch(
+        train_stats = train_epoch_fn(
             model, criterion, loaders.train, optimizer,
             device, epoch, loss_scaler,
             trainer_cfg=config.trainer,
@@ -1240,7 +1249,7 @@ def train_loop(
 
         if loaders.val is not None:
             validation_timer = utils.PhaseTimer(device)
-            val_stats = evaluate(loaders.val, eval_model, device, header='Val:',
+            val_stats = evaluate_fn(loaders.val, eval_model, device, header='Val:',
                                  ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                                  nb_classes=nb_classes, eval_cfg=config.evaluation,
                                  log_writer=log_writer, head='val', epoch=epoch,
@@ -1256,7 +1265,7 @@ def train_loop(
             test_stats, test_timing = {}, {}
             if loaders.test is not None:      # a cohort may have no test split
                 test_timer = utils.PhaseTimer(device)
-                test_stats = evaluate(loaders.test, eval_model, device, header='Test:',
+                test_stats = evaluate_fn(loaders.test, eval_model, device, header='Test:',
                                       ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                                       nb_classes=nb_classes, eval_cfg=config.evaluation,
                                       log_writer=log_writer, head='test', epoch=epoch,
@@ -1273,7 +1282,7 @@ def train_loop(
                     (epoch + 1) % every == 0 or epoch + 1 == config.trainer.epochs):
                 # A fixed sample of training recordings, scored like val/test.
                 train_eval_timer = utils.PhaseTimer(device)
-                train_eval_stats = evaluate(
+                train_eval_stats = evaluate_fn(
                     train_eval_loader, eval_model, device, header='TrainEval:',
                     ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                     nb_classes=nb_classes, eval_cfg=config.evaluation,

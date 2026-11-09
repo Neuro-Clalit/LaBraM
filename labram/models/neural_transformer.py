@@ -396,6 +396,9 @@ class NeuralTransformer(NeuralTransformerBase):
         x: [batch size, number of electrodes, number of patches, patch size]
         For example, for an EEG sample of 4 seconds with 64 electrodes, x will be [batch size, 64, 4, 200]
         '''
+        bag = kwargs.pop('bag', None)
+        if bag is not None:
+            return self.forward_bag(x, channel_indices, bag)
         condition = kwargs.pop('condition', None)
         # (output, head-input feature) -- the pooled / class-token feature
         # before any condition embedding; None for a features-only model.
@@ -421,6 +424,49 @@ class NeuralTransformer(NeuralTransformerBase):
             x = torch.cat((x, self.embed_abnormal(condition)), dim=-1)
         x = self.head(x)
         return (x, feature) if return_features else x
+
+    def forward_bag(self, x, channel_indices, bag):
+        """Recording-level MIL forward (``mil.*``; needs ``self.mil``, a
+        :class:`labram.layers.bag_pool.MILPooling`).
+
+        ``x`` ``[N, C, A, T]`` holds the real windows of ``B`` bags, flattened in
+        bag order (``bag['mask'][b, k]`` marks them). ``bag`` keys: ``mask``
+        ``[B, K]``; ``q`` ``[B, K, Q]`` raw descriptors or None; ``t`` ``[B, K]``
+        window minutes; ``present`` ``[N, C]`` + ``ci_all`` to encode each
+        window on its present channels (the channel-drop path); ``no_grad_encoder``
+        (frozen encoder); ``mix`` ``(perm, lam)`` mixes the pooled embeddings of
+        bags (mixup). Returns ``(head output [B, ...], alpha [B, K], h [N, D])``.
+        """
+        import contextlib
+        mask = bag['mask']
+        ctx = torch.no_grad() if bag.get('no_grad_encoder') else contextlib.nullcontext()
+        with ctx:
+            present = bag.get('present')
+            if present is None:
+                h = self.forward_features(x, channel_indices=channel_indices)
+            else:
+                ci_all = bag['ci_all']
+                patterns, inverse = torch.unique(present, dim=0, return_inverse=True)
+                parts, rows = [], []
+                for p in range(patterns.shape[0]):
+                    idx = (inverse == p).nonzero().squeeze(1)
+                    chans = patterns[p].nonzero().squeeze(1)
+                    if chans.numel() == 0:
+                        raise ValueError("a window has no channel with signal")
+                    ci = [ci_all[0]] + [ci_all[int(c) + 1] for c in chans]
+                    parts.append(self.forward_features(x[idx][:, chans], channel_indices=ci))
+                    rows.append(idx)
+                order = torch.argsort(torch.cat(rows))
+                h = torch.cat([f.to(parts[0].dtype) for f in parts])[order]
+        b, k = mask.shape
+        hb = h.new_zeros(b, k, h.shape[-1])
+        hb = hb.index_put((mask.nonzero(as_tuple=True)), h)
+        z, alpha, _ = self.mil(hb, mask, bag.get('q'), bag.get('t'))
+        mix = bag.get('mix')
+        if mix is not None:
+            perm, lam = mix
+            z = lam * z + (1 - lam) * z[perm]
+        return self.head(z.to(self.head_dtype())), alpha, h
 
     def head_dtype(self):
         return next(self.head.parameters()).dtype
