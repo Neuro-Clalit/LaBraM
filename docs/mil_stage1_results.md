@@ -250,7 +250,7 @@ about 15 min locally.
 | W5 | M1-hq + time | SM g5.2xlarge | done | 6.55 | 6.10 | 6.23 / 6.10 | 6.69 | 3.63 (2.92) |
 | W6 | M2-hq (4 branches) | SM g5.2xlarge | done | 6.55 | **6.09** | 6.15 / **6.09** | 6.49 | 3.77 (2.78) |
 | W7 | M1-q + retention 0.1 | SM g5.2xlarge | done | 6.54 | 6.12 | 6.06 / 6.12 | 6.44 | 3.98 (**2.56**) |
-| F0 | window-level control, from `labram-base` | local | done, epoch 11 | 7.79 | 7.67 | 6.90 / 7.70 | — | 6.57 (1.22) |
+| F0 | window-level control, from `labram-base` | local | done, best epoch 9 | 7.79 | 7.64 | 6.89 / 7.67 | — | 6.54 (1.25) |
 | F2 | M1-q, from `labram-base` | local | done, best epoch 10 | **7.05** | **6.69** | 6.99 / 6.68 | 7.09 | 5.96 (1.09) |
 | F1 | M0 bag, from `labram-base` | local | running, epoch 0 of 12 | 10.59 | 10.12 | | 10.12 | 10.42 (0.17) |
 | F3 | M1-hq + time, from `labram-base` | local | queued | | | | | |
@@ -317,8 +317,8 @@ What Table 5.3 and Table 5.4 show:
   onward, and it beats E2L on test (6.69 vs 7.00) after seeing about 1/5 of
   E2L's windows.
 * **It memorizes less at a given val error.** The gap grows in both runs, but
-  F2 reaches F0's final val error (7.79) at epoch 3, with a gap of 0.39
-  instead of 1.22. At its best epoch, F2's gap is 1.09 while its val error is
+  F2 passes F0's best val error (7.79) at epoch 4 (7.69), with a gap of
+  0.55 instead of 1.25. At its best epoch, F2's gap is 1.09 while its val error is
   0.74 y lower. The recording-level loss slows memorization; it does not
   stop it.
 * **The whole gain is on HEEDB** (normal 7.87 → 6.63, abnormal 8.12 → 7.09,
