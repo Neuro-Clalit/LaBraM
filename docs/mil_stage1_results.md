@@ -241,7 +241,7 @@ about 15 min locally.
 | job | config | where | status | val | test | test TUH / HEEDB | test mean-pool | train-eval (gap) |
 |---|---|---|---|---|---|---|---|---|
 | E2L | reference, best epoch 11 | — | — | 7.24 | 7.00 | 6.54 / 7.02 | — | 4.63 (2.61) |
-| W0 | window-level control, warm start | SM g5.2xlarge spot | epoch 1 of 4 (slow, resumed once) | 7.65 | 7.52 | 6.83 / 7.54 | — | 5.06 (2.59) |
+| W0 | window-level control, warm start | SM g5.2xlarge spot | done (resumed once) | 7.37 | 7.17 | 6.58 / 7.19 | — | 4.63 (2.74) |
 | W1 | M0 bag (mean of embeddings) | SM g5.4xlarge | done | 6.82 | 6.44 | 6.19 / 6.45 | 6.44 | 3.93 (2.89) |
 | L1 | ungated ABMIL on $h$ (section 6) | local | done | 6.55 | **6.09** | 6.11 / **6.09** | 6.49 | 3.71 (2.84) |
 | W2 | M1-q (gated, descriptors) | SM g5.4xlarge | done | 6.61 | 6.13 | 6.09 / 6.13 | 6.43 | 3.77 (2.84) |
@@ -250,8 +250,8 @@ about 15 min locally.
 | W5 | M1-hq + time | SM g5.2xlarge | done | 6.55 | 6.10 | 6.23 / 6.10 | 6.69 | 3.63 (2.92) |
 | W6 | M2-hq (4 branches) | SM g5.2xlarge | done | 6.55 | **6.09** | 6.15 / **6.09** | 6.49 | 3.77 (2.78) |
 | W7 | M1-q + retention 0.1 | SM g5.2xlarge | done | 6.54 | 6.12 | 6.06 / 6.12 | 6.44 | 3.98 (**2.56**) |
-| F0 | window-level control, from `labram-base` | local | epoch 8 of 12 | 8.00 | 8.18 (ep. 7) | | | 7.18 (ep. 7) |
-| F2 | M1-q, from `labram-base` | local | queued | | | | | |
+| F0 | window-level control, from `labram-base` | local | done, epoch 11 | 7.79 | 7.67 | 6.90 / 7.70 | — | 6.57 (1.22) |
+| F2 | M1-q, from `labram-base` | local | running, epoch 4 of 12 | 7.69 | 7.31 | 7.64 / 7.30 | 7.61 | 7.14 (0.55) |
 | F1 | M0 bag, from `labram-base` | local | queued | | | | | |
 | F3 | M1-hq + time, from `labram-base` | local | queued | | | | | |
 
@@ -260,7 +260,7 @@ about 15 min locally.
 | job | TUH normal (149) | TUH abnormal (125) | HEEDB normal (1,518) | HEEDB abnormal (2,253) | HEEDB unlabelled (3,567) |
 |---|---|---|---|---|---|
 | E2L | 4.91 | 8.49 | 7.12 | 7.56 | 6.63 |
-| W0 (epoch 1) | 5.23 | 8.73 | 7.71 | 8.07 | 7.13 |
+| W0 | 4.96 | 8.52 | 7.30 | 7.78 | 6.78 |
 | W1 | 4.53 | 8.16 | 6.26 | 7.16 | 6.07 |
 | L1 | 4.41 | 8.13 | **5.71** | 6.79 | **5.80** |
 | W2 | 4.45 | 8.04 | 5.78 | 6.82 | 5.84 |
@@ -270,11 +270,41 @@ about 15 min locally.
 | W6 | 4.45 | 8.18 | 5.72 | 6.77 | 5.81 |
 | W7 | **4.36** | 8.07 | 5.83 | **6.73** | 5.87 |
 
+**The control settles the "more epochs" question.** W0 (E2L continued for 4
+epochs with the window-level loss) ends at 7.37 / 7.17, *worse* than E2L's
+7.24 / 7.00, while every bag run of the same schedule improves by 0.4–0.9 y.
+
 All attention runs end at 6.09–6.13 test and 6.51–6.61 val. The
 architecture and the attention input make no difference beyond about
 0.05 y, while they all beat end-to-end mean pooling (W1, 6.44) by about
 0.33 y. Retention (W7) is the only setting that narrows the train-eval gap
 (2.56 vs 2.78–2.92), without costing accuracy.
+
+### Table 5.3. Stage 4 per epoch: window-level F0 vs. bag-level M1-q F2, both from `labram-base` (val / test / train-eval, years)
+
+| epoch | F0 val | F0 test | F0 train-eval | F0 gap | F2 val | F2 test | F2 train-eval | F2 gap |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 9.75 | 9.81 | 9.13 | 0.62 | 10.14 | 9.87 | 9.78 | 0.36 |
+| 1 | 9.97 | 10.16 | 9.33 | 0.64 | 9.02 | 8.53 | 8.36 | 0.66 |
+| 2 | 9.22 | 9.32 | 8.47 | 0.75 | 8.35 | 8.19 | 8.01 | 0.34 |
+| 3 | 9.03 | 9.11 | 8.27 | 0.76 | 7.97 | 7.56 | 7.58 | 0.39 |
+| 4 | 8.28 | 8.19 | 7.42 | 0.86 | **7.69** | **7.31** | 7.14 | **0.55** |
+| 5 | 8.60 | 8.61 | 7.62 | 0.98 | | | | |
+| 6 | 8.36 | 8.35 | 7.36 | 1.00 | | | | |
+| 7 | 8.22 | 8.18 | 7.18 | 1.04 | | | | |
+| 8 | 8.00 | 7.95 | 6.90 | 1.10 | | | | |
+| 9 | 7.79 | 7.64 | 6.54 | 1.25 | | | | |
+| 10 | 7.82 | 7.70 | 6.61 | 1.21 | | | | |
+| 11 | 7.79 | 7.67 | 6.57 | 1.22 | | | | |
+
+Both runs see 8 windows per recording per epoch: 12 epochs × 0.68 M
+windows, far less than E2L's about 40 M, which is why F0 ends above E2L
+(7.79 vs 7.24 val). At epoch 4, the bag model F2 is 0.6 y ahead of F0 on
+val and 0.9 y on test, with a smaller train-eval gap (0.55 vs 0.86). F2 is
+already better than F0's *final* epoch. The gap of F0 widens steadily
+(0.62 → 1.22); F2's has stayed at 0.34–0.66 so far, the first sign that the
+recording-level loss memorizes less. F2 is weaker on TUH at this stage
+(val TUH 8.01 vs HEEDB 7.53).
 
 What W1 and L1 already show, against the matched M0 bag model W1:
 
