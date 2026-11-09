@@ -241,3 +241,64 @@ on-demand quota (4 × g5.2xlarge, 1 × g5.4xlarge) went to the jobs that answer
 the main questions; the rest start when spot capacity frees. Streamed reads
 are latency-bound: about 2.2 s per 256-window step with 16 loader workers,
 so the jobs use 24–32 workers.
+
+## 6. End-to-end, local: L1 (simplest ABMIL)
+
+L1 is Ilse et al.'s original, **ungated** attention on the encoder's window
+features, $a_i=\mathbf w^\top\tanh(\mathbf V h_i)$ with $L=128$, trained end
+to end on the local A10G (`scripts/mil_runs/run_local_abmil.sh`; ClearML
+`LaBraM/heedb_mil/heedb_mil_L1_abmil_local`). The setup:
+- warm start from E2L, with E2L's data, split, channels and evaluation;
+- 4 epochs, the encoder frozen in epoch 0, lr 1e-4 (pool and head ×5);
+- 32 recordings × 8 random windows per step, mixup across recordings, entropy term 0.01.
+
+It took 1 h 9 min (epoch 0 about 6 min, the unfrozen epochs about 15 min, plus about 4 min of evaluation each).
+
+### Table 6.1. L1 per epoch, recording MAE (y)
+
+"Mean-pool" is the mean of the same model's window predictions (head on
+each $h_i$). The train-eval set is 1,000 fixed training recordings, scored
+like val.
+
+| epoch | val | test | val mean-pool | test mean-pool | train-eval | train-eval − val gap |
+|---|---|---|---|---|---|---|
+| 0 (encoder frozen) | 6.69 | 6.31 | 6.98 | 6.69 | 4.22 | 2.47 |
+| 1 | 6.69 | 6.28 | 7.02 | 6.71 | 4.03 | 2.66 |
+| 2 | 6.58 | 6.15 | 6.89 | 6.58 | 3.86 | 2.72 |
+| **3** | **6.55** | **6.09** | 6.84 | 6.49 | 3.71 | 2.84 |
+| *E2L (best epoch 11)* | *7.24* | *7.00* | | | *4.63* | *2.61* |
+| *Stage 1 best, frozen features (`train` protocol)* | *6.52–6.62* | *6.17–6.23* | | | | |
+
+### Table 6.2. L1 (epoch 3) test MAE per dataset and cohort vs. E2L
+
+| | TUH normal | TUH abnormal | HEEDB normal | HEEDB abnormal | HEEDB unlabelled | all |
+|---|---|---|---|---|---|---|
+| E2L | 4.91 | 8.50 | 7.12 | 7.56 | 6.64 | 7.00 |
+| L1 | **4.41** | **8.13** | **5.71** | **6.79** | **5.80** | **6.09** |
+
+What Table 6.1 and Table 6.2 show:
+
+* **End-to-end ABMIL reaches 6.09 test / 6.55 val**: 0.91 y better than E2L
+  and about 0.1 y better than the best frozen-feature pool of Stage 1. It
+  improves in every cohort, TUH included, unlike all post-hoc pooling so far.
+* **Attention matters inside the trained model.** Its own mean of window
+  predictions is 6.49 on test, so attention removes another 0.40 y. The
+  window-level MAE gets *worse* as training goes on (8.35 → 8.93), as
+  expected: windows are no longer trained to predict the age on their own,
+  only to contribute to the recording.
+* **Still improving at epoch 3** (val 6.69 → 6.55), so longer training is
+  likely to help.
+* **Memorization is not reduced yet.** The train-eval − val gap is 2.84 vs
+  2.61 for E2L. The recording loss lowers train and val error together, but
+  4 epochs from an already-memorizing E2L cannot show whether it stops
+  memorization. That question belongs to Stage 4 (from `labram-base`, F0 vs
+  F1–F3).
+* **Attention vs. window error (test, epoch 3):**
+  - $\rho_{\text{within}}=-0.11$, in 60 % of recordings the lower-weight windows are the worse ones;
+  - the lowest-weight decile is 4.3 y worse than the recording average, the middle deciles about 1 y better;
+  - the weights rise with the window's minute (ρ +0.33);
+  - the largest weight is 1.47× uniform on average, so the attention is soft, not collapsed;
+  - the weighted SD of the window predictions gives a recording confidence with ρ = 0.20, and MAE 5.43 on the more confident half.
+
+The SageMaker control W0 (window-level training for the same 4 epochs from
+E2L) is the check that the gain is not simply 4 more epochs.
