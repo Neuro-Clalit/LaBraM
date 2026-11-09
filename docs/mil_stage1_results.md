@@ -252,7 +252,7 @@ about 15 min locally.
 | W7 | M1-q + retention 0.1 | SM g5.2xlarge | done | 6.54 | 6.12 | 6.06 / 6.12 | 6.44 | 3.98 (**2.56**) |
 | F0 | window-level control, from `labram-base` | local | done, best epoch 9 | 7.79 | 7.64 | 6.89 / 7.67 | — | 6.54 (1.25) |
 | F2 | M1-q, from `labram-base` | local | done, best epoch 10 | **7.05** | **6.69** | 6.99 / 6.68 | 7.09 | 5.96 (1.09) |
-| F1 | M0 bag, from `labram-base` | local | running, epoch 0 of 12 | 10.59 | 10.12 | | 10.12 | 10.42 (0.17) |
+| F1 | M0 bag, from `labram-base` | local | done, best epoch 10 | 7.28 | 6.98 | 6.84 / 6.99 | 6.98 | 6.29 (0.99) |
 | F3 | M1-hq + time, from `labram-base` | local | queued | | | | | |
 
 ### Table 5.2. Stage 3 test MAE per dataset and cohort (final epoch)
@@ -282,20 +282,20 @@ architecture and the attention input make no difference beyond about
 
 ### Table 5.3. Stage 4 per epoch: window-level F0 vs. bag-level M1-q F2, both from `labram-base` (val / test / train-eval, years)
 
-| epoch | F0 val | F0 test | F0 train-eval | F0 gap | F2 val | F2 test | F2 train-eval | F2 gap |
-|---|---|---|---|---|---|---|---|---|
-| 0 | 9.75 | 9.81 | 9.13 | 0.62 | 10.14 | 9.87 | 9.78 | 0.36 |
-| 1 | 9.97 | 10.16 | 9.33 | 0.64 | 9.02 | 8.53 | 8.36 | 0.66 |
-| 2 | 9.22 | 9.32 | 8.47 | 0.75 | 8.35 | 8.19 | 8.01 | 0.34 |
-| 3 | 9.03 | 9.11 | 8.27 | 0.76 | 7.97 | 7.56 | 7.58 | 0.39 |
-| 4 | 8.28 | 8.19 | 7.42 | 0.86 | **7.69** | **7.31** | 7.14 | **0.55** |
-| 5 | 8.60 | 8.61 | 7.62 | 0.98 | 7.62 | 7.27 | 6.81 | 0.81 |
-| 6 | 8.36 | 8.35 | 7.36 | 1.00 | 7.73 | 7.46 | 7.09 | 0.64 |
-| 7 | 8.22 | 8.18 | 7.18 | 1.04 | 7.24 | 6.85 | 6.44 | 0.80 |
-| 8 | 8.00 | 7.95 | 6.90 | 1.10 | 7.32 | 6.93 | 6.41 | 0.91 |
-| 9 | 7.79 | 7.64 | 6.54 | 1.25 | 7.11 | 6.75 | 6.03 | 1.08 |
-| 10 | 7.82 | 7.70 | 6.61 | 1.21 | **7.05** | **6.69** | 5.96 | 1.09 |
-| 11 | 7.79 | 7.67 | 6.57 | 1.22 | 7.09 | 6.73 | 5.97 | 1.12 |
+| epoch | F0 val | F0 test | F0 train-eval | F0 gap | F2 val | F2 test | F2 train-eval | F2 gap | F1 val | F1 test | F1 train-eval | F1 gap |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | 9.75 | 9.81 | 9.13 | 0.62 | 10.14 | 9.87 | 9.78 | 0.36 | 10.59 | 10.12 | 10.42 | 0.17 |
+| 1 | 9.97 | 10.16 | 9.33 | 0.64 | 9.02 | 8.53 | 8.36 | 0.66 | 8.88 | 8.47 | 8.17 | 0.71 |
+| 2 | 9.22 | 9.32 | 8.47 | 0.75 | 8.35 | 8.19 | 8.01 | 0.34 | 8.94 | 8.88 | 8.41 | 0.53 |
+| 3 | 9.03 | 9.11 | 8.27 | 0.76 | 7.97 | 7.56 | 7.58 | 0.39 | 8.48 | 8.06 | 7.81 | 0.67 |
+| 4 | 8.28 | 8.19 | 7.42 | 0.86 | **7.69** | **7.31** | 7.14 | **0.55** | 8.29 | 7.96 | 7.78 | 0.51 |
+| 5 | 8.60 | 8.61 | 7.62 | 0.98 | 7.62 | 7.27 | 6.81 | 0.81 | 8.01 | 7.62 | 7.18 | 0.83 |
+| 6 | 8.36 | 8.35 | 7.36 | 1.00 | 7.73 | 7.46 | 7.09 | 0.64 | 7.68 | 7.33 | 6.95 | 0.73 |
+| 7 | 8.22 | 8.18 | 7.18 | 1.04 | 7.24 | 6.85 | 6.44 | 0.80 | 7.52 | 7.16 | 6.76 | 0.76 |
+| 8 | 8.00 | 7.95 | 6.90 | 1.10 | 7.32 | 6.93 | 6.41 | 0.91 | 7.50 | 7.13 | 6.50 | 1.00 |
+| 9 | 7.79 | 7.64 | 6.54 | 1.25 | 7.11 | 6.75 | 6.03 | 1.08 | 7.43 | 7.12 | 6.48 | 0.95 |
+| 10 | 7.82 | 7.70 | 6.61 | 1.21 | **7.05** | **6.69** | 5.96 | 1.09 | **7.28** | **6.98** | 6.29 | 0.99 |
+| 11 | 7.79 | 7.67 | 6.57 | 1.22 | 7.09 | 6.73 | 5.97 | 1.12 | 7.29 | 6.98 | 6.28 | 1.01 |
 
 Both runs see 8 windows per recording per epoch: 12 epochs × 0.68 M
 windows, far less than E2L's about 40 M, which is why F0 ends above E2L
@@ -307,6 +307,7 @@ windows, far less than E2L's about 40 M, which is why F0 ends above E2L
 |---|---|---|---|---|---|---|
 | E2L (reference, 16 epochs, all windows) | 7.00 | 4.91 | 8.49 | 7.12 | 7.56 | 6.63 |
 | F0 window-level | 7.64 | 5.34 | 8.75 | 7.87 | 8.12 | 7.30 |
+| F1 bag, mean pooling | 6.98 | **5.28** | **8.70** | 7.12 | 7.37 | 6.68 |
 | F2 bag, M1-q | **6.69** | 5.40 | 8.88 | **6.63** | **7.09** | **6.45** |
 
 What Table 5.3 and Table 5.4 show:
@@ -324,9 +325,17 @@ What Table 5.3 and Table 5.4 show:
 * **The whole gain is on HEEDB** (normal 7.87 → 6.63, abnormal 8.12 → 7.09,
   unlabelled 7.30 → 6.45). TUH is unchanged or slightly worse (normal 5.34 →
   5.40, abnormal 8.75 → 8.88; TUH val 7.62 vs F0's 7.49).
-* **Within F2, attention is worth 0.4 y** (test 6.69 vs its own mean of window
-  predictions 7.09). F1, the mean-pool bag run from scratch (running), will
-  separate the effect of the recording loss from that of the attention.
+* **Where F2's gain over F0 comes from (F1 separates the two parts).**
+  - **Recording-level loss** (F0 → F1, both mean pooling): −0.51 y val /
+    −0.66 y test. About 70 % of the total, and the gap falls 1.25 → 0.99.
+  - **Attention** (F1 → F2, same loss): −0.23 y val / −0.29 y test. About
+    30 %, with a slightly larger gap (1.09).
+  
+  Per cohort (test), the loss helps every HEEDB cohort (normal 7.87 → 7.12,
+  abnormal 8.12 → 7.37, unlabelled 7.30 → 6.68). Attention adds the most on
+  HEEDB normal (→ 6.63) and less on abnormal / unlabelled (→ 7.09 / 6.45).
+  On TUAB the loss is neutral (normal 5.34 → 5.28, abnormal 8.75 → 8.70),
+  and attention makes TUAB slightly worse (5.40, 8.88).
 
 What W1 and L1 already show, against the matched M0 bag model W1:
 
