@@ -253,7 +253,7 @@ about 15 min locally.
 | F0 | window-level control, from `labram-base` | local | done, best epoch 9 | 7.79 | 7.64 | 6.89 / 7.67 | — | 6.54 (1.25) |
 | F2 | M1-q, from `labram-base` | local | done, best epoch 10 | **7.05** | **6.69** | 6.99 / 6.68 | 7.09 | 5.96 (1.09) |
 | F1 | M0 bag, from `labram-base` | local | done, best epoch 10 | 7.28 | 6.98 | 6.84 / 6.99 | 6.98 | 6.29 (0.99) |
-| F3 | M1-hq + time, from `labram-base` | local | queued | | | | | |
+| F3 | M1-hq + time, from `labram-base` | local | running (epoch 9 of 12: val 7.03, test 6.69, train-eval 6.05, gap 0.98; final values due ~23:00 UTC) | | | | | |
 
 ### Table 5.2. Stage 3 test MAE per dataset and cohort (final epoch)
 
@@ -968,3 +968,98 @@ What Tables 11.1–11.4 and Figure 11.1 show:
     quadratic correction separates abnormal from normal better. The
     attention models should be judged on a downstream-separation metric
     such as Table 11.4, not only on MAE.
+
+
+## 12. Longer warm starts: X1–X6 (running, 2026-11-09 22:35 UTC)
+
+The two selected methods, W4 + retention and L1, run longer, with the encoder
+frozen first. Each also gets a variant that adds descriptors to the
+attention input, and W4 + retention gets random bag sizes.
+
+Every X run is a warm start from E2L with the same recipe:
+- 20 epochs, lr 1e-4, 1 warm-up epoch, cosine decay;
+- **encoder frozen for epochs 0–3**, so only the pool and head train; it trains from epoch 4, when the cosine LR is at about 0.94 × peak;
+- pool and head lr ×5, entropy weight 0.01, dropout 0.1, mixup;
+- eval bags are the first 5 minutes (≤ 30 windows), as for every other run.
+
+Launcher: `scripts/mil_runs/submit_grid.sh` (jobs `X1`–`X6`); X2 also runs on
+the local GPU (`scripts/mil_runs/run_local_abmil.sh trainer.epochs=20
+mil.freeze_encoder_epochs=4`). ClearML project `LaBraM/heedb_mil`.
+
+### Table 12.1. Jobs
+
+| job | pool | attention reads | retention | bag | where | status |
+|---|---|---|---|---|---|---|
+| X1 | gated (W4) | $h$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | epoch 5; ETA ~06:45 UTC, 10 Nov |
+| X2 | ungated (L1) | $h$ | — | 32 × 8 | SM g5.4xlarge **spot** | epoch 2; ETA ~05:00 |
+| X2 (local) | as X2 | | | | local GPU, queued after F3 | starts ~23:00; ETA ~07:30 |
+| X3 | gated | $h$ + $q$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | epoch 5; ETA ~07:00 |
+| X4 | ungated | $h$ + $q$ | — | 32 × 8 | SM g5.2xlarge on-demand | epoch 5; ETA ~07:00 |
+| X5 | gated (X1) | $h$ | 0.1 | 16 × K, K ~ U{8..32} | SM g5.2xlarge on-demand | epoch 2; ~33 min per frozen epoch |
+| X6 | gated (X1) | $h$ | 0.1 | 8 × K, K ~ U{8..64} | SM g5.4xlarge on-demand | waiting for capacity |
+
+Infrastructure notes:
+- **X6, first attempt** (spot `g5.4xlarge`) stopped logging silently in
+  epoch 3 (no Python error, host memory ≤ 70 %, GPU memory ≤ 12 %). The job
+  then failed with "Artifact upload failed: Too many files are written".
+  Its checkpoint folder never received a checkpoint or analysis file, so it
+  could not resume. It was resubmitted on on-demand.
+- **The spot X2 does sync its checkpoints** (`checkpoint.pth`,
+  `checkpoint-best.pth` and `analysis/*` after epoch 0), so the X6 problem
+  was specific to that job.
+- **Capacity:** the first X5 request waited 45 min for an on-demand
+  `g5.4xlarge`, and a spot copy got "Insufficient capacity". X5 now runs on
+  an on-demand `g5.2xlarge`.
+- **Speed:** with the encoder frozen, `g5.2xlarge` (10 workers) needs
+  0.56–0.66 s/step and is data-bound (0.4–0.5 s of each step waits for
+  data). `g5.4xlarge` (32 workers) needs 0.22 s/step, so its epochs take
+  about 10 min plus 4 min of eval.
+- **With the encoder training** (epoch 4), `g5.2xlarge` needs 0.62–0.71
+  s/step, about 31 min per epoch plus eval. The GPU's max memory is
+  6.5–6.7 GB.
+
+### Table 12.2. Recording MAE per epoch, val / test / train-eval (years)
+
+| epoch | X1 gated + ret. | X2 ungated (SM) | X3 gated hq + ret. | X4 ungated hq | X5 K 8–32 |
+|---|---|---|---|---|---|
+| 0 (frozen) | 6.69 / 6.33 / 4.23 | 6.67 / 6.30 / 4.25 | 6.66 / 6.31 / 4.17 | 6.65 / 6.25 / 4.17 | 6.66 / 6.29 / 4.26 |
+| 1 (frozen) | 6.65 / 6.26 / 4.18 | 6.66 / 6.28 / 4.15 | 6.65 / 6.27 / 4.15 | 6.64 / 6.24 / 4.16 | 6.83 / 6.48 / 4.31 |
+| 2 (frozen) | 6.64 / 6.24 / 4.16 | | **6.62 / 6.22** / 4.13 | 6.64 / 6.23 / 4.15 | |
+| 3 (frozen) | 6.64 / 6.23 / 4.19 | | 6.63 / 6.23 / 4.16 | 6.65 / 6.24 / 4.17 | |
+| 4 (encoder trained) | **6.60** / **6.22** / 4.14 | | 6.73 / 6.34 / 4.24 | 6.89 / 6.46 / 4.54 | |
+| 5 | 6.64 / — / — | | | | |
+
+The references:
+
+| model | val | test | note |
+|---|---|---|---|
+| E2L | 7.24 | 7.00 | |
+| Stage 1 frozen attention (M4-hq) | 6.57 | 6.18 | |
+| W4 | 6.51 | 6.10 | 4 epochs, encoder trained from epoch 1 |
+| L1 | 6.55 | 6.09 | 4 epochs, encoder trained from epoch 1 |
+| W7 | 6.54 | 6.12 | 4 epochs, encoder trained from epoch 1 |
+
+What Table 12.2 shows so far:
+
+* **Training only the pool and head plateaus at 6.62–6.65 val / 6.22–6.24
+  test by epoch 2.** This is about 0.05 y above the Stage 1 pools, which
+  saw all 30 windows per bag for 15 epochs. Adding descriptors to the
+  attention input (X3, X4) changes nothing in this phase (within 0.03 y).
+* **The first epoch with the encoder trained (epoch 4) separates the runs
+  by retention.**
+  - X1 (retention) improves to 6.60 / 6.22.
+  - X3 (retention, $h$ + $q$) loses 0.10 y.
+  - X4 (no retention) loses 0.24 y val, and its train-eval also rises
+    (4.17 → 4.54).
+  - So training the encoder at almost the peak LR, after 4 epochs of a
+    pool fitted to fixed features, first disrupts the features. Retention
+    damps the disruption. Whether X4 recovers is open.
+  - The W runs unfroze at epoch 1, after one epoch of pool training, and
+    showed no such drop.
+* **X5 (random bag sizes) got worse in its second frozen epoch** (6.66 →
+  6.83 val, with train-eval also up). That is an optimization effect: with
+  16 recordings per step and bags of 8–32 windows, the 5×-LR pool and head
+  get noisier gradients. It is too early to judge.
+* **The F3 row of Table 5.1** (from `labram-base`, gated $h$ + $q$ + time)
+  shows epoch 9: 7.03 val / 6.69 test, already level with F2 (7.05 /
+  6.69). Its final epochs and per-cohort values follow when it finishes.
