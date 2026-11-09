@@ -24,7 +24,7 @@ BASE=(data.data_path=s3://eeg-data-public/HEEDB/v4.1/cohorts/tuh_heedb_v1_compac
   clearml.enabled=true clearml.project_name=LaBraM/heedb_mil
   sagemaker.enabled=true sagemaker.role=arn:aws:iam::574441342949:role/SageMakerExecutionRole
   sagemaker.input_mode=FastFile sagemaker.instance_type=${INSTANCE:-ml.g5.4xlarge} sagemaker.volume_size_gb=200
-  sagemaker.use_spot=true sagemaker.on_demand_fallback=true sagemaker.max_run_sec=86400
+  sagemaker.use_spot=${SPOT:-true} sagemaker.on_demand_fallback=true sagemaker.max_run_sec=86400
   sagemaker.wait=false sagemaker.stream_logs=false)
 # Stage 3: warm start from E2L; 4 epochs, lr 1e-4, 1 warm-up epoch.
 WARM=(finetune_checkpoint.finetune=$E2L_CKPT optimizer.lr=0.0001 optimizer.warmup_epochs=1 trainer.epochs=4)

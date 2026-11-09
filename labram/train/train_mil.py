@@ -198,7 +198,6 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
             apply_lr_wd_schedule(optimizer, it, lr_schedule_values, wd_schedule_values)
         x4, ci, bag, y, _ = prepare(batch, device, ch_names, dropper, m.mil, augment_cfg, train=True)
         bag["no_grad_encoder"] = frozen
-        y_true = y
         if mixup_on and np.random.rand() < getattr(mixup_cfg, "prob", 1.0):
             lam = float(np.random.beta(mixup_cfg.alpha, mixup_cfg.alpha))
             perm = torch.randperm(y.shape[0], device=device)
@@ -226,8 +225,9 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
                                      update_grad=update, model_ema=model_ema, model=model)
         if device.type == "cuda":
             torch.cuda.synchronize()
-        pred = regression_output(criterion, out.detach()).float().reshape(len(y_true), -1)[:, 0]
-        tgt = regression_target(criterion, y_true.reshape(len(y_true), -1))[:, 0]
+        # against the (possibly mixed) target the loss saw
+        pred = regression_output(criterion, out.detach()).float().reshape(len(y), -1)[:, 0]
+        tgt = regression_target(criterion, y.reshape(len(y), -1))[:, 0]
         mae = float((pred - tgt).abs().mean()) * std
         metric_logger.update(loss=loss_value, mae=mae, attn_entropy_gap=float(ent),
                              attn_max=float(alpha.max(-1).values.mean()))
