@@ -210,37 +210,64 @@ What Table 3.1 and Figure 3.1 show:
    M2-hq and M1-q with feature retention; Stage 4 runs M0, M1-q and
    M1-hq-time, each against its window-level control.
 
-## 5. Stages 3–4: the SageMaker grid (running)
+## 5. Stages 3–4: the grid (running)
 
-`scripts/mil_runs/submit_grid.sh`, ClearML project `LaBraM/heedb_mil`, on
-E2L's data (S3 compact cohort, streamed), split and protocol. Stage 3 starts
-from E2L, 4 epochs, lr 1e-4, the encoder frozen in epoch 0, pool/head lr ×5.
-Stage 4 starts from `labram-base`, 12 epochs, lr 2.8e-4. Bag runs use
-32 recordings × 8 windows per step; the window controls use 8 windows per
-recording per epoch, batch 256.
+Every run uses E2L's data, split, channels and protocol; the ClearML project
+is `LaBraM/heedb_mil`.
+- **Stage 3:** warm start from E2L, 4 epochs, lr 1e-4, encoder frozen in epoch 0, pool and head lr ×5.
+- **Stage 4:** from `labram-base`, 12 epochs, lr 2.8e-4.
+- **Batches:** bag runs use 32 recordings × 8 windows per step; window controls use 8 windows per recording per epoch, batch 256.
+- **Launchers:** `scripts/mil_runs/submit_grid.sh` (SageMaker, S3 compact cohort, streamed) and `scripts/mil_runs/run_local_grid.sh` (local GPU, local npy).
 
-### Table 5.1. Jobs (2026-11-09 01:50 UTC)
+**First attempt (2026-11-09 01:10 UTC).** Spot capacity for g5 was
+unavailable, so 5 jobs moved to on-demand. Every `ml.g5.2xlarge` job with
+24 loader workers then **ran out of host memory** (32 GB) after 0.5–2.7 h:
+each worker gradually copies the dataset's ~17 M-name file list. W0
+(16 workers) and W1 (`ml.g5.4xlarge`, 64 GB, 32 workers) survived. Streamed
+reads also make `g5.2xlarge` slow: W0 needed about 2 h per epoch at 16
+workers, vs about 20 min per epoch for W1 on `g5.4xlarge`/32 workers, and
+about 15 min locally.
 
-| job | config | instance | status |
-|---|---|---|---|
-| W0 | window-level control, warm start | g5.2xlarge spot | training |
-| W1 | M0 bag | g5.4xlarge on-demand | training |
-| W2 | M1-q | g5.2xlarge on-demand | training |
-| W3 | M3-q | g5.2xlarge on-demand | training |
-| W4 | M1-h | g5.2xlarge spot | waiting for spot capacity |
-| W5 | M1-hq + time | g5.2xlarge spot | waiting for spot capacity |
-| W6 | M2-hq | g5.2xlarge spot | waiting for spot capacity |
-| W7 | M1-q + retention 0.1 | g5.2xlarge spot | waiting for spot capacity |
-| F0 | window-level control, from `labram-base` | g5.2xlarge on-demand | training |
-| F1 | M0 bag, from `labram-base` | g5.2xlarge spot | waiting for spot capacity |
-| F2 | M1-q, from `labram-base` | g5.2xlarge on-demand | training |
-| F3 | M1-hq + time, from `labram-base` | g5.2xlarge spot | waiting for spot capacity |
+**Second attempt (05:25 UTC).**
+- Stage 4 (F0, F2, F1, F3) runs on the **local GPU**, one job after another, about 4 h each.
+- Stage 3 W2 runs on on-demand and W3 on spot `g5.4xlarge` (32 workers).
+- W4–W7 run on on-demand `g5.2xlarge` with 10 workers.
 
-Spot capacity for g5 was not available when the grid was submitted. The
-on-demand quota (4 × g5.2xlarge, 1 × g5.4xlarge) went to the jobs that answer
-the main questions; the rest start when spot capacity frees. Streamed reads
-are latency-bound: about 2.2 s per 256-window step with 16 loader workers,
-so the jobs use 24–32 workers.
+### Table 5.1. Jobs and results so far (recording MAE in years; the train-eval − val gap measures memorization)
+
+| job | config | where | status | val | test | test TUH / HEEDB | train-eval (gap) |
+|---|---|---|---|---|---|---|---|
+| E2L | reference, best epoch 11 | — | — | 7.24 | 7.00 | 6.55 / 7.02 | 4.63 (2.61) |
+| W0 | window-level control, warm start | SM g5.2xlarge spot | epoch 0 of 4 done | 7.53 | 7.34 | 6.68 / 7.36 | 4.99 (2.54) |
+| W1 | M0 bag (mean of embeddings), warm start | SM g5.4xlarge | **done**, epoch 3 | 6.82 | 6.44 | 6.19 / 6.45 | 3.93 (2.89) |
+| L1 | ungated ABMIL on $h$ (section 6) | local | **done**, epoch 3 | **6.55** | **6.09** | 6.11 / 6.09 | 3.71 (2.84) |
+| W2 | M1-q | SM g5.4xlarge | rerun 05:25 | | | | |
+| W3 | M3-q | SM g5.4xlarge spot | rerun 05:25 | | | | |
+| W4 | M1-h (gated) | SM g5.2xlarge | rerun 05:25 | | | | |
+| W5 | M1-hq + time | SM g5.2xlarge | rerun 05:25 | | | | |
+| W6 | M2-hq | SM g5.2xlarge | rerun 05:25 | | | | |
+| W7 | M1-q + retention 0.1 | SM g5.2xlarge | rerun 05:25 | | | | |
+| F0 | window-level control, from `labram-base` | local | running (1st) | | | | |
+| F2 | M1-q, from `labram-base` | local | queued (2nd) | | | | |
+| F1 | M0 bag, from `labram-base` | local | queued (3rd) | | | | |
+| F3 | M1-hq + time, from `labram-base` | local | queued (4th) | | | | |
+
+What W1 and L1 already show, against the matched M0 bag model W1:
+
+* **End-to-end mean pooling (W1, 6.44 test) ≈ the frozen-feature `M0`
+  with a refitted head (6.50).** The recording-level loss with mean pooling
+  buys little beyond what a head refit already gives.
+* **End-to-end attention (L1, 6.09) beats end-to-end mean pooling (W1, 6.44)
+  by 0.35 y** under the same training, and beats the frozen-feature attention
+  of Stage 1 (6.18–6.22) by about 0.1 y. The gain is on HEEDB (6.45 → 6.09);
+  TUH stays about level (6.19 vs 6.11).
+* **No reduction of memorization yet.** The train-eval − val gap is 2.84–2.89
+  for both bag runs vs 2.61 for E2L. These are warm starts from a model that
+  already memorizes; Stage 4 tests whether the recording-level loss changes
+  that.
+* The window-level control W0 is still running. After epoch 0 (the warm-up to
+  lr 1e-4) it is *worse* than E2L (7.34 test), so it will show how much of
+  W1 / L1 is merely the extra epochs.
 
 ## 6. End-to-end, local: L1 (simplest ABMIL)
 

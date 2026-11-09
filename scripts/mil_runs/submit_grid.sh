@@ -9,6 +9,9 @@
 # Streamed (FastFile) reads are latency-bound: W0 ran 2.2 s/step on ml.g5.2xlarge
 # with 16 loader workers (1.85 s of it waiting for data), so the default is
 # ml.g5.4xlarge with 32 workers (override with INSTANCE=..., WORKERS=...).
+# Host memory: every loader worker slowly copies the dataset's ~17M-name file
+# list, so ml.g5.2xlarge (32 GB) ran out of memory with 24 workers (16 held);
+# use WORKERS=10 there. ml.g5.4xlarge (64 GB) with 32 workers is fine.
 #   ONLY="W2 W3" scripts/mil_runs/submit_grid.sh       # a subset
 set -euo pipefail
 cd "$(dirname "$0")/../.."
