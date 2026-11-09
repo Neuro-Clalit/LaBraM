@@ -9,6 +9,8 @@ of $K$ windows goes through the LaBraM encoder, a learned gated attention
 pools the window embeddings into one recording embedding, the head predicts
 once, and the loss is taken once per recording.
 
+**Stage 1 results (2026-11-09):** [`mil_stage1_results.md`](mil_stage1_results.md). Attention on frozen E2L features: test 7.00 → 6.18–6.22 y, of which about 0.5 y is the recording-level head refit (M0) and 0.24–0.36 y the attention. Stages 3–4 are running on SageMaker (`scripts/mil_runs/submit_grid.sh`).
+
 ## 1. What Proposal A tells B1
 
 ### Table 1.1. Findings that shape the design
