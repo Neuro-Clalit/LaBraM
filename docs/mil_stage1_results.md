@@ -554,3 +554,59 @@ Per cohort, Tables 8.1–8.2 show:
   val 7.65–7.85 vs 7.74).
 * **From scratch (F0 vs F2)** every HEEDB cohort gains about 1 y, and TUH gets
   slightly worse (val TUH abnormal 7.83 → 8.05).
+
+
+### Table 8.3. Val MAE with TUH split into TUAB and other TUEG recordings
+
+The TUH part of val is split by TUAB membership (`tuh_index.parquet`,
+`corpora` contains `tuab`). TUAB normal has 271 recordings, TUAB abnormal
+211, TUEG normal 1,117, TUEG abnormal 1,465 and TUEG unlabelled 358. Test TUH
+is exactly the TUAB eval set (149 normal, 125 abnormal), so for test the TUAB
+cohorts are the TUH columns of Table 8.1.
+
+The predictions are rebuilt per recording (`scripts/mil_cohort_summary.py`):
+- bag runs: $\sum_i\alpha_i\hat y_i$ from the saved per-window weights, which reproduces the logged MAEs;
+- W0 and F0: re-scored with `scripts/eval_age_by_cohort.py`;
+- S1: rerun with val predictions saved.
+
+W5 is left out, because its time encoding breaks the weighted-sum
+reconstruction. All rows are in
+`docs/data/mil_summary/all_experiments_by_tuab_cohort.csv`.
+
+| experiment | all | TUAB normal | TUAB abnormal | TUEG normal | TUEG abnormal | TUEG unlabelled | HEEDB normal | HEEDB abnormal | HEEDB unlabelled |
+|---|---|---|---|---|---|---|---|---|---|
+| E2L (reference) | 7.25 | 5.49 | 7.38 | 6.71 | 7.79 | 8.26 | 7.02 | 7.91 | 6.90 |
+| A3 post-hoc | 6.85 | 5.49 | 7.26 | 6.72 | 7.81 | 8.33 | 6.11 | 7.25 | 6.48 |
+| S1 M0 | 6.86 | 5.55 | 7.35 | 6.64 | 7.77 | 8.35 | 6.29 | 7.32 | 6.41 |
+| S1 M1-h | 6.59 | 5.41 | 7.36 | 6.58 | 7.76 | 8.27 | 5.70 | 6.92 | 6.16 |
+| S1 M1-q | 6.60 | 5.45 | 7.38 | 6.58 | 7.73 | 8.27 | 5.74 | 6.92 | 6.18 |
+| S1 M1-hq | 6.59 | 5.41 | 7.34 | 6.59 | 7.77 | 8.28 | 5.70 | 6.93 | 6.15 |
+| S1 M1-hq-time | 6.62 | 5.38 | 7.38 | 6.58 | 7.79 | 8.20 | 5.77 | 6.96 | 6.19 |
+| S1 M2-hq | 6.59 | 5.43 | 7.36 | 6.57 | 7.75 | 8.26 | 5.74 | 6.93 | 6.13 |
+| S1 M3-q | 6.60 | 5.48 | 7.41 | 6.58 | 7.74 | 8.23 | 5.73 | 6.89 | 6.18 |
+| S1 M3-h | 6.61 | 5.39 | 7.43 | 6.61 | 7.81 | 8.23 | 5.75 | 6.89 | 6.19 |
+| S1 M4-hq | 6.57 | 5.40 | 7.37 | 6.53 | 7.74 | 8.24 | 5.71 | 6.87 | 6.15 |
+| S1 M4-hq-sa | 6.59 | 5.43 | 7.41 | 6.61 | 7.78 | 8.32 | 5.67 | 6.92 | 6.12 |
+| S3 W0 (window-level control) | 7.37 | 5.58 | 7.38 | 6.84 | 7.90 | 8.21 | 7.18 | 8.04 | 7.04 |
+| S3 W1 (bag, mean) | 6.82 | 5.56 | 7.34 | 6.66 | 7.92 | 8.72 | 6.04 | 7.35 | 6.28 |
+| S3 L1 | 6.55 | 5.55 | 7.00 | 6.51 | 7.93 | 8.50 | 5.53 | 6.96 | 6.01 |
+| S3 W4 | 6.51 | 5.42 | 7.13 | 6.57 | 7.76 | 8.58 | 5.50 | 6.87 | 6.02 |
+| S3 W2 | 6.61 | 5.53 | 7.15 | 6.65 | 7.89 | 8.73 | 5.59 | 7.01 | 6.09 |
+| S3 W3 | 6.59 | 5.50 | 7.30 | 6.58 | 7.85 | 8.66 | 5.64 | 6.96 | 6.08 |
+| S3 W6 | 6.55 | 5.52 | 7.32 | 6.55 | 7.86 | 8.42 | 5.52 | 6.92 | 6.05 |
+| S3 W7 | 6.54 | 5.33 | 7.22 | 6.57 | 7.71 | 8.43 | 5.62 | 6.90 | 6.06 |
+| S4 F0 (window-level) | 7.79 | 5.90 | 7.35 | 7.07 | 7.90 | 8.40 | 7.91 | 8.54 | 7.56 |
+| S4 F2 (bag, gated q) | 7.05 | 5.86 | 8.07 | 6.95 | 8.04 | 9.07 | 6.45 | 7.41 | 6.52 |
+
+Per cohort, Table 8.3 shows:
+
+* **TUAB abnormal is the only TUH cohort that end-to-end attention clearly
+  improves**: 7.38 → 7.00 (L1), 7.13 (W4), 7.15 (W2). Frozen-feature pools
+  leave it at about 7.4, and on test it moves 8.50 → 8.00–8.20.
+* **TUAB normal and TUEG normal** improve slightly with attention
+  (5.49 → 5.33–5.55, 6.71 → 6.51–6.66).
+* **TUEG abnormal** does not move (7.79 → 7.71–7.93), and **TUEG
+  unlabelled** gets *worse* end to end (8.26 → 8.42–8.73).
+* **From scratch (F2 vs F0)**, TUAB abnormal is much worse (8.07 vs 7.35):
+  the bag model trained from `labram-base` loses on TUAB's pathological
+  recordings while it gains about 1 y on every HEEDB cohort.

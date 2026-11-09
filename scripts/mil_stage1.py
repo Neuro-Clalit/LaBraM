@@ -109,9 +109,10 @@ def main():
                 if "info" in res:
                     an.update(best_epoch=res["info"]["best_epoch"])
                 all_analytics.append(an)
-                pd.DataFrame({"recording": data["test"].rec["recording"], "pred": res["test"]["pred"],
-                              "age": data["test"].rec["age"]}).to_parquet(
-                    os.path.join(outdir, f"{name}_test_pred.parquet"))
+                for split in ("val", "test"):
+                    pd.DataFrame({"recording": data[split].rec["recording"], "pred": res[split]["pred"],
+                                  "age": data[split].rec["age"]}).to_parquet(
+                        os.path.join(outdir, f"{name}_{split}_pred.parquet"))
             pd.DataFrame(all_metrics).to_csv(os.path.join(args.out_dir, "metrics.csv"), index=False)
             pd.DataFrame(all_analytics).drop(columns=["excess_by_decile"]).to_csv(
                 os.path.join(args.out_dir, "analytics.csv"), index=False)
