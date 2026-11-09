@@ -1,0 +1,577 @@
+experiment,split,correction,source,cohort,n,mae,mean_err
+E2 (benchmark),test,none,TUAB,all,274,6.695942156867772,-0.21656184336621262
+E2 (benchmark),test,none,TUAB,normal,149,5.131579769781305,-0.047665225653304354
+E2 (benchmark),test,none,TUAB,abnormal,125,8.560662122274836,-0.41788661167999946
+E2 (benchmark),test,none,HEEDB,all,7338,7.273689835639755,-0.6448836028101524
+E2 (benchmark),test,none,HEEDB,normal,1518,7.427277818215893,0.3560328818373951
+E2 (benchmark),test,none,HEEDB,abnormal,2253,7.825679768037888,-1.0696688386233493
+E2 (benchmark),test,none,HEEDB,unlabelled,3567,6.859678096014421,-0.8025371176427415
+E2 (benchmark),test,recalibrate,TUAB,all,274,6.480260686925932,-0.2289836515258737
+E2 (benchmark),test,recalibrate,TUAB,normal,149,4.835809851407126,-1.0044619954304583
+E2 (benchmark),test,recalibrate,TUAB,abnormal,125,8.440446082864348,0.6953865344083912
+E2 (benchmark),test,recalibrate,HEEDB,all,7338,6.658754002503226,-0.10984222696092073
+E2 (benchmark),test,recalibrate,HEEDB,normal,1518,6.690956973573488,0.16864311714937005
+E2 (benchmark),test,recalibrate,HEEDB,abnormal,2253,7.183542390385736,0.19780840877602765
+E2 (benchmark),test,recalibrate,HEEDB,unlabelled,3567,6.313580930458383,-0.42267587839763676
+E2 (benchmark),test,cole,TUAB,all,274,8.168275758984405,0.44369160508167593
+E2 (benchmark),test,cole,TUAB,normal,149,6.798992284184457,-2.35066352122167
+E2 (benchmark),test,cole,TUAB,abnormal,125,9.800461660945945,3.774562915635265
+E2 (benchmark),test,cole,HEEDB,all,7338,7.913713535758243,1.7331951806301766
+E2 (benchmark),test,cole,HEEDB,normal,1518,7.60216591239979,0.4672733604352473
+E2 (benchmark),test,cole,HEEDB,abnormal,2253,8.408015360254073,3.606641009767769
+E2 (benchmark),test,cole,HEEDB,unlabelled,3567,7.734085636029908,1.0886187494580166
+E2 (benchmark),test,quadratic_gap,TUAB,all,274,5.307995838717908,0.28486906223091785
+E2 (benchmark),test,quadratic_gap,TUAB,normal,149,4.384153213281992,-1.6218165068393868
+E2 (benchmark),test,quadratic_gap,TUAB,abnormal,125,6.409216248237518,2.5576382605627206
+E2 (benchmark),test,quadratic_gap,HEEDB,all,7338,5.10706643695423,1.3365364691695947
+E2 (benchmark),test,quadratic_gap,HEEDB,normal,1518,4.878342742316904,0.44956478824355756
+E2 (benchmark),test,quadratic_gap,HEEDB,abnormal,2253,5.433307502072302,2.6611245001237
+E2 (benchmark),test,quadratic_gap,HEEDB,unlabelled,3567,4.998342424828758,0.8773624231662653
+E2 (benchmark),val (cross-fitted),none,TUAB,all,482,6.412038513977393,0.3003916626848605
+E2 (benchmark),val (cross-fitted),none,TUAB,normal,271,5.711518050153391,0.3510435832959047
+E2 (benchmark),val (cross-fitted),none,TUAB,abnormal,211,7.311759109694474,0.23533635232660002
+E2 (benchmark),val (cross-fitted),none,TUEG,all,2940,7.455820099944617,0.07689202565643447
+E2 (benchmark),val (cross-fitted),none,TUEG,normal,1117,6.824374825753549,0.385057478341805
+E2 (benchmark),val (cross-fitted),none,TUEG,abnormal,1465,7.8090937852965085,-0.5946210669211773
+E2 (benchmark),val (cross-fitted),none,TUEG,unlabelled,358,7.980340832433173,1.8633330032448212
+E2 (benchmark),val (cross-fitted),none,HEEDB,all,7192,7.4876724299697335,-0.9031255073876183
+E2 (benchmark),val (cross-fitted),none,HEEDB,normal,1493,7.3748189397545705,0.2793554454138694
+E2 (benchmark),val (cross-fitted),none,HEEDB,abnormal,2179,8.115066799687579,-1.0893880731946188
+E2 (benchmark),val (cross-fitted),none,HEEDB,unlabelled,3520,7.147160478059521,-1.2893692379669275
+E2 (benchmark),val (cross-fitted),recalibrate,TUAB,all,482,6.3759731966867905,0.06813460399948985
+E2 (benchmark),val (cross-fitted),recalibrate,TUAB,normal,271,5.705313107668455,-0.5703474849696079
+E2 (benchmark),val (cross-fitted),recalibrate,TUAB,abnormal,211,7.237342315757733,0.8881755808270988
+E2 (benchmark),val (cross-fitted),recalibrate,TUEG,all,2940,7.37657077458742,0.48987275292597443
+E2 (benchmark),val (cross-fitted),recalibrate,TUEG,normal,1117,6.710331586337065,0.24703281008984196
+E2 (benchmark),val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.663298326734046,0.3196405473491105
+E2 (benchmark),val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.28197108012049,1.9441811253228058
+E2 (benchmark),val (cross-fitted),recalibrate,HEEDB,all,7192,6.8276966003677675,-0.39749009554659354
+E2 (benchmark),val (cross-fitted),recalibrate,HEEDB,normal,1493,6.606347140461703,-0.07641014069343999
+E2 (benchmark),val (cross-fitted),recalibrate,HEEDB,abnormal,2179,7.412650392256338,0.025516532009071762
+E2 (benchmark),val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.559475131934404,-0.7955309518078301
+E2 (benchmark),val (cross-fitted),cole,TUAB,all,482,8.165498396853652,0.2622973284235228
+E2 (benchmark),val (cross-fitted),cole,TUAB,normal,271,7.549514923625012,-1.82416769866603
+E2 (benchmark),val (cross-fitted),cole,TUAB,abnormal,211,8.956643047303706,2.9420699461546547
+E2 (benchmark),val (cross-fitted),cole,TUEG,all,2940,8.90957493433652,2.0686698396444285
+E2 (benchmark),val (cross-fitted),cole,TUEG,normal,1117,8.342729542077572,0.6359184544785987
+E2 (benchmark),val (cross-fitted),cole,TUEG,abnormal,1465,9.097830934044598,2.982403170708637
+E2 (benchmark),val (cross-fitted),cole,TUEG,unlabelled,358,9.907818687355839,2.7998541056253403
+E2 (benchmark),val (cross-fitted),cole,HEEDB,all,7192,7.876945021260202,1.3673033260322813
+E2 (benchmark),val (cross-fitted),cole,HEEDB,normal,1493,7.3155589481487695,-0.1646023374397928
+E2 (benchmark),val (cross-fitted),cole,HEEDB,abnormal,2179,8.38969167229288,3.11105974045823
+E2 (benchmark),val (cross-fitted),cole,HEEDB,unlabelled,3520,7.797647991304282,0.9376129648191186
+E2 (benchmark),val (cross-fitted),quadratic_gap,TUAB,all,482,5.277423592199918,-0.0018454239735982393
+E2 (benchmark),val (cross-fitted),quadratic_gap,TUAB,normal,271,4.933210163009467,-1.3792401973470714
+E2 (benchmark),val (cross-fitted),quadratic_gap,TUAB,abnormal,211,5.719517617368696,1.7672255882738481
+E2 (benchmark),val (cross-fitted),quadratic_gap,TUEG,all,2940,5.720362654958342,1.2774141493450835
+E2 (benchmark),val (cross-fitted),quadratic_gap,TUEG,normal,1117,5.3973850766105045,0.28790308330624237
+E2 (benchmark),val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,5.802674363320778,1.9779241444748878
+E2 (benchmark),val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,6.3912545607225075,1.4981871043736352
+E2 (benchmark),val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.067275078129891,1.106583083080757
+E2 (benchmark),val (cross-fitted),quadratic_gap,HEEDB,normal,1493,4.684733923516873,0.026007061577264966
+E2 (benchmark),val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,5.392942375694732,2.3136142393994663
+E2 (benchmark),val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.027929879960414,0.8177135121961677
+E2L (mean of window predictions),test,none,TUAB,all,274,6.545005175194768,-0.609113275130647
+E2L (mean of window predictions),test,none,TUAB,normal,149,4.908998048510397,-0.6735000678423504
+E2L (mean of window predictions),test,none,TUAB,abnormal,125,8.495125670202537,-0.5323642182182966
+E2L (mean of window predictions),test,none,HEEDB,all,7338,7.018362721438823,-0.5916002601910088
+E2L (mean of window predictions),test,none,HEEDB,normal,1518,7.117766547103531,0.18002264465122106
+E2L (mean of window predictions),test,none,HEEDB,abnormal,2253,7.557308459528366,-0.707589040984829
+E2L (mean of window predictions),test,none,HEEDB,unlabelled,3567,6.63564902497828,-0.84671684175031
+E2L (mean of window predictions),test,recalibrate,TUAB,all,274,6.3700930762063654,-0.4055936931152429
+E2L (mean of window predictions),test,recalibrate,TUAB,normal,149,4.703300919422241,-1.1548593548518287
+E2L (mean of window predictions),test,recalibrate,TUAB,abnormal,125,8.356909327093044,0.4875309756747672
+E2L (mean of window predictions),test,recalibrate,HEEDB,all,7338,6.621639610802301,0.04555944710628645
+E2L (mean of window predictions),test,recalibrate,HEEDB,normal,1518,6.6275360915777535,0.287269555982834
+E2L (mean of window predictions),test,recalibrate,HEEDB,abnormal,2253,7.154679129825439,0.4758185610409893
+E2L (mean of window predictions),test,recalibrate,HEEDB,unlabelled,3567,6.2824501254711365,-0.32906621282348225
+E2L (mean of window predictions),test,cole,TUAB,all,274,7.939137652662161,0.20249540343614558
+E2L (mean of window predictions),test,cole,TUAB,normal,149,6.463583938661891,-2.5252753461600776
+E2L (mean of window predictions),test,cole,TUAB,abnormal,125,9.697997679750483,3.4539981369548443
+E2L (mean of window predictions),test,cole,HEEDB,all,7338,7.926910488132437,1.9063652399573563
+E2L (mean of window predictions),test,cole,HEEDB,normal,1518,7.502877498938946,0.617242364553383
+E2L (mean of window predictions),test,cole,HEEDB,abnormal,2253,8.489553524216612,3.9146468157206096
+E2L (mean of window predictions),test,cole,HEEDB,unlabelled,3567,7.751986831641847,1.1864970410979845
+E2L (mean of window predictions),test,quadratic_gap,TUAB,all,274,5.374654894736739,0.1352871999914568
+E2L (mean of window predictions),test,quadratic_gap,TUAB,normal,149,4.392076848570743,-1.794942747792439
+E2L (mean of window predictions),test,quadratic_gap,TUAB,abnormal,125,6.545887925766605,2.4361212977498607
+E2L (mean of window predictions),test,quadratic_gap,HEEDB,all,7338,5.403464829352772,1.4567173562222442
+E2L (mean of window predictions),test,quadratic_gap,HEEDB,normal,1518,5.098965179215808,0.528736576033074
+E2L (mean of window predictions),test,quadratic_gap,HEEDB,abnormal,2253,5.796922350740986,2.907686447891216
+E2L (mean of window predictions),test,quadratic_gap,HEEDB,unlabelled,3567,5.284533142562825,0.9351702468297484
+E2L (mean of window predictions),val (cross-fitted),none,TUAB,all,482,6.314316325046674,-0.08388042177152505
+E2L (mean of window predictions),val (cross-fitted),none,TUAB,normal,271,5.487892618852511,-0.250213062022422
+E2L (mean of window predictions),val (cross-fitted),none,TUAB,abnormal,211,7.375742033002212,0.12975059959337096
+E2L (mean of window predictions),val (cross-fitted),none,TUEG,all,2940,7.435797136083461,-0.032394658008717145
+E2L (mean of window predictions),val (cross-fitted),none,TUEG,normal,1117,6.709482057146154,0.12302279647851445
+E2L (mean of window predictions),val (cross-fitted),none,TUEG,abnormal,1465,7.789031166675123,-0.5289816861195088
+E2L (mean of window predictions),val (cross-fitted),none,TUEG,unlabelled,358,8.256484533726438,1.5148084132764
+E2L (mean of window predictions),val (cross-fitted),none,HEEDB,all,7192,7.23032425659315,-0.8554075817923238
+E2L (mean of window predictions),val (cross-fitted),none,HEEDB,normal,1493,7.019290360663924,-0.03316122808768925
+E2L (mean of window predictions),val (cross-fitted),none,HEEDB,abnormal,2179,7.9077666385687495,-0.8278666114254567
+E2L (mean of window predictions),val (cross-fitted),none,HEEDB,unlabelled,3520,6.900473874859486,-1.2212103035282393
+E2L (mean of window predictions),val (cross-fitted),recalibrate,TUAB,all,482,6.301040295485058,-0.032768069049275095
+E2L (mean of window predictions),val (cross-fitted),recalibrate,TUAB,normal,271,5.4960739793761375,-0.7084729605312431
+E2L (mean of window predictions),val (cross-fitted),recalibrate,TUAB,abnormal,211,7.334906985842962,0.8350803934702193
+E2L (mean of window predictions),val (cross-fitted),recalibrate,TUEG,all,2940,7.448955345778659,0.5003845406175507
+E2L (mean of window predictions),val (cross-fitted),recalibrate,TUEG,normal,1117,6.688601938486817,0.2578652331929342
+E2L (mean of window predictions),val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.779749066646113,0.37172864203486417
+E2L (mean of window predictions),val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.46767589011991,1.7835548138492043
+E2L (mean of window predictions),val (cross-fitted),recalibrate,HEEDB,all,7192,6.82695925190745,-0.23688788246708734
+E2L (mean of window predictions),val (cross-fitted),recalibrate,HEEDB,normal,1493,6.511438686422772,-0.055706621330298085
+E2L (mean of window predictions),val (cross-fitted),recalibrate,HEEDB,abnormal,2179,7.506928527600711,0.23844623240615298
+E2L (mean of window predictions),val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.5398624202406905,-0.6079835242812967
+E2L (mean of window predictions),val (cross-fitted),cole,TUAB,all,482,7.925877302778348,0.12461022952284896
+E2L (mean of window predictions),val (cross-fitted),cole,TUAB,normal,271,7.328357904453721,-1.984000989589633
+E2L (mean of window predictions),val (cross-fitted),cole,TUAB,abnormal,211,8.693307430484385,2.8328265346388806
+E2L (mean of window predictions),val (cross-fitted),cole,TUEG,all,2940,8.983894099612385,2.0546558128446724
+E2L (mean of window predictions),val (cross-fitted),cole,TUEG,normal,1117,8.22726652553912,0.6389766531236614
+E2L (mean of window predictions),val (cross-fitted),cole,TUEG,abnormal,1465,9.294431988435502,3.008729930619776
+E2L (mean of window predictions),val (cross-fitted),cole,TUEG,unlabelled,358,10.073880113897221,2.5674911169447885
+E2L (mean of window predictions),val (cross-fitted),cole,HEEDB,all,7192,7.952937347660132,1.546250327269289
+E2L (mean of window predictions),val (cross-fitted),cole,HEEDB,normal,1493,7.18531527050033,-0.1392903470342107
+E2L (mean of window predictions),val (cross-fitted),cole,HEEDB,abnormal,2179,8.658220716465973,3.3369931376854205
+E2L (mean of window predictions),val (cross-fitted),cole,HEEDB,unlabelled,3520,7.841928058049807,1.152637725802918
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,TUAB,all,482,5.419056351688568,-0.039723286613081284
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,TUAB,normal,271,5.044832493772715,-1.4971026637643892
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,TUAB,abnormal,211,5.899694576784285,1.8320767665054232
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,TUEG,all,2940,6.099306230111334,1.3570088318973021
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,TUEG,normal,1117,5.630272237318082,0.3471745518343351
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.271608436918173,2.086176630757594
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,6.85765326077625,1.523919629383352
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.404120930425243,1.2169581074627311
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,HEEDB,normal,1493,4.8739270175101845,0.0027148881619688857
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,5.8768285244712395,2.4949011787150868
+E2L (mean of window predictions),val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.336379357855913,0.9408862819391954
+E2L mean pooling + head refit (S1 M0),test,none,TUAB,all,274,6.2268525913240484,-0.3506180051040066
+E2L mean pooling + head refit (S1 M0),test,none,TUAB,normal,149,4.496682995506127,-0.6961938016145293
+E2L mean pooling + head refit (S1 M0),test,none,TUAB,abnormal,125,8.28921474953901,0.06130834433653666
+E2L mean pooling + head refit (S1 M0),test,none,HEEDB,all,7338,6.512451540701417,0.14850219135279408
+E2L mean pooling + head refit (S1 M0),test,none,HEEDB,normal,1518,6.418154467853526,0.7734187329072642
+E2L mean pooling + head refit (S1 M0),test,none,HEEDB,abnormal,2253,7.089728262088858,0.2523526642170771
+E2L mean pooling + head refit (S1 M0),test,none,HEEDB,unlabelled,3567,6.187959952054709,-0.18303647571839055
+E2L mean pooling + head refit (S1 M0),test,recalibrate,TUAB,all,274,6.25891288912757,-0.7129075696215383
+E2L mean pooling + head refit (S1 M0),test,recalibrate,TUAB,normal,149,4.523252749485072,-1.0025774040783726
+E2L mean pooling + head refit (S1 M0),test,recalibrate,TUAB,abnormal,125,8.32781977558143,-0.3676211269489918
+E2L mean pooling + head refit (S1 M0),test,recalibrate,HEEDB,all,7338,6.53561470242213,-0.25197090211649326
+E2L mean pooling + head refit (S1 M0),test,recalibrate,HEEDB,normal,1518,6.4237539501642,0.4155515913786631
+E2L mean pooling + head refit (S1 M0),test,recalibrate,HEEDB,abnormal,2253,7.117264380481755,-0.1926694094807719
+E2L mean pooling + head refit (S1 M0),test,recalibrate,HEEDB,unlabelled,3567,6.2158355875522675,-0.573503116311595
+E2L mean pooling + head refit (S1 M0),test,cole,TUAB,all,274,7.394493151932454,-0.2164467669224889
+E2L mean pooling + head refit (S1 M0),test,cole,TUAB,normal,149,5.981122571053188,-2.28023036738637
+E2L mean pooling + head refit (S1 M0),test,cole,TUAB,abnormal,125,9.079230884340534,2.2435832848304575
+E2L mean pooling + head refit (S1 M0),test,cole,HEEDB,all,7338,7.718296046316107,1.4562018872752152
+E2L mean pooling + head refit (S1 M0),test,cole,HEEDB,normal,1518,7.433906616065282,0.7716717002491621
+E2L mean pooling + head refit (S1 M0),test,cole,HEEDB,abnormal,2253,8.14611670006015,2.929215910412913
+E2L mean pooling + head refit (S1 M0),test,cole,HEEDB,unlabelled,3567,7.569101547363324,0.8171259774844425
+E2L mean pooling + head refit (S1 M0),test,quadratic_gap,TUAB,all,274,5.704459606187642,-0.17391292392537838
+E2L mean pooling + head refit (S1 M0),test,quadratic_gap,TUAB,normal,149,4.626597291520821,-1.8689864313945375
+E2L mean pooling + head refit (S1 M0),test,quadratic_gap,TUAB,abnormal,125,6.989271485270495,1.8466146969778594
+E2L mean pooling + head refit (S1 M0),test,quadratic_gap,HEEDB,all,7338,5.966163238008976,1.3491798578032914
+E2L mean pooling + head refit (S1 M0),test,quadratic_gap,HEEDB,normal,1518,5.73287395347901,0.7524234494404661
+E2L mean pooling + head refit (S1 M0),test,quadratic_gap,HEEDB,abnormal,2253,6.2981558839738145,2.6035603444129514
+E2L mean pooling + head refit (S1 M0),test,quadratic_gap,HEEDB,unlabelled,3567,5.855749361518285,0.8108442793236741
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,TUAB,all,482,6.3362506956749,0.1918349249779879
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,TUAB,normal,271,5.550777942036421,-0.1058366731512836
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,TUAB,abnormal,211,7.345080630442801,0.5741524751819338
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,TUEG,all,2940,7.414719501502712,0.22383943521532973
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,TUEG,normal,1117,6.6449564725048935,0.37461504172967564
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,TUEG,abnormal,1465,7.772528122417538,-0.21263379618460787
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,TUEG,unlabelled,358,8.352249316447814,1.5395291880767394
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,HEEDB,all,7192,6.661018430727919,-0.17831163081986548
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,HEEDB,normal,1493,6.291694889587938,0.40785075298579254
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,HEEDB,abnormal,2179,7.319875656318979,-0.04599277812930916
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),none,HEEDB,unlabelled,3520,6.409811087648109,-0.5088409544092318
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,TUAB,all,482,6.324670113753671,-0.16045441462761736
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,TUAB,normal,271,5.548784806254259,-0.4251299923060519
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,TUAB,abnormal,211,7.321186314380876,0.1794843604949221
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,TUEG,all,2940,7.401431571815746,-0.16587212771910634
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,TUEG,normal,1117,6.648516280269522,0.023526314589220682
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.752661387399412,-0.6359683531000955
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.313316210997488,1.1669013642494621
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,HEEDB,all,7192,6.693721906629192,-0.5714358900291471
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,HEEDB,normal,1493,6.311530025965418,0.0672600634246059
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,HEEDB,abnormal,2179,7.355416066634602,-0.47904833648635026
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.446216481396019,-0.899528372323524
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,TUAB,all,482,7.780173565898569,-0.045307171065455835
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,TUAB,normal,271,7.286226698865865,-1.5719612619474816
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,TUAB,abnormal,211,8.414579257679913,1.915466566512881
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,TUEG,all,2940,8.64303700686095,1.1376389567485297
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,TUEG,normal,1117,7.9608772363342775,0.32383277777698977
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,TUEG,abnormal,1465,8.905306540632598,1.6117863175012057
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,TUEG,unlabelled,358,9.698197891505727,1.7365093992304832
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,HEEDB,all,7192,7.760661347193832,1.0510890819213887
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,HEEDB,normal,1493,7.200270480970684,0.02241544645945808
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,HEEDB,abnormal,2179,8.298234248200409,2.3005821041108843
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),cole,HEEDB,unlabelled,3520,7.665573907414807,0.7139198894196134
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,TUAB,all,482,6.016263250476607,-0.2134331509012816
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,TUAB,normal,271,5.710676464562507,-1.4195255216884732
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.40874675276438,1.3356238750860594
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,TUEG,all,2940,6.643138171023146,0.812599026709174
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,TUEG,normal,1117,6.16648029832442,0.11995077964966301
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.791096841168398,1.2902845688016087
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.524890662759694,1.0189643138601712
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.967127617386631,1.0431532585296666
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.539905388534552,0.15710465524088926
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.35550088498027,2.088766889827775
+E2L mean pooling + head refit (S1 M0),val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.907916662156409,0.7716982761749973
+A3 post-hoc weights,test,none,TUAB,all,274,6.578294334406872,-0.505476257766467
+A3 post-hoc weights,test,none,TUAB,normal,149,4.897171031705996,-0.7505425584884555
+A3 post-hoc weights,test,none,TUAB,abnormal,125,8.582193311226312,-0.2133572273058567
+A3 post-hoc weights,test,none,HEEDB,all,7338,6.457955056997368,-0.5726193952309654
+A3 post-hoc weights,test,none,HEEDB,normal,1518,6.273231302745237,-0.4530359804681218
+A3 post-hoc weights,test,none,HEEDB,abnormal,2253,6.951597751315833,-0.2264742278823218
+A3 post-hoc weights,test,none,HEEDB,unlabelled,3567,6.2247713364073025,-0.8421435571727905
+A3 post-hoc weights,test,recalibrate,TUAB,all,274,6.537621463662168,-0.035715587747948065
+A3 post-hoc weights,test,recalibrate,TUAB,normal,149,4.8566067931939,-0.4612820596254144
+A3 post-hoc weights,test,recalibrate,TUAB,abnormal,125,8.541390950860341,0.47155964672999184
+A3 post-hoc weights,test,recalibrate,HEEDB,all,7338,6.375388207769372,0.0054303677725036055
+A3 post-hoc weights,test,recalibrate,HEEDB,normal,1518,6.1845765998053075,-0.030077385255527552
+A3 post-hoc weights,test,recalibrate,HEEDB,abnormal,2253,6.882783779759576,0.5051206862380611
+A3 post-hoc weights,test,recalibrate,HEEDB,unlabelled,3567,6.1361086443254464,-0.295074683645032
+A3 post-hoc weights,test,cole,TUAB,all,274,7.2346041396886225,0.6470824300148448
+A3 post-hoc weights,test,cole,TUAB,normal,149,5.573985017313392,-1.5593952407770755
+A3 post-hoc weights,test,cole,TUAB,abnormal,125,9.214062133559896,3.2772038135988137
+A3 post-hoc weights,test,cole,HEEDB,all,7338,7.741764621984737,1.756666477214819
+A3 post-hoc weights,test,cole,HEEDB,normal,1518,7.426022646402315,0.19094633821860602
+A3 post-hoc weights,test,cole,HEEDB,abnormal,2253,8.420749366637006,3.7713153545151004
+A3 post-hoc weights,test,cole,HEEDB,unlabelled,3567,7.447271683726411,1.1504874052884715
+A3 post-hoc weights,test,quadratic_gap,TUAB,all,274,5.314178467046954,0.48283650083777613
+A3 post-hoc weights,test,quadratic_gap,TUAB,normal,149,4.134393572422062,-1.257525019494378
+A3 post-hoc weights,test,quadratic_gap,TUAB,abnormal,125,6.720482061439828,2.5573474330737036
+A3 post-hoc weights,test,quadratic_gap,HEEDB,all,7338,5.783933983913649,1.5186367424065566
+A3 post-hoc weights,test,quadratic_gap,HEEDB,normal,1518,5.483183479508564,0.28158955216252063
+A3 post-hoc weights,test,quadratic_gap,HEEDB,abnormal,2253,6.33537782201385,3.132880207173214
+A3 post-hoc weights,test,quadratic_gap,HEEDB,unlabelled,3567,5.563618956845293,1.025490431408846
+A3 post-hoc weights,val (cross-fitted),none,TUAB,all,482,6.265936200029088,-0.08320050059133172
+A3 post-hoc weights,val (cross-fitted),none,TUAB,normal,271,5.488902966274788,-0.3034293979487512
+A3 post-hoc weights,val (cross-fitted),none,TUAB,abnormal,211,7.263926751438644,0.1996527277681976
+A3 post-hoc weights,val (cross-fitted),none,TUEG,all,2940,7.455735066075916,-0.01282765274667337
+A3 post-hoc weights,val (cross-fitted),none,TUEG,normal,1117,6.717319581292295,0.0988749894471142
+A3 post-hoc weights,val (cross-fitted),none,TUEG,abnormal,1465,7.8058730584091895,-0.442304806077068
+A3 post-hoc weights,val (cross-fitted),none,TUEG,unlabelled,358,8.32684662399507,1.3961449123331249
+A3 post-hoc weights,val (cross-fitted),none,HEEDB,all,7192,6.638288131461545,-0.8967611507905943
+A3 post-hoc weights,val (cross-fitted),none,HEEDB,normal,1493,6.112655224792206,-0.7918415351715642
+A3 post-hoc weights,val (cross-fitted),none,HEEDB,abnormal,2179,7.24776353898628,-0.4494573903855143
+A3 post-hoc weights,val (cross-fitted),none,HEEDB,unlabelled,3520,6.483948079376582,-1.2181588439843103
+A3 post-hoc weights,val (cross-fitted),recalibrate,TUAB,all,482,6.231483456388911,0.34522489811810875
+A3 post-hoc weights,val (cross-fitted),recalibrate,TUAB,normal,271,5.438994046754774,-0.012290479719563855
+A3 post-hoc weights,val (cross-fitted),recalibrate,TUAB,abnormal,211,7.249325304781572,0.8044034165731291
+A3 post-hoc weights,val (cross-fitted),recalibrate,TUEG,all,2940,7.4650667614940955,0.5374035223585379
+A3 post-hoc weights,val (cross-fitted),recalibrate,TUEG,normal,1117,6.715997734536272,0.551882678521577
+A3 post-hoc weights,val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.805937033547355,0.20146553618314472
+A3 post-hoc weights,val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.407343729521642,1.8669452327295897
+A3 post-hoc weights,val (cross-fitted),recalibrate,HEEDB,all,7192,6.54582175838481,-0.320958774139685
+A3 post-hoc weights,val (cross-fitted),recalibrate,HEEDB,normal,1493,6.001561504447904,-0.4005108576944691
+A3 post-hoc weights,val (cross-fitted),recalibrate,HEEDB,abnormal,2179,7.180991368699504,0.2507028526632981
+A3 post-hoc weights,val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.38347686584279,-0.6410949741557098
+A3 post-hoc weights,val (cross-fitted),cole,TUAB,all,482,7.237357285505687,0.6031862528896414
+A3 post-hoc weights,val (cross-fitted),cole,TUAB,normal,271,6.52115569422956,-1.0191662016676561
+A3 post-hoc weights,val (cross-fitted),cole,TUAB,abnormal,211,8.157218097049908,2.686871158979821
+A3 post-hoc weights,val (cross-fitted),cole,TUEG,all,2940,8.48835894541963,2.0205876447795696
+A3 post-hoc weights,val (cross-fitted),cole,TUEG,normal,1117,7.678441724882768,0.9979007556404288
+A3 post-hoc weights,val (cross-fitted),cole,TUEG,abnormal,1465,8.843018834640885,2.6499645274564045
+A3 post-hoc weights,val (cross-fitted),cole,TUEG,unlabelled,358,9.564059497460246,2.635962287368554
+A3 post-hoc weights,val (cross-fitted),cole,HEEDB,all,7192,7.826001072548002,1.3422046657917184
+A3 post-hoc weights,val (cross-fitted),cole,HEEDB,normal,1493,7.183195754365124,-0.5827433287232758
+A3 post-hoc weights,val (cross-fitted),cole,HEEDB,abnormal,2179,8.630132171885181,3.1878773148196125
+A3 post-hoc weights,val (cross-fitted),cole,HEEDB,unlabelled,3520,7.600860923284174,1.0161326923766916
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,TUAB,all,482,5.437721374340519,0.2895490235390681
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,TUAB,normal,271,4.969936215688839,-0.9482176613568798
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.038526009386038,1.8792872775997405
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,TUEG,all,2940,6.2924385240679195,1.4532669760544226
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,TUEG,normal,1117,5.755947553673115,0.6321055840222023
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.494346072423166,2.025664165180484
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.140108511751048,1.6730306431781956
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.826284948273455,1.2157554301107836
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.295983149112363,-0.31095753324194103
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.453289770952819,2.6718559248321117
+A3 post-hoc weights,val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.663073890753336,0.9619314176925579
+Frozen attention S1 M4-hq,test,none,TUAB,all,274,6.284578736493599,-0.1253638209658408
+Frozen attention S1 M4-hq,test,none,TUAB,normal,149,4.588441312510026,-0.19066648449060425
+Frozen attention S1 M4-hq,test,none,TUAB,abnormal,125,8.306374545882017,-0.04752304604432271
+Frozen attention S1 M4-hq,test,none,HEEDB,all,7338,6.172052589388036,0.08972750523968445
+Frozen attention S1 M4-hq,test,none,HEEDB,normal,1518,5.827361335431533,0.4975170377362146
+Frozen attention S1 M4-hq,test,none,HEEDB,abnormal,2253,6.7605500030875865,0.21228437856241394
+Frozen attention S1 M4-hq,test,none,HEEDB,unlabelled,3567,5.947033427751054,-0.161224315877737
+Frozen attention S1 M4-hq,test,recalibrate,TUAB,all,274,6.297741055585861,-0.4417873441294046
+Frozen attention S1 M4-hq,test,recalibrate,TUAB,normal,149,4.595837956840302,-0.44072928571651976
+Frozen attention S1 M4-hq,test,recalibrate,TUAB,abnormal,125,8.326409549290567,-0.4430485497575633
+Frozen attention S1 M4-hq,test,recalibrate,HEEDB,all,7338,6.193381350713987,-0.27096267861375584
+Frozen attention S1 M4-hq,test,recalibrate,HEEDB,normal,1518,5.834372753751686,0.1923187360854013
+Frozen attention S1 M4-hq,test,recalibrate,HEEDB,abnormal,2253,6.781859359242466,-0.20404957397495313
+Frozen attention S1 M4-hq,test,recalibrate,HEEDB,unlabelled,3567,5.974467444623188,-0.5103841566806308
+Frozen attention S1 M4-hq,test,cole,TUAB,all,274,6.732165277409231,0.07364526092805249
+Frozen attention S1 M4-hq,test,cole,TUAB,normal,149,5.168242174982352,-1.4359970474329007
+Frozen attention S1 M4-hq,test,cole,TUAB,abnormal,125,8.596361615502074,1.8731388924943086
+Frozen attention S1 M4-hq,test,cole,HEEDB,all,7338,7.253586700087432,1.2521994777117367
+Frozen attention S1 M4-hq,test,cole,HEEDB,normal,1518,7.062527125227317,0.4522094217471665
+Frozen attention S1 M4-hq,test,cole,HEEDB,abnormal,2253,7.857671962975137,2.585841745400781
+Frozen attention S1 M4-hq,test,cole,HEEDB,unlabelled,3567,6.95334121013836,0.750289995191636
+Frozen attention S1 M4-hq,test,quadratic_gap,TUAB,all,274,5.226911496074758,0.053223162235095156
+Frozen attention S1 M4-hq,test,quadratic_gap,TUAB,normal,149,4.066916690114778,-1.25260920794222
+Frozen attention S1 M4-hq,test,quadratic_gap,TUAB,abnormal,125,6.609625304779054,1.6097753474864553
+Frozen attention S1 M4-hq,test,quadratic_gap,HEEDB,all,7338,5.7419204777761275,1.244718560356974
+Frozen attention S1 M4-hq,test,quadratic_gap,HEEDB,normal,1518,5.555492655388754,0.5327761092911792
+Frozen attention S1 M4-hq,test,quadratic_gap,HEEDB,abnormal,2253,6.253002972392074,2.4323717907380535
+Frozen attention S1 M4-hq,test,quadratic_gap,HEEDB,unlabelled,3567,5.49844657085555,0.7975489255572271
+Frozen attention S1 M4-hq,val (cross-fitted),none,TUAB,all,482,6.266066985578249,0.3263408339915382
+Frozen attention S1 M4-hq,val (cross-fitted),none,TUAB,normal,271,5.403767365275017,0.22749907662619712
+Frozen attention S1 M4-hq,val (cross-fitted),none,TUAB,abnormal,211,7.37357028938003,0.45328925221906163
+Frozen attention S1 M4-hq,val (cross-fitted),none,TUEG,all,2940,7.340931554943552,0.2464506049655174
+Frozen attention S1 M4-hq,val (cross-fitted),none,TUEG,normal,1117,6.534490535490526,0.5853132061888768
+Frozen attention S1 M4-hq,val (cross-fitted),none,TUEG,abnormal,1465,7.736090938139601,-0.35800422620332256
+Frozen attention S1 M4-hq,val (cross-fitted),none,TUEG,unlabelled,358,8.24005480172238,1.6626986555126078
+Frozen attention S1 M4-hq,val (cross-fitted),none,HEEDB,all,7192,6.279070072427209,-0.28678033682567056
+Frozen attention S1 M4-hq,val (cross-fitted),none,HEEDB,normal,1493,5.714466202339253,0.08770193492566568
+Frozen attention S1 M4-hq,val (cross-fitted),none,HEEDB,abnormal,2179,6.868777082845508,-0.13681871901467355
+Frozen attention S1 M4-hq,val (cross-fitted),none,HEEDB,unlabelled,3520,6.15349677763739,-0.5384474950458147
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,TUAB,all,482,6.258352122791515,0.02502920374488007
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,TUAB,normal,271,5.398755821632991,-0.032095101744586255
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,TUAB,abnormal,211,7.36238339110412,0.0983973875725835
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,TUEG,all,2940,7.3361523313586625,-0.10131748249899779
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,TUEG,normal,1117,6.536246773066132,0.2813164588211912
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.734176358023807,-0.7443902796234452
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.203161575907021,1.3363907167542541
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,HEEDB,all,7192,6.311953165958133,-0.6392205426242307
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,HEEDB,normal,1493,5.735986343993173,-0.19718912621462312
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,HEEDB,abnormal,2179,6.898750302077866,-0.538438886136381
+Frozen attention S1 M4-hq,val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.193000752773131,-0.8890944443817785
+Frozen attention S1 M4-hq,val (cross-fitted),cole,TUAB,all,482,7.145105012459373,0.1768416954572984
+Frozen attention S1 M4-hq,val (cross-fitted),cole,TUAB,normal,271,6.520087629895841,-0.9540842554288669
+Frozen attention S1 M4-hq,val (cross-fitted),cole,TUAB,abnormal,211,7.947852456415379,1.629357964130999
+Frozen attention S1 M4-hq,val (cross-fitted),cole,TUEG,all,2940,8.028263946518496,1.0814436408745725
+Frozen attention S1 M4-hq,val (cross-fitted),cole,TUEG,normal,1117,7.254922146354248,0.6190858219873885
+Frozen attention S1 M4-hq,val (cross-fitted),cole,TUEG,abnormal,1465,8.340048323927503,1.2357274653321997
+Frozen attention S1 M4-hq,val (cross-fitted),cole,TUEG,unlabelled,358,9.165299359589103,1.892694704747646
+Frozen attention S1 M4-hq,val (cross-fitted),cole,HEEDB,all,7192,7.327222952344578,0.7936273528772182
+Frozen attention S1 M4-hq,val (cross-fitted),cole,HEEDB,normal,1493,6.93193065964133,-0.3082555271338607
+Frozen attention S1 M4-hq,val (cross-fitted),cole,HEEDB,abnormal,2179,7.926814166931371,1.9315874882234905
+Frozen attention S1 M4-hq,val (cross-fitted),cole,HEEDB,unlabelled,3520,7.123717877464273,0.5565523542797787
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,TUAB,all,482,5.684048365663719,-0.06149847590452184
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,TUAB,normal,271,5.287730251019901,-0.9842535051427929
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.1930635745190505,1.1236513483778072
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,TUEG,all,2940,6.303294903708687,0.7800367990947539
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,TUEG,normal,1117,5.758250853778983,0.3440526485023847
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.475948529077148,1.0270774223993036
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.297363737805556,1.1294216680067972
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.770909875127938,0.8885891934561906
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.42571059395273,-0.08954978608844844
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.265064290686093,1.8809242587170512
+Frozen attention S1 M4-hq,val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.611426936290824,0.6891753835859437
+L1 ungated ABMIL,test,none,TUAB,all,274,6.107572102895735,-0.6409042903431256
+L1 ungated ABMIL,test,none,TUAB,normal,149,4.411750970866305,-1.247156786988505
+L1 ungated ABMIL,test,none,TUAB,abnormal,125,8.128990892274816,0.08174868565816706
+L1 ungated ABMIL,test,none,HEEDB,all,7338,6.087199126866127,-0.11142973412316935
+L1 ungated ABMIL,test,none,HEEDB,normal,1518,5.711701917330837,0.3241578449387377
+L1 ungated ABMIL,test,none,HEEDB,abnormal,2253,6.787859662365682,-0.05042279229279502
+L1 ungated ABMIL,test,none,HEEDB,unlabelled,3567,5.804445153665699,-0.3353351406159668
+L1 ungated ABMIL,test,recalibrate,TUAB,all,274,6.0876667091872925,-0.6411409957213391
+L1 ungated ABMIL,test,recalibrate,TUAB,normal,149,4.388370717872342,-1.0006712882009314
+L1 ungated ABMIL,test,recalibrate,TUAB,abnormal,125,8.113227530834713,-0.21258088708566492
+L1 ungated ABMIL,test,recalibrate,HEEDB,all,7338,6.144801122118005,-0.27444065885018015
+L1 ungated ABMIL,test,recalibrate,HEEDB,normal,1518,5.781266595540091,0.3488115164958584
+L1 ungated ABMIL,test,recalibrate,HEEDB,abnormal,2253,6.8559069022734285,-0.4003040414468331
+L1 ungated ABMIL,test,recalibrate,HEEDB,unlabelled,3567,5.850358758410436,-0.46017842200830394
+L1 ungated ABMIL,test,cole,TUAB,all,274,7.115565530124706,-0.18720399102578061
+L1 ungated ABMIL,test,cole,TUAB,normal,149,5.655518329045,-2.1207834568302024
+L1 ungated ABMIL,test,cole,TUAB,abnormal,125,8.855941793811715,2.1176227322130905
+L1 ungated ABMIL,test,cole,HEEDB,all,7338,7.115044523025601,1.2179704721238667
+L1 ungated ABMIL,test,cole,HEEDB,normal,1518,6.833985072781775,0.643951799302213
+L1 ungated ABMIL,test,cole,HEEDB,abnormal,2253,7.7196097796315755,2.284310607154888
+L1 ungated ABMIL,test,cole,HEEDB,unlabelled,3567,6.8527968982251695,0.7887290987340093
+L1 ungated ABMIL,test,quadratic_gap,TUAB,all,274,5.71181298421711,-0.1600084583087853
+L1 ungated ABMIL,test,quadratic_gap,TUAB,normal,149,4.589172428793789,-1.845982435353436
+L1 ungated ABMIL,test,quadratic_gap,TUAB,abnormal,125,7.050000526281707,1.8496725223284383
+L1 ungated ABMIL,test,quadratic_gap,HEEDB,all,7338,5.809958988890268,1.2239527780844783
+L1 ungated ABMIL,test,quadratic_gap,HEEDB,normal,1518,5.556525647475445,0.6853942576462925
+L1 ungated ABMIL,test,quadratic_gap,HEEDB,abnormal,2253,6.340007253020795,2.2129785779941433
+L1 ungated ABMIL,test,quadratic_gap,HEEDB,unlabelled,3567,5.58302124658066,0.8284542378065667
+L1 ungated ABMIL,val (cross-fitted),none,TUAB,all,482,6.185768591288627,-0.43726135204586325
+L1 ungated ABMIL,val (cross-fitted),none,TUAB,normal,271,5.554261249084777,-0.9264531140359779
+L1 ungated ABMIL,val (cross-fitted),none,TUAB,abnormal,211,6.996851481038596,0.19103707212153503
+L1 ungated ABMIL,val (cross-fitted),none,TUEG,all,2940,7.459739833032746,0.003856496020019486
+L1 ungated ABMIL,val (cross-fitted),none,TUEG,normal,1117,6.510457377377094,0.02367418487263845
+L1 ungated ABMIL,val (cross-fitted),none,TUEG,abnormal,1465,7.928433896366363,-0.40219516500874164
+L1 ungated ABMIL,val (cross-fitted),none,TUEG,unlabelled,358,8.503627263713241,1.6036590797037054
+L1 ungated ABMIL,val (cross-fitted),none,HEEDB,all,7192,6.198138732880989,-0.38167814566210934
+L1 ungated ABMIL,val (cross-fitted),none,HEEDB,normal,1493,5.529280390439482,0.013609184962351478
+L1 ungated ABMIL,val (cross-fitted),none,HEEDB,abnormal,2179,6.963930572120547,-0.23243119047221328
+L1 ungated ABMIL,val (cross-fitted),none,HEEDB,unlabelled,3520,6.007782223665698,-0.6417273217931048
+L1 ungated ABMIL,val (cross-fitted),recalibrate,TUAB,all,482,6.128407688647349,-0.377002939440129
+L1 ungated ABMIL,val (cross-fitted),recalibrate,TUAB,normal,271,5.443433124516901,-0.6942160381955241
+L1 ungated ABMIL,val (cross-fitted),recalibrate,TUAB,abnormal,211,7.008161749686927,0.03041293621253472
+L1 ungated ABMIL,val (cross-fitted),recalibrate,TUEG,all,2940,7.442400556947827,-0.10979577926040855
+L1 ungated ABMIL,val (cross-fitted),recalibrate,TUEG,normal,1117,6.52210292823028,0.05555692478480749
+L1 ungated ABMIL,val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.908171490761931,-0.6459337452041721
+L1 ungated ABMIL,val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.407814057617761,1.5682577114912877
+L1 ungated ABMIL,val (cross-fitted),recalibrate,HEEDB,all,7192,6.2598656271139905,-0.532506932776002
+L1 ungated ABMIL,val (cross-fitted),recalibrate,HEEDB,normal,1493,5.599481644136472,0.09168286435820663
+L1 ungated ABMIL,val (cross-fitted),recalibrate,HEEDB,abnormal,2179,7.037004696968626,-0.5410890625970428
+L1 ungated ABMIL,val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.058890415003814,-0.7919429856854696
+L1 ungated ABMIL,val (cross-fitted),cole,TUAB,all,482,7.053880165273445,-0.33043889548372285
+L1 ungated ABMIL,val (cross-fitted),cole,TUAB,normal,271,6.642899176116756,-1.7688647759554177
+L1 ungated ABMIL,val (cross-fitted),cole,TUAB,abnormal,211,7.581727786417818,1.5170180410462737
+L1 ungated ABMIL,val (cross-fitted),cole,TUEG,all,2940,8.23376666328785,1.0485420176771454
+L1 ungated ABMIL,val (cross-fitted),cole,TUEG,normal,1117,7.33096396226117,0.3285441554130994
+L1 ungated ABMIL,val (cross-fitted),cole,TUEG,abnormal,1465,8.630793172643807,1.3216220814863677
+L1 ungated ABMIL,val (cross-fitted),cole,TUEG,unlabelled,358,9.425908509210542,2.1775233547397965
+L1 ungated ABMIL,val (cross-fitted),cole,HEEDB,all,7192,7.162515163419897,0.9008218641665128
+L1 ungated ABMIL,val (cross-fitted),cole,HEEDB,normal,1493,6.654938325581368,0.05877129399962301
+L1 ungated ABMIL,val (cross-fitted),cole,HEEDB,abnormal,2179,7.772848719507227,1.8808746369369413
+L1 ungated ABMIL,val (cross-fitted),cole,HEEDB,unlabelled,3520,6.999985447561554,0.6512896225166271
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,TUAB,all,482,5.813499773746387,-0.4566612198090825
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,TUAB,normal,271,5.565226764993873,-1.66194185710497
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.132371742333739,1.0913532479974841
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,TUEG,all,2940,6.695561885254103,0.7896987656024926
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,TUEG,normal,1117,6.027744257322877,0.13652036066435064
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.948150510565597,1.1261826537324213
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.745589690611198,1.4507361460649468
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.831467365327504,0.9712979035888223
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.383262001039857,0.18869896632114774
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.3485300150001915,1.8555198714714174
+L1 ungated ABMIL,val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.701493244658377,0.7558719221469087
+W4 gated ABMIL,test,none,TUAB,all,274,6.161683315603014,-0.49607223620175167
+W4 gated ABMIL,test,none,TUAB,normal,149,4.4487007361884086,-0.9749432052463874
+W4 gated ABMIL,test,none,TUAB,abnormal,125,8.203558550265221,0.07474195889945412
+W4 gated ABMIL,test,none,HEEDB,all,7338,6.097264408631639,-0.09800223848369309
+W4 gated ABMIL,test,none,HEEDB,normal,1518,5.723323605012365,0.3321660175398719
+W4 gated ABMIL,test,none,HEEDB,abnormal,2253,6.767852921361548,-0.02989470423632898
+W4 gated ABMIL,test,none,HEEDB,unlabelled,3567,5.832842266975786,-0.3240862551091721
+W4 gated ABMIL,test,recalibrate,TUAB,all,274,6.177915648279767,-0.5908040595218208
+W4 gated ABMIL,test,recalibrate,TUAB,normal,149,4.4629106738595095,-0.8509446145082566
+W4 gated ABMIL,test,recalibrate,TUAB,abnormal,125,8.222201577788713,-0.28071651797798913
+W4 gated ABMIL,test,recalibrate,HEEDB,all,7338,6.150041975729565,-0.3353765232286995
+W4 gated ABMIL,test,recalibrate,HEEDB,normal,1518,5.781150257447797,0.26475974915444006
+W4 gated ABMIL,test,recalibrate,HEEDB,abnormal,2253,6.8202940613571075,-0.43657751307598086
+W4 gated ABMIL,test,recalibrate,HEEDB,unlabelled,3567,5.883683601586831,-0.5268542443813995
+W4 gated ABMIL,test,cole,TUAB,all,274,7.029284599862563,-0.12629495002652624
+W4 gated ABMIL,test,cole,TUAB,normal,149,5.510819028888142,-1.926887633050724
+W4 gated ABMIL,test,cole,TUAB,abnormal,125,8.839295560464071,2.0200115281383177
+W4 gated ABMIL,test,cole,HEEDB,all,7338,7.12153633798926,1.1337202847661858
+W4 gated ABMIL,test,cole,HEEDB,normal,1518,6.8511580153991325,0.5368232427525594
+W4 gated ABMIL,test,cole,HEEDB,abnormal,2253,7.707804949467076,2.2249080048270415
+W4 gated ABMIL,test,cole,HEEDB,unlabelled,3567,6.866299755996629,0.6985208949370793
+W4 gated ABMIL,test,quadratic_gap,TUAB,all,274,5.640553357701026,-0.1091544051710727
+W4 gated ABMIL,test,quadratic_gap,TUAB,normal,149,4.468172015950016,-1.6779372668516408
+W4 gated ABMIL,test,quadratic_gap,TUAB,abnormal,125,7.038031917068228,1.7608347659521644
+W4 gated ABMIL,test,quadratic_gap,HEEDB,all,7338,5.8033083814543085,1.1440459031274761
+W4 gated ABMIL,test,quadratic_gap,HEEDB,normal,1518,5.549108281864018,0.5901778248106011
+W4 gated ABMIL,test,quadratic_gap,HEEDB,abnormal,2253,6.313756061589952,2.147352598592835
+W4 gated ABMIL,test,quadratic_gap,HEEDB,unlabelled,3567,5.5890771304962055,0.746042471112215
+W4 gated ABMIL,val (cross-fitted),none,TUAB,all,482,6.168064907010327,-0.08786059442021593
+W4 gated ABMIL,val (cross-fitted),none,TUAB,normal,271,5.415425609931873,-0.46140127293389005
+W4 gated ABMIL,val (cross-fitted),none,TUAB,abnormal,211,7.134724857286447,0.3919001822490053
+W4 gated ABMIL,val (cross-fitted),none,TUEG,all,2940,7.408422406241554,0.060129975395633126
+W4 gated ABMIL,val (cross-fitted),none,TUEG,normal,1117,6.574547205410529,0.19640925215822788
+W4 gated ABMIL,val (cross-fitted),none,TUEG,abnormal,1465,7.758286787252686,-0.4130516529789046
+W4 gated ABMIL,val (cross-fitted),none,TUEG,unlabelled,358,8.578498610562638,1.5712672195992061
+W4 gated ABMIL,val (cross-fitted),none,HEEDB,all,7192,6.171841118749114,-0.38463293639071544
+W4 gated ABMIL,val (cross-fitted),none,HEEDB,normal,1493,5.5019738713243935,-0.007666868147203769
+W4 gated ABMIL,val (cross-fitted),none,HEEDB,abnormal,2179,6.872592779391269,-0.2216340251832871
+W4 gated ABMIL,val (cross-fitted),none,HEEDB,unlabelled,3520,6.022174622120096,-0.645424120313599
+W4 gated ABMIL,val (cross-fitted),recalibrate,TUAB,all,482,6.1291197207689825,-0.13450033661033728
+W4 gated ABMIL,val (cross-fitted),recalibrate,TUAB,normal,271,5.335728823943368,-0.358271542086324
+W4 gated ABMIL,val (cross-fitted),recalibrate,TUAB,abnormal,211,7.148119403421787,0.15290249127588282
+W4 gated ABMIL,val (cross-fitted),recalibrate,TUEG,all,2940,7.39911508996466,-0.13356859097053325
+W4 gated ABMIL,val (cross-fitted),recalibrate,TUEG,normal,1117,6.579005476315425,0.13228474400730308
+W4 gated ABMIL,val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.758116281776636,-0.7228854544812531
+W4 gated ABMIL,val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.488851661030713,1.4485292578366213
+W4 gated ABMIL,val (cross-fitted),recalibrate,HEEDB,all,7192,6.238498540441041,-0.6092252221137333
+W4 gated ABMIL,val (cross-fitted),recalibrate,HEEDB,normal,1493,5.5722988369739275,-0.0235252586190384
+W4 gated ABMIL,val (cross-fitted),recalibrate,HEEDB,abnormal,2179,6.944335168242356,-0.5909173743268138
+W4 gated ABMIL,val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.084128695355059,-0.8689817124050053
+W4 gated ABMIL,val (cross-fitted),cole,TUAB,all,482,7.015314677904054,-0.02681726191919826
+W4 gated ABMIL,val (cross-fitted),cole,TUAB,normal,271,6.5406222082439065,-1.3408990978199014
+W4 gated ABMIL,val (cross-fitted),cole,TUAB,abnormal,211,7.624990788225855,1.6609371339532686
+W4 gated ABMIL,val (cross-fitted),cole,TUEG,all,2940,8.15327039914008,1.01169058485652
+W4 gated ABMIL,val (cross-fitted),cole,TUEG,normal,1117,7.385224685345573,0.4216326778805072
+W4 gated ABMIL,val (cross-fitted),cole,TUEG,abnormal,1465,8.423491744616161,1.2140640814337182
+W4 gated ABMIL,val (cross-fitted),cole,TUEG,unlabelled,358,9.443864787927804,2.024588656383366
+W4 gated ABMIL,val (cross-fitted),cole,HEEDB,all,7192,7.139540514824279,0.796461716168189
+W4 gated ABMIL,val (cross-fitted),cole,HEEDB,normal,1493,6.6069428945714375,-0.08668400424623611
+W4 gated ABMIL,val (cross-fitted),cole,HEEDB,abnormal,2179,7.7130074860013975,1.805202236652136
+W4 gated ABMIL,val (cross-fitted),cole,HEEDB,unlabelled,3520,7.010444979836367,0.5466011952716593
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,TUAB,all,482,5.763838995650703,-0.19839186541330578
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,TUAB,normal,271,5.4604980362316695,-1.297765548569345
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.153438047795527,1.2135999266970572
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,TUEG,all,2940,6.614644305222427,0.7598571879831121
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,TUEG,normal,1117,6.045163432584251,0.21736846355804007
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.773152135126477,1.0336956294010462
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.742845880438655,1.3318867648142079
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.7976822386464715,0.875457686004331
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.331529281159334,0.06363621200028194
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.285067799647164,1.7786740504734502
+W4 gated ABMIL,val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.69369167844982,0.6606681980809888
+W7 gated + retention,test,none,TUAB,all,274,6.054921812140469,-0.5437833037487605
+W7 gated + retention,test,none,TUAB,normal,149,4.363983828805792,-0.9877726940082013
+W7 gated + retention,test,none,TUAB,abnormal,125,8.070519888275406,-0.01454795055950666
+W7 gated + retention,test,none,HEEDB,all,7338,6.122342698509534,-0.11047417466435319
+W7 gated + retention,test,none,HEEDB,normal,1518,5.826218866559904,0.33509175005100567
+W7 gated + retention,test,none,HEEDB,abnormal,2253,6.72637525802142,-0.04515681439231497
+W7 gated + retention,test,none,HEEDB,unlabelled,3567,5.866842451893121,-0.3413486031507049
+W7 gated + retention,test,recalibrate,TUAB,all,274,6.065464770420722,-0.6291382745895773
+W7 gated + retention,test,recalibrate,TUAB,normal,149,4.3703110945155546,-0.8462101844891686
+W7 gated + retention,test,recalibrate,TUAB,abnormal,125,8.086087952099684,-0.3703885579892642
+W7 gated + retention,test,recalibrate,HEEDB,all,7338,6.175548105236211,-0.34593635508554677
+W7 gated + retention,test,recalibrate,HEEDB,normal,1518,5.8825473077950425,0.27638865111171956
+W7 gated + retention,test,recalibrate,HEEDB,abnormal,2253,6.787779043150932,-0.45715220328139866
+W7 gated + retention,test,recalibrate,HEEDB,unlabelled,3567,5.913540509888251,-0.5405312677354476
+W7 gated + retention,test,cole,TUAB,all,274,6.991354316454804,-0.16363273748335977
+W7 gated + retention,test,cole,TUAB,normal,149,5.527879094212931,-1.9465333233723832
+W7 gated + retention,test,cole,TUAB,abnormal,125,8.735816781367115,1.9615847608963568
+W7 gated + retention,test,cole,HEEDB,all,7338,7.161254255827342,1.155373796372
+W7 gated + retention,test,cole,HEEDB,normal,1518,6.961308076952481,0.5579847545946022
+W7 gated + retention,test,cole,HEEDB,abnormal,2253,7.708482108015747,2.262313374743948
+W7 gated + retention,test,cole,HEEDB,unlabelled,3567,6.900703077961224,0.7104345463989392
+W7 gated + retention,test,quadratic_gap,TUAB,all,274,5.580852102441551,-0.14006415717784954
+W7 gated + retention,test,quadratic_gap,TUAB,normal,149,4.464253997274072,-1.6987138858773325
+W7 gated + retention,test,quadratic_gap,TUAB,abnormal,125,6.911837043801189,1.7178463194319342
+W7 gated + retention,test,quadratic_gap,HEEDB,all,7338,5.818434997413781,1.1819590062120848
+W7 gated + retention,test,quadratic_gap,HEEDB,normal,1518,5.617797259255564,0.6224733497266578
+W7 gated + retention,test,quadratic_gap,HEEDB,abnormal,2253,6.298654086670805,2.206723925161532
+W7 gated + retention,test,quadratic_gap,HEEDB,unlabelled,3567,5.6005024149714195,0.7727927219821367
+W7 gated + retention,val (cross-fitted),none,TUAB,all,482,6.159177005773818,-0.05800062673043071
+W7 gated + retention,val (cross-fitted),none,TUAB,normal,271,5.329825416799074,-0.35619388620252745
+W7 gated + retention,val (cross-fitted),none,TUAB,abnormal,211,7.224363169812471,0.32498692453467937
+W7 gated + retention,val (cross-fitted),none,TUEG,all,2940,7.365493229855116,-0.02539773114476644
+W7 gated + retention,val (cross-fitted),none,TUEG,normal,1117,6.567456579930157,0.18332328204087095
+W7 gated + retention,val (cross-fitted),none,TUEG,abnormal,1465,7.714736587243975,-0.5021927565712725
+W7 gated + retention,val (cross-fitted),none,TUEG,unlabelled,358,8.426290490725231,1.2744998680772295
+W7 gated + retention,val (cross-fitted),none,HEEDB,all,7192,6.224108653178238,-0.42963326272057095
+W7 gated + retention,val (cross-fitted),none,HEEDB,normal,1493,5.620081432961095,-0.03796995810550776
+W7 gated + retention,val (cross-fitted),none,HEEDB,abnormal,2179,6.903071755973038,-0.2643868190615008
+W7 gated + retention,val (cross-fitted),none,HEEDB,unlabelled,3520,6.060004118744808,-0.6980495452556286
+W7 gated + retention,val (cross-fitted),recalibrate,TUAB,all,482,6.11089773978007,-0.09627131770428023
+W7 gated + retention,val (cross-fitted),recalibrate,TUAB,normal,271,5.252983579699787,-0.24193005026529743
+W7 gated + retention,val (cross-fitted),recalibrate,TUAB,abnormal,211,7.212768533058535,0.09080695966081744
+W7 gated + retention,val (cross-fitted),recalibrate,TUEG,all,2940,7.349782869671474,-0.21255653893344595
+W7 gated + retention,val (cross-fitted),recalibrate,TUEG,normal,1117,6.564045811241906,0.12861614017234546
+W7 gated + retention,val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.706255453849405,-0.8103636452409653
+W7 gated + retention,val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.342620742423314,1.1692801319585846
+W7 gated + retention,val (cross-fitted),recalibrate,HEEDB,all,7192,6.286905863029626,-0.6507601289699895
+W7 gated + retention,val (cross-fitted),recalibrate,HEEDB,normal,1493,5.68587943987929,-0.04208985340754072
+W7 gated + retention,val (cross-fitted),recalibrate,HEEDB,abnormal,2179,6.977919848413339,-0.6362710917466123
+W7 gated + retention,val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.1140686401922215,-0.9178954509939882
+W7 gated + retention,val (cross-fitted),cole,TUAB,all,482,7.091684449703604,0.02586196918881036
+W7 gated + retention,val (cross-fitted),cole,TUAB,normal,271,6.531412360695178,-1.216092358773834
+W7 gated + retention,val (cross-fitted),cole,TUAB,abnormal,211,7.811275616155186,1.6209786652924911
+W7 gated + retention,val (cross-fitted),cole,TUEG,all,2940,8.159114425688582,0.9392033466136962
+W7 gated + retention,val (cross-fitted),cole,TUEG,normal,1117,7.428405671608328,0.42374548219690206
+W7 gated + retention,val (cross-fitted),cole,TUEG,abnormal,1465,8.421064283483263,1.1508046175512394
+W7 gated + retention,val (cross-fitted),cole,TUEG,unlabelled,358,9.367061734734497,1.6815792478149758
+W7 gated + retention,val (cross-fitted),cole,HEEDB,all,7192,7.208174753367357,0.7784215069939127
+W7 gated + retention,val (cross-fitted),cole,HEEDB,normal,1493,6.75531393539932,-0.1108212642785913
+W7 gated + retention,val (cross-fitted),cole,HEEDB,abnormal,2179,7.792768399922743,1.8063126767320814
+W7 gated + retention,val (cross-fitted),cole,HEEDB,unlabelled,3520,7.038371243532723,0.5192921316104977
+W7 gated + retention,val (cross-fitted),quadratic_gap,TUAB,all,482,5.786480934507665,-0.1738170917953078
+W7 gated + retention,val (cross-fitted),quadratic_gap,TUAB,normal,271,5.40070499912029,-1.2107967157647657
+W7 gated + retention,val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.281956188014672,1.1580382546299206
+W7 gated + retention,val (cross-fitted),quadratic_gap,TUEG,all,2940,6.583086190410887,0.6890533254048877
+W7 gated + retention,val (cross-fitted),quadratic_gap,TUEG,normal,1117,6.05387398809823,0.20244591706926182
+W7 gated + retention,val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.725876948378918,0.981632965241433
+W7 gated + retention,val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.649962083036787,1.0100346180036457
+W7 gated + retention,val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.826928434588154,0.8826227901043933
+W7 gated + retention,val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.440505832068594,0.05935012729699159
+W7 gated + retention,val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.305836734144985,1.8062376172168024
+W7 gated + retention,val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.694368139368654,0.6600629541082317

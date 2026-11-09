@@ -874,6 +874,55 @@ and the ROC AUC treat a larger gap as more abnormal.
 | W4 gated ABMIL | +0.39 | +2.13 | 0.23 | 0.577 | 0.46 | 0.621 | 0.20 | 0.570 |
 | W7 gated + retention | +0.42 | +2.18 | 0.23 | 0.580 | 0.46 | 0.629 | 0.21 | 0.574 |
 
+
+### Table 11.5. MAE per source and report cohort before and after correction, val (cross-fitted), years
+
+Each cell lists four MAEs: no correction / Eq. (11.2) / Eq. (11.3) / Eq. (11.4). Val is corrected by
+5-fold cross-fitting, with folds grouped by subject: each fold uses parameters fitted on the other folds' normal recordings,
+so no recording is corrected with its own fit (`scripts/mil_age_groups.py::crossfit_val`). TUAB = TUH recordings in TUAB
+(TUAB train part); TUEG = other TUH recordings.
+
+| model | TUAB normal (271) | TUAB abnormal (211) | TUEG normal (1,117) | TUEG abnormal (1,465) | TUEG unlabelled (358) | HEEDB normal (1,493) | HEEDB abnormal (2,179) | HEEDB unlabelled (3,520) |
+|---|---|---|---|---|---|---|---|---|
+| E2 | 5.71 / 5.71 / 7.55 / 4.93 | 7.31 / 7.24 / 8.96 / 5.72 | 6.82 / 6.71 / 8.34 / 5.40 | 7.81 / 7.66 / 9.10 / 5.80 | 7.98 / 8.28 / 9.91 / 6.39 | 7.37 / 6.61 / 7.32 / 4.68 | 8.12 / 7.41 / 8.39 / 5.39 | 7.15 / 6.56 / 7.80 / 5.03 |
+| E2L | 5.49 / 5.50 / 7.33 / 5.04 | 7.38 / 7.33 / 8.69 / 5.90 | 6.71 / 6.69 / 8.23 / 5.63 | 7.79 / 7.78 / 9.29 / 6.27 | 8.26 / 8.47 / 10.07 / 6.86 | 7.02 / 6.51 / 7.19 / 4.87 | 7.91 / 7.51 / 8.66 / 5.88 | 6.90 / 6.54 / 7.84 / 5.34 |
+| A3 | 5.49 / 5.44 / 6.52 / 4.97 | 7.26 / 7.25 / 8.16 / 6.04 | 6.72 / 6.72 / 7.68 / 5.76 | 7.81 / 7.81 / 8.84 / 6.49 | 8.33 / 8.41 / 9.56 / 7.14 | 6.11 / 6.00 / 7.18 / 5.30 | 7.25 / 7.18 / 8.63 / 6.45 | 6.48 / 6.38 / 7.60 / 5.66 |
+| L1 | 5.55 / 5.44 / 6.64 / 5.57 | 7.00 / 7.01 / 7.58 / 6.13 | 6.51 / 6.52 / 7.33 / 6.03 | 7.93 / 7.91 / 8.63 / 6.95 | 8.50 / 8.41 / 9.43 / 7.75 | 5.53 / 5.60 / 6.65 / 5.38 | 6.96 / 7.04 / 7.77 / 6.35 | 6.01 / 6.06 / 7.00 / 5.70 |
+| W4 | 5.42 / 5.34 / 6.54 / 5.46 | 7.13 / 7.15 / 7.62 / 6.15 | 6.57 / 6.58 / 7.39 / 6.05 | 7.76 / 7.76 / 8.42 / 6.77 | 8.58 / 8.49 / 9.44 / 7.74 | 5.50 / 5.57 / 6.61 / 5.33 | 6.87 / 6.94 / 7.71 / 6.29 | 6.02 / 6.08 / 7.01 / 5.69 |
+| W7 | 5.33 / 5.25 / 6.53 / 5.40 | 7.22 / 7.21 / 7.81 / 6.28 | 6.57 / 6.56 / 7.43 / 6.05 | 7.71 / 7.71 / 8.42 / 6.73 | 8.43 / 8.34 / 9.37 / 7.65 | 5.62 / 5.69 / 6.76 / 5.44 | 6.90 / 6.98 / 7.79 / 6.31 | 6.06 / 6.11 / 7.04 / 5.69 |
+
+### Table 11.6. MAE per source and report cohort before and after correction, test, years
+
+Each cell lists four MAEs: no correction / Eq. (11.2) / Eq. (11.3) / Eq. (11.4), fitted on all val normal recordings. Test TUH is the TUAB eval set;
+TUEG has no test recordings.
+
+| model | TUAB normal (149) | TUAB abnormal (125) | HEEDB normal (1,518) | HEEDB abnormal (2,253) | HEEDB unlabelled (3,567) |
+|---|---|---|---|---|---|
+| E2 | 5.13 / 4.84 / 6.80 / 4.38 | 8.56 / 8.44 / 9.80 / 6.41 | 7.43 / 6.69 / 7.60 / 4.88 | 7.83 / 7.18 / 8.41 / 5.43 | 6.86 / 6.31 / 7.73 / 5.00 |
+| E2L | 4.91 / 4.70 / 6.46 / 4.39 | 8.50 / 8.36 / 9.70 / 6.55 | 7.12 / 6.63 / 7.50 / 5.10 | 7.56 / 7.15 / 8.49 / 5.80 | 6.64 / 6.28 / 7.75 / 5.28 |
+| A3 | 4.90 / 4.86 / 5.57 / 4.13 | 8.58 / 8.54 / 9.21 / 6.72 | 6.27 / 6.18 / 7.43 / 5.48 | 6.95 / 6.88 / 8.42 / 6.34 | 6.22 / 6.14 / 7.45 / 5.56 |
+| L1 | 4.41 / 4.39 / 5.66 / 4.59 | 8.13 / 8.11 / 8.86 / 7.05 | 5.71 / 5.78 / 6.83 / 5.56 | 6.79 / 6.86 / 7.72 / 6.34 | 5.80 / 5.85 / 6.85 / 5.58 |
+| W4 | 4.45 / 4.46 / 5.51 / 4.47 | 8.20 / 8.22 / 8.84 / 7.04 | 5.72 / 5.78 / 6.85 / 5.55 | 6.77 / 6.82 / 7.71 / 6.31 | 5.83 / 5.88 / 6.87 / 5.59 |
+| W7 | 4.36 / 4.37 / 5.53 / 4.46 | 8.07 / 8.09 / 8.74 / 6.91 | 5.83 / 5.88 / 6.96 / 5.62 | 6.73 / 6.79 / 7.71 / 6.30 | 5.87 / 5.91 / 6.90 / 5.60 |
+
+What Tables 11.5 and 11.6 show:
+
+* **With no correction or with recalibration (Eq. (11.2)), the attention models are best on
+  HEEDB (all three cohorts) and TUAB normal / abnormal.**
+  - Recalibration recovers part of the baselines' HEEDB gap (E2L HEEDB normal val 7.02 → 6.51), but
+    the attention models stay 0.9–1.0 y better.
+  - On TUAB, recalibration changes nothing for any model (within 0.1 y).
+* **TUEG is the exception.** No aggregation helps there:
+  - TUEG normal: 6.51–6.57 (attention) vs 6.71 (E2L);
+  - TUEG abnormal: 7.71–7.93 vs 7.79;
+  - TUEG unlabelled (358 recordings): the attention models are worse (8.43–8.58 vs 8.26 for E2L,
+    7.98 for E2). Recalibration does not fix this (8.34–8.49), because the error is not an age trend
+    common to the cohort.
+* **Cole (Eq. (11.3)) costs about 1 y in every cohort, least for the attention models.** On TUAB
+  normal it costs 1.1–1.3 y for attention vs 1.8 y for E2L.
+* **The quadratic gap (Eq. (11.4)) ranks E2 / E2L first in every cohort except TUAB normal on test**,
+  for the reason given above: it rewards compressed predictions.
+
 What Tables 11.1–11.4 and Figure 11.1 show:
 
 * **Attention mainly fixes the age extremes.** Every model regresses to the

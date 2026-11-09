@@ -76,6 +76,39 @@ def corrected(val: pd.DataFrame, test: pd.DataFrame):
     return out, params
 
 
+def crossfit_val(val: pd.DataFrame, subjects: pd.Series, folds: int = 5) -> dict:
+    """Val frame per correction method, cross-fitted: each subject-grouped fold is
+    corrected with parameters fitted on the other folds' normal recordings."""
+    from sklearn.model_selection import GroupKFold
+    groups = subjects.reindex(val.index).fillna(pd.Series(val.index, index=val.index))
+    parts = {m: [] for m in CORRECTIONS}
+    for fit_idx, app_idx in GroupKFold(folds).split(val, groups=groups):
+        fit, app = val.iloc[fit_idx], val.iloc[app_idx]
+        part, _ = corrected(fit, app)
+        for m in CORRECTIONS:
+            parts[m].append(part[m])
+    return {m: pd.concat(v) for m, v in parts.items()}
+
+
+def cohort_table(frames: dict, split: str, exp: str) -> list:
+    """MAE and mean signed error per source (TUAB / TUEG / HEEDB) x report cohort."""
+    rows = []
+    for m, t in frames.items():
+        for src in ("TUAB", "TUEG", "HEEDB"):
+            for c in ("all", "normal", "abnormal", "unlabelled"):
+                g = t[(t.source == src) & ((t.cohort == c) if c != "all" else np.ones(len(t), bool))]
+                if len(g) < SMALL_CELL:
+                    continue
+                rows.append({"experiment": exp, "split": split, "correction": m, "source": src, "cohort": c,
+                             "n": len(g), "mae": g.err.abs().mean(), "mean_err": g.err.mean()})
+    return rows
+
+
+def subjects() -> pd.Series:
+    m = json.load(open(os.path.join(mcs.DATA, "manifest.json")))["recordings"]
+    return pd.Series({r["stem"]: f"{r.get('corpus')}:{r.get('subject')}" for r in m})
+
+
 def summary(t: pd.DataFrame) -> dict:
     slope = np.polyfit(t.age, t.err, 1)[0]
     return {"n": len(t), "mae": t.err.abs().mean(), "mean_err": t.err.mean(),
@@ -98,12 +131,16 @@ def main():
     ap.add_argument("--fig-dir", default=None)
     args = ap.parse_args()
     recs, age, preds = mcs.recording_table(), mcs.ages(), collect()
-    groups, overall, params_rows, test_frames, sep = [], [], [], {}, []
+    groups, overall, params_rows, test_frames, sep, cohorts = [], [], [], {}, [], []
+    subj = subjects()
     for exp, by in preds.items():
         val, test = frame(by["val"], age["val"], recs), frame(by["test"], age["test"], recs)
         corr, params = corrected(val, test)
         params_rows.append({"experiment": exp, **params, "fit_n": int((val.cohort == "normal").sum())})
         test_frames[exp] = corr
+        cohorts += cohort_table(corr, "test", exp)
+        vcf = crossfit_val(val, subj)
+        cohorts += cohort_table(vcf, "val (cross-fitted)", exp)
         for m, t in corr.items():
             for ds in ("all", "TUH", "HEEDB"):
                 s = t if ds == "all" else t[t.dataset == ds]
@@ -119,6 +156,13 @@ def main():
     groups, overall = pd.DataFrame(groups), pd.DataFrame(overall)
     groups.to_csv(os.path.join(args.csv_dir, "age_groups_test.csv"), index=False)
     overall.to_csv(os.path.join(args.csv_dir, "overall_test.csv"), index=False)
+    cohorts = pd.DataFrame(cohorts)
+    cohorts.to_csv(os.path.join(args.csv_dir, "corrections_by_cohort.csv"), index=False)
+    for split in ("val (cross-fitted)", "test"):
+        print(f"== MAE per source x cohort, {split} (none / recalibrate / cole / quadratic_gap)")
+        c = cohorts[cohorts.split == split]
+        w = c.pivot_table(index=["source", "cohort", "experiment"], columns="correction", values="mae")
+        print(w[CORRECTIONS].round(2).to_string())
     sep = pd.DataFrame(sep)
     sep.to_csv(os.path.join(args.csv_dir, "gap_separation_test.csv"), index=False)
     pd.DataFrame(params_rows).to_csv(os.path.join(args.csv_dir, "correction_params.csv"), index=False)
