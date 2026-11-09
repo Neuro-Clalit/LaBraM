@@ -749,3 +749,173 @@ What Tables 10.1 and 10.2 show:
   - TUAB normal: W7 / L1;
   - TUAB abnormal: L1 (val) / W7 (test);
   - TUEG: any of them (all within noise), except that **E2L itself stays best on TUEG unlabelled**.
+
+## 11. Error per age group, and age-bias correction
+
+Script: `scripts/mil_age_groups.py`. Tables are in `docs/data/mil_age/`.
+All numbers are on **test** (TUH = the TUAB eval set, 274 recordings; HEEDB,
+7,338). Age groups with fewer than 10 recordings are suppressed (TUH < 20, 6
+recordings).
+
+The experiments:
+- E2: the benchmark run;
+- E2L: the reference, i.e. the mean of window predictions;
+- S1 M0: E2L features, mean pooling, head refitted;
+- A3: post-hoc window weights;
+- S1 M4-hq: the best frozen-feature attention;
+- L1, W4, W7: the best end-to-end attention runs.
+
+**Errors.** With true age $y$ and prediction $\hat y$ of a recording, the
+gap is $e = \hat y - y$. Per age group $G$:
+
+$$
+\mathrm{MAE}_G = \frac{1}{|G|}\sum_{r\in G}\lvert e_r\rvert,\qquad
+\bar e_G = \frac{1}{|G|}\sum_{r\in G} e_r
+\tag{11.1}
+$$
+
+The age trend of the gap is the OLS slope $\beta$ of $e$ on $y$ over the
+test recordings, $e \approx \beta\,y + \beta_0$. $\beta = 0$ means no
+regression to the mean, and $\beta = -0.3$ means the model compresses the
+age range by 30 %.
+
+**Corrections** (`labram/eval/age_analysis.py::fit_bias_correction`,
+`apply_bias_correction`) are fitted per experiment on its own **val**
+predictions of report-normal recordings, the Gemein et al. convention. They
+are then applied to test:
+
+$$
+\text{recalibrate: } \hat y'' = a\,\hat y + b,\quad (a,b) = \arg\min \textstyle\sum_{\text{val normal}} (y - a\hat y - b)^2
+\tag{11.2}
+$$
+
+$$
+\text{Cole: } \hat y' = (\hat y - c)/s,\quad (s,c) = \arg\min \textstyle\sum_{\text{val normal}} (\hat y - s\,y - c)^2
+\tag{11.3}
+$$
+
+$$
+\text{quadratic gap: } \hat y^{c} = \hat y - (c_0 + c_1 y + c_2 y^2),\quad (c_0,c_1,c_2) = \arg\min \textstyle\sum_{\text{val normal}} (e - c_0 - c_1 y - c_2 y^2)^2
+\tag{11.4}
+$$
+
+Eqs. (11.2) and (11.3) use only the prediction, so they can be deployed.
+Eq. (11.4) uses the test recording's true age, so its error is a
+brain-age-gap quantity, not a prediction error.
+
+### Table 11.1. Test MAE per age group, no correction (years; Eq. (11.1))
+
+| experiment | <20 | 20–29 | 30–39 | 40–49 | 50–59 | 60–69 | 70–79 | 80+ | all |
+|---|---|---|---|---|---|---|---|---|---|
+| n (TUH + HEEDB) | 229 | 1,125 | 824 | 815 | 1,212 | 1,608 | 1,147 | 652 | 7,612 |
+| E2 (benchmark) | 8.90 | 8.01 | 6.48 | **6.23** | **5.14** | **5.44** | 8.49 | 13.82 | 7.25 |
+| E2L (mean of windows) | 8.03 | 7.26 | 6.17 | 6.39 | 5.54 | 5.68 | 7.82 | 12.54 | 7.00 |
+| S1 M0 (mean + head refit) | 5.69 | 6.16 | 6.35 | 6.93 | 6.05 | 5.82 | 6.49 | 9.58 | 6.50 |
+| A3 post-hoc | 5.55 | 5.19 | 6.10 | 6.98 | 6.13 | 5.87 | 6.66 | 10.52 | 6.46 |
+| S1 M4-hq (frozen attention) | 4.69 | 5.02 | **5.96** | 6.81 | 6.17 | 5.84 | **6.15** | 9.05 | 6.18 |
+| L1 ungated ABMIL | **3.85** | 4.64 | 6.10 | 6.70 | 6.13 | 5.96 | 6.30 | **8.48** | **6.09** |
+| W4 gated ABMIL | 4.00 | **4.63** | 6.03 | 6.73 | 6.15 | 5.99 | 6.29 | 8.49 | 6.10 |
+| W7 gated + retention | 4.03 | 4.75 | 6.01 | 6.71 | 6.17 | 6.01 | 6.19 | 8.67 | 6.12 |
+
+### Table 11.2. Test mean signed error per age group, no correction (years; Eq. (11.1)), and the gap-age slope $\beta$
+
+| experiment | <20 | 20–29 | 30–39 | 40–49 | 50–59 | 60–69 | 70–79 | 80+ | $\beta$ |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 (benchmark) | +8.90 | +7.87 | +5.16 | +3.18 | +0.77 | −3.08 | −8.27 | −13.82 | −0.33 |
+| E2L (mean of windows) | +8.03 | +6.97 | +4.39 | +2.76 | +0.73 | −2.68 | −7.37 | −12.54 | −0.30 |
+| S1 M0 | +5.05 | +4.81 | +3.50 | +2.93 | +1.70 | −0.82 | −4.77 | −9.41 | −0.20 |
+| A3 post-hoc | +5.55 | +4.36 | +2.84 | +2.20 | +1.04 | −1.60 | −5.65 | −10.50 | −0.21 |
+| S1 M4-hq | +4.54 | +4.03 | +3.03 | +2.65 | +1.71 | −0.60 | −4.28 | −8.92 | −0.18 |
+| L1 ungated ABMIL | +3.69 | +3.12 | +2.50 | +2.25 | +1.53 | −0.65 | −4.07 | −8.26 | **−0.16** |
+| W4 gated ABMIL | +3.92 | +3.29 | +2.48 | +2.22 | +1.49 | −0.67 | −4.07 | −8.24 | **−0.16** |
+| W7 gated + retention | +3.80 | +3.27 | +2.43 | +2.27 | +1.53 | −0.61 | −4.08 | −8.50 | **−0.16** |
+
+### Figure 11.1. MAE and mean signed error per age group, TUH and HEEDB test, no correction
+
+![age groups](figures/mil_age_groups_none.png)
+
+Per age group (x, true age), for six of the experiments:
+- (a) TUH MAE;
+- (b) TUH mean signed error;
+- (c) HEEDB MAE;
+- (d) HEEDB mean signed error.
+
+Units are years. TUH has 17–51 recordings per group, so its panels are noisy.
+
+### Table 11.3. Test MAE overall with each correction, and the gap-age slope $\beta$ after it
+
+The columns are: MAE with no correction, then with Eqs. (11.2), (11.3) and (11.4); then $\beta$ with no correction, then with Eqs. (11.2), (11.3) and (11.4).
+
+| experiment | none | recalibrate | Cole | quadratic gap | $\beta$ none | $\beta$ recal. | $\beta$ Cole | $\beta$ quad. |
+|---|---|---|---|---|---|---|---|---|
+| E2 (benchmark) | 7.25 | 6.65 | 7.92 | **5.11** | −0.33 | −0.22 | +0.02 | +0.03 |
+| E2L (mean of windows) | 7.00 | 6.61 | 7.93 | 5.40 | −0.30 | −0.21 | +0.03 | +0.03 |
+| S1 M0 | 6.50 | 6.53 | 7.71 | 5.96 | −0.20 | −0.21 | +0.02 | +0.03 |
+| A3 post-hoc | 6.46 | 6.38 | 7.72 | 5.77 | −0.21 | −0.19 | +0.04 | +0.04 |
+| S1 M4-hq | 6.18 | 6.20 | 7.23 | 5.72 | −0.18 | −0.19 | +0.02 | +0.03 |
+| L1 ungated ABMIL | **6.09** | **6.14** | **7.12** | 5.81 | −0.16 | −0.19 | +0.02 | +0.03 |
+| W4 gated ABMIL | 6.10 | 6.15 | **7.12** | 5.80 | −0.16 | −0.19 | +0.02 | +0.03 |
+| W7 gated + retention | 6.12 | 6.17 | 7.16 | 5.81 | −0.16 | −0.19 | +0.02 | +0.03 |
+
+### Table 11.4. Abnormal vs. normal recordings by the corrected gap (test; TUH 149 / 125, HEEDB 1,518 / 2,253)
+
+The gap $e$ is taken after Eq. (11.4), as a brain-age-gap biomarker would be
+used. Cohen's $d = (\bar e_\text{abn} - \bar e_\text{norm}) / s_\text{pooled}$
+and the ROC AUC treat a larger gap as more abnormal.
+
+| experiment | gap normal | gap abnormal | Cohen's $d$ | AUC | TUH $d$ | TUH AUC | HEEDB $d$ | HEEDB AUC |
+|---|---|---|---|---|---|---|---|---|
+| E2 (benchmark) | +0.26 | +2.66 | 0.37 | 0.620 | **0.64** | **0.682** | 0.34 | 0.613 |
+| E2L (mean of windows) | +0.32 | +2.88 | 0.38 | 0.621 | 0.63 | 0.672 | 0.35 | 0.613 |
+| S1 M0 | +0.52 | +2.56 | 0.27 | 0.590 | 0.50 | 0.644 | 0.24 | 0.583 |
+| A3 post-hoc | +0.14 | +3.10 | **0.40** | **0.630** | 0.54 | 0.654 | **0.38** | **0.626** |
+| S1 M4-hq | +0.37 | +2.39 | 0.27 | 0.592 | 0.40 | 0.614 | 0.25 | 0.587 |
+| L1 ungated ABMIL | +0.46 | +2.19 | 0.22 | 0.577 | 0.50 | 0.631 | 0.20 | 0.570 |
+| W4 gated ABMIL | +0.39 | +2.13 | 0.23 | 0.577 | 0.46 | 0.621 | 0.20 | 0.570 |
+| W7 gated + retention | +0.42 | +2.18 | 0.23 | 0.580 | 0.46 | 0.629 | 0.21 | 0.574 |
+
+What Tables 11.1–11.4 and Figure 11.1 show:
+
+* **Attention mainly fixes the age extremes.** Every model regresses to the
+  mean: the young are predicted older, the old younger (Table 11.2,
+  Figure 11.1(b, d)).
+  - E2L is +7.0 y at 20–29 and −12.5 y at 80+.
+  - The attention models halve the trend ($\beta$ −0.30 → −0.16) and cut
+    MAE at the extremes: 20–29 7.26 → 4.63 (W4), <20 8.03 → 3.85 (L1),
+    80+ 12.54 → 8.48 (L1), 70–79 7.82 → 6.29.
+  - The price is the middle: 40–69 gets 0.3–0.6 y *worse* than E2L, where
+    E2L's shrinkage toward the mean helped.
+  - The gain is mostly on HEEDB. On TUH the extremes improve too (80+
+    13.98 → 11.49, 70–79 8.79 → 6.99) but on 17–51 recordings per group.
+* **Deployable corrections do not change the ranking.**
+  - Recalibration, Eq. (11.2), helps the mean-pooled baselines (E2L
+    7.00 → 6.61, E2 7.25 → 6.65). It leaves the attention models unchanged
+    or 0.05 y worse, so they stay best (6.14–6.17).
+  - Cole's inversion, Eq. (11.3), removes the age trend
+    ($\beta \approx 0$) but raises every MAE by about 1 y (W4 7.12, E2L
+    7.93). That is expected: it maps the compressed predictions back to the
+    full age range.
+* **The quadratic gap correction, Eq. (11.4), reverses the ranking (E2
+  5.11, W4 5.80), but that is not a model-quality measure.** It subtracts
+  an age-dependent mean using the true age. A model that predicted the same
+  age for everyone would score 0 after it. Compressed models therefore look
+  better, and MAE after Eq. (11.4) must not be compared across models.
+* **Used as a biomarker, the corrected gap of the attention models carries
+  less abnormality signal** (Table 11.4).
+  - After Eq. (11.4), abnormal recordings sit about 2.2 y above normal ones
+    for W4 / L1, vs 2.6 y for E2L.
+  - Cohen's $d$ drops 0.38 → 0.23 and the AUC 0.62 → 0.58, on TUH
+    (0.63 → 0.46) as well as HEEDB.
+  - A3 keeps (slightly raises) the separation (d 0.40, AUC 0.63) while it
+    lowers the MAE, so it is the better gap model of the two post-hoc
+    aggregations.
+  - This is the known trade-off of a tighter age fit: the recording-level
+    loss teaches the model to ignore deviations from typical ageing, which
+    is exactly what the gap is supposed to measure.
+* **Implications.**
+  - For chronological-age accuracy, use L1 / W4 / W7, deployable without
+    correction (or with Eq. (11.2); it changes nothing).
+  - For a brain-age-gap biomarker, E2L (or A3 pooling of it) with the
+    quadratic correction separates abnormal from normal better. The
+    attention models should be judged on a downstream-separation metric
+    such as Table 11.4, not only on MAE.
