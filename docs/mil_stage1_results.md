@@ -610,3 +610,66 @@ Per cohort, Table 8.3 shows:
 * **From scratch (F2 vs F0)**, TUAB abnormal is much worse (8.07 vs 7.35):
   the bag model trained from `labram-base` loses on TUAB's pathological
   recordings while it gains about 1 y on every HEEDB cohort.
+
+## 9. Over- or under-fitting, per method
+
+The memorization measure is the **gap = val MAE − train-eval MAE**, where
+train-eval is 1,000 fixed training recordings scored like val. "Efficiency"
+is the val gain divided by the train-eval gain over the run: the share of
+newly fitted training error that also generalizes. Per-epoch numbers are in
+`docs/data/mil_summary/fit_curves.csv`.
+
+### Figure 9.1. Learning curves and gaps
+
+The four panels:
+- (a) Stage 3 val (solid) and train-eval (dashed) per epoch, with E2L's 7.24 / 4.63 dotted;
+- (b) the Stage 3 gap per epoch, with E2L's gap of 2.61 dotted;
+- (c) Stage 4 curves from `labram-base`;
+- (d) the gap against the val MAE reached; a run that ends lower-left memorizes less for the same accuracy.
+
+![Figure 9.1](figures/mil_fitting_curves.png)
+
+### Table 9.1. Fit per method
+
+| run | val, first → best epoch | train-eval, first → last | gap, first → last | efficiency Δval/Δtrain-eval | diagnosis |
+|---|---|---|---|---|---|
+| W0 window control (warm) | 7.53 → 7.37 (ep 3) | 4.99 → 4.63 | 2.54 → 2.74 | 0.44 | worse than its start (E2L 7.24): the high-LR restart damages, decay only partly recovers |
+| W1 bag mean (warm) | 6.91 → 6.81 (ep 2) | 4.41 → 3.93 | 2.50 → 2.89 | 0.19 | **overfits** at the end: val flat from epoch 2, train-eval still falls, gap +0.39 |
+| L1 ungated ABMIL (warm) | 6.69 → 6.55 (ep 3) | 4.22 → 3.71 | 2.47 → 2.84 | 0.27 | still improving at a decaying LR; gap grows as fast as W1's |
+| W2 gated, descriptors | 6.69 → 6.61 | 4.23 → 3.77 | 2.46 → 2.84 | 0.17 | lowest efficiency of the attention runs: gains mostly on train |
+| W3 sigmoid, descriptors | 6.69 → 6.59 | 4.19 → 3.81 | 2.50 → 2.78 | 0.26 | as L1 |
+| **W4** gated, features | 6.69 → **6.51** | 4.23 → 3.69 | 2.46 → 2.82 | **0.33** | best val gain per unit of train fit among the plain attention runs |
+| W5 gated, both + time | 6.73 → 6.55 | 4.26 → 3.63 | 2.47 → **2.92** | 0.29 | most memorization: the time code helps it fit train |
+| W6 4-branch | 6.66 → 6.55 | 4.17 → 3.77 | 2.49 → 2.78 | 0.28 | as L1 |
+| **W7** gated + retention | 6.68 → 6.54 | 4.20 → 3.98 | 2.48 → **2.56** | **0.64** | **least memorization**: the gap barely grows, the same val as the others |
+| F0 window, from base (12 ep) | 9.75 → 7.79 (ep 9) | 9.13 → 6.57 | 0.62 → 1.22 | 0.76 | converged (val flat over epochs 9–11), steadily rising gap |
+| F1 bag mean, from base (ep 7 of 12) | 10.59 → 7.52 | 10.42 → 6.76 | 0.17 → 0.76 | 0.84 | still under-fit and improving |
+| F2 bag gated q, from base | 10.14 → 7.05 (ep 10) | 9.78 → 5.96 | 0.36 → 1.09 | 0.81 | converged (epochs 9–11 flat); at F0's val level (7.7–7.8) its gap is 0.55 vs 1.25 |
+
+What Table 9.1 and Figure 9.1 show:
+
+* **No attention run over-trains in the classic sense.** Val never turns
+  up, and the best epoch is the last (or, for W1, the second to last). All
+  of them still *drift toward memorization*: in the warm starts only
+  0.2–0.3 y of every 1 y of train-eval improvement shows up on val, so the
+  gap grows 0.3–0.45 y in 4 epochs. Train-eval at about 3.7 y vs val at
+  about 6.5 y means capacity is not the limit: this is a high-variance
+  regime, not under-fitting.
+* **Mean pooling (W1) is the worst case.** It stops improving on val after
+  epoch 2 while train keeps falling. Attention keeps val improving to the
+  last epoch.
+* **Feature retention (W7) is the only regularizer that works here.** The
+  gap stays at 2.56 and the efficiency doubles (0.64), at the same val.
+  Time encoding (W5) has the opposite effect.
+* **From scratch, the picture is healthier.** Early epochs are under-fit
+  (gap 0.2–0.4), both bag runs keep a much smaller gap than the window-level
+  F0 at the same val, and F2 converges by epoch 9–10. 12 epochs is enough
+  for F0 and F2. F1 will tell whether mean pooling also plateaus (it is still
+  improving at epoch 7).
+* **Implications.**
+  1. Warm-start runs gain nothing from longer training; they gain from
+     regularization (retention, stronger mixup, larger bags). The cheapest
+     next run is W4 + retention (`mil.retention_weight` 0.1).
+  2. From-scratch bag training could take more data per epoch (more
+     windows per recording, or more recordings) before it saturates, since
+     its gap is still small.
