@@ -329,3 +329,66 @@ What Table 6.1 and Table 6.2 show:
 
 The SageMaker control W0 (window-level training for the same 4 epochs from
 E2L) is the check that the gain is not simply 4 more epochs.
+
+## 7. Attention weight vs. per-window error, end-to-end runs (test)
+
+`scripts/mil_attention_report.py` reads the per-window weights that the bag
+evaluation saved at the final epoch. It covers L1 (ungated ABMIL on $h$) and
+W2 (gated attention scored on descriptors), over 7,612 test recordings and
+about 228 k windows. The quantities:
+- $r_i = \alpha_i\,|W_c|$ is the weight relative to uniform (1 = an average window);
+- the window error is the window's own prediction through the trained head, against the recording's age.
+
+Tables are in `docs/data/mil_attention/`.
+
+### Table 7.1. Window MAE (y) by within-recording attention decile (1 = lowest weight)
+
+| decile | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| L1 | 13.18 | 10.62 | 9.08 | 8.40 | 8.11 | 7.80 | 7.80 | 7.83 | 7.97 | 8.47 |
+| W2 | 13.07 | 10.67 | 9.48 | 8.80 | 8.52 | 8.35 | 8.19 | 8.09 | 7.99 | **7.85** |
+
+### Table 7.2. Windows by relative weight $r$ (share of windows, window MAE in years)
+
+| $r$ | < 0.5 | 0.5–0.8 | 0.8–1.0 | 1.0–1.25 | 1.25–1.5 | 1.5–2 | > 2 |
+|---|---|---|---|---|---|---|---|
+| L1 share | 10.5 % | 8.4 % | 22.2 % | 41.2 % | 14.1 % | 3.3 % | 0.3 % |
+| L1 MAE | **15.8** | 10.1 | 8.2 | 7.4 | 8.4 | 9.0 | 8.8 |
+| W2 share | 10.8 % | 4.7 % | 19.2 % | 52.1 % | 10.9 % | 2.1 % | 0.3 % |
+| W2 MAE | **15.5** | 10.7 | 8.5 | 8.1 | 8.1 | 8.3 | 9.3 |
+
+### Table 7.3. Per dataset and cohort
+
+| group (recordings) | ρ within, L1 / W2 | MAE lowest-20 % windows, L1 / W2 | MAE highest-20 %, L1 / W2 |
+|---|---|---|---|
+| HEEDB normal (1,518) | −0.14 / −0.17 | 13.0 / 13.1 | 7.8 / 7.4 |
+| HEEDB abnormal (2,253) | −0.11 / −0.14 | 12.9 / 12.7 | 8.9 / 8.6 |
+| HEEDB unlabelled (3,567) | −0.10 / −0.13 | 11.1 / 11.1 | 8.0 / 7.7 |
+| TUH normal (149) | +0.03 / −0.07 | 6.9 / 7.3 | 6.8 / 6.1 |
+| TUH abnormal (125) | −0.02 / −0.00 | 10.1 / 10.0 | 9.8 / 10.1 |
+
+Mean relative weight by minute of the 5-minute budget, L1 / W2:
+0.69 / 0.68 (minute 0), 1.00 / 1.00, 1.08 / 1.08, 1.11 / 1.11, 1.13 / 1.13.
+
+### Figure 7.1. Attention vs. window error, test
+
+The four panels:
+- (a) window MAE by attention decile;
+- (b) mean relative weight by minute;
+- (c) every L1 test window: relative weight against window |error|, with the mean per weight bin;
+- (d) within-recording ρ per dataset and cohort.
+
+![Figure 7.1](figures/mil_attention_vs_error_test.png)
+
+What Tables 7.1–7.3 and Figure 7.1 show:
+
+* **The attention is a "down-weight the bad windows" filter.** The 10 % of
+  windows with $r<0.5$ have MAE 15.5–15.8 y, twice that of the rest
+  (7.4–8.5). Above uniform weight the error barely changes: L1's top decile
+  (8.47) is even worse than its middle (7.8). The descriptor-scored W2 ranks
+  the good windows better (monotone, top decile 7.85). The weights are soft:
+  only 2–4 % of windows get more than 1.5× uniform.
+* **Much of what it learned is the HEEDB first-minute effect.** Minute 0 gets
+  0.68× the uniform weight, and later minutes 1.08–1.13×.
+* **It only works on HEEDB.** On TUH, ρ is about 0: TUH windows are roughly
+  interchangeable, as in Proposal A.
