@@ -673,3 +673,70 @@ What Table 9.1 and Figure 9.1 show:
   2. From-scratch bag training could take more data per epoch (more
      windows per recording, or more recordings) before it saturates, since
      its gap is still small.
+
+## 10. Best attention methods vs. A3 vs. E2L's mean, per cohort
+
+The methods compared:
+- **E2L mean:** the reported model.
+- **A3:** post-hoc learned window weights, base descriptors.
+- **S1 M1-h:** the best frozen-feature pool.
+- **W4 / L1 / W7:** the best end-to-end attention runs from E2L.
+- **F2:** the bag model trained from `labram-base`.
+
+MAE is in years. The Δ columns are the paired change against E2L with 95 %
+bootstrap CIs over recordings (2,000 resamples). TUAB cohorts are TUAB
+recordings (test = the TUAB eval set); TUEG is the other TUH recordings
+(val only). Rows are in
+`docs/data/mil_summary/best_vs_a3_vs_e2l_by_cohort.csv`.
+
+### Table 10.1. Val (n: TUAB 271 / 211, TUEG 1,117 / 1,465 / 358, HEEDB 1,493 / 2,179 / 3,520)
+
+| method | all | TUAB normal | TUAB abnormal | TUEG normal | TUEG abnormal | TUEG unlab. | HEEDB normal | HEEDB abnormal | HEEDB unlab. |
+|---|---|---|---|---|---|---|---|---|---|
+| E2L mean | 7.25 | 5.49 | 7.38 | 6.71 | 7.79 | **8.26** | 7.02 | 7.91 | 6.90 |
+| A3 post-hoc | 6.85 | 5.49 | 7.26 | 6.72 | 7.81 | 8.33 | 6.11 | 7.25 | 6.48 |
+| S1 M1-h (frozen) | 6.59 | 5.41 | 7.36 | 6.58 | 7.76 | 8.27 | 5.70 | 6.92 | 6.16 |
+| **W4 gated ABMIL** | **6.51** | 5.42 | 7.13 | 6.57 | 7.76 | 8.58 | **5.50** | **6.87** | 6.02 |
+| L1 ABMIL | 6.55 | 5.55 | **7.00** | **6.51** | 7.93 | 8.50 | 5.53 | 6.96 | **6.01** |
+| W7 gated + retention | 6.54 | **5.33** | 7.22 | 6.57 | **7.71** | 8.43 | 5.62 | 6.90 | 6.06 |
+| F2 from base | 7.05 | 5.86 | 8.07 | 6.95 | 8.04 | 9.07 | 6.45 | 7.41 | 6.52 |
+| Δ A3 vs E2L | −0.40 [−0.44, −0.36] | +0.00 [−0.12, +0.12] | −0.11 [−0.31, +0.07] | +0.01 [−0.06, +0.08] | +0.02 [−0.05, +0.08] | +0.07 [−0.07, +0.22] | −0.91 [−1.06, −0.77] | −0.66 [−0.77, −0.54] | −0.42 [−0.49, −0.35] |
+| Δ W4 vs E2L | −0.73 [−0.80, −0.66] | −0.07 [−0.39, +0.25] | −0.24 [−0.59, +0.11] | −0.13 [−0.30, +0.02] | −0.03 [−0.18, +0.13] | +0.32 [+0.04, +0.62] | −1.52 [−1.72, −1.32] | −1.04 [−1.20, −0.88] | −0.88 [−0.99, −0.76] |
+| Δ L1 vs E2L | −0.70 [−0.77, −0.63] | +0.07 [−0.23, +0.36] | −0.38 [−0.73, −0.03] | −0.20 [−0.37, −0.04] | +0.14 [−0.02, +0.30] | +0.25 [−0.04, +0.55] | −1.49 [−1.70, −1.29] | −0.94 [−1.11, −0.78] | −0.89 [−1.01, −0.77] |
+
+### Table 10.2. Test (n: TUAB eval 149 / 125, HEEDB 1,518 / 2,253 / 3,567)
+
+| method | all | TUAB normal | TUAB abnormal | HEEDB normal | HEEDB abnormal | HEEDB unlab. |
+|---|---|---|---|---|---|---|
+| E2L mean | 7.00 | 4.91 | 8.50 | 7.12 | 7.56 | 6.64 |
+| A3 post-hoc | 6.46 | 4.90 | 8.58 | 6.27 | 6.95 | 6.22 |
+| S1 M1-h (frozen) | 6.20 | 4.63 | 8.14 | 5.84 | 6.80 | 5.97 |
+| **W4 gated ABMIL** | 6.10 | 4.45 | 8.20 | 5.72 | 6.77 | 5.83 |
+| L1 ABMIL | **6.09** | 4.41 | 8.13 | **5.71** | 6.79 | **5.80** |
+| W7 gated + retention | 6.12 | **4.36** | **8.07** | 5.83 | **6.73** | 5.87 |
+| F2 from base | 6.69 | 5.39 | 8.88 | 6.63 | 7.09 | 6.45 |
+| Δ A3 vs E2L | −0.54 [−0.59, −0.49] | −0.01 [−0.15, +0.13] | +0.09 [−0.17, +0.34] | −0.84 [−0.98, −0.69] | −0.61 [−0.72, −0.50] | −0.41 [−0.48, −0.34] |
+| Δ W4 vs E2L | −0.90 [−0.99, −0.82] | −0.46 [−0.81, −0.12] | −0.29 [−0.87, +0.28] | −1.39 [−1.59, −1.18] | −0.79 [−0.94, −0.63] | −0.80 [−0.92, −0.69] |
+| Δ L1 vs E2L | −0.91 [−1.00, −0.83] | −0.50 [−0.92, −0.08] | −0.37 [−0.88, +0.18] | −1.41 [−1.62, −1.21] | −0.77 [−0.93, −0.61] | −0.83 [−0.95, −0.71] |
+
+What Tables 10.1 and 10.2 show:
+
+* **HEEDB (Harvard): all three cohorts improve significantly, and attention
+  roughly doubles A3's gain.** HEEDB normal val goes −0.91 y (A3) vs −1.52 y
+  (W4); abnormal −0.66 vs −1.04; unlabelled −0.42 vs −0.88. The test set
+  agrees.
+* **TUAB: A3 does nothing; end-to-end attention helps a little.** On test
+  (the TUAB eval set) W4 and L1 improve TUAB normal by 0.46–0.50 y (CIs clear
+  of zero). TUAB abnormal improves 0.24–0.38 y (L1's val CI just excludes
+  zero; W4's and the test CIs do not). Frozen-feature pooling does not reach
+  this.
+* **TUEG (non-TUAB TUH): no gain, and a loss on unlabelled.** TUEG normal
+  gains 0.13–0.20 y (L1 significant), TUEG abnormal is unchanged, and TUEG
+  unlabelled (358 recordings, recordings without a report label) gets worse
+  with the end-to-end runs (W4 +0.32 [+0.04, +0.62]). A3 and frozen pools
+  leave both TUEG cohorts unchanged.
+* **Best method per group:**
+  - HEEDB: W4 / L1;
+  - TUAB normal: W7 / L1;
+  - TUAB abnormal: L1 (val) / W7 (test);
+  - TUEG: any of them (all within noise), except that **E2L itself stays best on TUEG unlabelled**.
