@@ -45,6 +45,17 @@ def test_mil_run_finetune(tmp_path, pool, score_input):
         {"mean": "mean", "gated": "gated", "sigmoid": "sigmoid"}[pool])
 
 
+def test_mil_random_bag_sizes_with_retention(tmp_path):
+    """Random K per recording (padded bags), ungated ABMIL on h + q, retention after a frozen epoch."""
+    from labram.runs import run_finetune
+    cfg, out = _cfg(tmp_path, **{"mil.pool": "gated", "mil.gated": False, "mil.score_input": "hq",
+                                 "mil.bag_size_choices": [1, 2, 3, 4], "trainer.batch_size": 3,
+                                 "mixup.enabled": True, "mil.freeze_encoder_epochs": 1,
+                                 "mil.retention_weight": 0.1, "mil.descriptor_fit_batches": 2})
+    val = run_finetune.main(cfg)["best_val_stats"]
+    assert torch.isfinite(torch.tensor(val["mae"]))
+
+
 def test_bag_dataset_draws_and_collate(tmp_path):
     from labram.data.bags import RecordingBagDataset, collate_bags
     from labram.data import get_dataset_bundle
