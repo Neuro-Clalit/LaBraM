@@ -307,7 +307,7 @@ windows, far less than E2L's about 40 M, which is why F0 ends above E2L
 |---|---|---|---|---|---|---|
 | E2L (reference, 16 epochs, all windows) | 7.00 | 4.91 | 8.49 | 7.12 | 7.56 | 6.63 |
 | F0 window-level | 7.64 | 5.34 | 8.75 | 7.87 | 8.12 | 7.30 |
-| F1 bag, mean pooling | 6.98 | **5.28** | **8.70** | 7.12 | 7.37 | 6.68 |
+| F1 bag, mean pooling | 6.98 | **5.28** | **8.70** | 7.15 | 7.39 | 6.67 |
 | F2 bag, M1-q | **6.69** | 5.40 | 8.88 | **6.63** | **7.09** | **6.45** |
 
 What Table 5.3 and Table 5.4 show:
@@ -331,8 +331,8 @@ What Table 5.3 and Table 5.4 show:
   - **Attention** (F1 → F2, same loss): −0.23 y val / −0.29 y test. About
     30 %, with a slightly larger gap (1.09).
   
-  Per cohort (test), the loss helps every HEEDB cohort (normal 7.87 → 7.12,
-  abnormal 8.12 → 7.37, unlabelled 7.30 → 6.68). Attention adds the most on
+  Per cohort (test), the loss helps every HEEDB cohort (normal 7.87 → 7.15,
+  abnormal 8.12 → 7.39, unlabelled 7.30 → 6.67). Attention adds the most on
   HEEDB normal (→ 6.63) and less on abnormal / unlabelled (→ 7.09 / 6.45).
   On TUAB the loss is neutral (normal 5.34 → 5.28, abnormal 8.75 → 8.70),
   and attention makes TUAB slightly worse (5.40, 8.88).
@@ -652,7 +652,7 @@ The four panels:
 | W6 4-branch | 6.66 → 6.55 | 4.17 → 3.77 | 2.49 → 2.78 | 0.28 | as L1 |
 | **W7** gated + retention | 6.68 → 6.54 | 4.20 → 3.98 | 2.48 → **2.56** | **0.64** | **least memorization**: the gap barely grows, the same val as the others |
 | F0 window, from base (12 ep) | 9.75 → 7.79 (ep 9) | 9.13 → 6.57 | 0.62 → 1.22 | 0.76 | converged (val flat over epochs 9–11), steadily rising gap |
-| F1 bag mean, from base (ep 7 of 12) | 10.59 → 7.52 | 10.42 → 6.76 | 0.17 → 0.76 | 0.84 | still under-fit and improving |
+| F1 bag mean, from base | 10.59 → 7.28 (ep 10) | 10.42 → 6.28 | 0.17 → 1.01 | 0.80 | converged (epochs 10–11 flat); gap 0.99 at best vs F0's 1.25 |
 | F2 bag gated q, from base | 10.14 → 7.05 (ep 10) | 9.78 → 5.96 | 0.36 → 1.09 | 0.81 | converged (epochs 9–11 flat); at F0's val level (7.7–7.8) its gap is 0.55 vs 1.25 |
 
 What Table 9.1 and Figure 9.1 show:
@@ -673,8 +673,8 @@ What Table 9.1 and Figure 9.1 show:
 * **From scratch, the picture is healthier.** Early epochs are under-fit
   (gap 0.2–0.4), both bag runs keep a much smaller gap than the window-level
   F0 at the same val, and F2 converges by epoch 9–10. 12 epochs is enough
-  for F0 and F2. F1 will tell whether mean pooling also plateaus (it is still
-  improving at epoch 7).
+  for F0 and F2. F1 (mean pooling) also converges by epoch 10, at a
+  gap between F0's and F2's.
 * **Implications.**
   1. Warm-start runs gain nothing from longer training; they gain from
      regularization (retention, stronger mixup, larger bags). The cheapest
