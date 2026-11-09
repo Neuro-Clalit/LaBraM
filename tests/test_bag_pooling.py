@@ -79,3 +79,9 @@ def test_descriptor_norm():
     out = norm(q)
     assert torch.isfinite(out).all() and out.abs().max() <= 6
     assert out.mean(0).abs().max() < 0.1
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
+def test_descriptor_norm_fits_cpu_data_on_a_gpu_module():
+    norm = DescriptorNorm(3).cuda().fit(torch.randn(100, 3))
+    assert norm.mean.device.type == "cuda"

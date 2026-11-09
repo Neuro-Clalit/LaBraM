@@ -224,7 +224,7 @@ class DescriptorNorm(nn.Module):
     @torch.no_grad()
     def fit(self, q: torch.Tensor, log_cols=None):
         """``q`` ``[N, Q]`` (any leading shape flattened)."""
-        q = q.reshape(-1, q.shape[-1]).float()
+        q = q.reshape(-1, q.shape[-1]).float().to(self.mean.device)
         if log_cols is None:
             lo = torch.nan_to_num(q, nan=0.0).amin(0)
             med = torch.nan_to_num(q, nan=0.0).median(0).values
