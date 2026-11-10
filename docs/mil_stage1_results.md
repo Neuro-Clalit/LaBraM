@@ -1140,6 +1140,7 @@ Test TUH is the TUAB eval set.
 | run | val all | val TUAB n / a | val TUEG n / a / u | val HEEDB n / a / u | test all | test TUAB n / a | test HEEDB n / a / u |
 |---|---|---|---|---|---|---|---|
 | E2L (reference) | 7.25 | 5.49 / 7.38 | 6.71 / 7.79 / **8.26** | 7.02 / 7.91 / 6.90 | 7.00 | 4.91 / 8.50 | 7.12 / 7.56 / 6.64 |
+| A3 post-hoc window weights (on E2L) | 6.85 | 5.49 / 7.26 | 6.72 / 7.81 / 8.33 | 6.11 / 7.25 / 6.48 | 6.46 | 4.90 / 8.58 | 6.27 / 6.95 / 6.22 |
 | W4 (4 epochs) | **6.51** | 5.42 / 7.13 | 6.57 / 7.76 / 8.58 | **5.50** / 6.87 / 6.02 | 6.10 | 4.45 / 8.20 | 5.72 / 6.77 / 5.83 |
 | L1 (4 epochs) | 6.55 | 5.55 / **7.00** | **6.51** / 7.93 / 8.50 | 5.53 / 6.96 / **6.01** | **6.09** | 4.41 / 8.13 | 5.71 / 6.79 / **5.80** |
 | W7 (4 epochs, retention) | 6.54 | **5.33** / 7.22 | 6.57 / **7.71** / 8.43 | 5.62 / 6.90 / 6.06 | 6.12 | 4.36 / **8.07** | 5.83 / **6.73** / 5.87 |
@@ -1162,6 +1163,10 @@ Per cohort, Table 12.5 shows:
 * **TUAB abnormal:** L1 after 4 epochs stays best on val (7.00); no X run
   reaches it (7.18–7.43). On test, X5 has the lowest value so far (7.76,
   running), but on 125 recordings.
+* **A3 (post-hoc window weights on E2L, no retraining)** gets about half of
+  the attention models' HEEDB gain (val normal 7.02 → 6.11 vs 5.50 for X1 /
+  W4; test all 7.00 → 6.46 vs 6.09). It leaves TUAB and TUEG at E2L's level,
+  and on TUEG unlabelled (8.33) it is closer to E2L than any end-to-end run.
 * **TUEG unlabelled is where long training hurts:** E2L 8.26 → 8.43–8.58
   (4-epoch runs) → 8.54–8.95 (X runs without X4). This matches the TUH
   memorization of Table 12.4. X4 (8.35) and X6 (frozen, 8.30) stay closest
