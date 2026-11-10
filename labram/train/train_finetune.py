@@ -1172,6 +1172,8 @@ def train_loop(
     best_epoch = -1
     best_val_stats: dict = {}
     best_test_stats: dict = {}
+    best_test_set_stats: dict = {}       # name -> stats at the best epoch
+    last_test_set_stats: dict = {}
     best_train_stats: dict = {}
     best_train_eval_stats: dict = {}
     last_epoch = -1
@@ -1189,6 +1191,7 @@ def train_loop(
             best_val_stats, best_test_stats = state["best_val_stats"], state["best_test_stats"]
             best_train_stats = state["best_train_stats"]
             best_train_eval_stats = state.get("best_train_eval_stats", {})
+            best_test_set_stats = state.get("best_test_set_stats", {})
             logger.info("Resumed best-epoch state: best %s val %.4f at epoch %d",
                         select_metric, best_val, best_epoch)
 
@@ -1276,6 +1279,20 @@ def train_loop(
                 test_timing = utils.timing_stats(
                     'test', test_timer.elapsed(), int(test_stats.get('samples_processed', 0)))
                 logger.info(f"Test EEG {select_metric}: {test_stats[select_metric]:.2f}{unit}")
+            set_stats = {}
+            for set_name, set_loader in (getattr(loaders, 'test_sets', None) or {}).items():
+                # Named extra test sets (evaluation.test_sets), scored like test.
+                set_stats[set_name] = evaluate_fn(
+                    set_loader, eval_model, device, header=f'Test[{set_name}]:',
+                    ch_names=ch_names, metrics=metrics, is_binary=is_binary,
+                    nb_classes=nb_classes, eval_cfg=config.evaluation,
+                    log_writer=log_writer, head=f'test_{set_name}', epoch=epoch,
+                    task=task, target_stats=target_stats,
+                    loss_cfg=config.loss, logging_cfg=config.logging,
+                    criterion=criterion,
+                    channel_drop_cfg=getattr(config, 'channel_drop', None))
+                logger.info(f"Test[{set_name}] EEG {select_metric}: "
+                            f"{set_stats[set_name][select_metric]:.2f}{unit}")
             train_eval_stats, train_eval_timing = {}, {}
             every = max(1, int(getattr(config.evaluation, 'train_eval_every', 1) or 1))
             if train_eval_loader is not None and (
@@ -1310,6 +1327,7 @@ def train_loop(
                 best_epoch = epoch
                 best_val_stats = dict(val_stats)
                 best_test_stats = dict(test_stats)
+                best_test_set_stats = {k: dict(v) for k, v in set_stats.items()}
                 best_train_stats = dict(train_stats)
                 if train_eval_stats:      # skipped epochs keep the last scored one
                     best_train_eval_stats = dict(train_eval_stats)
@@ -1323,6 +1341,7 @@ def train_loop(
                 if train_eval_stats:
                     _log_eval_stats(log_writer, train_eval_stats, head="train_eval", epoch=epoch)
             last_val_stats, last_test_stats = dict(val_stats), dict(test_stats)
+            last_test_set_stats = {k: dict(v) for k, v in set_stats.items()}
             if train_eval_stats:
                 last_train_eval_stats = dict(train_eval_stats)
             val_history.append(float(val_stats[select_metric]))
@@ -1330,6 +1349,7 @@ def train_loop(
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'val_{k}': v for k, v in val_stats.items()},
                          **{f'test_{k}': v for k, v in test_stats.items()},
+                         **{f'test_{n}_{k}': v for n, st in set_stats.items() for k, v in st.items()},
                          **{f'train_eval_{k}': v for k, v in train_eval_stats.items()},
                          'epoch': epoch, 'n_parameters': n_parameters,
                          **train_timing, **checkpoint_timing,
@@ -1369,6 +1389,7 @@ def train_loop(
                 "epoch": epoch, "best_val": best_val, "best_test": best_test,
                 "best_epoch": best_epoch, "best_val_stats": best_val_stats,
                 "best_test_stats": best_test_stats, "best_train_stats": best_train_stats,
+                "best_test_set_stats": best_test_set_stats,
                 "best_train_eval_stats": best_train_eval_stats,
                 "val_history": val_history})
         if (config.trainer.early_stopping and loaders.val is not None
@@ -1418,6 +1439,7 @@ def train_loop(
         "val_history": val_history,
         "best_val_stats": best_val_stats,
         "best_test_stats": best_test_stats,
+        "best_test_set_stats": best_test_set_stats,
         "best_train_stats": best_train_stats,
         "best_train_eval_stats": best_train_eval_stats,
         # The final epoch's metrics, for the best-vs-last summary tables.
@@ -1425,5 +1447,6 @@ def train_loop(
         "last_train_stats": last_train_stats,
         "last_val_stats": last_val_stats,
         "last_test_stats": last_test_stats,
+        "last_test_set_stats": last_test_set_stats,
         "last_train_eval_stats": last_train_eval_stats,
     }

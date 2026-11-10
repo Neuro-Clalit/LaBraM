@@ -221,6 +221,7 @@ def stage_s3_inputs(config: RunConfig, phase: str = 'finetune') -> StagedInputs:
             cr.tokenizer_weight = _stage_weight_file(
                 staged, 'tokenizer', cr.tokenizer_weight,
                 'model.codebook_reg.tokenizer_weight', mirrors)
+        _stage_test_sets(staged, config)
     elif phase == 'pretrain':
         # Masked pre-training loads a frozen VQNSP tokenizer via torch.load, so
         # its weight needs the same staging as the fine-tune checkpoints.
@@ -237,6 +238,34 @@ def stage_s3_inputs(config: RunConfig, phase: str = 'finetune') -> StagedInputs:
         logger.info("Staging %d local weight file(s) for upload: %s",
                     len(staged.uploads), staged.uploads)
     return staged
+
+
+def _stage_test_sets(staged: 'StagedInputs', config: RunConfig) -> None:
+    """External test sets (``evaluation.test_sets`` entries ``name=path``)
+    become input channels ``test_<name>``: an ``s3://`` path as is, a local
+    folder through its ``sagemaker.data_s3_uris`` copy; the entry is rewritten
+    to the mount. A local folder without a copy is dropped with a warning.
+    Family entries (``temple``) need no data and are kept."""
+    ev = getattr(config, 'evaluation', None)
+    if ev is None or not getattr(ev, 'test_sets', None):
+        return
+    mirrors = {_normalize_path(k): v for k, v in
+               (getattr(config.sagemaker, 'data_s3_uris', {}) or {}).items()}
+    kept = []
+    for entry in ev.test_sets:
+        name, sep, path = str(entry).partition('=')
+        if not sep:
+            kept.append(entry)
+            continue
+        src = path if _is_s3(path) else mirrors.get(_normalize_path(path))
+        if src is None:
+            logger.warning("evaluation.test_sets: %r is local with no S3 copy in "
+                           "sagemaker.data_s3_uris; dropped from the job", entry)
+            continue
+        channel = f"test_{name}"
+        staged.channels[channel] = src
+        kept.append(f"{name}={_channel_mount(channel)}")
+    ev.test_sets = kept
 
 
 def _normalize_path(value: str) -> str:

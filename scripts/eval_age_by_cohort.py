@@ -103,11 +103,14 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
 
 
 def _predict_bags(model, dataset, ch_names, device, mil_cfg, batch_size=12, channel_drop=None,
-                  num_workers=8):
+                  num_workers=8, windows_out=None):
     """Recording predictions of a MIL (bag) model: every recording's selected
     windows form one bag, pooled by the model's attention as in training's
     evaluation (``labram/train/train_mil.py::evaluate_bags``). Returns one
-    (prediction, target, recording) per recording."""
+    (prediction, target, recording) per recording. ``windows_out`` (a dict of
+    lists), when given, receives every window's ``recording``, ``slot``,
+    ``minute``, attention weight ``alpha`` and own prediction ``window_pred``
+    (the head on its embedding; z-scored), as ``evaluate_bags`` saves them."""
     from labram.data.bags import RecordingBagDataset, collate_bags
     from labram.train.train_mil import prepare
     if utils.get_world_size() > 1:
@@ -122,7 +125,16 @@ def _predict_bags(model, dataset, ch_names, device, mil_cfg, batch_size=12, chan
         for batch in loader:
             x4, ci, bag, y, stems = prepare(batch, device, ch_names, dropper, m.mil, train=False)
             with torch.amp.autocast(device.type, enabled=device.type == "cuda"):
-                out, _, _ = model(x4, ci, bag=bag)
+                out, alpha, h = model(x4, ci, bag=bag)
+                wout = m.head(h.to(m.head_dtype())) if windows_out is not None else None
+            if windows_out is not None:
+                b_idx, k_idx = bag["mask"].nonzero(as_tuple=True)
+                windows_out.setdefault("recording", []).extend(stems[i] for i in b_idx.tolist())
+                windows_out.setdefault("slot", []).extend(k_idx.tolist())
+                windows_out.setdefault("minute", []).extend(bag["t"][bag["mask"]].tolist())
+                windows_out.setdefault("alpha", []).extend(alpha.float()[bag["mask"]].tolist())
+                windows_out.setdefault("window_pred", []).extend(
+                    wout.float().reshape(len(b_idx), -1)[:, 0].tolist())
             preds.append(out.float().reshape(len(y), -1)[:, 0].cpu())
             targets.append(y.reshape(len(y), -1)[:, 0].float().cpu())
             recs.extend(stems)
@@ -184,7 +196,8 @@ def _window_names(dataset):
 def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None,
                  train_data_path=None, window_qc=True, session_features=None, return_windows=False,
                  tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None, num_workers=8,
-                 class_probs=False, pred_stats=None, eval_minutes=None):
+                 class_probs=False, pred_stats=None, eval_minutes=None, windows_path=None,
+                 bag_batch_size=None):
     """Score one run on ``splits``. With ``return_windows`` each split also
     carries its window-level predictions (``windows``: names, recording ids,
     predicted / true age in years) and the result the run's window settings
@@ -258,9 +271,23 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
         if getattr(cfg, "mil", None) is not None and cfg.mil.enabled:
             if return_windows or keep_logits or session:
                 raise ValueError("bag (mil.enabled) runs are scored per recording only")
+            win = {} if windows_path else None
+            # whole recordings make large bags: fewer per batch
+            bb = bag_batch_size or (2 if not cfg.data.eval_minutes else 12)
             pred, true, recs = _predict_bags(model, getattr(bundle, split), bundle.ch_names, device,
-                                             cfg.mil, channel_drop=getattr(cfg, "channel_drop", None),
-                                             num_workers=num_workers)
+                                             cfg.mil, batch_size=bb,
+                                             channel_drop=getattr(cfg, "channel_drop", None),
+                                             num_workers=num_workers, windows_out=win)
+            if win:
+                import pandas as pd
+                wdf = pd.DataFrame(win)
+                wdf["window_pred"] = utils.denormalize(wdf["window_pred"].to_numpy(),
+                                                       pred_stats or bundle.target_stats)
+                ages = dict(zip(recs, utils.denormalize(true, bundle.target_stats)))
+                wdf["age"] = wdf["recording"].map(ages)
+                path = windows_path.format(split=split)
+                os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                wdf.to_parquet(path)
         else:
             pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device,
                                         batch_size, to_scalar, session=session,
@@ -324,6 +351,11 @@ def main():
                     help="session-feature file for --data-path (default: the run's own)")
     ap.add_argument("--eval-minutes", type=float, default=None,
                     help="override data.eval_minutes, the per-recording val/test budget (0 = every window)")
+    ap.add_argument("--save-windows", default=None, metavar="DIR",
+                    help="bag runs: write every window's attention weight and own prediction to "
+                         "DIR/<run>_<split>.parquet (for attention-based trimming analyses)")
+    ap.add_argument("--bag-batch-size", type=int, default=None,
+                    help="recordings per batch for bag runs (default 12, 2 with --eval-minutes 0)")
     ap.add_argument("--out", default=None)
     ap.add_argument("--nproc-per-node", type=int, default=1,
                     help="GPUs to predict on (one DDP process each; -1 = all visible GPUs). "
@@ -348,7 +380,10 @@ def main():
                                      session_features=args.session_features,
                                      pred_stats=(tuple(args.pred_stats) if args.pred_stats else
                                                  logged_target_stats(run_dir) if args.pred_stats_from_log else None),
-                                     stage_dir=args.stage_dir, eval_minutes=args.eval_minutes)
+                                     stage_dir=args.stage_dir, eval_minutes=args.eval_minutes,
+                                     windows_path=(os.path.join(args.save_windows, f"{name}_{{split}}.parquet")
+                                                   if args.save_windows else None),
+                                     bag_batch_size=args.bag_batch_size)
         if not utils.is_main_process():
             continue
         for split, cohorts in results[name]["splits"].items():

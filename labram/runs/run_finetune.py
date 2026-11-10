@@ -5,6 +5,7 @@
 # ---------------------------------------------------------
 
 import argparse
+import os
 import numpy as np
 import torch
 
@@ -37,7 +38,8 @@ from labram.runs.codebook_setup import (
     CodebookRegLayerAssigner, build_codebook_classifier, loss_config_from_codebook_reg,
 )
 from labram.runs.finetune_setup import (
-    build_dataloaders, build_samplers, build_train_eval_loader, enable_window_ids, freeze_except,
+    build_dataloaders, build_samplers, build_test_set_loaders, build_train_eval_loader,
+    enable_window_ids, freeze_except,
     load_finetune_checkpoint, required_time_patches, subset_for_debug,
 )
 from labram.optim_factory import (
@@ -278,13 +280,39 @@ def main(config: FinetuneRunConfig, bundle=None):
     if config.trainer.disable_eval_during_finetuning:
         dataset_val = dataset_test = None
 
+    # Named extra test sets (evaluation.test_sets): a source dataset of the
+    # test split (e.g. "temple") or an external test-only cohort (e.g. LEMON).
+    test_sets = {}
+    if os.environ.get("LABRAM_TEST_SETS", "on") == "off" and config.evaluation.test_sets:
+        logger.info("evaluation.test_sets %s off ($LABRAM_TEST_SETS=off)", config.evaluation.test_sets)
+    elif config.evaluation.test_sets and dataset_val is not None:
+        from labram.data.test_sets import build_test_sets, parse_test_sets
+        entries = list(config.evaluation.test_sets)
+        if config.data.session_features or config.data.multitask_targets:
+            # External cohorts carry neither: keep only the test-split subsets.
+            dropped = [e for e in entries if parse_test_sets([e])[0][1] is not None]
+            if dropped:
+                logger.warning("evaluation.test_sets: %s skipped (no session features / "
+                               "multi-task targets for external cohorts)", dropped)
+            entries = [e for e in entries if e not in dropped]
+        test_sets = build_test_sets(entries, dataset_test, config.data,
+                                    WindowSelection.from_data_config(config.data), bundle.target_stats)
+        if ((config.model.head_type == 'multitask' and not config.data.multitask_targets)
+                or config.model.condition_on_abnormal):
+            # [age, abnormal] targets like the other splits (the test-split
+            # subsets are copies of leaves that already yield them).
+            paths = dict(parse_test_sets(entries))
+            for name, d in test_sets.items():
+                if paths.get(name) is not None:
+                    enable_abnormal_target(d)
+
     # Per-case window aggregation needs each dataset to surface a per-window case
     # id (recording/subject). Enable it for train, val *and* test whenever an
     # aggregation mode is configured — so every split reports case-level metrics
     # alongside per-window ones (train pools the predictions made during the
     # epoch), both during training and in eval-only mode.
     if config.evaluation.agg_windows != 'none':
-        for split_ds in (dataset_train, dataset_val, dataset_test):
+        for split_ds in (dataset_train, dataset_val, dataset_test, *test_sets.values()):
             if split_ds is not None:
                 enable_window_ids(split_ds, config.evaluation.agg_case_by)
 
@@ -299,6 +327,7 @@ def main(config: FinetuneRunConfig, bundle=None):
         dataset_val = wrap_bags(dataset_val, config.mil, False)
         dataset_test = ([wrap_bags(d, config.mil, False) for d in dataset_test]
                         if isinstance(dataset_test, list) else wrap_bags(dataset_test, config.mil, False))
+        test_sets = {name: wrap_bags(d, config.mil, False) for name, d in test_sets.items()}
         logger.info("MIL: %d training bags of %d windows (pool=%s, score_input=%s)",
                     len(dataset_train), config.mil.bag_size, config.mil.pool, config.mil.score_input)
 
@@ -356,6 +385,12 @@ def main(config: FinetuneRunConfig, bundle=None):
         eval_batch_size=config.evaluation.eval_batch_size,
         collate_fn=_bag_collate() if mil_on else None,
     )
+    if test_sets:
+        loaders.test_sets = build_test_set_loaders(
+            test_sets, config.distributed.dist_eval and num_tasks > 1, num_tasks, global_rank,
+            batch_size=config.trainer.batch_size, eval_batch_size=config.evaluation.eval_batch_size,
+            num_workers=config.data.num_workers, pin_memory=pin_memory,
+            collate_fn=_bag_collate() if mil_on else None)
     if mil_on and not config.trainer.eval and dataset_val is not None:
         loaders.train_eval = _bag_train_eval_loader(
             dataset_train_windows, config, pin_memory, distributed=config.distributed.dist_eval and num_tasks > 1)
@@ -527,6 +562,20 @@ def main(config: FinetuneRunConfig, bundle=None):
         logger.info(", ".join(
             f"{k}: {np.mean(v):.3f} ± {np.std(v):.3f}" for k, v in collected.items()))
         eval_summary = {k: float(np.mean(v)) for k, v in collected.items()}
+        set_stats = {}
+        for name, data_loader in (loaders.test_sets or {}).items():
+            set_stats[name] = evaluate_fn(data_loader, model, device, header=f'Test[{name}]:',
+                                          ch_names=ch_names, metrics=metrics,
+                                          is_binary=(nb_classes == 1 and not is_regression),
+                                          nb_classes=nb_classes, eval_cfg=config.evaluation,
+                                          log_writer=log_writer, head=f'test_{name}', epoch=0,
+                                          task=task, target_stats=config.model.target_stats,
+                                          loss_cfg=config.loss, criterion=criterion,
+                                          channel_drop_cfg=config.channel_drop)
+            logger.info("Test[%s]: %s", name, ", ".join(
+                f"{k}: {set_stats[name][k]:.3f}" for k in summary_keys if k in set_stats[name]))
+        if set_stats:
+            eval_summary["best_test_set_stats"] = set_stats
         runner_common.log_summary_metrics(log_writer, eval_summary, config)
         return eval_summary
 

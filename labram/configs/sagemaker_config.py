@@ -36,6 +36,7 @@ from labram.configs.defaults import (
     DEFAULT_SAGEMAKER_USE_SPOT,
     DEFAULT_SAGEMAKER_VOLUME_SIZE_GB,
     DEFAULT_SAGEMAKER_WAIT,
+    DEFAULT_SAGEMAKER_DATA_S3_URIS,
     DEFAULT_SAGEMAKER_WEIGHT_S3_URIS,
 )
 
@@ -93,6 +94,11 @@ class SageMakerConfig(ConfigBase):
             Keys are matched by normalized path. Clear it (``{}``) to force the
             local file to upload; add entries for your own weights. Never affects
             local (non-SageMaker) training.
+        data_s3_uris: ``{local_data_folder: s3_uri}`` S3 copies of local data
+            folders. An external test set of ``evaluation.test_sets``
+            (``name=<local folder>``) with an entry here is mounted as the input
+            channel ``test_<name>``; one without is dropped from the job with a
+            warning (corpora are never uploaded on submission).
         input_mode: How every input channel is delivered — ``File`` (download to
             the EBS volume first), ``FastFile`` (stream from S3 through a FUSE
             mount; recommended for the many-small-files TUH corpora) or ``Pipe``.
@@ -137,6 +143,8 @@ class SageMakerConfig(ConfigBase):
     config_channel: str = DEFAULT_SAGEMAKER_CONFIG_CHANNEL
     weight_s3_uris: Dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_SAGEMAKER_WEIGHT_S3_URIS))
+    data_s3_uris: Dict[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_SAGEMAKER_DATA_S3_URIS))
     input_mode: str = DEFAULT_SAGEMAKER_INPUT_MODE
     environment: Dict[str, str] = field(default_factory=dict)
     # Secrets Manager secret holding the ClearML credentials (create it with

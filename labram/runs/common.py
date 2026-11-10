@@ -667,6 +667,11 @@ def flatten_summary_metrics(summary: Any) -> dict:
             # MSE is left out: RMSE reports the same error in the target's units.
             if _is_num(v) and k not in ('mse', 'window_mse'):
                 flat[f'{prefix}_{k}'] = v
+    # Named extra test sets (evaluation.test_sets): test_<name>_<metric>.
+    for name, stats in (summary.get('best_test_set_stats') or {}).items():
+        for k, v in (stats or {}).items():
+            if _is_num(v) and k not in ('mse', 'window_mse'):
+                flat[f'test_{name}_{k}'] = v
     # Eval-only runs return their metrics at the top level: accuracy/balanced
     # accuracy for classification, the regression metrics for a scalar target.
     for k in ('accuracy', 'balanced_accuracy') + REGRESSION_SUMMARY_KEYS:

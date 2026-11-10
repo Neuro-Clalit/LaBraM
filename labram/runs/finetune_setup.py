@@ -6,7 +6,7 @@
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import torch
 import torch.utils.data
@@ -104,6 +104,8 @@ class DataLoaders:
     # A fixed sample of training recordings scored like val/test each epoch
     # (``evaluation.train_eval_recordings``); None when off.
     train_eval: Optional[torch.utils.data.DataLoader] = None
+    # Named extra test sets (``evaluation.test_sets``), scored like test.
+    test_sets: Optional[Dict[str, torch.utils.data.DataLoader]] = None
 
 
 def build_train_eval_loader(dataset_train, eval_cfg, data_cfg, batch_size: int, num_workers: int,
@@ -208,6 +210,23 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
         )
 
     return DataLoaders(train=train_loader, val=val_loader, test=test_loader)
+
+
+def build_test_set_loaders(test_sets, distributed: bool, num_tasks: int, global_rank: int,
+                           batch_size: int, eval_batch_size: int, num_workers: int,
+                           pin_memory: bool, collate_fn=None) -> Dict[str, torch.utils.data.DataLoader]:
+    """``{name: loader}`` for the named extra test sets, built like the test
+    loader (sharded across ranks under DDP and gathered back by evaluate())."""
+    eval_batch_size = int(eval_batch_size) or int(1.5 * batch_size)
+    out = {}
+    for name, d in test_sets.items():
+        sampler = (torch.utils.data.DistributedSampler(d, num_replicas=num_tasks, rank=global_rank,
+                                                       shuffle=False)
+                   if distributed else torch.utils.data.SequentialSampler(d))
+        out[name] = torch.utils.data.DataLoader(d, sampler=sampler, batch_size=eval_batch_size,
+                                                num_workers=num_workers, pin_memory=pin_memory,
+                                                drop_last=False, collate_fn=collate_fn)
+    return out
 
 
 def freeze_except(model: torch.nn.Module, prefixes) -> int:

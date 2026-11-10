@@ -227,7 +227,32 @@ Protocol:
 * **MIPDB has no published age-regression result.** Ours is a first, and
   shows the limit of the training data: children.
 
-## 5. Not yet done
+## 5. LEMON as a standing test set during training
+
+Every age fine-tune now scores extra test sets each epoch, next to the regular
+test split (`evaluation.test_sets`, `labram/data/test_sets.py`). The age
+configs default to:
+
+```json
+"test_sets": ["temple", "lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1"]
+```
+
+- `temple` is the TUH part of the run's own test split, i.e. the TUAB eval
+  set for `tuh_heedb_v1`.
+- `lemon` is this cohort, scored zero-shot with the run's own window
+  selection and training-target statistics.
+
+Both are logged like the test split:
+- ClearML heads `test_temple`, `test_lemon`;
+- console `Test[lemon] EEG mae: …`;
+- `best_test_set_stats` in the run summary and `test_<name>_*` final metrics.
+
+On SageMaker the LEMON folder is mounted from its S3 copy
+(`sagemaker.data_s3_uris`) as the input channel `test_lemon`. Data that is
+missing on a machine is skipped with a warning. Add MIPDB with
+`--set 'evaluation.test_sets=["temple","lemon=…","mipdb=/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1"]'`.
+
+## 6. Not yet done
 
 - **CHBP and TDBRAIN** need a data use agreement (Synapse; brainclinics.com).
   The converter takes a new reader per corpus in `make_external_npy.DATASETS`.

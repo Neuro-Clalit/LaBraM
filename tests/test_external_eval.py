@@ -61,3 +61,51 @@ def test_eval_script_scores_a_bag_model_on_a_test_only_cohort(tmp_path):
     test = res["splits"]["test"]
     assert test["all"]["n"] == 5 and len(test["predictions"]) == 5
     assert np.isfinite(test["all"]["mae"])
+
+
+def test_finetune_scores_named_test_sets(tmp_path, monkeypatch):
+    """evaluation.test_sets: a family subset of the own test split and an external
+    test-only cohort are scored every epoch and reported at the best epoch."""
+    monkeypatch.delenv("LABRAM_TEST_SETS", raising=False)
+    from test_window_qc import _corpus
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.data.dataset_groups import _CACHE
+    from labram.runs import run_finetune
+    root = _corpus(tmp_path / "own")
+    m = json.load(open(root / "manifest.json"))
+    for r in m["recordings"]:
+        r["corpus"] = "tueg"                                # -> family "temple"
+    json.dump(m, open(root / "manifest.json", "w"))
+    _CACHE.clear()
+    ext = _test_only_cohort(tmp_path / "ext")
+    out = tmp_path / "out"
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy", "data.trim_start_sec": 0.0,
+           "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0, "data.num_workers": 0,
+           "trainer.batch_size": 2, "trainer.epochs": 1, "optimizer.warmup_epochs": 0,
+           "distributed.device": "cpu", "finetune_checkpoint.finetune": "", "clearml.enabled": False,
+           "output.output_dir": str(out), "output.log_dir": str(out),
+           "logging.log_model_graph": False, "evaluation.agg_windows": "mean",
+           "evaluation.train_eval_recordings": 0,
+           "evaluation.test_sets": ["temple", f"ext={ext}", "missing=/no/such/dir"]})
+    summary = run_finetune.main(cfg)
+    sets = summary["best_test_set_stats"]
+    assert set(sets) == {"temple", "ext"}                   # the missing one is skipped
+    assert sets["temple"]["mae"] == summary["best_test_stats"]["mae"]   # every test recording is TUH
+    assert np.isfinite(sets["ext"]["mae"]) and sets["ext"]["mae"] < 100     # targets in years
+
+
+def test_sagemaker_stages_external_test_sets(tmp_path):
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs.submit_sagemaker import stage_s3_inputs
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": "s3://b/cohort", "finetune_checkpoint.finetune": "s3://b/w.pth",
+           "evaluation.test_sets": ["temple", "lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1",
+                                    "other=s3://b/other", "local=/tmp/nowhere"]})
+    staged = stage_s3_inputs(cfg, "finetune")
+    assert staged.channels["test_lemon"] == "s3://eeg-data-public/LEMON/v1/cohorts/lemon_v1"
+    assert staged.channels["test_other"] == "s3://b/other"
+    assert cfg.evaluation.test_sets == ["temple", "lemon=/opt/ml/input/data/test_lemon",
+                                        "other=/opt/ml/input/data/test_other"]

@@ -285,6 +285,7 @@
         "train_eval_recordings": 500,
         "train_eval_every": 4,
         "eval_batch_size": 0,
+        "test_sets": [],
         "select_metric": "",
         "select_mode": "auto"
     },
@@ -343,6 +344,10 @@
         "code_location": "",
         "output_kms_key": "",
         "config_channel": "",
+        "data_s3_uris": {
+            "/data/datasets/EEG-public/LEMON/cohorts/lemon_v1": "s3://eeg-data-public/LEMON/v1/cohorts/lemon_v1",
+            "/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1": "s3://eeg-data-public/MIPDB/v1/cohorts/mipdb_v1"
+        },
         "weight_s3_uris": {
             "./checkpoints/labram-base.pth": "s3://eeg-data-public/models/labram/labram-base.pth",
             "./checkpoints/vqnsp.pth": "s3://eeg-data-public/models/labram/vqnsp.pth"

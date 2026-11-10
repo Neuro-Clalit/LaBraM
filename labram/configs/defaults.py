@@ -303,6 +303,12 @@ DEFAULT_SAGEMAKER_WEIGHT_S3_URIS: Dict[str, str] = {
     './checkpoints/labram-base.pth': 's3://eeg-data-public/models/labram/labram-base.pth',
     './checkpoints/vqnsp.pth': 's3://eeg-data-public/models/labram/vqnsp.pth',
 }
+# Local data folders with an S3 copy, used for the external test sets of
+# ``evaluation.test_sets`` (each becomes a ``test_<name>`` input channel).
+DEFAULT_SAGEMAKER_DATA_S3_URIS: Dict[str, str] = {
+    '/data/datasets/EEG-public/LEMON/cohorts/lemon_v1': 's3://eeg-data-public/LEMON/v1/cohorts/lemon_v1',
+    '/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1': 's3://eeg-data-public/MIPDB/v1/cohorts/mipdb_v1',
+}
 
 # ---------- Transformer architecture (NeuralTransformerBase) ----------
 # Defaults match the "base" variant used in almost all production factories.

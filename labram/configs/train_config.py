@@ -218,6 +218,13 @@ class EvaluationConfig(ConfigBase):
     train_eval_every: int = 4
     # Batch size of the val / test / train_eval loaders; 0 = 1.5 x trainer.batch_size.
     eval_batch_size: int = 0
+    # Named extra test sets, scored wherever the test split is and logged as
+    # ``test_<name>`` (``labram/data/test_sets.py``): ``<family>`` = the test
+    # split's recordings of one source dataset (``temple`` / ``harvard``), or
+    # ``<name>=<path>`` = an external test-only npy cohort scored zero-shot
+    # (e.g. ``lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1``). A set
+    # whose data is missing is skipped with a warning.
+    test_sets: List[str] = field(default_factory=list)
     # Metric that selects the best epoch (and drives early stopping), e.g.
     # "pathology_macro_roc_auc" for a classification-only multi-task run;
     # "" = the task default (accuracy / MAE). select_mode: "max", "min" or

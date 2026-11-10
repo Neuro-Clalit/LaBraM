@@ -30,3 +30,11 @@ def _reset_labram_logger():
         logger.handlers[:] = saved_handlers
         logger.setLevel(saved_level)
         logger.propagate = saved_propagate
+
+
+@pytest.fixture(autouse=True)
+def _no_default_test_sets(monkeypatch):
+    """The age configs list machine-local extra test sets (``evaluation.test_sets``,
+    e.g. LEMON under /data); tests never score them unless they ask for it
+    (``monkeypatch.delenv("LABRAM_TEST_SETS")``)."""
+    monkeypatch.setenv("LABRAM_TEST_SETS", "off")
