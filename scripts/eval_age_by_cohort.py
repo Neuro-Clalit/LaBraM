@@ -8,7 +8,8 @@ manifest rows carry a corpus -- the same per dataset (``harvard`` = HEEDB,
 For each run directory (holding ``run_config.yaml`` and a checkpoint), rebuild
 the model and the exact val/test samples from the run's own config (window
 selection, input length, preprocessing), predict every window, average the
-predictions per recording, and report MAE / RMSE / R^2 / Pearson r for all
+predictions per recording (a MIL run, ``mil.enabled``, pools each recording's
+windows with its own attention instead), and report MAE / RMSE / R^2 / Pearson r for all
 recordings and for TUAB's normal and abnormal recordings separately. The
 normal/abnormal label comes from the age metadata sidecar (``label`` field).
 
@@ -101,6 +102,33 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
     return pred, true, recs
 
 
+def _predict_bags(model, dataset, ch_names, device, mil_cfg, batch_size=12, channel_drop=None,
+                  num_workers=8):
+    """Recording predictions of a MIL (bag) model: every recording's selected
+    windows form one bag, pooled by the model's attention as in training's
+    evaluation (``labram/train/train_mil.py::evaluate_bags``). Returns one
+    (prediction, target, recording) per recording."""
+    from labram.data.bags import RecordingBagDataset, collate_bags
+    from labram.train.train_mil import prepare
+    if utils.get_world_size() > 1:
+        raise ValueError("bag models are scored on one process (--nproc-per-node 1)")
+    bags = RecordingBagDataset(dataset, train=False, max_windows=mil_cfg.eval_max_windows)
+    loader = torch.utils.data.DataLoader(bags, batch_size=batch_size, shuffle=False,
+                                         num_workers=num_workers, collate_fn=collate_bags)
+    dropper = ChannelDropper.from_config(channel_drop, ch_names)
+    m = getattr(model, "module", model)
+    preds, targets, recs = [], [], []
+    with torch.no_grad():
+        for batch in loader:
+            x4, ci, bag, y, stems = prepare(batch, device, ch_names, dropper, m.mil, train=False)
+            with torch.amp.autocast(device.type, enabled=device.type == "cuda"):
+                out, _, _ = model(x4, ci, bag=bag)
+            preds.append(out.float().reshape(len(y), -1)[:, 0].cpu())
+            targets.append(y.reshape(len(y), -1)[:, 0].float().cpu())
+            recs.extend(stems)
+    return torch.cat(preds).numpy(), torch.cat(targets).numpy(), recs
+
+
 def _per_recording(pred, true, recs, target_stats, pred_stats=None):
     """Mean prediction per recording, in years. Targets are de-normalized with
     the evaluated data's stats; predictions with the stats the model was trained
@@ -156,7 +184,7 @@ def _window_names(dataset):
 def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, data_format=None,
                  train_data_path=None, window_qc=True, session_features=None, return_windows=False,
                  tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None, num_workers=8,
-                 class_probs=False, pred_stats=None):
+                 class_probs=False, pred_stats=None, eval_minutes=None):
     """Score one run on ``splits``. With ``return_windows`` each split also
     carries its window-level predictions (``windows``: names, recording ids,
     predicted / true age in years) and the result the run's window settings
@@ -170,6 +198,8 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     cfg.data.data_path = data_path
     if stage_dir is not None:                 # e.g. "none": read in place, no NVMe copy
         cfg.data.stage_dir = stage_dir
+    if eval_minutes is not None:              # val/test budget per recording (0 = every window)
+        cfg.data.eval_minutes = eval_minutes
     if data_format:
         cfg.data.data_format = data_format
     if cfg.model.codebook_reg.enabled:
@@ -225,11 +255,18 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
         result["class_names"] = list(cfg.model.multitask_head.class_names or [])
     for split in splits:
         logits = [] if keep_logits else None
-        pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device,
-                                    batch_size, to_scalar, session=session,
-                                    channel_drop=getattr(cfg, "channel_drop", None),
-                                    num_workers=num_workers, logits_out=logits,
-                                    age_input=getattr(cfg.model, "age_input", "off") != "off")
+        if getattr(cfg, "mil", None) is not None and cfg.mil.enabled:
+            if return_windows or keep_logits or session:
+                raise ValueError("bag (mil.enabled) runs are scored per recording only")
+            pred, true, recs = _predict_bags(model, getattr(bundle, split), bundle.ch_names, device,
+                                             cfg.mil, channel_drop=getattr(cfg, "channel_drop", None),
+                                             num_workers=num_workers)
+        else:
+            pred, true, recs = _predict(model, getattr(bundle, split), bundle.ch_names, device,
+                                        batch_size, to_scalar, session=session,
+                                        channel_drop=getattr(cfg, "channel_drop", None),
+                                        num_workers=num_workers, logits_out=logits,
+                                        age_input=getattr(cfg.model, "age_input", "off") != "off")
         ids, p, t = _per_recording(pred, true, recs, bundle.target_stats, pred_stats)
         # group ids are recording stems; no label = unlabelled (e.g. HEEDB without a report)
         cohort = np.array([labels.get(r) if labels.get(r) in ("normal", "abnormal")
@@ -278,11 +315,15 @@ def main():
     ap.add_argument("--pred-stats-from-log", action="store_true",
                     help="de-normalize predictions with the training-target stats each run logged "
                          "(log/run.log; exact for CV folds) -- for scoring on another cohort")
+    ap.add_argument("--pred-stats", nargs=2, type=float, default=None, metavar=("MEAN", "STD"),
+                    help="de-normalize predictions with these training-target stats (years)")
     ap.add_argument("--stage-dir", default=None, help="override data.stage_dir (e.g. 'none')")
     ap.add_argument("--no-window-qc", action="store_true",
                     help="ignore the run's signal-quality window rejection: score every window")
     ap.add_argument("--session-features", default=None,
                     help="session-feature file for --data-path (default: the run's own)")
+    ap.add_argument("--eval-minutes", type=float, default=None,
+                    help="override data.eval_minutes, the per-recording val/test budget (0 = every window)")
     ap.add_argument("--out", default=None)
     ap.add_argument("--nproc-per-node", type=int, default=1,
                     help="GPUs to predict on (one DDP process each; -1 = all visible GPUs). "
@@ -305,8 +346,9 @@ def main():
                                      train_data_path=args.train_data_path,
                                      window_qc=not args.no_window_qc,
                                      session_features=args.session_features,
-                                     pred_stats=logged_target_stats(run_dir) if args.pred_stats_from_log else None,
-                                     stage_dir=args.stage_dir)
+                                     pred_stats=(tuple(args.pred_stats) if args.pred_stats else
+                                                 logged_target_stats(run_dir) if args.pred_stats_from_log else None),
+                                     stage_dir=args.stage_dir, eval_minutes=args.eval_minutes)
         if not utils.is_main_process():
             continue
         for split, cohorts in results[name]["splits"].items():

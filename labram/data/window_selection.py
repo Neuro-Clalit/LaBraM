@@ -268,7 +268,7 @@ def _select_leaf(leaf, selection: WindowSelection, is_eval: bool, split: str) ->
         "window selection [%s]: %d -> %d sample(s) of %d s, %d -> %d recording(s)",
         split, len(before_files), len(leaf.files), selection.window_sec,
         recordings(before_files), recordings(leaf.files))
-    if not leaf.files:
+    if not leaf.files and before_files:      # an empty split (eval-only cohort) stays empty
         raise ValueError(f"window selection left the {split} split empty "
                          f"(selection={selection})")
 
