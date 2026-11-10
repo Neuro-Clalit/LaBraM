@@ -76,11 +76,20 @@ def collect():
             preds.setdefault(f"S1 {name}", {})[split] = d.set_index("recording")["pred"]
     l1 = glob.glob(os.path.join(LOCAL, "L1_abmil_*", "analysis"))[0]
     bag = {"S3 L1": (l1, 3)}
-    for k in ("w1", "w2", "w3", "w4", "w5", "w6", "w7"):
+    # W5 / F3 add a time encoding before the head, so sum(alpha * window_pred)
+    # does not reproduce their predictions: they are left out.
+    for k in ("w1", "w2", "w3", "w4", "w6", "w7"):
         bag[f"S3 {k.upper()}"] = (os.path.join(ART, k, "finetune", "analysis"), 3)
     f2 = glob.glob(os.path.join(LOCAL, "F2_*", "analysis"))
     if f2:
         bag["S4 F2"] = (f2[0], 10)
+    # 20-epoch warm starts (section 12), at their best val epoch; the SageMaker
+    # X2 lost epochs 7-12 to spot interruptions, so its last epoch is used.
+    for name, sub, ep in (("X1", "x1", 17), ("X3", "x3", 7), ("X4", "x4", 6), ("X2 SM (last)", "x2sm", 19)):
+        bag[name] = (os.path.join(ART, sub, "finetune", "analysis"), ep)
+    x2 = glob.glob(os.path.join(LOCAL, "X2_*", "analysis"))
+    if x2:
+        bag["X2 local"] = (x2[0], 10)
     for name, (d, ep) in bag.items():
         for split in ("val", "test"):
             path = os.path.join(d, f"{split}_bag_weights_epoch{ep:02d}.parquet")

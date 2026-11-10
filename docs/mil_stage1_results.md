@@ -1123,6 +1123,50 @@ $\eta$ is the share of the train-eval improvement that reached val.
 | L1, epoch 3 | 3.97 | 6.20 | 2.23 | 3.45 | 7.28 | 3.83 |
 | X2 local, epoch 19 | 3.62 | 6.24 | 2.62 | 2.81 | 7.41 | **4.60** |
 
+### Table 12.5. MAE per cohort at the best val epoch: X runs vs. the 4-epoch runs (val / test, years)
+
+Per-recording predictions are rebuilt from the saved attention weights
+(`scripts/mil_cohort_summary.py`; rows in
+`docs/data/mil_summary/all_experiments_by_tuab_cohort.csv`). The epochs used:
+- X1 at epoch 17, X3 at 7, X4 at 6, the local X2 at 10;
+- the SageMaker X2 at its last epoch, 19: its epoch 7–12 weights were lost
+  to the spot checkpoint-sync lag (see `docs/sagemaker.md`);
+- X5 and X6 are still running. They come from the logged per-dataset values
+  at their best epoch so far (X5 epoch 7, X6 epoch 2), and their val TUH is
+  not split into TUAB / TUEG.
+
+Test TUH is the TUAB eval set.
+
+| run | val all | val TUAB n / a | val TUEG n / a / u | val HEEDB n / a / u | test all | test TUAB n / a | test HEEDB n / a / u |
+|---|---|---|---|---|---|---|---|
+| E2L (reference) | 7.25 | 5.49 / 7.38 | 6.71 / 7.79 / **8.26** | 7.02 / 7.91 / 6.90 | 7.00 | 4.91 / 8.50 | 7.12 / 7.56 / 6.64 |
+| W4 (4 epochs) | **6.51** | 5.42 / 7.13 | 6.57 / 7.76 / 8.58 | **5.50** / 6.87 / 6.02 | 6.10 | 4.45 / 8.20 | 5.72 / 6.77 / 5.83 |
+| L1 (4 epochs) | 6.55 | 5.55 / **7.00** | **6.51** / 7.93 / 8.50 | 5.53 / 6.96 / **6.01** | **6.09** | 4.41 / 8.13 | 5.71 / 6.79 / **5.80** |
+| W7 (4 epochs, retention) | 6.54 | **5.33** / 7.22 | 6.57 / **7.71** / 8.43 | 5.62 / 6.90 / 6.06 | 6.12 | 4.36 / **8.07** | 5.83 / **6.73** / 5.87 |
+| X1 gated + retention (ep 17) | 6.52 | 5.34 / 7.18 | 6.60 / 7.77 / 8.60 | **5.50** / 6.88 / 6.03 | **6.09** | **4.27** / 8.18 | 5.71 / 6.75 / 5.84 |
+| X3 gated hq + retention (ep 7) | 6.53 | 5.40 / 7.34 | 6.67 / 7.79 / 8.68 | 5.59 / **6.85** / 5.99 | 6.15 | 4.43 / 8.17 | 5.87 / 6.78 / 5.87 |
+| X4 ungated hq (ep 6) | 6.59 | 5.65 / 7.26 | 6.63 / 7.83 / 8.35 | 5.65 / 6.98 / 6.08 | 6.20 | 4.63 / 8.57 | 5.77 / 6.87 / 5.94 |
+| X2 ungated, local (ep 10) | 6.61 | 5.49 / 7.43 | 6.57 / 7.92 / 8.95 | 5.56 / 6.94 / 6.12 | 6.13 | 4.53 / 8.58 | **5.68** / 6.80 / 5.88 |
+| X2 ungated, SageMaker (ep 19) | 6.63 | 5.53 / 7.33 | 6.74 / 7.94 / 8.54 | 5.51 / 7.02 / 6.12 | 6.16 | 4.62 / 8.24 | 5.71 / 6.84 / 5.90 |
+| X5 bags 8–32 (running, ep 7) | 6.61 | TUH 6.53 n / 7.79 a / 8.67 u | (with TUAB) | 5.65 / 6.91 / 6.11 | 6.22 | 4.50 / **7.76** | 5.96 / 6.85 / 5.96 |
+| X6 bags 8–64 (running, ep 2, frozen) | 6.67 | TUH 6.43 n / 7.81 a / 8.30 u | (with TUAB) | 5.84 / 7.00 / 6.20 | 6.25 | 4.49 / 8.17 | 5.93 / 6.84 / 6.01 |
+
+Per cohort, Table 12.5 shows:
+* **HEEDB:** the long runs equal the 4-epoch ones (val normal 5.50–5.65,
+  abnormal 6.85–7.02, unlabelled 5.99–6.12). Training longer adds nothing on
+  Harvard.
+* **TUAB normal:** X1 is the best run so far on both val (5.34, tied with W7)
+  and test (4.27, vs 4.36–4.45). TUAB has only 149–271 recordings per
+  cohort, so these are within about 0.3 y of each other. Without retention
+  (X4, both X2s), TUAB normal gets worse (5.49–5.65 val).
+* **TUAB abnormal:** L1 after 4 epochs stays best on val (7.00); no X run
+  reaches it (7.18–7.43). On test, X5 has the lowest value so far (7.76,
+  running), but on 125 recordings.
+* **TUEG unlabelled is where long training hurts:** E2L 8.26 → 8.43–8.58
+  (4-epoch runs) → 8.54–8.95 (X runs without X4). This matches the TUH
+  memorization of Table 12.4. X4 (8.35) and X6 (frozen, 8.30) stay closest
+  to E2L.
+
 What Tables 12.2–12.4 and Figure 12.1 show about over-fitting:
 
 * **The long runs are in the memorization regime, not classic over-fitting.**
