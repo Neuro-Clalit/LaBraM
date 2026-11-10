@@ -10,7 +10,9 @@ the linear head without time encoding) and the window-level controls (from
 * TUAB normal / abnormal -- TUH recordings that belong to TUAB (test TUH is
   exactly the TUAB eval set; val holds TUAB train recordings);
 * TUEG (non-TUAB TUH) normal / abnormal / unlabelled;
-* HEEDB normal / abnormal / unlabelled; plus all / TUH / HEEDB.
+* HEEDB normal / abnormal / unlabelled; plus all / TUH / HEEDB and all
+  normal / abnormal / unlabelled (both datasets);
+* per group the MAE and ``r2 <group>`` = 1 - SS_res / SS_tot.
 
     python scripts/mil_cohort_summary.py --out docs/data/mil_summary/all_experiments_by_tuab_cohort.csv
 """
@@ -30,7 +32,8 @@ S1 = "/data/runs/heedb/mil_summary/stage1_train/E2L/train"
 ART = "/data/runs/heedb/mil_sagemaker/artifacts"
 LOCAL = "/data/runs/heedb/mil_local"
 WINDOW_SCORES = "/data/runs/heedb/mil_summary/F0_W0_scores.json"
-GROUPS = ["all", "TUH", "HEEDB", "TUAB normal", "TUAB abnormal", "TUEG normal", "TUEG abnormal",
+GROUPS = ["all", "TUH", "HEEDB", "all normal", "all abnormal", "all unlabelled",
+          "TUAB normal", "TUAB abnormal", "TUEG normal", "TUEG abnormal",
           "TUEG unlabelled", "HEEDB normal", "HEEDB abnormal", "HEEDB unlabelled"]
 
 
@@ -124,10 +127,16 @@ def main():
                     m = (d.source != "HEEDB").to_numpy()
                 elif g == "HEEDB":
                     m = (d.source == "HEEDB").to_numpy()
+                elif g.startswith("all "):
+                    m = (d.cohort == g.split()[1]).to_numpy()
                 else:
                     src, coh = g.split()
                     m = ((d.source == src) & (d.cohort == coh)).to_numpy()
                 row[g] = float(err[m].mean()) if m.sum() >= 2 else np.nan
+                # R^2 = 1 - SS_res / SS_tot within the group (ages of that group)
+                a = d["age"].to_numpy()[m]
+                row[f"r2 {g}"] = (float(1 - ((d["pred"].to_numpy()[m] - a) ** 2).sum() / ((a - a.mean()) ** 2).sum())
+                                  if m.sum() >= 2 else np.nan)
                 row[f"n {g}"] = int(m.sum())
             rows.append(row)
     out = pd.DataFrame(rows)

@@ -1137,27 +1137,55 @@ Per-recording predictions are rebuilt from the saved attention weights
 
 Test TUH is the TUAB eval set. **Bold** marks every value within 0.2 y of
 the best value of its column and cohort, i.e. tied with the best at a
-0.2-year noise level. The X2 pair shows run-to-run noise of about 0.05 y
+0.2-year noise level. "test all / n / a / u" is all test recordings, then the
+report-normal, -abnormal and unlabelled ones of both datasets. The X2 pair shows run-to-run noise of about 0.05 y
 overall. For the small TUAB cohorts (125–271 recordings) the noise is
 larger, so 0.2 y is a lower bound there. X5 / X6 take part only where their
 values are directly comparable (all, HEEDB, test).
 
-| run | val all | val TUAB n / a | val TUEG n / a / u | val HEEDB n / a / u | test all | test TUAB n / a | test HEEDB n / a / u |
+| run | val all | val TUAB n / a | val TUEG n / a / u | val HEEDB n / a / u | test all / n / a / u | test TUAB n / a | test HEEDB n / a / u |
 |---|---|---|---|---|---|---|---|
-| E2L (reference) | 7.25 | **5.49** / 7.38 | **6.71** / **7.79** / **8.26** | 7.02 / 7.91 / 6.90 | 7.00 | 4.91 / 8.50 | 7.12 / 7.56 / 6.64 |
-| A3 post-hoc window weights (on E2L) | 6.85 | **5.49** / 7.26 | 6.72 / **7.81** / **8.33** | 6.11 / 7.25 / 6.48 | 6.46 | 4.90 / 8.58 | 6.27 / 6.95 / 6.22 |
-| W4 (4 epochs) | **6.51** | **5.42** / **7.13** | **6.57** / **7.76** / 8.58 | **5.50** / **6.87** / **6.02** | **6.10** | **4.45** / 8.20 | **5.72** / **6.77** / **5.83** |
-| L1 (4 epochs) | **6.55** | 5.55 / **7.00** | **6.51** / 7.93 / 8.50 | **5.53** / **6.96** / **6.01** | **6.09** | **4.41** / 8.13 | **5.71** / **6.79** / **5.80** |
-| W7 (4 epochs, retention) | **6.54** | **5.33** / 7.22 | **6.57** / **7.71** / **8.43** | **5.62** / **6.90** / **6.06** | **6.12** | **4.36** / 8.07 | **5.83** / **6.73** / **5.87** |
-| X1 gated + retention (ep 17) | **6.52** | **5.34** / **7.18** | **6.60** / **7.77** / 8.60 | **5.50** / **6.88** / **6.03** | **6.09** | **4.27** / 8.18 | **5.71** / **6.75** / **5.84** |
-| X3 gated hq + retention (ep 7) | **6.53** | **5.40** / 7.34 | **6.67** / **7.79** / 8.68 | **5.59** / **6.85** / **5.99** | **6.15** | **4.43** / 8.17 | **5.87** / **6.78** / **5.87** |
-| X4 ungated hq (ep 6) | **6.59** | 5.65 / 7.26 | **6.63** / **7.83** / **8.35** | **5.65** / **6.98** / **6.08** | **6.20** | 4.63 / 8.57 | **5.77** / **6.87** / **5.94** |
-| X2 ungated, local (ep 10) | **6.61** | **5.49** / 7.43 | **6.57** / 7.92 / 8.95 | **5.56** / **6.94** / **6.12** | **6.13** | 4.53 / 8.58 | **5.68** / **6.80** / **5.88** |
-| X2 ungated, SageMaker (ep 19) | **6.63** | **5.53** / 7.33 | 6.74 / 7.94 / 8.54 | **5.51** / **7.02** / **6.12** | **6.16** | 4.62 / 8.24 | **5.71** / **6.84** / **5.90** |
-| X5 bags 8–32 (running, ep 7) | **6.61** | TUH 6.53 n / 7.79 a / 8.67 u | (with TUAB) | **5.65** / **6.91** / **6.11** | **6.22** | 4.50 / **7.76** | 5.96 / **6.85** / **5.96** |
-| X6 bags 8–64 (running, ep 2, frozen) | **6.67** | TUH 6.43 n / 7.81 a / 8.30 u | (with TUAB) | 5.84 / **7.00** / 6.20 | **6.25** | 4.49 / 8.17 | 5.93 / **6.84** / 6.01 |
+| E2L (reference) | 7.25 | **5.49** / 7.38 | **6.71** / **7.79** / **8.26** | 7.02 / 7.91 / 6.90 | 7.00 / 6.92 / 7.61 / 6.64 | 4.91 / 8.50 | 7.12 / 7.56 / 6.64 |
+| A3 post-hoc window weights (on E2L) | 6.85 | **5.49** / 7.26 | 6.72 / **7.81** / **8.33** | 6.11 / 7.25 / 6.48 | 6.46 / 6.15 / 7.04 / 6.22 | 4.90 / 8.58 | 6.27 / 6.95 / 6.22 |
+| W4 (4 epochs) | **6.51** | **5.42** / **7.13** | **6.57** / **7.76** / 8.58 | **5.50** / **6.87** / **6.02** | **6.10** / **5.61** / **6.84** / **5.83** | **4.45** / 8.20 | **5.72** / **6.77** / **5.83** |
+| L1 (4 epochs) | **6.55** | 5.55 / **7.00** | **6.51** / 7.93 / 8.50 | **5.53** / **6.96** / **6.01** | **6.09** / **5.60** / **6.86** / **5.80** | **4.41** / 8.13 | **5.71** / **6.79** / **5.80** |
+| W7 (4 epochs, retention) | **6.54** | **5.33** / 7.22 | **6.57** / **7.71** / **8.43** | **5.62** / **6.90** / **6.06** | **6.12** / **5.70** / **6.80** / **5.87** | **4.36** / 8.07 | **5.83** / **6.73** / **5.87** |
+| X1 gated + retention (ep 17) | **6.52** | **5.34** / **7.18** | **6.60** / **7.77** / 8.60 | **5.50** / **6.88** / **6.03** | **6.09** / **5.58** / **6.83** / **5.84** | **4.27** / 8.18 | **5.71** / **6.75** / **5.84** |
+| X3 gated hq + retention (ep 7) | **6.53** | **5.40** / 7.34 | **6.67** / **7.79** / 8.68 | **5.59** / **6.85** / **5.99** | **6.15** / **5.74** / **6.86** / **5.87** | **4.43** / 8.17 | **5.87** / **6.78** / **5.87** |
+| X4 ungated hq (ep 6) | **6.59** | 5.65 / 7.26 | **6.63** / **7.83** / **8.35** | **5.65** / **6.98** / **6.08** | **6.20** / **5.67** / **6.96** / **5.94** | 4.63 / 8.57 | **5.77** / **6.87** / **5.94** |
+| X2 ungated, local (ep 10) | **6.61** | **5.49** / 7.43 | **6.57** / 7.92 / 8.95 | **5.56** / **6.94** / **6.12** | **6.13** / **5.58** / **6.90** / **5.88** | 4.53 / 8.58 | **5.68** / **6.80** / **5.88** |
+| X2 ungated, SageMaker (ep 19) | **6.63** | 5.53 / 7.33 | 6.74 / 7.94 / 8.54 | **5.51** / **7.02** / **6.12** | **6.16** / **5.61** / **6.92** / **5.90** | 4.62 / 8.24 | **5.71** / **6.84** / **5.90** |
+| X5 bags 8–32 (running, ep 7) | **6.61** | TUH 6.53 n / 7.79 a / 8.67 u | (with TUAB) | **5.65** / **6.91** / **6.11** | **6.22** / 5.82 / **6.90** / **5.96** | 4.50 / **7.76** | 5.96 / **6.85** / **5.96** |
+| X6 bags 8–64 (running, ep 2, frozen) | **6.67** | TUH 6.43 n / 7.81 a / 8.30 u | (with TUAB) | 5.84 / **7.00** / 6.20 | **6.25** / 5.80 / **6.91** / 6.01 | 4.49 / 8.17 | 5.93 / **6.84** / 6.01 |
 
-Per cohort, Table 12.5 shows:
+### Table 12.6. $R^2$ per cohort at the best val epoch (same runs, epochs and columns as Table 12.5)
+
+$$
+R^2_G = 1 - \frac{\sum_{r\in G} (\hat y_r - y_r)^2}{\sum_{r\in G} (y_r - \bar y_G)^2}
+\tag{12.2}
+$$
+
+The sums run over the recordings $r$ of cohort $G$, with $\bar y_G$ that
+cohort's mean age (`scripts/mil_cohort_summary.py`, column `r2 <group>`).
+$R^2$ within a cohort is lower than over all recordings, because the age
+range of a single cohort is narrower. **Bold** is the best value per
+column (ties at three decimals all bold). X5 and X6 log only MAE per epoch, so their $R^2$ follows when they
+finish.
+
+| run | val all | val TUAB n / a | val TUEG n / a / u | val HEEDB n / a / u | test all / n / a / u | test TUAB n / a | test HEEDB n / a / u |
+|---|---|---|---|---|---|---|---|
+| E2L (reference) | 0.754 | **0.779** / 0.588 | 0.702 / **0.633** / **0.404** | 0.784 / 0.723 / 0.802 | 0.791 / 0.781 / 0.741 / 0.811 | 0.855 / 0.598 | 0.775 / 0.748 / 0.811 |
+| A3 post-hoc window weights (on E2L) | 0.769 | 0.775 / 0.594 | 0.693 / 0.632 / 0.387 | 0.817 / 0.750 / 0.819 | 0.812 / 0.813 / 0.765 / 0.826 | 0.852 / 0.588 | 0.809 / 0.773 / 0.826 |
+| W4 (4 epochs) | **0.783** | 0.777 / 0.602 | 0.699 / 0.628 / 0.366 | **0.846** / **0.769** / 0.833 | **0.826** / 0.838 / 0.771 / 0.841 | 0.876 / 0.609 | **0.835** / 0.779 / 0.841 |
+| L1 (4 epochs) | 0.781 | 0.768 / **0.620** | **0.703** / 0.619 / 0.361 | 0.843 / 0.763 / 0.835 | **0.826** / 0.838 / 0.771 / **0.842** | 0.879 / **0.617** | 0.834 / 0.778 / **0.842** |
+| W7 (4 epochs, retention) | **0.783** | 0.778 / 0.589 | 0.700 / 0.632 / 0.376 | 0.839 / 0.768 / 0.835 | **0.826** / 0.833 / **0.775** / 0.841 | 0.882 / 0.603 | 0.829 / **0.783** / 0.841 |
+| X1 gated + retention (ep 17) | 0.782 | **0.779** / 0.606 | 0.695 / 0.627 / 0.351 | 0.844 / 0.767 / 0.835 | **0.826** / **0.839** / 0.772 / **0.842** | **0.885** / 0.600 | **0.835** / 0.780 / **0.842** |
+| X3 gated hq + retention (ep 7) | 0.780 | 0.777 / 0.581 | 0.689 / 0.622 / 0.341 | 0.837 / 0.765 / **0.838** | 0.823 / 0.827 / 0.771 / 0.840 | 0.880 / 0.603 | 0.823 / 0.779 / 0.840 |
+| X4 ungated hq (ep 6) | 0.778 | 0.757 / 0.592 | 0.701 / 0.615 / 0.375 | 0.838 / 0.762 / 0.832 | 0.822 / 0.834 / 0.764 / 0.838 | 0.869 / 0.567 | 0.831 / 0.773 / 0.838 |
+| X2 ungated, local (ep 10) | 0.775 | 0.776 / 0.560 | 0.698 / 0.615 / 0.306 | 0.841 / 0.760 / 0.828 | 0.822 / 0.838 / 0.765 / 0.836 | 0.874 / 0.572 | **0.835** / 0.774 / 0.836 |
+| X2 ungated, SageMaker (ep 19) | 0.775 | 0.767 / 0.588 | 0.688 / 0.613 / 0.359 | 0.845 / 0.756 / 0.829 | 0.821 / 0.835 / 0.765 / 0.836 | 0.863 / 0.611 | 0.832 / 0.772 / 0.836 |
+
+Per cohort, Tables 12.5 and 12.6 show:
 * **HEEDB:** the long runs equal the 4-epoch ones (val normal 5.50–5.65,
   abnormal 6.85–7.02, unlabelled 5.99–6.12). Training longer adds nothing on
   Harvard.
@@ -1172,6 +1200,14 @@ Per cohort, Table 12.5 shows:
   the attention models' HEEDB gain (val normal 7.02 → 6.11 vs 5.50 for X1 /
   W4; test all 7.00 → 6.46 vs 6.09). It leaves TUAB and TUEG at E2L's level,
   and on TUEG unlabelled (8.33) it is closer to E2L than any end-to-end run.
+* **$R^2$ ranks the runs like the MAE.**
+  - Overall test $R^2$ is 0.79 for E2L, 0.81 for A3, and 0.821–0.826 for every
+    attention run.
+  - The largest within-cohort gains are on HEEDB normal (0.775 → 0.835) and
+    TUAB normal (0.855 → 0.885 for X1).
+  - TUAB abnormal stays low (0.57–0.62) for every method.
+  - TUEG unlabelled has the lowest $R^2$ (0.31–0.40). E2L is best there, and
+    the long runs without retention are worst (X2 local 0.306).
 * **TUEG unlabelled is where long training hurts:** E2L 8.26 → 8.43–8.58
   (4-epoch runs) → 8.54–8.95 (X runs without X4). This matches the TUH
   memorization of Table 12.4. X4 (8.35) and X6 (frozen, 8.30) stay closest
