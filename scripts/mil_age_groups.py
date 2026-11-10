@@ -41,6 +41,10 @@ EXPERIMENTS = {
     "L1 ungated ABMIL": "S3 L1",
     "W4 gated ABMIL": "S3 W4",
     "W7 gated + retention": "S3 W7",
+    "X1 gated + retention, 20 ep": "X1",
+    "X3 gated hq + retention, 20 ep": "X3",
+    "X4 ungated hq, 20 ep": "X4",
+    "X2 ungated, 20 ep (local)": "X2 local",
 }
 
 

@@ -1005,17 +1005,17 @@ Launcher: `scripts/mil_runs/submit_grid.sh` (jobs `X1`–`X6`); X2 also runs on
 the local GPU (`scripts/mil_runs/run_local_abmil.sh trainer.epochs=20
 mil.freeze_encoder_epochs=4`). ClearML project `LaBraM/heedb_mil`.
 
-### Table 12.1. Jobs (status 2026-11-10 06:15 UTC)
+### Table 12.1. Jobs (status 2026-11-10 07:45 UTC)
 
 | job | pool | attention reads | retention | bag | where | status |
 |---|---|---|---|---|---|---|
 | X1 | gated (W4) | $h$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | done |
-| X2 | ungated (L1) | $h$ | — | 32 × 8 | SM g5.4xlarge **spot** | done (two spot interruptions, resumed from epoch 12 each time); uploading |
+| X2 | ungated (L1) | $h$ | — | 32 × 8 | SM g5.4xlarge **spot** | done (two spot interruptions, resumed from epoch 12 each time; stopped during its slow checkpoint upload as a duplicate of the local X2, `model.tar.gz` complete) |
 | X2 (local) | as X2 | | | | local GPU | done |
 | X3 | gated | $h$ + $q$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | done |
 | X4 | ungated | $h$ + $q$ | — | 32 × 8 | SM g5.2xlarge on-demand | done |
-| X5 | gated (X1) | $h$ | 0.1 | 16 × K, K ~ U{8..32} | SM g5.2xlarge on-demand | epoch 11; 0.55 s/step, ~53 min per trained epoch; ETA ~14:00 UTC, 10 Nov |
-| X6 | gated (X1) | $h$ | 0.1 | 8 × K, K ~ U{8..64} | SM g5.4xlarge on-demand (resubmitted) | epoch 7; 0.49 s/step, ~92 min per trained epoch; ETA ~02:00 UTC, 11 Nov |
+| X5 | gated (X1) | $h$ | 0.1 | 16 × K, K ~ U{8..32} | SM g5.2xlarge on-demand | epoch 13 (best so far 6.60 / 6.16 at epoch 12); ~53 min per epoch; ETA ~14:00 UTC, 10 Nov |
+| X6 | gated (X1) | $h$ | 0.1 | 8 × K, K ~ U{8..64} | SM g5.4xlarge on-demand (resubmitted) | epoch 8 (epoch 7: 6.72 / 6.28, recovering from 7.20 at epoch 5); ~92 min per epoch; ETA ~02:00 UTC, 11 Nov |
 
 Infrastructure notes:
 - **X6, first attempt** (spot `g5.4xlarge`) stopped logging silently in
@@ -1212,6 +1212,38 @@ Per cohort, Tables 12.5 and 12.6 show:
   (4-epoch runs) → 8.54–8.95 (X runs without X4). This matches the TUH
   memorization of Table 12.4. X4 (8.35) and X6 (frozen, 8.30) stay closest
   to E2L.
+
+### Table 12.7. Test MAE per age group, age trend and abnormal separation: X runs vs. the 4-epoch runs (Section 11 definitions)
+
+The columns:
+- MAE per true-age group, with no correction (Eq. (11.1));
+- $\beta$: the gap-age slope;
+- Cohen's $d$ and AUC of abnormal vs. normal recordings by the gap after
+  the quadratic correction, Eq. (11.4), as in Table 11.4.
+
+Rows are from `scripts/mil_age_groups.py` (CSVs in `docs/data/mil_age/`).
+
+| run | <20 | 20–29 | 30–39 | 40–49 | 50–59 | 60–69 | 70–79 | 80+ | $\beta$ | $d$ (all / TUH / HEEDB) | AUC |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| E2L | 8.03 | 7.26 | 6.17 | **6.39** | **5.54** | **5.68** | 7.82 | 12.54 | −0.30 | **0.38** / **0.63** / 0.35 | 0.621 |
+| A3 | 5.55 | 5.19 | 6.10 | 6.98 | 6.13 | 5.87 | 6.66 | 10.52 | −0.21 | **0.40** / 0.54 / **0.38** | **0.630** |
+| W4 | 4.00 | 4.63 | 6.03 | 6.73 | 6.15 | 5.99 | 6.29 | 8.49 | −0.16 | 0.23 / 0.46 / 0.20 | 0.577 |
+| L1 | 3.85 | 4.64 | 6.10 | 6.70 | 6.13 | 5.96 | 6.30 | 8.48 | −0.16 | 0.22 / 0.50 / 0.20 | 0.577 |
+| W7 | 4.03 | 4.75 | **6.01** | 6.71 | 6.17 | 6.01 | 6.19 | 8.67 | −0.16 | 0.23 / 0.46 / 0.21 | 0.580 |
+| X1 (20 ep) | 4.20 | 4.71 | 6.04 | 6.80 | 6.16 | 5.94 | 6.14 | 8.51 | −0.17 | 0.23 / 0.42 / 0.20 | 0.578 |
+| X3 (20 ep) | 4.35 | 4.78 | 6.28 | 7.09 | 6.40 | 6.06 | **5.93** | **7.97** | −0.15 | 0.25 / 0.47 / 0.22 | 0.586 |
+| X4 (20 ep) | 3.63 | 4.70 | 6.37 | 6.90 | 6.13 | 6.10 | 6.43 | 8.57 | −0.15 | 0.22 / 0.46 / 0.19 | 0.576 |
+| X2 local (20 ep) | **3.56** | **4.51** | 6.15 | 7.01 | 6.36 | 6.15 | 6.27 | 8.01 | **−0.15** | 0.22 / 0.47 / 0.20 | 0.575 |
+
+* **Long training leaves the age profile of the error unchanged.** Every
+  attention run has $\beta \approx -0.15$ to $-0.17$, vs −0.30 for E2L.
+  Their error per age group is within about 0.5 y of each other in every
+  group. X3 and X2 are a little better at 80+ (7.97–8.01 vs 8.49) and a
+  little worse at 40–59.
+* **The corrected brain-age gap of the X runs carries as little abnormality
+  signal as W4's** ($d$ 0.22–0.25 vs E2L's 0.38 and A3's 0.40). Training
+  longer does not change the trade-off described in Section 11: the tighter
+  age fit comes with a weaker gap biomarker.
 
 What Tables 12.2–12.4 and Figure 12.1 show about over-fitting:
 

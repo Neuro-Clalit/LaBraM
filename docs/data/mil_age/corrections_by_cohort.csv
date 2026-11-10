@@ -575,3 +575,291 @@ W7 gated + retention,val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.826928434
 W7 gated + retention,val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.440505832068594,0.05935012729699159
 W7 gated + retention,val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.305836734144985,1.8062376172168024
 W7 gated + retention,val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.694368139368654,0.6600629541082317
+"X1 gated + retention, 20 ep",test,none,TUAB,all,274,6.0577022313838205,-0.28674825137798104
+"X1 gated + retention, 20 ep",test,none,TUAB,normal,149,4.273609507249925,-0.635865912514065
+"X1 gated + retention, 20 ep",test,none,TUAB,abnormal,125,8.184340758551427,0.1294000006962309
+"X1 gated + retention, 20 ep",test,none,HEEDB,all,7338,6.093941408980549,0.11502034413111942
+"X1 gated + retention, 20 ep",test,none,HEEDB,normal,1518,5.709617738354433,0.519018121539699
+"X1 gated + retention, 20 ep",test,none,HEEDB,abnormal,2253,6.751635336152281,0.13310776893318232
+"X1 gated + retention, 20 ep",test,none,HEEDB,unlabelled,3567,5.842082399755018,-0.06833249976719047
+"X1 gated + retention, 20 ep",test,recalibrate,TUAB,all,274,6.094004651200531,-0.6338556327693787
+"X1 gated + retention, 20 ep",test,recalibrate,TUAB,normal,149,4.292439171590301,-0.7573114359846523
+"X1 gated + retention, 20 ep",test,recalibrate,TUAB,abnormal,125,8.241470702895926,-0.48669631533677277
+"X1 gated + retention, 20 ep",test,recalibrate,HEEDB,all,7338,6.164568669980526,-0.3825193877276814
+"X1 gated + retention, 20 ep",test,recalibrate,HEEDB,normal,1518,5.777320244275727,0.20153430329432104
+"X1 gated + retention, 20 ep",test,recalibrate,HEEDB,abnormal,2253,6.833896611755501,-0.5409722683143178
+"X1 gated + retention, 20 ep",test,recalibrate,HEEDB,unlabelled,3567,5.906606028377182,-0.5309912584901451
+"X1 gated + retention, 20 ep",test,cole,TUAB,all,274,6.9976726477685744,-0.1737206835382902
+"X1 gated + retention, 20 ep",test,cole,TUAB,normal,149,5.575312150468832,-1.8247067305483364
+"X1 gated + retention, 20 ep",test,cole,TUAB,abnormal,125,8.693126360549867,1.794254684497685
+"X1 gated + retention, 20 ep",test,cole,HEEDB,all,7338,7.061950714643982,1.0959088925134284
+"X1 gated + retention, 20 ep",test,cole,HEEDB,normal,1518,6.794942718048792,0.4611440549956196
+"X1 gated + retention, 20 ep",test,cole,HEEDB,abnormal,2253,7.634723396744063,2.132476996929213
+"X1 gated + retention, 20 ep",test,cole,HEEDB,unlabelled,3567,6.813804173029182,0.7113238305855537
+"X1 gated + retention, 20 ep",test,quadratic_gap,TUAB,all,274,5.601240854767151,-0.1485986843141434
+"X1 gated + retention, 20 ep",test,quadratic_gap,TUAB,normal,149,4.52097365569821,-1.6005071431408595
+"X1 gated + retention, 20 ep",test,quadratic_gap,TUAB,abnormal,125,6.888919356057328,1.5820761986073024
+"X1 gated + retention, 20 ep",test,quadratic_gap,HEEDB,all,7338,5.738478964367453,1.1317880198514811
+"X1 gated + retention, 20 ep",test,quadratic_gap,HEEDB,normal,1518,5.483122889399491,0.5413772489190164
+"X1 gated + retention, 20 ep",test,quadratic_gap,HEEDB,abnormal,2253,6.236248963989536,2.0989717570027633
+"X1 gated + retention, 20 ep",test,quadratic_gap,HEEDB,unlabelled,3567,5.532747176493277,0.7721520766144865
+"X1 gated + retention, 20 ep",val (cross-fitted),none,TUAB,all,482,6.145310263410116,0.20784081404132307
+"X1 gated + retention, 20 ep",val (cross-fitted),none,TUAB,normal,271,5.336937483682458,-0.08613878919062738
+"X1 gated + retention, 20 ep",val (cross-fitted),none,TUAB,abnormal,211,7.183552080027154,0.5854165129790416
+"X1 gated + retention, 20 ep",val (cross-fitted),none,TUEG,all,2940,7.426549302278577,0.2834409310150039
+"X1 gated + retention, 20 ep",val (cross-fitted),none,TUEG,normal,1117,6.604960692987632,0.5001652121209457
+"X1 gated + retention, 20 ep",val (cross-fitted),none,TUEG,abnormal,1465,7.76556778558859,-0.24746276076197965
+"X1 gated + retention, 20 ep",val (cross-fitted),none,TUEG,unlabelled,358,8.602673320515498,1.7797897758695955
+"X1 gated + retention, 20 ep",val (cross-fitted),none,HEEDB,all,7192,6.1772888917799165,-0.1771531099460365
+"X1 gated + retention, 20 ep",val (cross-fitted),none,HEEDB,normal,1493,5.496866560472692,0.18006530522848288
+"X1 gated + retention, 20 ep",val (cross-fitted),none,HEEDB,abnormal,2179,6.8826614706508735,-0.04544538147033419
+"X1 gated + retention, 20 ep",val (cross-fitted),none,HEEDB,unlabelled,3520,6.029238804075901,-0.41019806284493204
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,TUAB,all,482,6.101155853394145,-0.09059146778181189
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,TUAB,normal,271,5.26217883559127,-0.2312564215214935
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,TUAB,abnormal,211,7.178704535027222,0.09007299886962754
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,TUEG,all,2940,7.419863338460239,-0.1678290393653837
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,TUEG,normal,1117,6.618173669292939,0.18201633548307558
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.770043608403269,-0.8186070871430204
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.488224413860621,1.4037144139544735
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,HEEDB,all,7192,6.257508842254703,-0.6607810049821773
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,HEEDB,normal,1493,5.575611114200415,-0.083019508580813
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,HEEDB,abnormal,2179,6.9787895640974185,-0.6798574161660044
+"X1 gated + retention, 20 ep",val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.100236857905206,-0.8940282817315173
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,TUAB,all,482,7.067281076554312,0.030440070385587985
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,TUAB,normal,271,6.557605235236625,-1.1943949746239995
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,TUAB,abnormal,211,7.72188843673011,1.6035694409903185
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,TUEG,all,2940,8.160928166083778,0.9845462879122014
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,TUEG,normal,1117,7.4182649944513095,0.4884374299717944
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,TUEG,abnormal,1465,8.387450560356397,1.1208994190967319
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,TUEG,unlabelled,358,9.551150107715287,1.9744799670577249
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,HEEDB,all,7192,7.119484855983175,0.7525677741917781
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,HEEDB,normal,1493,6.609933801811753,-0.16261602130023908
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,HEEDB,abnormal,2179,7.6958819263533895,1.728873839983372
+"X1 gated + retention, 20 ep",val (cross-fitted),cole,HEEDB,unlabelled,3520,6.978800341080117,0.5363741632002156
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,TUAB,all,482,5.773787050576724,-0.16730136526006156
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,TUAB,normal,271,5.447767259237024,-1.192126361756242
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.192513891586479,1.148943061519393
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,TUEG,all,2940,6.59691332960507,0.7292928079366089
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,TUEG,normal,1117,6.060039975498253,0.2586140713599829
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.712807976989685,0.9589837807063466
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.7977565645739375,1.2579265332115412
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.763437165341532,0.8591778617804593
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.3299694268296784,0.014278217992647476
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.245050439976548,1.7410714035380004
+"X1 gated + retention, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.649156485843947,0.6716179585661189
+"X3 gated hq + retention, 20 ep",test,none,TUAB,all,274,6.135610578775039,-0.16602095058396585
+"X3 gated hq + retention, 20 ep",test,none,TUAB,normal,149,4.432969396848578,-0.7278668303767561
+"X3 gated hq + retention, 20 ep",test,none,TUAB,abnormal,125,8.16515886763138,0.5036993381290397
+"X3 gated hq + retention, 20 ep",test,none,HEEDB,all,7338,6.152368748119824,0.42029484330583716
+"X3 gated hq + retention, 20 ep",test,none,HEEDB,normal,1518,5.866209537977069,0.7303996916838797
+"X3 gated hq + retention, 20 ep",test,none,HEEDB,abnormal,2253,6.784719466668913,0.6123387737352329
+"X3 gated hq + retention, 20 ep",test,none,HEEDB,unlabelled,3567,5.8747414736891,0.1670248306634774
+"X3 gated hq + retention, 20 ep",test,recalibrate,TUAB,all,274,6.174052810214675,-0.6319875883367088
+"X3 gated hq + retention, 20 ep",test,recalibrate,TUAB,normal,149,4.502445216657983,-0.8667505106999307
+"X3 gated hq + retention, 20 ep",test,recalibrate,TUAB,abnormal,125,8.16660906173425,-0.3521501848797483
+"X3 gated hq + retention, 20 ep",test,recalibrate,HEEDB,all,7338,6.220939169920355,-0.26593018536449403
+"X3 gated hq + retention, 20 ep",test,recalibrate,HEEDB,normal,1518,5.9309433724025435,0.30122202389143743
+"X3 gated hq + retention, 20 ep",test,recalibrate,HEEDB,abnormal,2253,6.865416277007236,-0.3301612233366775
+"X3 gated hq + retention, 20 ep",test,recalibrate,HEEDB,unlabelled,3567,5.937285314682143,-0.46672203428492437
+"X3 gated hq + retention, 20 ep",test,cole,TUAB,all,274,7.012950629338433,-0.15760491375480173
+"X3 gated hq + retention, 20 ep",test,cole,TUAB,normal,149,5.607567803330801,-1.9953669072230136
+"X3 gated hq + retention, 20 ep",test,cole,TUAB,abnormal,125,8.68816695793953,2.033007382459307
+"X3 gated hq + retention, 20 ep",test,cole,HEEDB,all,7338,7.1770511836122575,1.2879156285343
+"X3 gated hq + retention, 20 ep",test,cole,HEEDB,normal,1518,6.97954431530268,0.5953058374849362
+"X3 gated hq + retention, 20 ep",test,cole,HEEDB,abnormal,2253,7.732789863333692,2.47966117681899
+"X3 gated hq + retention, 20 ep",test,cole,HEEDB,unlabelled,3567,6.910086277719784,0.8299338350180474
+"X3 gated hq + retention, 20 ep",test,quadratic_gap,TUAB,all,274,5.651611923738443,-0.13665441971666964
+"X3 gated hq + retention, 20 ep",test,quadratic_gap,TUAB,normal,149,4.578093927705324,-1.75861404916616
+"X3 gated hq + retention, 20 ep",test,quadratic_gap,TUAB,abnormal,125,6.931245375009921,1.7967214585871234
+"X3 gated hq + retention, 20 ep",test,quadratic_gap,HEEDB,all,7338,5.894233185089687,1.3047240918930527
+"X3 gated hq + retention, 20 ep",test,quadratic_gap,HEEDB,normal,1518,5.691592685354082,0.6598832239925257
+"X3 gated hq + retention, 20 ep",test,quadratic_gap,HEEDB,abnormal,2253,6.38455669238426,2.411356917149526
+"X3 gated hq + retention, 20 ep",test,quadratic_gap,HEEDB,unlabelled,3567,5.670770728309193,0.8801725589999106
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,TUAB,all,482,6.250142540664035,0.19516264763262392
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,TUAB,normal,271,5.398919914716907,-0.38706259048969227
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,TUAB,abnormal,211,7.3434189938947085,0.9429495648418549
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,TUEG,all,2940,7.471619673753487,0.44654467192813335
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,TUEG,normal,1117,6.672277769795312,0.6274472141460398
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,TUEG,abnormal,1465,7.7863223504328625,-0.06902941981717678
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,TUEG,unlabelled,358,8.677836113379184,1.9919298807255579
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,HEEDB,all,7192,6.164802805725144,0.10193824396310575
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,HEEDB,normal,1493,5.586449738442198,0.313207344403645
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,HEEDB,abnormal,2179,6.850776345472815,0.3844047976196183
+"X3 gated hq + retention, 20 ep",val (cross-fitted),none,HEEDB,unlabelled,3520,5.985468938209025,-0.16252749108668574
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,TUAB,all,482,6.186422998424101,-0.19681558031082544
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,TUAB,normal,271,5.319591806561813,-0.5452039597805963
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,TUAB,abnormal,211,7.29974647233254,0.25064058479016
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,TUEG,all,2940,7.444405455630563,-0.1679948738934391
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,TUEG,normal,1117,6.668284893613815,0.19846202100770202
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.77678408841759,-0.850289018226369
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.505835541495689,1.4806882820930627
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,HEEDB,all,7192,6.261289729452905,-0.5659167464508172
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,HEEDB,normal,1493,5.668991990681283,-0.03908412234095249
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,HEEDB,abnormal,2179,6.97073777891677,-0.5002347787716767
+"X3 gated hq + retention, 20 ep",val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.073338940874572,-0.8300309837715205
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,TUAB,all,482,7.186949631801532,-0.10019008473880814
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,TUAB,normal,271,6.585714611581349,-1.6227434563479617
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,TUAB,abnormal,211,7.95915195634973,1.8553168522568344
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,TUEG,all,2940,8.271998307549733,1.0198693464875013
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,TUEG,normal,1117,7.530283248981679,0.5177678976934781
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,TUEG,abnormal,1465,8.516749426689808,1.1406259539034294
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,TUEG,unlabelled,358,9.584666829561762,2.0923243421260183
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,HEEDB,all,7192,7.155492802676885,0.915422863845515
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,HEEDB,normal,1493,6.705949445667956,-0.10875372611912337
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,HEEDB,abnormal,2179,7.735828935845705,2.0297990614333257
+"X3 gated hq + retention, 20 ep",val (cross-fitted),cole,HEEDB,unlabelled,3520,6.986917745244916,0.6599881804004484
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,TUAB,all,482,5.935519892566768,-0.2799603568562134
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,TUAB,normal,271,5.515200156028403,-1.5623906706516333
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.4753618290686505,1.3671420840848234
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,TUEG,all,2940,6.753435055317282,0.7645801457242551
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,TUEG,normal,1117,6.208143053554079,0.2843162742613485
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.890806150361963,0.9844795195453939
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.892659948415154,1.363189536160284
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.853512393353866,1.0053065584835854
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.438650451159377,0.06092598292127415
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.3524162774302475,2.0110282515803237
+"X3 gated hq + retention, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.720636630937374,0.7832874192951587
+"X4 ungated hq, 20 ep",test,none,TUAB,all,274,6.428514378774475,-1.2392414010484452
+"X4 ungated hq, 20 ep",test,none,TUAB,normal,149,4.628262922139347,-1.8572937580546542
+"X4 ungated hq, 20 ep",test,none,TUAB,abnormal,125,8.574414115083547,-0.5025229914970439
+"X4 ungated hq, 20 ep",test,none,HEEDB,all,7338,6.189802408371241,-0.35950757172688763
+"X4 ungated hq, 20 ep",test,none,HEEDB,normal,1518,5.772217521991534,0.0550448002132694
+"X4 ungated hq, 20 ep",test,none,HEEDB,abnormal,2253,6.872300251475965,-0.29161034805439157
+"X4 ungated hq, 20 ep",test,none,HEEDB,unlabelled,3567,5.936431569293431,-0.5788131353768152
+"X4 ungated hq, 20 ep",test,recalibrate,TUAB,all,274,6.340543527020321,-0.9391534581345284
+"X4 ungated hq, 20 ep",test,recalibrate,TUAB,normal,149,4.49725199924013,-1.2432329241012192
+"X4 ungated hq, 20 ep",test,recalibrate,TUAB,abnormal,125,8.537747028134309,-0.5766907347022328
+"X4 ungated hq, 20 ep",test,recalibrate,HEEDB,all,7338,6.223796519713798,-0.2834578101889664
+"X4 ungated hq, 20 ep",test,recalibrate,HEEDB,normal,1518,5.823987702556648,0.37050708378575076
+"X4 ungated hq, 20 ep",test,recalibrate,HEEDB,abnormal,2253,6.917740108476357,-0.453266389354924
+"X4 ungated hq, 20 ep",test,recalibrate,HEEDB,unlabelled,3567,5.955631361026526,-0.4545091082525263
+"X4 ungated hq, 20 ep",test,cole,TUAB,all,274,7.585974018508794,-0.5534259764443674
+"X4 ungated hq, 20 ep",test,cole,TUAB,normal,149,6.070338572565509,-2.452902095710544
+"X4 ungated hq, 20 ep",test,cole,TUAB,abnormal,125,9.392611470073192,1.7107495577209153
+"X4 ungated hq, 20 ep",test,cole,HEEDB,all,7338,7.255995885813741,1.2406793080630298
+"X4 ungated hq, 20 ep",test,cole,HEEDB,normal,1518,6.9792509773156945,0.6781126245906629
+"X4 ungated hq, 20 ep",test,cole,HEEDB,abnormal,2253,7.846913666203291,2.27872992037932
+"X4 ungated hq, 20 ep",test,cole,HEEDB,unlabelled,3567,7.000532194163161,0.8244326570853032
+"X4 ungated hq, 20 ep",test,quadratic_gap,TUAB,all,274,6.160972540985963,-0.4663820349517896
+"X4 ungated hq, 20 ep",test,quadratic_gap,TUAB,normal,149,4.987458961631433,-2.143333771157321
+"X4 ungated hq, 20 ep",test,quadratic_gap,TUAB,abnormal,125,7.5598007275765635,1.532544434605204
+"X4 ungated hq, 20 ep",test,quadratic_gap,HEEDB,all,7338,5.958052810095035,1.2723505672276534
+"X4 ungated hq, 20 ep",test,quadratic_gap,HEEDB,normal,1518,5.685295371197695,0.7335123003890417
+"X4 ungated hq, 20 ep",test,quadratic_gap,HEEDB,abnormal,2253,6.478366457567938,2.2548344771244087
+"X4 ungated hq, 20 ep",test,quadratic_gap,HEEDB,unlabelled,3567,5.74548738943053,0.8811030875706934
+"X4 ungated hq, 20 ep",val (cross-fitted),none,TUAB,all,482,6.353258876855326,-0.8676940200193364
+"X4 ungated hq, 20 ep",val (cross-fitted),none,TUAB,normal,271,5.64823833344311,-1.2943731469802444
+"X4 ungated hq, 20 ep",val (cross-fitted),none,TUAB,abnormal,211,7.258759195645425,-0.3196843356287863
+"X4 ungated hq, 20 ep",val (cross-fitted),none,TUEG,all,2940,7.436566926367689,-0.39082832451873883
+"X4 ungated hq, 20 ep",val (cross-fitted),none,TUEG,normal,1117,6.63206491952641,-0.14942741338664278
+"X4 ungated hq, 20 ep",val (cross-fitted),none,TUEG,abnormal,1465,7.825950392722491,-0.9895087220920342
+"X4 ungated hq, 20 ep",val (cross-fitted),none,TUEG,unlabelled,358,8.353276321428945,1.3058810741134583
+"X4 ungated hq, 20 ep",val (cross-fitted),none,HEEDB,all,7192,6.262164630175306,-0.6736041193700364
+"X4 ungated hq, 20 ep",val (cross-fitted),none,HEEDB,normal,1493,5.646185980593628,-0.3788125123259043
+"X4 ungated hq, 20 ep",val (cross-fitted),none,HEEDB,abnormal,2179,6.9767929714649615,-0.509193196610274
+"X4 ungated hq, 20 ep",val (cross-fitted),none,HEEDB,unlabelled,3520,6.0810512688557825,-0.9004152756229944
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,TUAB,all,482,6.214184101355827,-0.49806608906526534
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,TUAB,normal,271,5.45328076392811,-0.7091313114532078
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,TUAB,abnormal,211,7.191458056061568,-0.22698232002672283
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,TUEG,all,2940,7.386187463239049,-0.24369083146206055
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,TUEG,normal,1117,6.59631497212356,0.17305368400209079
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.778734141133996,-0.9979487869064579
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.244306707540463,1.5425781097462783
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,HEEDB,all,7192,6.300339955860414,-0.5793624931352224
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,HEEDB,normal,1493,5.705015640668252,0.011098806279236588
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,HEEDB,abnormal,2179,7.020886228014106,-0.6158889944288646
+"X4 ungated hq, 20 ep",val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.106802704598768,-0.8071941618019667
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,TUAB,all,482,7.295656753758607,-0.4808484132971239
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,TUAB,normal,271,6.837885235276176,-1.8103448733033665
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,TUAB,abnormal,211,7.883600268018031,1.2267039121137375
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,TUEG,all,2940,8.250537858946197,0.9053852839566039
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,TUEG,normal,1117,7.485432972067984,0.47973801668496285
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,TUEG,abnormal,1465,8.573011987138518,0.9222420362692477
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,TUEG,unlabelled,358,9.31812881101663,2.164471472237052
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,HEEDB,all,7192,7.2761170994432165,0.8750859393589832
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,HEEDB,normal,1493,6.7851457140737,-0.0421590184918639
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,HEEDB,abnormal,2179,7.9188525439571915,1.8423846196086733
+"X4 ungated hq, 20 ep",val (cross-fitted),cole,HEEDB,unlabelled,3520,7.086486345113881,0.6653424444178583
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,TUAB,all,482,6.051086359352468,-0.6043386716397781
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,TUAB,normal,271,5.759291729745655,-1.7288084764312535
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.425855765150794,0.8398855800118321
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,TUEG,all,2940,6.730856075817017,0.6668399069178904
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,TUEG,normal,1117,6.168570620904856,0.249628720868266
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.927742878814736,0.8029883990965065
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.679553524826034,1.4114414537775506
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.958911097536696,0.9785804803598588
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.510321775498935,0.12007696554955388
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.528165801803227,1.865228109288298
+"X4 ungated hq, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.796791170606469,0.7938476860918803
+"X2 ungated, 20 ep (local)",test,none,TUAB,all,274,6.37568483055801,-0.12495659155774162
+"X2 ungated, 20 ep (local)",test,none,TUAB,normal,149,4.525188241806815,-0.853383896693534
+"X2 ungated, 20 ep (local)",test,none,TUAB,abnormal,125,8.581476764349434,0.7433287561641232
+"X2 ungated, 20 ep (local)",test,none,HEEDB,all,7338,6.12367129149219,0.1900034821477404
+"X2 ungated, 20 ep (local)",test,none,HEEDB,normal,1518,5.683040286287466,0.3969324639612757
+"X2 ungated, 20 ep (local)",test,none,HEEDB,abnormal,2253,6.804268910544938,0.24303121302883315
+"X2 ungated, 20 ep (local)",test,none,HEEDB,unlabelled,3567,5.881308361908487,0.06844764473028911
+"X2 ungated, 20 ep (local)",test,recalibrate,TUAB,all,274,6.39868587799536,-0.4728020109282075
+"X2 ungated, 20 ep (local)",test,recalibrate,TUAB,normal,149,4.536374767563384,-0.8042806652924069
+"X2 ungated, 20 ep (local)",test,recalibrate,TUAB,abnormal,125,8.618560721630276,-0.07767945492608169
+"X2 ungated, 20 ep (local)",test,recalibrate,HEEDB,all,7338,6.20621426510545,-0.40163438658729267
+"X2 ungated, 20 ep (local)",test,recalibrate,HEEDB,normal,1518,5.7848587083916225,0.11554738476317805
+"X2 ungated, 20 ep (local)",test,recalibrate,HEEDB,abnormal,2253,6.890214636332878,-0.6430978273553445
+"X2 ungated, 20 ep (local)",test,recalibrate,HEEDB,unlabelled,3567,5.953499069903935,-0.4692163313194468
+"X2 ungated, 20 ep (local)",test,cole,TUAB,all,274,7.173547738620934,0.024493831940216888
+"X2 ungated, 20 ep (local)",test,cole,TUAB,normal,149,5.522621921687825,-1.8736806762472218
+"X2 ungated, 20 ep (local)",test,cole,TUAB,abnormal,125,9.1414513124052,2.287117845699644
+"X2 ungated, 20 ep (local)",test,cole,HEEDB,all,7338,7.0755158239135385,1.0578731148179326
+"X2 ungated, 20 ep (local)",test,cole,HEEDB,normal,1518,6.704810155554637,0.350534389474991
+"X2 ungated, 20 ep (local)",test,cole,HEEDB,abnormal,2253,7.678522920403502,1.978721466049756
+"X2 ungated, 20 ep (local)",test,cole,HEEDB,unlabelled,3567,6.852402904422909,0.777264437987343
+"X2 ungated, 20 ep (local)",test,quadratic_gap,TUAB,all,274,5.913620260500888,0.01565542705416754
+"X2 ungated, 20 ep (local)",test,quadratic_gap,TUAB,normal,149,4.606204752770899,-1.6774795467245849
+"X2 ungated, 20 ep (local)",test,quadratic_gap,TUAB,abnormal,125,7.472059545715036,2.0338723157984417
+"X2 ungated, 20 ep (local)",test,quadratic_gap,HEEDB,all,7338,5.901527620647307,1.1095793524479287
+"X2 ungated, 20 ep (local)",test,quadratic_gap,HEEDB,normal,1518,5.563245209188793,0.4475840571621538
+"X2 ungated, 20 ep (local)",test,quadratic_gap,HEEDB,abnormal,2253,6.420204226465919,1.9950680745367073
+"X2 ungated, 20 ep (local)",test,quadratic_gap,HEEDB,unlabelled,3567,5.717881505616384,0.8320079387607371
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,TUAB,all,482,6.33933537635634,0.39453461630876696
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,TUAB,normal,271,5.486302076494608,-0.19919788427061175
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,TUAB,abnormal,211,7.434937387079229,1.1571010033088223
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,TUEG,all,2940,7.535533144415695,0.526237441784912
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,TUEG,normal,1117,6.572284979116434,0.4981541451817938
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,TUEG,abnormal,1465,7.923655617281904,0.23480679641391156
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,TUEG,unlabelled,358,8.95270850165111,1.806446765176529
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,HEEDB,all,7192,6.249303376751864,-0.08298935252980648
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,HEEDB,normal,1493,5.556605681877044,0.09155136094245268
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,HEEDB,abnormal,2179,6.937655124918332,0.08143533642387235
+"X2 ungated, 20 ep (local)",val (cross-fitted),none,HEEDB,unlabelled,3520,6.1169963310681625,-0.25880488731507606
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,TUAB,all,482,6.224137728086847,0.1229672061955605
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,TUAB,normal,271,5.319041232891318,-0.1926126787595122
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,TUAB,abnormal,211,7.386607634238448,0.5282854470620282
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,TUEG,all,2940,7.4721476745559645,0.001413463455296514
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,TUEG,normal,1117,6.5309920209567895,0.20348504778036053
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.87172190015959,-0.4988805641225345
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.773529307407834,1.41822014141738
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,HEEDB,all,7192,6.334102035312453,-0.6566184661133176
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,HEEDB,normal,1493,5.630176257934927,-0.10621425690864457
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,HEEDB,abnormal,2179,7.054539486568908,-0.7408822313268556
+"X2 ungated, 20 ep (local)",val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.186695211260416,-0.8379090172332827
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,TUAB,all,482,7.188388673492622,0.30102116422211317
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,TUAB,normal,271,6.528460272370104,-1.135920103825597
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,TUAB,abnormal,211,8.03597443986325,2.146571323657798
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,TUEG,all,2940,8.279108855224152,1.1871515905417815
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,TUEG,normal,1117,7.345504948305798,0.511891094030376
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,TUEG,abnormal,1465,8.6190451737147,1.504310028798453
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,TUEG,unlabelled,358,9.80097717209328,1.9961707596960157
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,HEEDB,all,7192,7.181743651921485,0.7454086334207682
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,HEEDB,normal,1493,6.605966338570032,-0.18823447154868972
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,HEEDB,abnormal,2179,7.771185816114757,1.6294165638921279
+"X2 ungated, 20 ep (local)",val (cross-fitted),cole,HEEDB,unlabelled,3520,7.061073496539831,0.5941801888816511
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,TUAB,all,482,6.046717247259192,0.07302537423426424
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,TUAB,normal,271,5.571010981054677,-1.1597529218792495
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.657695437502908,1.6563567403326638
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,TUEG,all,2940,6.911880492316901,0.9279407967930396
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,TUEG,normal,1117,6.17678045868876,0.30039646477275717
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,7.13928366869182,1.305688410222057
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,8.274900280510693,1.3401384649303172
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.98424785565755,0.8545624921374726
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.485904586004826,-0.02248160377392997
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.494440896524917,1.6770049898357158
+"X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.879792135640937,0.7174388082486238
