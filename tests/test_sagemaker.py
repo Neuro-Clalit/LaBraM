@@ -1234,6 +1234,8 @@ def test_entry_trains_into_checkpoint_dir_and_publishes(tmp_path, monkeypatch):
                            "--set", "output.output_dir=", "output.log_dir="])   # as the submitter does
     config = entry.build_config(cli)
     assert config.output.output_dir == str(ckpt / "finetune") and config.output.auto_resume
+    # continuously appended logs stay out of the synced checkpoint folder
+    assert config.output.log_dir == str(model / "finetune" / "tensorboard")
     os.makedirs(config.output.output_dir)
     (ckpt / "finetune" / "log.txt").write_text("{}\n")
     (ckpt / "finetune" / "log.txt.sagemaker-uploaded").write_text("")   # sync markers
