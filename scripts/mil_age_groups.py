@@ -153,6 +153,8 @@ def main():
                 g = s.groupby("age_group", observed=False)
                 for ag, gg in g:
                     n = len(gg)
+                    if n < SMALL_CELL:      # small-cell suppression: no row at all
+                        continue
                     groups.append({"experiment": exp, "correction": m, "dataset": ds, "age_group": ag, "n": n,
                                    "mae": gg.err.abs().mean() if n >= SMALL_CELL else np.nan,
                                    "mean_err": gg.err.mean() if n >= SMALL_CELL else np.nan})

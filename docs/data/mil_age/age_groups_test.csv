@@ -7,7 +7,6 @@ E2 (benchmark),none,all,50-59,1212,5.142182887560072,0.7738794336619115
 E2 (benchmark),none,all,60-69,1608,5.442067298342524,-3.0848892980317784
 E2 (benchmark),none,all,70-79,1147,8.493046604669109,-8.269324049854768
 E2 (benchmark),none,all,80+,652,13.821686849588907,-13.821686849588907
-E2 (benchmark),none,TUH,<20,6,,
 E2 (benchmark),none,TUH,20-29,39,6.124326043340018,5.730940872942505
 E2 (benchmark),none,TUH,30-39,48,4.950963032186296,3.291569086752139
 E2 (benchmark),none,TUH,40-49,48,5.526671724779892,1.6066098644223512
@@ -31,7 +30,6 @@ E2 (benchmark),recalibrate,all,50-59,1212,6.0839286852177095,1.663697822758648
 E2 (benchmark),recalibrate,all,60-69,1608,5.7261206682431185,-1.089346632183788
 E2 (benchmark),recalibrate,all,70-79,1147,6.708743038749506,-5.447586016921784
 E2 (benchmark),recalibrate,all,80+,652,10.43667989511218,-10.381961199775295
-E2 (benchmark),recalibrate,TUH,<20,6,,
 E2 (benchmark),recalibrate,TUH,20-29,39,4.7615729755009575,2.5609386441429196
 E2 (benchmark),recalibrate,TUH,30-39,48,5.3421138439905995,1.4894110355204109
 E2 (benchmark),recalibrate,TUH,40-49,48,6.403876441806659,1.1488926907564723
@@ -55,7 +53,6 @@ E2 (benchmark),cole,all,50-59,1212,8.566670096959124,4.265174519916885
 E2 (benchmark),cole,all,60-69,1608,8.134029265519994,3.875938044639989
 E2 (benchmark),cole,all,70-79,1147,6.89949877508789,1.2839321075533807
 E2 (benchmark),cole,all,80+,652,6.255020381758093,-2.329314389938408
-E2 (benchmark),cole,TUH,<20,6,,
 E2 (benchmark),cole,TUH,20-29,39,8.207508450171854,-3.5166347386971277
 E2 (benchmark),cole,TUH,30-39,48,7.393695083650132,-1.6639966670889166
 E2 (benchmark),cole,TUH,40-49,48,8.431298591481763,0.8696192921492513
@@ -79,7 +76,6 @@ E2 (benchmark),quadratic_gap,all,50-59,1212,5.378359455671976,2.1044295783768754
 E2 (benchmark),quadratic_gap,all,60-69,1608,5.2676351567684625,2.374646192225862
 E2 (benchmark),quadratic_gap,all,70-79,1147,4.709874985517077,1.664375700717169
 E2 (benchmark),quadratic_gap,all,80+,652,4.127240279322279,0.6193096283673614
-E2 (benchmark),quadratic_gap,TUH,<20,6,,
 E2 (benchmark),quadratic_gap,TUH,20-29,39,5.077282546891826,-1.7652225308201088
 E2 (benchmark),quadratic_gap,TUH,30-39,48,4.877629979924187,-1.4504548086993714
 E2 (benchmark),quadratic_gap,TUH,40-49,48,5.504695998355086,-0.16289261988119463
@@ -103,7 +99,6 @@ E2L (mean of window predictions),none,all,50-59,1212,5.5405909195182,0.729822473
 E2L (mean of window predictions),none,all,60-69,1608,5.682422917989562,-2.6804501504875975
 E2L (mean of window predictions),none,all,70-79,1147,7.8216758059351035,-7.368967535035665
 E2L (mean of window predictions),none,all,80+,652,12.544785961700526,-12.541556280705127
-E2L (mean of window predictions),none,TUH,<20,6,,
 E2L (mean of window predictions),none,TUH,20-29,39,5.935685828111423,5.319902653001537
 E2L (mean of window predictions),none,TUH,30-39,48,4.504287095190022,2.5633341087319472
 E2L (mean of window predictions),none,TUH,40-49,48,5.485883584125972,0.7493776776305542
@@ -127,7 +122,6 @@ E2L (mean of window predictions),recalibrate,all,50-59,1212,6.241483493240927,1.
 E2L (mean of window predictions),recalibrate,all,60-69,1608,5.897399095730972,-0.9852411096293675
 E2L (mean of window predictions),recalibrate,all,70-79,1147,6.510432218787018,-5.040188915204533
 E2L (mean of window predictions),recalibrate,all,80+,652,9.819438705472548,-9.73783163812168
-E2L (mean of window predictions),recalibrate,TUH,<20,6,,
 E2L (mean of window predictions),recalibrate,TUH,20-29,39,5.103545423422934,3.3232414270199593
 E2L (mean of window predictions),recalibrate,TUH,30-39,48,4.747288987726902,1.4814465242654364
 E2L (mean of window predictions),recalibrate,TUH,40-49,48,6.186842403624493,0.588155158269441
@@ -151,7 +145,6 @@ E2L (mean of window predictions),cole,all,50-59,1212,8.636907802641032,4.1435637
 E2L (mean of window predictions),cole,all,60-69,1608,8.310452452276369,3.932099326548177
 E2L (mean of window predictions),cole,all,70-79,1147,7.100372622545248,1.7074323081371907
 E2L (mean of window predictions),cole,all,80+,652,6.208393039354133,-1.618167612799428
-E2L (mean of window predictions),cole,TUH,<20,6,,
 E2L (mean of window predictions),cole,TUH,20-29,39,8.210674179465453,-2.424638567767357
 E2L (mean of window predictions),cole,TUH,30-39,48,6.564881192065287,-1.6237992970448516
 E2L (mean of window predictions),cole,TUH,40-49,48,8.255509796257565,0.14256288725649302
@@ -175,7 +168,6 @@ E2L (mean of window predictions),quadratic_gap,all,50-59,1212,5.776555849986102,
 E2L (mean of window predictions),quadratic_gap,all,60-69,1608,5.664524894757062,2.581923257782778
 E2L (mean of window predictions),quadratic_gap,all,70-79,1147,5.038502256385572,1.7741025965416093
 E2L (mean of window predictions),quadratic_gap,all,80+,652,4.302201770032516,0.4539762327709786
-E2L (mean of window predictions),quadratic_gap,TUH,<20,6,,
 E2L (mean of window predictions),quadratic_gap,TUH,20-29,39,5.424552340011982,-1.2744858972226696
 E2L (mean of window predictions),quadratic_gap,TUH,30-39,48,4.556967083263108,-1.3791873435218165
 E2L (mean of window predictions),quadratic_gap,TUH,40-49,48,5.635691637931363,-0.436071137730369
@@ -199,7 +191,6 @@ E2L mean pooling + head refit (S1 M0),none,all,50-59,1212,6.050641833738575,1.70
 E2L mean pooling + head refit (S1 M0),none,all,60-69,1608,5.82100466986157,-0.8153533565921515
 E2L mean pooling + head refit (S1 M0),none,all,70-79,1147,6.492345743627701,-4.76743109622662
 E2L mean pooling + head refit (S1 M0),none,all,80+,652,9.584066985323071,-9.413450899305674
-E2L mean pooling + head refit (S1 M0),none,TUH,<20,6,,
 E2L mean pooling + head refit (S1 M0),none,TUH,20-29,39,5.09956285356661,3.4572979098265146
 E2L mean pooling + head refit (S1 M0),none,TUH,30-39,48,4.800385885842272,1.7903507212020926
 E2L mean pooling + head refit (S1 M0),none,TUH,40-49,48,6.051191562506522,0.6184013873722831
@@ -223,7 +214,6 @@ E2L mean pooling + head refit (S1 M0),recalibrate,all,50-59,1212,5.9366895964539
 E2L mean pooling + head refit (S1 M0),recalibrate,all,60-69,1608,5.821461873122467,-1.3085316943646306
 E2L mean pooling + head refit (S1 M0),recalibrate,all,70-79,1147,6.7655698707410465,-5.3166983527894045
 E2L mean pooling + head refit (S1 M0),recalibrate,all,80+,652,10.124125311711987,-10.004530432962984
-E2L mean pooling + head refit (S1 M0),recalibrate,TUH,<20,6,,
 E2L mean pooling + head refit (S1 M0),recalibrate,TUH,20-29,39,4.978361942603324,3.2857827162496207
 E2L mean pooling + head refit (S1 M0),recalibrate,TUH,30-39,48,4.725253747222908,1.5376105123985215
 E2L mean pooling + head refit (S1 M0),recalibrate,TUH,40-49,48,5.954965275102114,0.2880853237065777
@@ -247,7 +237,6 @@ E2L mean pooling + head refit (S1 M0),cole,all,50-59,1212,8.109349111622135,3.63
 E2L mean pooling + head refit (S1 M0),cole,all,60-69,1608,7.996087379051195,3.3415393122761254
 E2L mean pooling + head refit (S1 M0),cole,all,70-79,1147,7.0432782770631635,1.113292349192133
 E2L mean pooling + head refit (S1 M0),cole,all,80+,652,6.517284325235993,-2.2476734423688516
-E2L mean pooling + head refit (S1 M0),cole,TUH,<20,6,,
 E2L mean pooling + head refit (S1 M0),cole,TUH,20-29,39,7.5840792110543935,-2.271769778632861
 E2L mean pooling + head refit (S1 M0),cole,TUH,30-39,48,6.4703989261780395,-1.4423561157137785
 E2L mean pooling + head refit (S1 M0),cole,TUH,40-49,48,7.85525070335627,-0.23009749879825248
@@ -271,7 +260,6 @@ E2L mean pooling + head refit (S1 M0),quadratic_gap,all,50-59,1212,6.14298660329
 E2L mean pooling + head refit (S1 M0),quadratic_gap,all,60-69,1608,6.188116243329981,2.4432947879563045
 E2L mean pooling + head refit (S1 M0),quadratic_gap,all,70-79,1147,5.700143771331335,1.7291880655317218
 E2L mean pooling + head refit (S1 M0),quadratic_gap,all,80+,652,5.126805248306383,0.4777099933573658
-E2L mean pooling + head refit (S1 M0),quadratic_gap,TUH,<20,6,,
 E2L mean pooling + head refit (S1 M0),quadratic_gap,TUH,20-29,39,5.631203205876442,-1.2182528804471735
 E2L mean pooling + head refit (S1 M0),quadratic_gap,TUH,30-39,48,5.10519431378869,-1.5042114497670163
 E2L mean pooling + head refit (S1 M0),quadratic_gap,TUH,40-49,48,6.114232325483278,-0.9411451117004134
@@ -295,7 +283,6 @@ A3 post-hoc weights,none,all,50-59,1212,6.134484336022573,1.0407410369548655
 A3 post-hoc weights,none,all,60-69,1608,5.8668624485268195,-1.6001920797068039
 A3 post-hoc weights,none,all,70-79,1147,6.6608569968669284,-5.6528302370801775
 A3 post-hoc weights,none,all,80+,652,10.517041358182592,-10.504513468780706
-A3 post-hoc weights,none,TUH,<20,6,,
 A3 post-hoc weights,none,TUH,20-29,39,5.929669460734129,5.192374395888398
 A3 post-hoc weights,none,TUH,30-39,48,4.916490452618484,2.618468589096617
 A3 post-hoc weights,none,TUH,40-49,48,5.553395987574749,0.7434884522246311
@@ -319,7 +306,6 @@ A3 post-hoc weights,recalibrate,all,50-59,1212,6.392301212351568,1.6877774398953
 A3 post-hoc weights,recalibrate,all,60-69,1608,5.9440494181043455,-0.7197289196824629
 A3 post-hoc weights,recalibrate,all,70-79,1147,6.150251069254484,-4.591267829192361
 A3 post-hoc weights,recalibrate,all,80+,652,9.369205322140687,-9.311885661526818
-A3 post-hoc weights,recalibrate,TUH,<20,6,,
 A3 post-hoc weights,recalibrate,TUH,20-29,39,5.945357662708024,5.092798798251121
 A3 post-hoc weights,recalibrate,TUH,30-39,48,5.101215453801189,2.7582146116243513
 A3 post-hoc weights,recalibrate,TUH,40-49,48,5.820808158730363,1.1167203832071237
@@ -343,7 +329,6 @@ A3 post-hoc weights,cole,all,50-59,1212,8.70629104471812,4.119672624910245
 A3 post-hoc weights,cole,all,60-69,1608,8.322707343663357,4.015279459938606
 A3 post-hoc weights,cole,all,70-79,1147,7.050281150160056,1.930562560460133
 A3 post-hoc weights,cole,all,80+,652,5.600690572615202,-1.4968939633447427
-A3 post-hoc weights,cole,TUH,<20,6,,
 A3 post-hoc weights,cole,TUH,20-29,39,6.817834560211329,0.1582207851458473
 A3 post-hoc weights,cole,TUH,30-39,48,6.180797520118098,0.1849116641648337
 A3 post-hoc weights,cole,TUH,40-49,48,7.547495587554752,0.8471142494066951
@@ -367,7 +352,6 @@ A3 post-hoc weights,quadratic_gap,all,50-59,1212,6.377575887951871,2.45422087510
 A3 post-hoc weights,quadratic_gap,all,60-69,1608,6.227268918279261,2.8757207477767
 A3 post-hoc weights,quadratic_gap,all,70-79,1147,5.572746453659324,2.24213368806464
 A3 post-hoc weights,quadratic_gap,all,80+,652,4.436000024423065,0.9137246290947614
-A3 post-hoc weights,quadratic_gap,TUH,<20,6,,
 A3 post-hoc weights,quadratic_gap,TUH,20-29,39,4.914981961411219,0.6258976321941175
 A3 post-hoc weights,quadratic_gap,TUH,30-39,48,4.651896630828496,-0.20766735479209944
 A3 post-hoc weights,quadratic_gap,TUH,40-49,48,5.576922411529909,-0.05879749074440547
@@ -391,7 +375,6 @@ Frozen attention S1 M4-hq,none,all,50-59,1212,6.171285782682543,1.71396312118236
 Frozen attention S1 M4-hq,none,all,60-69,1608,5.844678620404428,-0.5957932316112818
 Frozen attention S1 M4-hq,none,all,70-79,1147,6.150557020605253,-4.284117549875447
 Frozen attention S1 M4-hq,none,all,80+,652,9.04569409771604,-8.91634148030794
-Frozen attention S1 M4-hq,none,TUH,<20,6,,
 Frozen attention S1 M4-hq,none,TUH,20-29,39,5.659615465170968,4.693970873678052
 Frozen attention S1 M4-hq,none,TUH,30-39,48,4.661139939455771,2.4893287479100596
 Frozen attention S1 M4-hq,none,TUH,40-49,48,5.923594091218999,1.123414217470753
@@ -415,7 +398,6 @@ Frozen attention S1 M4-hq,recalibrate,all,50-59,1212,6.050119769018231,1.3270013
 Frozen attention S1 M4-hq,recalibrate,all,60-69,1608,5.806625040171861,-1.0750103701975937
 Frozen attention S1 M4-hq,recalibrate,all,70-79,1147,6.37911136393051,-4.8361351998202355
 Frozen attention S1 M4-hq,recalibrate,all,80+,652,9.608131021854925,-9.52054167776569
-Frozen attention S1 M4-hq,recalibrate,TUH,<20,6,,
 Frozen attention S1 M4-hq,recalibrate,TUH,20-29,39,5.573867847227723,4.6033695518054305
 Frozen attention S1 M4-hq,recalibrate,TUH,30-39,48,4.551895995275281,2.3038028733124825
 Frozen attention S1 M4-hq,recalibrate,TUH,40-49,48,5.793480228109314,0.8435792752596055
@@ -439,7 +421,6 @@ Frozen attention S1 M4-hq,cole,all,50-59,1212,8.014393666792577,3.44823563982126
 Frozen attention S1 M4-hq,cole,all,60-69,1608,7.887168119901748,3.146415288381191
 Frozen attention S1 M4-hq,cole,all,70-79,1147,6.772151688747729,1.0425924892263216
 Frozen attention S1 M4-hq,cole,all,80+,652,5.887506464376807,-2.4538794490512683
-Frozen attention S1 M4-hq,cole,TUH,<20,6,,
 Frozen attention S1 M4-hq,cole,TUH,20-29,39,6.1569319738195185,-0.022035259529955324
 Frozen attention S1 M4-hq,cole,TUH,30-39,48,5.693190774799085,-0.16064659531016923
 Frozen attention S1 M4-hq,cole,TUH,40-49,48,7.399069752301361,0.5260736444057066
@@ -463,7 +444,6 @@ Frozen attention S1 M4-hq,quadratic_gap,all,50-59,1212,6.236869183191547,1.95757
 Frozen attention S1 M4-hq,quadratic_gap,all,60-69,1608,6.258638498620314,2.335252841819532
 Frozen attention S1 M4-hq,quadratic_gap,all,70-79,1147,5.667096477520941,1.8106135153980276
 Frozen attention S1 M4-hq,quadratic_gap,all,80+,652,4.781159637675936,0.5628289869658496
-Frozen attention S1 M4-hq,quadratic_gap,TUH,<20,6,,
 Frozen attention S1 M4-hq,quadratic_gap,TUH,20-29,39,4.667260125668519,0.6098809049449941
 Frozen attention S1 M4-hq,quadratic_gap,TUH,30-39,48,4.606866741130751,-0.5583829855453076
 Frozen attention S1 M4-hq,quadratic_gap,TUH,40-49,48,5.81470627464477,-0.4418360158430346
@@ -487,7 +467,6 @@ L1 ungated ABMIL,none,all,50-59,1212,6.125453679854873,1.5313550681537185
 L1 ungated ABMIL,none,all,60-69,1608,5.959069347620635,-0.6467147823348911
 L1 ungated ABMIL,none,all,70-79,1147,6.299601942760397,-4.071483729824698
 L1 ungated ABMIL,none,all,80+,652,8.484562189423421,-8.261086281488547
-L1 ungated ABMIL,none,TUH,<20,6,,
 L1 ungated ABMIL,none,TUH,20-29,39,4.927702356669708,2.7039009787734583
 L1 ungated ABMIL,none,TUH,30-39,48,4.7554745201968345,1.1423813792304938
 L1 ungated ABMIL,none,TUH,40-49,48,5.77864320474026,-0.032152406004567556
@@ -511,7 +490,6 @@ L1 ungated ABMIL,recalibrate,all,50-59,1212,5.864256338946437,1.2782663028927985
 L1 ungated ABMIL,recalibrate,all,60-69,1608,5.79105427645267,-1.2187057703935227
 L1 ungated ABMIL,recalibrate,all,70-79,1147,6.518234733299542,-4.90132687645222
 L1 ungated ABMIL,recalibrate,all,80+,652,9.386055066334148,-9.285608525631222
-L1 ungated ABMIL,recalibrate,TUH,<20,6,,
 L1 ungated ABMIL,recalibrate,TUH,20-29,39,5.011173989314937,3.529021051109705
 L1 ungated ABMIL,recalibrate,TUH,30-39,48,4.599989186374738,1.619656979944926
 L1 ungated ABMIL,recalibrate,TUH,40-49,48,5.527165484343775,0.11691727549741297
@@ -535,7 +513,6 @@ L1 ungated ABMIL,cole,all,50-59,1212,7.726897224378071,3.3453600041150016
 L1 ungated ABMIL,cole,all,60-69,1608,7.597205977590647,2.8829343627699515
 L1 ungated ABMIL,cole,all,70-79,1147,6.931765319777686,0.8453698028284184
 L1 ungated ABMIL,cole,all,80+,652,6.018573936380856,-2.2968895746079134
-L1 ungated ABMIL,cole,TUH,<20,6,,
 L1 ungated ABMIL,cole,TUH,20-29,39,7.256274318176376,-1.2826894283851467
 L1 ungated ABMIL,cole,TUH,30-39,48,5.954861025202946,-0.9728600351707962
 L1 ungated ABMIL,cole,TUH,40-49,48,7.147981192023487,-0.3816971759498447
@@ -559,7 +536,6 @@ L1 ungated ABMIL,quadratic_gap,all,50-59,1212,6.216003104582676,2.04704279858284
 L1 ungated ABMIL,quadratic_gap,all,60-69,1608,6.239554025799213,2.2191597032655643
 L1 ungated ABMIL,quadratic_gap,all,70-79,1147,5.904881357575599,1.5727712116170756
 L1 ungated ABMIL,quadratic_gap,all,80+,652,5.040440718049404,0.36386676855109923
-L1 ungated ABMIL,quadratic_gap,TUH,<20,6,,
 L1 ungated ABMIL,quadratic_gap,TUH,20-29,39,5.686116267092227,-0.499110353318901
 L1 ungated ABMIL,quadratic_gap,TUH,30-39,48,4.985671069410437,-1.189481318873261
 L1 ungated ABMIL,quadratic_gap,TUH,40-49,48,5.920842603445095,-1.0886234343987955
@@ -583,7 +559,6 @@ W4 gated ABMIL,none,all,50-59,1212,6.154154219729606,1.4877913328890413
 W4 gated ABMIL,none,all,60-69,1608,5.9922752871669385,-0.667072676851826
 W4 gated ABMIL,none,all,70-79,1147,6.292653441025476,-4.068436955457922
 W4 gated ABMIL,none,all,80+,652,8.494035553562505,-8.242044275721877
-W4 gated ABMIL,none,TUH,<20,6,,
 W4 gated ABMIL,none,TUH,20-29,39,5.114913384128119,3.3800970597545406
 W4 gated ABMIL,none,TUH,30-39,48,4.762924514469613,1.3968820760950742
 W4 gated ABMIL,none,TUH,40-49,48,5.641547930961587,0.1301256563127322
@@ -607,7 +582,6 @@ W4 gated ABMIL,recalibrate,all,50-59,1212,5.90245518662629,1.170927352409651
 W4 gated ABMIL,recalibrate,all,60-69,1608,5.843420255007699,-1.2732585261365632
 W4 gated ABMIL,recalibrate,all,70-79,1147,6.527596838852678,-4.908720500190128
 W4 gated ABMIL,recalibrate,all,80+,652,9.377519839500458,-9.259013365227393
-W4 gated ABMIL,recalibrate,TUH,<20,6,,
 W4 gated ABMIL,recalibrate,TUH,20-29,39,5.25603556066152,4.013383745210846
 W4 gated ABMIL,recalibrate,TUH,30-39,48,4.645896888160256,1.730295697325359
 W4 gated ABMIL,recalibrate,TUH,40-49,48,5.4133084788319605,0.16985628354667717
@@ -631,7 +605,6 @@ W4 gated ABMIL,cole,all,50-59,1212,7.73123798764875,3.199846037386507
 W4 gated ABMIL,cole,all,60-69,1608,7.647382427449767,2.7932665448021097
 W4 gated ABMIL,cole,all,70-79,1147,6.934437689263253,0.8064838121495108
 W4 gated ABMIL,cole,all,80+,652,6.142748934236548,-2.2994662183008274
-W4 gated ABMIL,cole,TUH,<20,6,,
 W4 gated ABMIL,cole,TUH,20-29,39,6.994242037231709,-0.6493212363211862
 W4 gated ABMIL,cole,TUH,30-39,48,5.823116549551009,-0.8204940212233418
 W4 gated ABMIL,cole,TUH,40-49,48,7.0207298849913515,-0.3126129638041438
@@ -655,7 +628,6 @@ W4 gated ABMIL,quadratic_gap,all,50-59,1212,6.221740706135274,1.9446140590157956
 W4 gated ABMIL,quadratic_gap,all,60-69,1608,6.27002514708864,2.1443726630898134
 W4 gated ABMIL,quadratic_gap,all,70-79,1147,5.885572847332115,1.5080547446098145
 W4 gated ABMIL,quadratic_gap,all,80+,652,5.099131660759207,0.28748451838073413
-W4 gated ABMIL,quadratic_gap,TUH,<20,6,,
 W4 gated ABMIL,quadratic_gap,TUH,20-29,39,5.496430831141731,0.006541787715175582
 W4 gated ABMIL,quadratic_gap,TUH,30-39,48,4.830676121059975,-1.048039645316375
 W4 gated ABMIL,quadratic_gap,TUH,40-49,48,5.809036829652548,-1.003600766029765
@@ -679,7 +651,6 @@ W7 gated + retention,none,all,50-59,1212,6.166290415543225,1.525097331980761
 W7 gated + retention,none,all,60-69,1608,6.014074242193049,-0.6121070877314966
 W7 gated + retention,none,all,70-79,1147,6.186041160641214,-4.083172422718538
 W7 gated + retention,none,all,80+,652,8.673140228377731,-8.500105878003767
-W7 gated + retention,none,TUH,<20,6,,
 W7 gated + retention,none,TUH,20-29,39,4.674196963740515,2.7210722065428845
 W7 gated + retention,none,TUH,30-39,48,4.790544630841848,1.2544188513523904
 W7 gated + retention,none,TUH,40-49,48,5.8862952240527,0.19794135266214327
@@ -703,7 +674,6 @@ W7 gated + retention,recalibrate,all,50-59,1212,5.905881445821418,1.204880739084
 W7 gated + retention,recalibrate,all,60-69,1608,5.832637769322389,-1.2348135470526
 W7 gated + retention,recalibrate,all,70-79,1147,6.4544791150599705,-4.947552280264372
 W7 gated + retention,recalibrate,all,80+,652,9.628290396875572,-9.539897762761347
-W7 gated + retention,recalibrate,TUH,<20,6,,
 W7 gated + retention,recalibrate,TUH,20-29,39,4.789372865454106,3.4176505814028824
 W7 gated + retention,recalibrate,TUH,30-39,48,4.646976409566572,1.6192110480225097
 W7 gated + retention,recalibrate,TUH,40-49,48,5.648426924710236,0.24863288206968134
@@ -727,7 +697,6 @@ W7 gated + retention,cole,all,50-59,1212,7.805281326800555,3.2910329629095307
 W7 gated + retention,cole,all,60-69,1608,7.746851706286435,2.938649474923143
 W7 gated + retention,cole,all,70-79,1147,6.783788854510661,0.8935616276809949
 W7 gated + retention,cole,all,80+,652,5.949192953737372,-2.4883650634297063
-W7 gated + retention,cole,TUH,<20,6,,
 W7 gated + retention,cole,TUH,20-29,39,7.075536482679929,-1.5125218762802948
 W7 gated + retention,cole,TUH,30-39,48,6.011428162556807,-1.021493400044184
 W7 gated + retention,cole,TUH,40-49,48,7.279530930074027,-0.22464122450363813
@@ -751,7 +720,6 @@ W7 gated + retention,quadratic_gap,all,50-59,1212,6.23980823564193,1.93390621504
 W7 gated + retention,quadratic_gap,all,60-69,1608,6.321194835347981,2.2386653209970055
 W7 gated + retention,quadratic_gap,all,70-79,1147,5.799195860724243,1.6709434840881607
 W7 gated + retention,quadratic_gap,all,80+,652,4.969454670975915,0.3806075635681875
-W7 gated + retention,quadratic_gap,TUH,<20,6,,
 W7 gated + retention,quadratic_gap,TUH,20-29,39,5.484528267524979,-0.6412809479368786
 W7 gated + retention,quadratic_gap,TUH,30-39,48,5.028546914221306,-1.2522555643359305
 W7 gated + retention,quadratic_gap,TUH,40-49,48,5.960944522149614,-1.0131339419124272
@@ -775,7 +743,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X1 gated + retention, 20 ep",none,all,60-69,1608,5.935883918798857,-0.4528352392277859
 "X1 gated + retention, 20 ep",none,all,70-79,1147,6.138058572055006,-3.9456105795697
 "X1 gated + retention, 20 ep",none,all,80+,652,8.514201529596734,-8.337907279299753
-"X1 gated + retention, 20 ep",none,TUH,<20,6,,
 "X1 gated + retention, 20 ep",none,TUH,20-29,39,4.723733148725375,3.104142024979884
 "X1 gated + retention, 20 ep",none,TUH,30-39,48,4.8404278482118075,1.5567987016983924
 "X1 gated + retention, 20 ep",none,TUH,40-49,48,5.932137241035978,0.4050678613500722
@@ -799,7 +766,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X1 gated + retention, 20 ep",recalibrate,all,60-69,1608,5.789982484177559,-1.3390187469731858
 "X1 gated + retention, 20 ep",recalibrate,all,70-79,1147,6.536389786774867,-5.075067211211877
 "X1 gated + retention, 20 ep",recalibrate,all,80+,652,9.706871722921822,-9.64543253846859
-"X1 gated + retention, 20 ep",recalibrate,TUH,<20,6,,
 "X1 gated + retention, 20 ep",recalibrate,TUH,20-29,39,4.792506721245812,3.5420783554383273
 "X1 gated + retention, 20 ep",recalibrate,TUH,30-39,48,4.67153617702368,1.662636504699124
 "X1 gated + retention, 20 ep",recalibrate,TUH,40-49,48,5.661544246796443,0.19720769888844267
@@ -823,7 +789,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X1 gated + retention, 20 ep",cole,all,60-69,1608,7.596931786708031,2.7701825278681382
 "X1 gated + retention, 20 ep",cole,all,70-79,1147,6.7215681894539525,0.6808769278363126
 "X1 gated + retention, 20 ep",cole,all,80+,652,5.8792640177174915,-2.684122031686907
-"X1 gated + retention, 20 ep",cole,TUH,<20,6,,
 "X1 gated + retention, 20 ep",cole,TUH,20-29,39,7.098222972258186,-1.3118349957410107
 "X1 gated + retention, 20 ep",cole,TUH,30-39,48,6.153040660826133,-0.9432649348288331
 "X1 gated + retention, 20 ep",cole,TUH,40-49,48,7.337493349731396,-0.28523728204383253
@@ -847,7 +812,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X1 gated + retention, 20 ep",quadratic_gap,all,60-69,1608,6.21554816019431,2.107762001553117
 "X1 gated + retention, 20 ep",quadratic_gap,all,70-79,1147,5.716415685823506,1.4840428487891069
 "X1 gated + retention, 20 ep",quadratic_gap,all,80+,652,4.854148502525895,0.18029543379401802
-"X1 gated + retention, 20 ep",quadratic_gap,TUH,<20,6,,
 "X1 gated + retention, 20 ep",quadratic_gap,TUH,20-29,39,5.533102263960439,-0.4872392154444051
 "X1 gated + retention, 20 ep",quadratic_gap,TUH,30-39,48,5.153200169755017,-1.1838175521179097
 "X1 gated + retention, 20 ep",quadratic_gap,TUH,40-49,48,6.053406255818378,-1.0517202637155074
@@ -871,7 +835,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X3 gated hq + retention, 20 ep",none,all,60-69,1608,6.058667273386721,0.01686614703316418
 "X3 gated hq + retention, 20 ep",none,all,70-79,1147,5.929150814081016,-3.3831655633194355
 "X3 gated hq + retention, 20 ep",none,all,80+,652,7.968254415333968,-7.735200304236857
-"X3 gated hq + retention, 20 ep",none,TUH,<20,6,,
 "X3 gated hq + retention, 20 ep",none,TUH,20-29,39,4.555494718861277,3.000961775813799
 "X3 gated hq + retention, 20 ep",none,TUH,30-39,48,5.151939803664853,1.3738263047759143
 "X3 gated hq + retention, 20 ep",none,TUH,40-49,48,6.339511521342163,0.431143111490788
@@ -895,7 +858,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X3 gated hq + retention, 20 ep",recalibrate,all,60-69,1608,5.812581864552141,-1.2222030708287581
 "X3 gated hq + retention, 20 ep",recalibrate,all,70-79,1147,6.395053005268606,-4.967761958667272
 "X3 gated hq + retention, 20 ep",recalibrate,all,80+,652,9.63103847456607,-9.571279899219867
-"X3 gated hq + retention, 20 ep",recalibrate,TUH,<20,6,,
 "X3 gated hq + retention, 20 ep",recalibrate,TUH,20-29,39,4.672233082359373,3.646104845822042
 "X3 gated hq + retention, 20 ep",recalibrate,TUH,30-39,48,4.8928793393618735,1.5579832642976343
 "X3 gated hq + retention, 20 ep",recalibrate,TUH,40-49,48,5.939963881969809,0.16510822665493205
@@ -919,7 +881,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X3 gated hq + retention, 20 ep",cole,all,60-69,1608,7.69986197188965,3.041073795987983
 "X3 gated hq + retention, 20 ep",cole,all,70-79,1147,6.725909798997688,0.988907156110645
 "X3 gated hq + retention, 20 ep",cole,all,80+,652,5.790752881125106,-2.3821181514361496
-"X3 gated hq + retention, 20 ep",cole,TUH,<20,6,,
 "X3 gated hq + retention, 20 ep",cole,TUH,20-29,39,6.8074323402718395,-1.3249439488285188
 "X3 gated hq + retention, 20 ep",cole,TUH,30-39,48,6.315506417857393,-1.1538212312630878
 "X3 gated hq + retention, 20 ep",cole,TUH,40-49,48,7.671945882230605,-0.34035352945066544
@@ -943,7 +904,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X3 gated hq + retention, 20 ep",quadratic_gap,all,60-69,1608,6.3604864533089716,2.3509477764560627
 "X3 gated hq + retention, 20 ep",quadratic_gap,all,70-79,1147,5.815547833542509,1.7646248434084173
 "X3 gated hq + retention, 20 ep",quadratic_gap,all,80+,652,4.853160343446977,0.4601533274513914
-"X3 gated hq + retention, 20 ep",quadratic_gap,TUH,<20,6,,
 "X3 gated hq + retention, 20 ep",quadratic_gap,TUH,20-29,39,5.375574380554336,-0.4960360445636653
 "X3 gated hq + retention, 20 ep",quadratic_gap,TUH,30-39,48,5.319609150927191,-1.3746766463248752
 "X3 gated hq + retention, 20 ep",quadratic_gap,TUH,40-49,48,6.299166921587257,-1.1166701974589957
@@ -967,7 +927,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X4 ungated hq, 20 ep",none,all,60-69,1608,6.0957896814310075,-0.7607138534454396
 "X4 ungated hq, 20 ep",none,all,70-79,1147,6.430793970287504,-4.292169887983956
 "X4 ungated hq, 20 ep",none,all,80+,652,8.572402246112665,-8.315901020375042
-"X4 ungated hq, 20 ep",none,TUH,<20,6,,
 "X4 ungated hq, 20 ep",none,TUH,20-29,39,4.710757164023069,1.6301545498587635
 "X4 ungated hq, 20 ep",none,TUH,30-39,48,5.0516898512495585,0.04323013453368607
 "X4 ungated hq, 20 ep",none,TUH,40-49,48,6.517380194957101,-0.8419320207010031
@@ -991,7 +950,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X4 ungated hq, 20 ep",recalibrate,all,60-69,1608,5.845384487448098,-1.2107721596239769
 "X4 ungated hq, 20 ep",recalibrate,all,70-79,1147,6.597607709150499,-5.064493143907705
 "X4 ungated hq, 20 ep",recalibrate,all,80+,652,9.45132248239037,-9.343692044004506
-"X4 ungated hq, 20 ep",recalibrate,TUH,<20,6,,
 "X4 ungated hq, 20 ep",recalibrate,TUH,20-29,39,4.648027397997428,3.0020784783049774
 "X4 ungated hq, 20 ep",recalibrate,TUH,30-39,48,4.814952864720384,0.9745693839730661
 "X4 ungated hq, 20 ep",recalibrate,TUH,40-49,48,6.170456991494885,-0.34176131230806917
@@ -1015,7 +973,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X4 ungated hq, 20 ep",cole,all,60-69,1608,7.767515749877147,2.986688275586146
 "X4 ungated hq, 20 ep",cole,all,70-79,1147,6.860902944625899,0.7704985463002424
 "X4 ungated hq, 20 ep",cole,all,80+,652,6.117021167462544,-2.2105869393734907
-"X4 ungated hq, 20 ep",cole,TUH,<20,6,,
 "X4 ungated hq, 20 ep",cole,TUH,20-29,39,7.36154236806806,-2.0585354057916088
 "X4 ungated hq, 20 ep",cole,TUH,30-39,48,6.538022458052651,-1.847292867601017
 "X4 ungated hq, 20 ep",cole,TUH,40-49,48,8.015373931546236,-0.9727183391793597
@@ -1039,7 +996,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X4 ungated hq, 20 ep",quadratic_gap,all,60-69,1608,6.4177390532203775,2.302933951457077
 "X4 ungated hq, 20 ep",quadratic_gap,all,70-79,1147,5.902237581629444,1.6081649956429447
 "X4 ungated hq, 20 ep",quadratic_gap,all,80+,652,5.232285477648688,0.6654621808661971
-"X4 ungated hq, 20 ep",quadratic_gap,TUH,<20,6,,
 "X4 ungated hq, 20 ep",quadratic_gap,TUH,20-29,39,5.766806290203594,-1.091625278321107
 "X4 ungated hq, 20 ep",quadratic_gap,TUH,30-39,48,5.539222510808236,-1.9635431039581368
 "X4 ungated hq, 20 ep",quadratic_gap,TUH,40-49,48,6.7127480418769165,-1.6651334778628932
@@ -1063,7 +1019,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X2 ungated, 20 ep (local)",none,all,60-69,1608,6.148689281063694,-0.10683696798627688
 "X2 ungated, 20 ep (local)",none,all,70-79,1147,6.269619777860807,-3.5884549195560513
 "X2 ungated, 20 ep (local)",none,all,80+,652,8.012902725376973,-7.679230331783516
-"X2 ungated, 20 ep (local)",none,TUH,<20,6,,
 "X2 ungated, 20 ep (local)",none,TUH,20-29,39,5.264034384086149,3.222124733922984
 "X2 ungated, 20 ep (local)",none,TUH,30-39,48,5.222583905226846,1.6661318426072096
 "X2 ungated, 20 ep (local)",none,TUH,40-49,48,6.294388723986413,0.1795170501694887
@@ -1087,7 +1042,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X2 ungated, 20 ep (local)",recalibrate,all,60-69,1608,5.848486787840437,-1.3586806325784553
 "X2 ungated, 20 ep (local)",recalibrate,all,70-79,1147,6.740754935996648,-5.24384057258168
 "X2 ungated, 20 ep (local)",recalibrate,all,80+,652,9.711524322768499,-9.647981641149936
-"X2 ungated, 20 ep (local)",recalibrate,TUH,<20,6,,
 "X2 ungated, 20 ep (local)",recalibrate,TUH,20-29,39,5.361591281441725,4.176989984611093
 "X2 ungated, 20 ep (local)",recalibrate,TUH,30-39,48,4.984479682627008,2.0715754211550865
 "X2 ungated, 20 ep (local)",recalibrate,TUH,40-49,48,5.882711453568433,0.08601095015334807
@@ -1111,7 +1065,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X2 ungated, 20 ep (local)",cole,all,60-69,1608,7.593146973513016,2.7065585699646797
 "X2 ungated, 20 ep (local)",cole,all,70-79,1147,6.91103630875563,0.41411738311338886
 "X2 ungated, 20 ep (local)",cole,all,80+,652,6.230023590576642,-2.753217177697743
-"X2 ungated, 20 ep (local)",cole,TUH,<20,6,,
 "X2 ungated, 20 ep (local)",cole,TUH,20-29,39,7.063899763999244,-0.46731473356241776
 "X2 ungated, 20 ep (local)",cole,TUH,30-39,48,6.173171799729655,-0.40424565544527624
 "X2 ungated, 20 ep (local)",cole,TUH,40-49,48,7.57791722864523,-0.4205317546646656
@@ -1135,7 +1088,6 @@ W7 gated + retention,quadratic_gap,HEEDB,80+,635,4.946432683689291,0.46699936354
 "X2 ungated, 20 ep (local)",quadratic_gap,all,60-69,1608,6.382938160283948,2.1291152714137693
 "X2 ungated, 20 ep (local)",quadratic_gap,all,70-79,1147,6.002664552847769,1.2125323805652841
 "X2 ungated, 20 ep (local)",quadratic_gap,all,80+,652,5.201745068761006,-0.09853230120507485
-"X2 ungated, 20 ep (local)",quadratic_gap,TUH,<20,6,,
 "X2 ungated, 20 ep (local)",quadratic_gap,TUH,20-29,39,5.711644144724996,0.15853809938203092
 "X2 ungated, 20 ep (local)",quadratic_gap,TUH,30-39,48,5.249313293468982,-0.7219868344999804
 "X2 ungated, 20 ep (local)",quadratic_gap,TUH,40-49,48,6.475085553629502,-1.118702520047684
