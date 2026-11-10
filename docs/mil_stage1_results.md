@@ -1162,9 +1162,9 @@ What Tables 12.2–12.4 and Figure 12.1 show about over-fitting:
 * **Memorization is concentrated on TUH** (Table 12.4). The train-eval of
   TUH recordings falls to 2.8 y while their val stays at 7.3–7.4, a gap of
   4.6 (vs 2.6 on HEEDB). With 16 more epochs, X2's TUH gap grows by 0.8 y
-  and HEEDB's by 0.4 y, and TUH val gets worse (7.28 → 7.41). TUH subjects
-  often have several training recordings, and those are what the model
-  learns to recognise.
+  and HEEDB's by 0.4 y, and TUH val gets worse (7.28 → 7.41). A likely cause, not yet
+  checked, is TUH subjects with several training recordings, which the model
+  can learn to recognise.
 * **Consequences.**
   - Keep the 4-epoch warm start (W4 / L1 recipe, encoder trained from
     epoch 1).
