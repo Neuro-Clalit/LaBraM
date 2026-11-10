@@ -1005,17 +1005,17 @@ Launcher: `scripts/mil_runs/submit_grid.sh` (jobs `X1`–`X6`); X2 also runs on
 the local GPU (`scripts/mil_runs/run_local_abmil.sh trainer.epochs=20
 mil.freeze_encoder_epochs=4`). ClearML project `LaBraM/heedb_mil`.
 
-### Table 12.1. Jobs (status 2026-11-09 23:40 UTC)
+### Table 12.1. Jobs (status 2026-11-10 06:15 UTC)
 
 | job | pool | attention reads | retention | bag | where | status |
 |---|---|---|---|---|---|---|
-| X1 | gated (W4) | $h$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | epoch 7; ~34 min per trained epoch; ETA ~07:00 UTC, 10 Nov |
-| X2 | ungated (L1) | $h$ | — | 32 × 8 | SM g5.4xlarge **spot** | epoch 6; ~20 min per trained epoch; ETA ~04:30 |
-| X2 (local) | as X2 | | | | local GPU, started 23:01 after F3 | epoch 3; ETA ~05:30 |
-| X3 | gated | $h$ + $q$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | epoch 7; ~31 min per trained epoch; ETA ~06:30 |
-| X4 | ungated | $h$ + $q$ | — | 32 × 8 | SM g5.2xlarge on-demand | epoch 7; ETA ~06:30 |
-| X5 | gated (X1) | $h$ | 0.1 | 16 × K, K ~ U{8..32} | SM g5.2xlarge on-demand | epoch 4 (first trained, 0.77 s/step, ~73 min per epoch); ETA ~19:30, 10 Nov |
-| X6 | gated (X1) | $h$ | 0.1 | 8 × K, K ~ U{8..64} | SM g5.4xlarge on-demand (resubmitted) | epoch 0 (0.14 s/step frozen); ETA roughly 36 h, ~12:00, 11 Nov |
+| X1 | gated (W4) | $h$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | done |
+| X2 | ungated (L1) | $h$ | — | 32 × 8 | SM g5.4xlarge **spot** | done (two spot interruptions, resumed from epoch 12 each time); uploading |
+| X2 (local) | as X2 | | | | local GPU | done |
+| X3 | gated | $h$ + $q$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | done |
+| X4 | ungated | $h$ + $q$ | — | 32 × 8 | SM g5.2xlarge on-demand | done |
+| X5 | gated (X1) | $h$ | 0.1 | 16 × K, K ~ U{8..32} | SM g5.2xlarge on-demand | epoch 11; 0.55 s/step, ~53 min per trained epoch; ETA ~14:00 UTC, 10 Nov |
+| X6 | gated (X1) | $h$ | 0.1 | 8 × K, K ~ U{8..64} | SM g5.4xlarge on-demand (resubmitted) | epoch 7; 0.49 s/step, ~92 min per trained epoch; ETA ~02:00 UTC, 11 Nov |
 
 Infrastructure notes:
 - **X6, first attempt** (spot `g5.4xlarge`) stopped logging silently in
@@ -1037,17 +1037,32 @@ Infrastructure notes:
   s/step, about 31 min per epoch plus eval. The GPU's max memory is
   6.5–6.7 GB.
 
-### Table 12.2. Recording MAE per epoch, val / test / train-eval (years)
+### Table 12.2. Recording MAE per epoch, val / test / train-eval (years; bold: best val epoch)
 
-| epoch | X1 gated + ret. | X2 ungated (SM) | X3 gated hq + ret. | X4 ungated hq | X5 K 8–32 |
+| epoch | X1 gated + ret. | X2 ungated (SM) | X2 ungated (local) | X3 gated hq + ret. | X4 ungated hq |
 |---|---|---|---|---|---|
-| 0 (frozen) | 6.69 / 6.33 / 4.23 | 6.67 / 6.30 / 4.25 | 6.66 / 6.31 / 4.17 | 6.65 / 6.25 / 4.17 | 6.66 / 6.29 / 4.26 |
-| 1 (frozen) | 6.65 / 6.26 / 4.18 | 6.66 / 6.28 / 4.15 | 6.65 / 6.27 / 4.15 | 6.64 / 6.24 / 4.16 | 6.83 / 6.48 / 4.31 |
-| 2 (frozen) | 6.64 / 6.24 / 4.16 | 6.63 / 6.22 / 4.16 | 6.62 / 6.22 / 4.13 | 6.64 / 6.23 / 4.15 | 6.64 / 6.22 / 4.18 |
-| 3 (frozen) | 6.64 / 6.23 / 4.19 | 6.65 / 6.24 / 4.15 | 6.63 / 6.23 / 4.16 | 6.65 / 6.24 / 4.17 | 6.64 / 6.23 / 4.16 |
-| 4 (encoder trained) | 6.60 / 6.22 / 4.14 | 6.67 / 6.27 / 4.27 | 6.73 / 6.34 / 4.24 | 6.89 / 6.46 / 4.54 | |
-| 5 | 6.64 / 6.19 / 4.13 | 6.67 / **6.16** / 3.95 | 6.91 / 6.49 / 4.43 | 6.78 / 6.30 / 4.07 | |
-| 6 | 6.64 / 6.24 / 3.94 | | **6.57** / **6.16** / 3.95 | 6.59 / 6.20 / 3.86 | |
+| 0 (frozen) | 6.69 / 6.33 / 4.23 | 6.67 / 6.30 / 4.25 | 6.69 / 6.31 / 4.22 | 6.66 / 6.31 / 4.17 | 6.65 / 6.25 / 4.17 |
+| 1 (frozen) | 6.64 / 6.26 / 4.17 | 6.66 / 6.28 / 4.15 | 6.68 / 6.28 / 4.19 | 6.65 / 6.27 / 4.14 | 6.64 / 6.24 / 4.16 |
+| 2 (frozen) | 6.64 / 6.24 / 4.16 | 6.63 / 6.21 / 4.16 | 6.64 / 6.24 / 4.15 | 6.62 / 6.22 / 4.13 | 6.64 / 6.23 / 4.14 |
+| 3 (frozen) | 6.64 / 6.23 / 4.19 | 6.65 / 6.24 / 4.15 | 6.65 / 6.24 / 4.17 | 6.63 / 6.23 / 4.16 | 6.65 / 6.24 / 4.17 |
+| 4 (encoder trained) | 6.60 / 6.22 / 4.13 | 6.67 / 6.26 / 4.27 | 6.72 / 6.22 / 4.14 | 6.73 / 6.34 / 4.24 | 6.89 / 6.46 / 4.54 |
+| 5 | 6.64 / 6.19 / 4.13 | 6.67 / 6.16 / 3.95 | 6.83 / 6.37 / 4.17 | 6.91 / 6.49 / 4.43 | 6.78 / 6.30 / 4.07 |
+| 6 | 6.64 / 6.24 / 3.94 | 6.65 / 6.22 / 3.81 | 6.66 / 6.21 / 3.89 | 6.57 / 6.16 / 3.95 | **6.59 / 6.20 / 3.86** |
+| 7 | 6.59 / 6.20 / 3.92 | **6.60 / 6.21 / 3.80** | 6.63 / 6.22 / 3.81 | **6.53 / 6.15 / 3.96** | 6.65 / 6.23 / 3.73 |
+| 8 | 6.58 / 6.17 / 3.93 | 6.70 / 6.25 / 3.98 | 6.68 / 6.27 / 3.89 | 6.55 / 6.16 / 4.00 | 6.67 / 6.25 / 3.87 |
+| 9 | 6.58 / 6.18 / 3.83 | 6.62 / 6.23 / 3.57 | 6.64 / 6.24 / 3.60 | 6.62 / 6.23 / 3.87 | 6.59 / 6.17 / 3.62 |
+| 10 | 6.54 / 6.13 / 3.71 | 6.61 / 6.14 / 3.56 | **6.61 / 6.13 / 3.51** | 6.54 / 6.13 / 3.74 | 6.60 / 6.15 / 3.51 |
+| 11 | 6.58 / 6.15 / 3.77 | 6.66 / 6.24 / 3.48 | 6.62 / 6.14 / 3.46 | 6.58 / 6.16 / 3.76 | 6.61 / 6.17 / 3.43 |
+| 12 | 6.58 / 6.15 / 3.67 | 6.65 / 6.18 / 3.40 | 6.64 / 6.18 / 3.41 | 6.57 / 6.13 / 3.69 | 6.65 / 6.18 / 3.37 |
+| 13 | 6.58 / 6.14 / 3.69 | 6.67 / 6.14 / 3.43 | 6.67 / 6.17 / 3.40 | 6.56 / 6.10 / 3.73 | 6.72 / 6.24 / 3.57 |
+| 14 | 6.62 / 6.18 / 3.73 | 6.70 / 6.22 / 3.44 | 6.70 / 6.21 / 3.36 | 6.66 / 6.20 / 3.73 | 6.71 / 6.22 / 3.52 |
+| 15 | 6.58 / 6.16 / 3.61 | 6.66 / 6.19 / 3.28 | 6.67 / 6.20 / 3.25 | 6.58 / 6.14 / 3.59 | 6.61 / 6.15 / 3.29 |
+| 16 | 6.53 / 6.10 / 3.55 | 6.63 / 6.16 / 3.25 | 6.64 / 6.15 / 3.26 | 6.55 / 6.12 / 3.57 | 6.60 / 6.15 / 3.27 |
+| 17 | **6.52 / 6.09 / 3.53** | 6.63 / 6.15 / 3.24 | 6.62 / 6.13 / 3.23 | 6.54 / 6.10 / 3.53 | 6.60 / 6.16 / 3.26 |
+| 18 | 6.53 / 6.09 / 3.56 | 6.63 / 6.15 / 3.23 | 6.63 / 6.14 / 3.26 | 6.54 / 6.10 / 3.54 | 6.62 / 6.15 / 3.27 |
+| 19 | 6.53 / 6.09 / 3.52 | 6.63 / 6.16 / 3.22 | 6.62 / 6.13 / 3.21 | 6.54 / 6.10 / 3.53 | 6.61 / 6.15 / 3.24 |
+
+X5 and X6 (still running) are in Figure 12.1 and `docs/data/mil_x/fit_curves.csv`.
 
 The references:
 
@@ -1059,26 +1074,104 @@ The references:
 | L1 | 6.55 | 6.09 | 4 epochs, encoder trained from epoch 1 |
 | W7 | 6.54 | 6.12 | 4 epochs, encoder trained from epoch 1 |
 
-What Table 12.2 shows so far:
+### Figure 12.1. Learning curves of the long warm starts vs. the 4-epoch runs
 
-* **Training only the pool and head plateaus at 6.62–6.65 val / 6.22–6.24
-  test by epoch 2** in every run, X5 included. This is about 0.05 y above
-  the Stage 1 pools, which saw all 30 windows per bag for 15 epochs. Adding
-  descriptors to the attention input (X3, X4) changes nothing in this phase.
-* **Unfreezing at almost the peak LR first disrupts, then recovers.**
-  - Without retention, X4 loses 0.24 y val at epoch 4.
-  - With retention, X3 loses 0.10 at epoch 4 and 0.28 at epoch 5.
-  - Both recover by epoch 6 to the best val so far (X3 6.57 / 6.16,
-    X4 6.59 / 6.20), with train-eval falling fast (3.86–3.95).
-  - X1 (retention, $h$ only) never dropped, but has not improved either
-    (6.60–6.64).
-  - The W runs unfroze after one epoch of pool training and showed no such
-    drop.
-* **X5's dip at epoch 1 was transient** (back to 6.64 by epoch 2). Its
-  trained epochs take ~73 min on `g5.2xlarge` (0.77 s/step), so it ends a
-  day after the others.
-* **The val-train-eval gap is growing again** (2.6–2.9 at epoch 6). The
-  remaining 13 epochs decide whether the longer schedule beats W4's 6.51 or
-  only memorizes more.
+![X fit curves](figures/mil_x_fit_curves.png)
+
+Recording MAE in years per epoch, drawn by `scripts/mil_x_fit_plot.py` from
+`docs/data/mil_x/fit_curves.csv`:
+- (a) val;
+- (b) train-eval (500 training recordings per dataset);
+- (c) the gap val − train-eval, Eq. (12.1);
+- (d) test.
+
+Solid lines are the X runs, dashed lines the 4-epoch W4 / L1 / W7, and
+dotted is the local X2. The shading marks the X runs' frozen-encoder epochs
+0–3.
+
+### Table 12.3. Fit per run
+
+Columns:
+- start: the last frozen epoch (3) for X, epoch 0 for W4 / L1 / W7;
+- best: the best val epoch;
+- the gap $g$ and the efficiency $\eta$, defined below.
+
+$$
+g_e = \mathrm{MAE}^{	ext{val}}_e - \mathrm{MAE}^{	ext{train-eval}}_e,\qquad
+\eta = rac{\mathrm{MAE}^{	ext{val}}_	ext{start} - \min_e \mathrm{MAE}^{	ext{val}}_e}{\mathrm{MAE}^{	ext{train-eval}}_	ext{start} - \mathrm{MAE}^{	ext{train-eval}}_	ext{last}}
+	ag{12.1}
+$$
+
+$\eta$ is the share of the train-eval improvement that reached val.
+
+| run | val start → best (epoch) | test at best / last | train-eval start → last | gap start → best → last | $\eta$ |
+|---|---|---|---|---|---|
+| W4 (4 epochs, encoder trained from epoch 1) | 6.69 → **6.51** (3) | 6.10 / 6.10 | 4.23 → 3.69 | 2.46 → 2.82 → 2.82 | 0.33 |
+| L1 (4 epochs) | 6.69 → 6.55 (3) | 6.09 / 6.09 | 4.22 → 3.71 | 2.47 → 2.84 → 2.84 | 0.27 |
+| W7 (4 epochs, retention) | 6.68 → 6.54 (3) | 6.12 / 6.12 | 4.20 → 3.98 | 2.48 → **2.56** → **2.56** | **0.64** |
+| X1 gated + retention | 6.64 → **6.52** (17) | **6.09** / **6.09** | 4.19 → 3.53 | 2.45 → 2.99 → 3.00 | 0.17 |
+| X3 gated hq + retention | 6.63 → 6.53 (7) | 6.15 / 6.10 | 4.16 → 3.53 | 2.47 → 2.57 → 3.00 | 0.16 |
+| X2 ungated (SageMaker) | 6.65 → 6.60 (7) | 6.21 / 6.16 | 4.15 → 3.22 | 2.50 → 2.80 → 3.40 | 0.06 |
+| X2 ungated (local) | 6.65 → 6.61 (10) | 6.13 / 6.13 | 4.17 → 3.21 | 2.48 → 3.10 → 3.41 | 0.04 |
+| X4 ungated hq | 6.65 → 6.59 (6) | 6.20 / 6.15 | 4.17 → 3.24 | 2.49 → 2.73 → 3.37 | 0.07 |
+| X5 bags 8–32 (epoch 10 of 20) | 6.64 → 6.61 (7) | 6.22 / 6.23 | 4.16 → 3.82 | 2.48 → 2.66 → 2.80 | 0.08 |
+
+### Table 12.4. Gap per dataset: L1 after 4 epochs vs. X2 after 20 (same model; val − train-eval, years)
+
+| run | HEEDB train-eval | HEEDB val | HEEDB gap | TUH train-eval | TUH val | TUH gap |
+|---|---|---|---|---|---|---|
+| L1, epoch 3 | 3.97 | 6.20 | 2.23 | 3.45 | 7.28 | 3.83 |
+| X2 local, epoch 19 | 3.62 | 6.24 | 2.62 | 2.81 | 7.41 | **4.60** |
+
+What Tables 12.2–12.4 and Figure 12.1 show about over-fitting:
+
+* **The long runs are in the memorization regime, not classic over-fitting.**
+  From the unfreeze on, train-eval falls steadily: 4.2 → 3.5 with
+  retention, 4.2 → 3.2 without (Figure 12.1(b)). Val stays within about
+  0.1 y of its plateau and never turns up for good (Figure 12.1(a)), since
+  the cosine LR decays toward the end. The gap therefore grows almost
+  linearly, from 2.5 to 3.0 with retention and to 3.4 without
+  (Figure 12.1(c)).
+* **20 epochs buy nothing over 4.**
+  - The best long run, X1 (6.52 / 6.09), ties W4 (6.51 / 6.10).
+  - X2 / X4 (6.59–6.61) are worse than L1 after 4 epochs (6.55).
+  - $\eta$ falls from 0.27–0.64 (4-epoch runs) to 0.04–0.17: at most one
+    sixth of the extra train fit reaches val.
+* **Freezing the encoder for 4 epochs does not help.** The frozen phase
+  plateaus at 6.62–6.65 by epoch 2, about where Stage 1's frozen pools ended.
+  Then unfreezing at about 0.94 × peak LR costs 0.1–0.3 y for 1–2 epochs
+  (X3, X4, both X2s) before the runs recover. The W runs unfroze after one
+  epoch and reached 6.51–6.55 in 3 trained epochs.
+* **Retention is the only lever that works here, and over 20 epochs it
+  matters more than over 4.**
+  - With retention (X1, X3), the final gap is 3.00 vs 3.37–3.41 without
+    (X2, X4), the best val is 6.52–6.53 vs 6.59–6.61, and the final test is
+    6.09–6.10 vs 6.13–6.16.
+  - The 0.07–0.09 y val difference exceeds the run-to-run noise (next point).
+  - Adding descriptors to the attention input changes nothing (X3 ≈ X1,
+    X4 ≈ X2).
+* **Run-to-run noise.** The same X2 configuration ran twice: SageMaker
+  (spot, interrupted twice and resumed) and locally (different data
+  loader, so different random draws).
+  - From epoch 9 on they differ by 0.00–0.04 y val. Their best val is 6.60
+    vs 6.61, and the last is 6.626 vs 6.621.
+  - The bumps at epochs 5, 8 and 13–14 occur in every run, both X2 copies
+    included. They are epoch-level effects of the shared schedule and data
+    order, not model differences.
+  - Differences below about 0.05 y between runs are noise.
+* **Memorization is concentrated on TUH** (Table 12.4). The train-eval of
+  TUH recordings falls to 2.8 y while their val stays at 7.3–7.4, a gap of
+  4.6 (vs 2.6 on HEEDB). With 16 more epochs, X2's TUH gap grows by 0.8 y
+  and HEEDB's by 0.4 y, and TUH val gets worse (7.28 → 7.41). TUH subjects
+  often have several training recordings, and those are what the model
+  learns to recognise.
+* **Consequences.**
+  - Keep the 4-epoch warm start (W4 / L1 recipe, encoder trained from
+    epoch 1).
+  - Add retention 0.1 for free regularization, as in W7 / X1.
+  - Don't train longer.
+  - The next regularizers to try target TUH memorization: subject-level
+    bag mixing, stronger retention (0.3), or fewer TUH recordings per
+    subject per epoch.
 * **F3 finished** (Tables 5.1, 5.3, 5.4, 9.1): 6.95 / 6.57, the best
   model trained from `labram-base`.
