@@ -91,9 +91,10 @@ def groups_for(cohort, rec, meta):
         m = meta.reindex(rec.index)
         for src in ("TUAB", "HEEDB"):
             out.append((src, (m["source"] == src).to_numpy()))
-        for c in ("normal", "abnormal", "unlabelled"):
-            mk = ((m["source"] == "HEEDB") & (m["cohort"] == c)).to_numpy()
-            out.append((f"HEEDB {c}", mk))
+        for src in ("TUAB", "HEEDB"):
+            for c in ("normal", "abnormal", "unlabelled"):
+                mk = ((m["source"] == src) & (m["cohort"] == c)).to_numpy()
+                out.append((f"{src} {c}", mk))
     return out
 
 
