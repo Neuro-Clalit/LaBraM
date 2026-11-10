@@ -42,6 +42,9 @@ BAG=(mil.enabled=true mil.bag_size=8 trainer.batch_size=32 evaluation.eval_batch
 # job cap is 72 h.
 LONG=(finetune_checkpoint.finetune=$E2L_CKPT optimizer.lr=0.0001 optimizer.warmup_epochs=1 trainer.epochs=20
   mil.freeze_encoder_epochs=4 sagemaker.max_run_sec=259200)
+# 10 epochs, encoder frozen for the first 4 (Y runs).
+MID=(finetune_checkpoint.finetune=$E2L_CKPT optimizer.lr=0.0001 optimizer.warmup_epochs=1 trainer.epochs=10
+  mil.freeze_encoder_epochs=4)
 # Random bag sizes: K drawn per recording, uniform over 8..32 (16 recordings per
 # step, <= 512 windows) or 8..64 (8 recordings, <= 512 windows); an epoch reads
 # ~2.5x / ~4x the windows of K = 8.
@@ -67,6 +70,9 @@ declare -A JOBS=(
   [X4]="${LONG[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=hq"
   [X5]="${LONG[*]} ${BAG[*]} mil.pool=gated mil.score_input=h mil.retention_weight=0.1 $K32"
   [X6]="${LONG[*]} ${BAG[*]} mil.pool=gated mil.score_input=h mil.retention_weight=0.1 $K64"
+  # Y: L1 (ungated ABMIL) + retention 0.1, 10 epochs with 4 frozen; attention on h (Y1) or h + q (Y2).
+  [Y1]="${MID[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.retention_weight=0.1"
+  [Y2]="${MID[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=hq mil.retention_weight=0.1"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"
