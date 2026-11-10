@@ -863,3 +863,75 @@ W7 gated + retention,val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.69
 "X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.485904586004826,-0.02248160377392997
 "X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.494440896524917,1.6770049898357158
 "X2 ungated, 20 ep (local)",val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.879792135640937,0.7174388082486238
+"X5 bags 8-32, 20 ep",test,none,TUAB,all,274,6.203431090417805,0.3663658547473978
+"X5 bags 8-32, 20 ep",test,none,TUAB,normal,149,4.473057853981581,0.15219670548113506
+"X5 bags 8-32, 20 ep",test,none,TUAB,abnormal,125,8.266035988249781,0.6216554806727829
+"X5 bags 8-32, 20 ep",test,none,HEEDB,all,7338,6.154038931132808,0.31659189387762926
+"X5 bags 8-32, 20 ep",test,none,HEEDB,normal,1518,5.760207315679168,0.8476078523146501
+"X5 bags 8-32, 20 ep",test,none,HEEDB,abnormal,2253,6.805220484028082,0.17202310139494636
+"X5 bags 8-32, 20 ep",test,none,HEEDB,unlabelled,3567,5.9103395629201865,0.18192165685943104
+"X5 bags 8-32, 20 ep",test,recalibrate,TUAB,all,274,6.178054491571354,-0.4020870287109734
+"X5 bags 8-32, 20 ep",test,recalibrate,TUAB,normal,149,4.39182462760884,-0.4298194926488814
+"X5 bags 8-32, 20 ep",test,recalibrate,TUAB,abnormal,125,8.30724048941467,-0.369029931696987
+"X5 bags 8-32, 20 ep",test,recalibrate,HEEDB,all,7338,6.219269664706352,-0.5648347305994786
+"X5 bags 8-32, 20 ep",test,recalibrate,HEEDB,normal,1518,5.782698613761108,0.11433429886873307
+"X5 bags 8-32, 20 ep",test,recalibrate,HEEDB,abnormal,2253,6.9142928006717606,-0.8534715848812329
+"X5 bags 8-32, 20 ep",test,recalibrate,HEEDB,unlabelled,3567,5.966067458371846,-0.6715573978369201
+"X5 bags 8-32, 20 ep",test,cole,TUAB,all,274,7.19595372986084,0.12908218178359882
+"X5 bags 8-32, 20 ep",test,cole,TUAB,normal,149,5.944381239769105,-1.4322153586340265
+"X5 bags 8-32, 20 ep",test,cole,TUAB,abnormal,125,8.687828138050188,1.9901488499614088
+"X5 bags 8-32, 20 ep",test,cole,HEEDB,all,7338,7.09044505471943,0.8956182390461636
+"X5 bags 8-32, 20 ep",test,cole,HEEDB,normal,1518,6.877134986537274,0.3561302466600058
+"X5 bags 8-32, 20 ep",test,cole,HEEDB,abnormal,2253,7.558865364080383,1.7920365031927312
+"X5 bags 8-32, 20 ep",test,cole,HEEDB,unlabelled,3567,6.885357789933978,0.5590083212777224
+"X5 bags 8-32, 20 ep",test,quadratic_gap,TUAB,all,274,5.61895815731254,0.0985311932903908
+"X5 bags 8-32, 20 ep",test,quadratic_gap,TUAB,normal,149,4.680382352130963,-1.288295675625264
+"X5 bags 8-32, 20 ep",test,quadratic_gap,TUAB,abnormal,125,6.737740517088978,1.7516288210378512
+"X5 bags 8-32, 20 ep",test,quadratic_gap,HEEDB,all,7338,5.658877334043639,1.0139361918727559
+"X5 bags 8-32, 20 ep",test,quadratic_gap,HEEDB,normal,1518,5.448540985419885,0.49044190541155386
+"X5 bags 8-32, 20 ep",test,quadratic_gap,HEEDB,abnormal,2253,6.071278394467468,1.8851645594173687
+"X5 bags 8-32, 20 ep",test,quadratic_gap,HEEDB,unlabelled,3567,5.487907608244921,0.6864303928175528
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,TUAB,all,482,6.196224187203403,1.0313071761662427
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,TUAB,normal,271,5.445501935299503,0.7968290800472059
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,TUAB,abnormal,211,7.1604219609757145,1.3324615081485132
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,TUEG,all,2940,7.546950835970067,0.7832763502664386
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,TUEG,normal,1117,6.7300896217052575,1.0168934343999692
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,TUEG,abnormal,1465,7.900930558601015,0.1697358544010886
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,TUEG,unlabelled,358,8.647100787588649,2.565082337600475
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,HEEDB,all,7192,6.232127009886308,0.015087920592849016
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,HEEDB,normal,1493,5.6136642010505,0.4528215309890327
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,HEEDB,abnormal,2179,6.9296744841939235,0.09059910680064229
+"X5 bags 8-32, 20 ep",val (cross-fitted),none,HEEDB,unlabelled,3520,6.062640938032777,-0.2173197939151862
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,TUAB,all,482,6.105870816601695,0.29753803094393816
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,TUAB,normal,271,5.302335319805086,0.1904925341023141
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,TUAB,abnormal,211,7.137899819596394,0.43502300556043155
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,TUEG,all,2940,7.517898349955118,-0.06816378398055292
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,TUEG,normal,1117,6.686468673862424,0.27713076652299645
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.91367472059446,-0.7798858044789315
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.492464174560983,1.7669723811525746
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,HEEDB,all,7192,6.319750014012906,-0.8539083193273703
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,HEEDB,normal,1493,5.656861690320896,-0.23179558440639186
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,HEEDB,abnormal,2179,7.056388869576824,-0.9042853029787823
+"X5 bags 8-32, 20 ep",val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.144908025660179,-1.0865909516741301
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,TUAB,all,482,7.1991772360732575,0.5244162544711884
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,TUAB,normal,271,6.776458581891883,-0.6788393020997137
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,TUAB,abnormal,211,7.7421002468938855,2.069829789213911
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,TUEG,all,2940,8.292760988550212,1.1337352530910103
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,TUEG,normal,1117,7.556227854986864,0.615594806074111
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,TUEG,abnormal,1465,8.509357880852264,1.2072542853276866
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,TUEG,unlabelled,358,9.704473454940596,2.4495383175914163
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,HEEDB,all,7192,7.1196712547654615,0.5369964803958199
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,HEEDB,normal,1493,6.692414971910409,-0.35367959968478513
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,HEEDB,abnormal,2179,7.6312507045202445,1.4937797609768027
+"X5 bags 8-32, 20 ep",val (cross-fitted),cole,HEEDB,unlabelled,3520,6.984205916494701,0.32249324720672395
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,TUAB,all,482,5.758682876588078,0.189138784561452
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,TUAB,normal,271,5.497031103772192,-0.8117401426702182
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.09473799712412,1.4746278332808007
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,TUEG,all,2940,6.589931233739199,0.8225408906864182
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,TUEG,normal,1117,6.089474974934187,0.32377878179309716
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.668059867599946,1.0277935161792238
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.831694341223014,1.5388039613201605
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.6535256392422095,0.7336994306726136
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.274170970974885,-0.10527959945725272
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.082224548793868,1.609969353970013
+"X5 bags 8-32, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.549048819870064,0.5471095241722888

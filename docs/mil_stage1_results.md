@@ -1005,7 +1005,7 @@ Launcher: `scripts/mil_runs/submit_grid.sh` (jobs `X1`–`X6`); X2 also runs on
 the local GPU (`scripts/mil_runs/run_local_abmil.sh trainer.epochs=20
 mil.freeze_encoder_epochs=4`). ClearML project `LaBraM/heedb_mil`.
 
-### Table 12.1. Jobs (status 2026-11-10 07:45 UTC)
+### Table 12.1. Jobs (status 2026-11-10 14:30 UTC)
 
 | job | pool | attention reads | retention | bag | where | status |
 |---|---|---|---|---|---|---|
@@ -1014,8 +1014,8 @@ mil.freeze_encoder_epochs=4`). ClearML project `LaBraM/heedb_mil`.
 | X2 (local) | as X2 | | | | local GPU | done |
 | X3 | gated | $h$ + $q$ | 0.1 | 32 × 8 | SM g5.2xlarge on-demand | done |
 | X4 | ungated | $h$ + $q$ | — | 32 × 8 | SM g5.2xlarge on-demand | done |
-| X5 | gated (X1) | $h$ | 0.1 | 16 × K, K ~ U{8..32} | SM g5.2xlarge on-demand | epoch 13 (best so far 6.60 / 6.16 at epoch 12); ~53 min per epoch; ETA ~14:00 UTC, 10 Nov |
-| X6 | gated (X1) | $h$ | 0.1 | 8 × K, K ~ U{8..64} | SM g5.4xlarge on-demand (resubmitted) | epoch 8 (epoch 7: 6.72 / 6.28, recovering from 7.20 at epoch 5); ~92 min per epoch; ETA ~02:00 UTC, 11 Nov |
+| X5 | gated (X1) | $h$ | 0.1 | 16 × K, K ~ U{8..32} | SM g5.2xlarge on-demand | done (13:49 UTC; ~53 min per trained epoch) |
+| X6 | gated (X1) | $h$ | 0.1 | 8 × K, K ~ U{8..64} | SM g5.4xlarge on-demand (resubmitted) | epoch 12; best so far 6.66 / 6.19 (epoch 11); ~92 min per epoch; ETA ~02:00 UTC, 11 Nov |
 
 Infrastructure notes:
 - **X6, first attempt** (spot `g5.4xlarge`) stopped logging silently in
@@ -1062,7 +1062,7 @@ Infrastructure notes:
 | 18 | 6.53 / 6.09 / 3.56 | 6.63 / 6.15 / 3.23 | 6.63 / 6.14 / 3.26 | 6.54 / 6.10 / 3.54 | 6.62 / 6.15 / 3.27 |
 | 19 | 6.53 / 6.09 / 3.52 | 6.63 / 6.16 / 3.22 | 6.62 / 6.13 / 3.21 | 6.54 / 6.10 / 3.53 | 6.61 / 6.15 / 3.24 |
 
-X5 and X6 (still running) are in Figure 12.1 and `docs/data/mil_x/fit_curves.csv`.
+X5 and X6 (X6 still running) are in Figure 12.1 and `docs/data/mil_x/fit_curves.csv`.
 
 The references:
 
@@ -1097,9 +1097,12 @@ Columns:
 - the gap $g$ and the efficiency $\eta$, defined below.
 
 $$
-g_e = \mathrm{MAE}^{	ext{val}}_e - \mathrm{MAE}^{	ext{train-eval}}_e,\qquad
-\eta = rac{\mathrm{MAE}^{	ext{val}}_	ext{start} - \min_e \mathrm{MAE}^{	ext{val}}_e}{\mathrm{MAE}^{	ext{train-eval}}_	ext{start} - \mathrm{MAE}^{	ext{train-eval}}_	ext{last}}
-	ag{12.1}
+\begin{aligned}
+g_e &= \mathrm{MAE}^{\text{val}}_e - \mathrm{MAE}^{\text{train-eval}}_e,\\
+\eta &= \frac{\mathrm{MAE}^{\text{val}}_\text{start} - \min_e \mathrm{MAE}^{\text{val}}_e}
+{\mathrm{MAE}^{\text{train-eval}}_\text{start} - \mathrm{MAE}^{\text{train-eval}}_\text{last}}
+\end{aligned}
+\tag{12.1}
 $$
 
 $\eta$ is the share of the train-eval improvement that reached val.
@@ -1114,7 +1117,8 @@ $\eta$ is the share of the train-eval improvement that reached val.
 | X2 ungated (SageMaker) | 6.65 → 6.60 (7) | 6.21 / 6.16 | 4.15 → 3.22 | 2.50 → 2.80 → 3.40 | 0.06 |
 | X2 ungated (local) | 6.65 → 6.61 (10) | 6.13 / 6.13 | 4.17 → 3.21 | 2.48 → 3.10 → 3.41 | 0.04 |
 | X4 ungated hq | 6.65 → 6.59 (6) | 6.20 / 6.15 | 4.17 → 3.24 | 2.49 → 2.73 → 3.37 | 0.07 |
-| X5 bags 8–32 (epoch 10 of 20) | 6.64 → 6.61 (7) | 6.22 / 6.23 | 4.16 → 3.82 | 2.48 → 2.66 → 2.80 | 0.08 |
+| X5 bags 8–32 | 6.64 → 6.60 (12) | 6.16 / 6.18 | 4.16 → 3.37 | 2.48 → 3.07 → 3.26 | 0.06 |
+| X6 bags 8–64 (epoch 11 of 20) | 6.73 → 6.66 (11) | 6.19 / 6.19 | 4.37 → 3.57 | 2.35 → 3.09 → 3.09 | 0.08 |
 
 ### Table 12.4. Gap per dataset: L1 after 4 epochs vs. X2 after 20 (same model; val − train-eval, years)
 
@@ -1131,32 +1135,33 @@ Per-recording predictions are rebuilt from the saved attention weights
 - X1 at epoch 17, X3 at 7, X4 at 6, the local X2 at 10;
 - the SageMaker X2 at its last epoch, 19: its epoch 7–12 weights were lost
   to the spot checkpoint-sync lag (see `docs/sagemaker.md`);
-- X5 and X6 are still running. They come from the logged per-dataset values
-  at their best epoch so far (X5 epoch 7, X6 epoch 2), and their val TUH is
-  not split into TUAB / TUEG.
+- X5 at epoch 12, from its saved attention weights like the other finished
+  runs;
+- X6 is still running. It comes from the logged per-dataset values at its
+  best epoch so far (11), and its val TUH is not split into TUAB / TUEG.
 
 Test TUH is the TUAB eval set. **Bold** marks every value within 0.2 y of
 the best value of its column and cohort, i.e. tied with the best at a
 0.2-year noise level. "test all / n / a / u" is all test recordings, then the
 report-normal, -abnormal and unlabelled ones of both datasets. The X2 pair shows run-to-run noise of about 0.05 y
 overall. For the small TUAB cohorts (125–271 recordings) the noise is
-larger, so 0.2 y is a lower bound there. X5 / X6 take part only where their
-values are directly comparable (all, HEEDB, test).
+larger, so 0.2 y is a lower bound there. X6 (running) takes part only where
+its values are directly comparable (all, HEEDB, test).
 
 | run | val all | val TUAB n / a | val TUEG n / a / u | val HEEDB n / a / u | test all / n / a / u | test TUAB n / a | test HEEDB n / a / u |
 |---|---|---|---|---|---|---|---|
 | E2L (reference) | 7.25 | **5.49** / 7.38 | **6.71** / **7.79** / **8.26** | 7.02 / 7.91 / 6.90 | 7.00 / 6.92 / 7.61 / 6.64 | 4.91 / 8.50 | 7.12 / 7.56 / 6.64 |
 | A3 post-hoc window weights (on E2L) | 6.85 | **5.49** / 7.26 | 6.72 / **7.81** / **8.33** | 6.11 / 7.25 / 6.48 | 6.46 / 6.15 / 7.04 / 6.22 | 4.90 / 8.58 | 6.27 / 6.95 / 6.22 |
-| W4 (4 epochs) | **6.51** | **5.42** / **7.13** | **6.57** / **7.76** / 8.58 | **5.50** / **6.87** / **6.02** | **6.10** / **5.61** / **6.84** / **5.83** | **4.45** / 8.20 | **5.72** / **6.77** / **5.83** |
-| L1 (4 epochs) | **6.55** | 5.55 / **7.00** | **6.51** / 7.93 / 8.50 | **5.53** / **6.96** / **6.01** | **6.09** / **5.60** / **6.86** / **5.80** | **4.41** / 8.13 | **5.71** / **6.79** / **5.80** |
-| W7 (4 epochs, retention) | **6.54** | **5.33** / 7.22 | **6.57** / **7.71** / **8.43** | **5.62** / **6.90** / **6.06** | **6.12** / **5.70** / **6.80** / **5.87** | **4.36** / 8.07 | **5.83** / **6.73** / **5.87** |
-| X1 gated + retention (ep 17) | **6.52** | **5.34** / **7.18** | **6.60** / **7.77** / 8.60 | **5.50** / **6.88** / **6.03** | **6.09** / **5.58** / **6.83** / **5.84** | **4.27** / 8.18 | **5.71** / **6.75** / **5.84** |
-| X3 gated hq + retention (ep 7) | **6.53** | **5.40** / 7.34 | **6.67** / **7.79** / 8.68 | **5.59** / **6.85** / **5.99** | **6.15** / **5.74** / **6.86** / **5.87** | **4.43** / 8.17 | **5.87** / **6.78** / **5.87** |
+| W4 (4 epochs) | **6.51** | **5.42** / **7.13** | **6.57** / **7.76** / 8.58 | **5.50** / **6.87** / **6.02** | **6.10** / **5.61** / **6.84** / **5.83** | **4.45** / **8.20** | **5.72** / **6.77** / **5.83** |
+| L1 (4 epochs) | **6.55** | 5.55 / **7.00** | **6.51** / 7.93 / 8.50 | **5.53** / **6.96** / **6.01** | **6.09** / **5.60** / **6.86** / **5.80** | **4.41** / **8.13** | **5.71** / **6.79** / **5.80** |
+| W7 (4 epochs, retention) | **6.54** | **5.33** / 7.22 | **6.57** / **7.71** / **8.43** | **5.62** / **6.90** / **6.06** | **6.12** / **5.70** / **6.80** / **5.87** | **4.36** / **8.07** | **5.83** / **6.73** / **5.87** |
+| X1 gated + retention (ep 17) | **6.52** | **5.34** / **7.18** | **6.60** / **7.77** / 8.60 | **5.50** / **6.88** / **6.03** | **6.09** / **5.58** / **6.83** / **5.84** | **4.27** / **8.18** | **5.71** / **6.75** / **5.84** |
+| X3 gated hq + retention (ep 7) | **6.53** | **5.40** / 7.34 | **6.67** / **7.79** / 8.68 | **5.59** / **6.85** / **5.99** | **6.15** / **5.74** / **6.86** / **5.87** | **4.43** / **8.17** | **5.87** / **6.78** / **5.87** |
 | X4 ungated hq (ep 6) | **6.59** | 5.65 / 7.26 | **6.63** / **7.83** / **8.35** | **5.65** / **6.98** / **6.08** | **6.20** / **5.67** / **6.96** / **5.94** | 4.63 / 8.57 | **5.77** / **6.87** / **5.94** |
 | X2 ungated, local (ep 10) | **6.61** | **5.49** / 7.43 | **6.57** / 7.92 / 8.95 | **5.56** / **6.94** / **6.12** | **6.13** / **5.58** / **6.90** / **5.88** | 4.53 / 8.58 | **5.68** / **6.80** / **5.88** |
-| X2 ungated, SageMaker (ep 19) | **6.63** | 5.53 / 7.33 | 6.74 / 7.94 / 8.54 | **5.51** / **7.02** / **6.12** | **6.16** / **5.61** / **6.92** / **5.90** | 4.62 / 8.24 | **5.71** / **6.84** / **5.90** |
-| X5 bags 8–32 (running, ep 7) | **6.61** | TUH 6.53 n / 7.79 a / 8.67 u | (with TUAB) | **5.65** / **6.91** / **6.11** | **6.22** / 5.82 / **6.90** / **5.96** | 4.50 / **7.76** | 5.96 / **6.85** / **5.96** |
-| X6 bags 8–64 (running, ep 2, frozen) | **6.67** | TUH 6.43 n / 7.81 a / 8.30 u | (with TUAB) | 5.84 / **7.00** / 6.20 | **6.25** / 5.80 / **6.91** / 6.01 | 4.49 / 8.17 | 5.93 / **6.84** / 6.01 |
+| X2 ungated, SageMaker (ep 19) | **6.63** | **5.53** / 7.33 | 6.74 / 7.94 / 8.54 | **5.51** / **7.02** / **6.12** | **6.16** / **5.61** / **6.92** / **5.90** | 4.62 / **8.24** | **5.71** / **6.84** / **5.90** |
+| X5 bags 8–32 (ep 12) | **6.59** | **5.45** / **7.16** | 6.73 / **7.90** / 8.65 | **5.61** / **6.93** / **6.06** | **6.16** / **5.65** / **6.88** / **5.91** | **4.47** / **8.27** | **5.76** / **6.81** / **5.91** |
+| X6 bags 8–64 (running, ep 11) | **6.66** | TUH 6.52 n / 7.87 a / 8.84 u | (with TUAB) | **5.64** / **6.97** / **6.17** | **6.19** / **5.76** / **6.94** / **5.90** | 4.75 / **8.24** | **5.86** / **6.86** / **5.90** |
 
 ### Table 12.6. $R^2$ per cohort at the best val epoch (same runs, epochs and columns as Table 12.5)
 
@@ -1169,8 +1174,7 @@ The sums run over the recordings $r$ of cohort $G$, with $\bar y_G$ that
 cohort's mean age (`scripts/mil_cohort_summary.py`, column `r2 <group>`).
 $R^2$ within a cohort is lower than over all recordings, because the age
 range of a single cohort is narrower. **Bold** is the best value per
-column (ties at three decimals all bold). X5 and X6 log only MAE per epoch, so their $R^2$ follows when they
-finish.
+column (ties at three decimals all bold). X6 logs only MAE per epoch, so its $R^2$ follows when it finishes.
 
 | run | val all | val TUAB n / a | val TUEG n / a / u | val HEEDB n / a / u | test all / n / a / u | test TUAB n / a | test HEEDB n / a / u |
 |---|---|---|---|---|---|---|---|
@@ -1184,6 +1188,7 @@ finish.
 | X4 ungated hq (ep 6) | 0.778 | 0.757 / 0.592 | 0.701 / 0.615 / 0.375 | 0.838 / 0.762 / 0.832 | 0.822 / 0.834 / 0.764 / 0.838 | 0.869 / 0.567 | 0.831 / 0.773 / 0.838 |
 | X2 ungated, local (ep 10) | 0.775 | 0.776 / 0.560 | 0.698 / 0.615 / 0.306 | 0.841 / 0.760 / 0.828 | 0.822 / 0.838 / 0.765 / 0.836 | 0.874 / 0.572 | **0.835** / 0.774 / 0.836 |
 | X2 ungated, SageMaker (ep 19) | 0.775 | 0.767 / 0.588 | 0.688 / 0.613 / 0.359 | 0.845 / 0.756 / 0.829 | 0.821 / 0.835 / 0.765 / 0.836 | 0.863 / 0.611 | 0.832 / 0.772 / 0.836 |
+| X5 bags 8–32 (ep 12) | 0.779 | 0.774 / 0.608 | 0.690 / 0.618 / 0.338 | 0.840 / 0.765 / 0.835 | 0.824 / 0.835 / 0.771 / 0.839 | 0.879 / 0.605 | 0.832 / 0.778 / 0.839 |
 
 Per cohort, Tables 12.5 and 12.6 show:
 * **HEEDB:** the long runs equal the 4-epoch ones (val normal 5.50–5.65,
@@ -1194,8 +1199,18 @@ Per cohort, Tables 12.5 and 12.6 show:
   cohort, so these are within about 0.3 y of each other. Without retention
   (X4, both X2s), TUAB normal gets worse (5.49–5.65 val).
 * **TUAB abnormal:** L1 after 4 epochs stays best on val (7.00); no X run
-  reaches it (7.18–7.43). On test, X5 has the lowest value so far (7.76,
-  running), but on 125 recordings.
+  reaches it (7.16–7.43). On test, W7 (8.07) and the X runs with retention
+  (8.17–8.18) lead, on 125 recordings. X5's 7.76 at epoch 7 did not hold
+  (8.27 at its best val epoch 12).
+* **X5 (random bag sizes 8–32) ends with the runs without extra
+  regularization:**
+  - 6.59 / 6.16 at epoch 12, against X1's 6.52 / 6.09;
+  - its final gap is 3.26, between X1's 3.00 and X2's 3.40;
+  - TUAB normal 5.45 val / 4.47 test;
+  - in Table 12.7 it does best at 60–69 (5.72) but worse at 80+ (8.82), and
+    has the lowest abnormal separation ($d$ 0.20).
+  
+  Larger, variable bags do not help over fixed 8-window bags.
 * **A3 (post-hoc window weights on E2L, no retraining)** gets about half of
   the attention models' HEEDB gain (val normal 7.02 → 6.11 vs 5.50 for X1 /
   W4; test all 7.00 → 6.46 vs 6.09). It leaves TUAB and TUEG at E2L's level,
@@ -1234,6 +1249,7 @@ Rows are from `scripts/mil_age_groups.py` (CSVs in `docs/data/mil_age/`).
 | X3 (20 ep) | 4.35 | 4.78 | 6.28 | 7.09 | 6.40 | 6.06 | **5.93** | **7.97** | −0.15 | 0.25 / 0.47 / 0.22 | 0.586 |
 | X4 (20 ep) | 3.63 | 4.70 | 6.37 | 6.90 | 6.13 | 6.10 | 6.43 | 8.57 | −0.15 | 0.22 / 0.46 / 0.19 | 0.576 |
 | X2 local (20 ep) | **3.56** | **4.51** | 6.15 | 7.01 | 6.36 | 6.15 | 6.27 | 8.01 | **−0.15** | 0.22 / 0.47 / 0.20 | 0.575 |
+| X5 (20 ep) | 4.53 | 4.95 | 6.28 | 7.01 | 6.08 | 5.72 | 6.14 | 8.82 | −0.18 | 0.20 / 0.41 / 0.18 | 0.573 |
 
 * **Long training leaves the age profile of the error unchanged.** Every
   attention run has $\beta \approx -0.15$ to $-0.17$, vs −0.30 for E2L.
