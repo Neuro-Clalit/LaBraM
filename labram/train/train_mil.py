@@ -47,11 +47,22 @@ COMPETING_POOLS = ("gated", "query")
 _N_DESC = None
 
 
+DESCRIPTOR_CHUNK = 64
+
+
 def window_descriptors(x_uv: torch.Tensor) -> torch.Tensor:
-    """Quality + STFT + wavelet descriptors ``[N, Q]`` of raw windows ``[N, C, L]`` (uV)."""
+    """Quality + STFT + wavelet descriptors ``[N, Q]`` of raw windows ``[N, C, L]`` (uV).
+
+    Computed ``DESCRIPTOR_CHUNK`` windows at a time: the wavelet transform holds
+    ``[N, C, F, L]`` complex coefficients, about 19 GB for the thousands of
+    windows of one long evaluation bag. Every descriptor is per window, so the
+    chunks give the same result."""
     from labram.mil.cache import all_descriptors
-    d = all_descriptors(x_uv.float())
-    return torch.stack(list(d.values()), -1)
+    parts = []
+    for i in range(0, max(x_uv.shape[0], 1), DESCRIPTOR_CHUNK):
+        d = all_descriptors(x_uv[i:i + DESCRIPTOR_CHUNK].float())
+        parts.append(torch.stack(list(d.values()), -1))
+    return torch.cat(parts)
 
 
 def n_descriptors() -> int:

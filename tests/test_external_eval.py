@@ -201,3 +201,11 @@ def test_bag_eval_encodes_long_recordings_in_chunks_with_the_same_result(tmp_pat
     chunked = score()
     assert whole.keys() == chunked.keys()
     assert np.allclose([whole[k] for k in whole], [chunked[k] for k in whole], atol=1e-4)
+
+
+def test_window_descriptors_are_chunked_with_the_same_result(monkeypatch):
+    from labram.train import train_mil
+    x = torch.randn(10, 4, 2000) * 30
+    whole = train_mil.window_descriptors(x)
+    monkeypatch.setattr(train_mil, "DESCRIPTOR_CHUNK", 3)
+    assert torch.allclose(train_mil.window_descriptors(x), whole, atol=1e-5)
