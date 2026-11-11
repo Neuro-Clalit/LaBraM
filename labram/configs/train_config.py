@@ -225,6 +225,12 @@ class EvaluationConfig(ConfigBase):
     # (e.g. ``lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1``). A set
     # whose data is missing is skipped with a warning.
     test_sets: List[str] = field(default_factory=list)
+    # Score the test sets every this many epochs and on the last one (not every
+    # epoch: an external cohort adds evaluation time to each epoch it runs) ...
+    test_sets_every: int = 5
+    # ... and on any epoch that sets a new best val, so the best-epoch numbers
+    # (best_test_set_stats) always come from the selected model.
+    test_sets_at_best: bool = True
     # Metric that selects the best epoch (and drives early stopping), e.g.
     # "pathology_macro_roc_auc" for a classification-only multi-task run;
     # "" = the task default (accuracy / MAE). select_mode: "max", "min" or

@@ -109,3 +109,31 @@ def test_sagemaker_stages_external_test_sets(tmp_path):
     assert staged.channels["test_other"] == "s3://b/other"
     assert cfg.evaluation.test_sets == ["temple", "lemon=/opt/ml/input/data/test_lemon",
                                         "other=/opt/ml/input/data/test_other"]
+
+
+def test_test_sets_are_scored_every_n_epochs_and_on_the_last(tmp_path, monkeypatch):
+    """evaluation.test_sets_every: scored on epochs N, 2N, ... and the last one only."""
+    monkeypatch.delenv("LABRAM_TEST_SETS", raising=False)
+    from test_window_qc import _corpus
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    root = _corpus(tmp_path / "own")
+    ext = _test_only_cohort(tmp_path / "ext")
+    out = tmp_path / "out"
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy", "data.trim_start_sec": 0.0,
+           "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0, "data.num_workers": 0,
+           "trainer.batch_size": 2, "trainer.epochs": 3, "optimizer.warmup_epochs": 0,
+           "distributed.device": "cpu", "finetune_checkpoint.finetune": "", "clearml.enabled": False,
+           "output.output_dir": str(out), "output.log_dir": str(out),
+           "logging.log_model_graph": False, "evaluation.agg_windows": "mean",
+           "evaluation.train_eval_recordings": 0, "evaluation.test_sets": [f"ext={ext}"],
+           "evaluation.test_sets_every": 2, "evaluation.test_sets_at_best": False})
+    summary = run_finetune.main(cfg)
+    import glob
+    log = glob.glob(os.path.join(str(out) + "*", "log.txt"))[0]
+    epochs = [json.loads(line) for line in open(log) if line.strip()]
+    scored = [e["epoch"] for e in epochs if "test_ext_mae" in e]
+    assert scored == [1, 2]                                  # epoch 2 (every 2) and epoch 3 (last)
+    assert summary["last_test_set_stats"]["ext"]["mae"] < 100

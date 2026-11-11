@@ -296,6 +296,8 @@
         "train_eval_every": 4,
         "eval_batch_size": 0,
         "test_sets": [],
+        "test_sets_every": 5,
+        "test_sets_at_best": true,
         "select_metric": "",
         "select_mode": "auto"
     },

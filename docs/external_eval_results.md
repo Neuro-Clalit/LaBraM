@@ -230,8 +230,11 @@ Protocol:
 
 ## 5. LEMON as a standing test set during training
 
-Every age fine-tune now scores extra test sets each epoch, next to the regular
-test split (`evaluation.test_sets`, `labram/data/test_sets.py`). The age
+Every age fine-tune now scores extra test sets next to the regular test split
+(`evaluation.test_sets`, `labram/data/test_sets.py`): every 5 epochs
+(`evaluation.test_sets_every`), on the last epoch, and on any epoch that sets a
+new best val (`evaluation.test_sets_at_best`), so the best-epoch numbers come
+from the selected model. The age
 configs default to:
 
 ```json

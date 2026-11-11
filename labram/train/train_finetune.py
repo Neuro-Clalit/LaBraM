@@ -1279,20 +1279,29 @@ def train_loop(
                 test_timing = utils.timing_stats(
                     'test', test_timer.elapsed(), int(test_stats.get('samples_processed', 0)))
                 logger.info(f"Test EEG {select_metric}: {test_stats[select_metric]:.2f}{unit}")
-            set_stats = {}
-            for set_name, set_loader in (getattr(loaders, 'test_sets', None) or {}).items():
+            def score_test_sets():
                 # Named extra test sets (evaluation.test_sets), scored like test.
-                set_stats[set_name] = evaluate_fn(
-                    set_loader, eval_model, device, header=f'Test[{set_name}]:',
-                    ch_names=ch_names, metrics=metrics, is_binary=is_binary,
-                    nb_classes=nb_classes, eval_cfg=config.evaluation,
-                    log_writer=log_writer, head=f'test_{set_name}', epoch=epoch,
-                    task=task, target_stats=target_stats,
-                    loss_cfg=config.loss, logging_cfg=config.logging,
-                    criterion=criterion,
-                    channel_drop_cfg=getattr(config, 'channel_drop', None))
-                logger.info(f"Test[{set_name}] EEG {select_metric}: "
-                            f"{set_stats[set_name][select_metric]:.2f}{unit}")
+                out = {}
+                for set_name, set_loader in (getattr(loaders, 'test_sets', None) or {}).items():
+                    out[set_name] = evaluate_fn(
+                        set_loader, eval_model, device, header=f'Test[{set_name}]:',
+                        ch_names=ch_names, metrics=metrics, is_binary=is_binary,
+                        nb_classes=nb_classes, eval_cfg=config.evaluation,
+                        log_writer=log_writer, head=f'test_{set_name}', epoch=epoch,
+                        task=task, target_stats=target_stats,
+                        loss_cfg=config.loss, logging_cfg=config.logging,
+                        criterion=criterion,
+                        channel_drop_cfg=getattr(config, 'channel_drop', None))
+                    logger.info(f"Test[{set_name}] EEG {select_metric}: "
+                                f"{out[set_name][select_metric]:.2f}{unit}")
+                return out
+
+            # Every evaluation.test_sets_every epochs and on the last one; a new
+            # best-val epoch in between is scored too (test_sets_at_best) so the
+            # best-epoch numbers always come from the selected model.
+            sets_every = max(1, int(getattr(config.evaluation, 'test_sets_every', 1) or 1))
+            set_stats = (score_test_sets() if (epoch + 1) % sets_every == 0
+                         or epoch + 1 == config.trainer.epochs else {})
             train_eval_stats, train_eval_timing = {}, {}
             every = max(1, int(getattr(config.evaluation, 'train_eval_every', 1) or 1))
             if train_eval_loader is not None and (
@@ -1314,6 +1323,9 @@ def train_loop(
                             f"{train_eval_stats[select_metric]:.2f}{unit}")
             _log_dataset_breakdown(val_stats, test_stats, train_eval_stats, select_metric)
 
+            if (better(val_stats[select_metric], best_val) and not set_stats
+                    and getattr(config.evaluation, 'test_sets_at_best', True)):
+                set_stats = score_test_sets()
             if better(val_stats[select_metric], best_val):
                 best_val = val_stats[select_metric]
                 if config.output.output_dir and config.output.save_ckpt and not config.output.save_only_final_model:
@@ -1341,7 +1353,8 @@ def train_loop(
                 if train_eval_stats:
                     _log_eval_stats(log_writer, train_eval_stats, head="train_eval", epoch=epoch)
             last_val_stats, last_test_stats = dict(val_stats), dict(test_stats)
-            last_test_set_stats = {k: dict(v) for k, v in set_stats.items()}
+            if set_stats:                 # skipped epochs keep the last scored one
+                last_test_set_stats = {k: dict(v) for k, v in set_stats.items()}
             if train_eval_stats:
                 last_train_eval_stats = dict(train_eval_stats)
             val_history.append(float(val_stats[select_metric]))
