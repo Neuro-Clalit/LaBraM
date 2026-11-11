@@ -6,16 +6,21 @@ abnormal of the own test split, and LEMON young / old / all):
 
 * ``5 min``   -- the default: first 5 minutes after the 60 s trim;
 * ``all``     -- every window of the recording (``--eval-minutes 0``);
-* ``trim20w`` -- all windows, minus the windows whose relative attention weight
-  is below the 20th percentile of the split (label-free), re-pooled
-  (``scripts/attention_trimming.py``, ``trim20_glob``);
+* ``trim20w`` -- all windows, minus 20 % of them, re-pooled (label-free;
+  ``scripts/attention_trimming.py``). Attention models drop the windows whose
+  relative attention weight is below the 20th percentile of the split
+  (``trim20_glob``). Window-level models (E2, E2L) have uniform weights, so they
+  drop each recording's 20 % windows farthest from its median window prediction
+  (``trim20_dev``, a 20 % trimmed mean);
 * ``keep80r`` -- all windows, MAE of the 80 % of recordings kept after setting
-  aside the 20 % with the largest attention-weighted spread of the window
-  predictions (selective prediction; the other 20 % get no prediction).
+  aside the 20 % with the largest (attention-weighted; plain for E2 / E2L)
+  spread of the window predictions (selective prediction; the other 20 % get no
+  prediction);
+* ``trim20w+keep80r`` -- both: the ``trim20w`` predictions of the recordings
+  ``keep80r`` keeps.
 
-Window-level models (E2, E2L) have no attention: their trim / reject cells are
-empty. Inputs are ``scripts/eval_age_by_cohort.py`` JSONs (per-recording
-predictions) and ``--save-windows`` parquets.
+Inputs are ``scripts/eval_age_by_cohort.py`` JSONs (per-recording predictions)
+and ``--save-windows`` parquets.
 
     python scripts/eval_strategies_table.py --root /data/runs/heedb/external_eval \\
         --out docs/data/external_eval/strategies_by_cohort.csv
@@ -31,11 +36,14 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(__file__))
 import attention_trimming as at  # noqa: E402
 
-MODELS = ["E2", "E2L", "W4", "L1", "W7", "X1", "X3"]
+MODELS = ["E2", "E2L", "W4", "L1", "W7", "X1", "X3", "Y1"]
+WINDOW_MODELS = {"E2", "E2L"}          # uniform weights: trimmed by deviation, not attention
 # cohort -> (5-min JSONs, all-window JSONs, all-window windows dir)
 SOURCES = {
-    "own": (["own_5min_w.json", "own_5min_e2.json"], ["own_all_w.json", "own_all_e2.json"], "own_all_w"),
-    "lemon": (["lemon_5min_w.json", "lemon_5min.json"], ["lemon_all_w.json", "lemon_all.json"], "lemon_all_w"),
+    "own": (["own_5min_w.json", "own_5min_e2.json", "own_5min_y1.json"],
+            ["own_all_w.json", "own_all_e2.json", "own_all_y1.json"], "own_all_w"),
+    "lemon": (["lemon_5min_w.json", "lemon_5min.json", "lemon_5min_y1.json"],
+              ["lemon_all_w.json", "lemon_all.json", "lemon_all_y1.json"], "lemon_all_w"),
 }
 
 
@@ -81,7 +89,8 @@ def main():
             if os.path.exists(wp):
                 w = pd.read_parquet(wp)
                 rf = at.recording_frame(w)
-                rf["trim20_glob"] = at.trims(w)["trim20_glob"]
+                tr = at.trims(w)
+                rf["trim20"] = tr["trim20_dev" if model in WINDOW_MODELS else "trim20_glob"]
                 recs[model] = rf
         ref = next((r for r in recs.values()), None)
         if ref is None:
@@ -97,16 +106,18 @@ def main():
                         row[key] = float(np.abs(p - ages.reindex(idx)).mean())
                 if model in recs:
                     r = recs[model].reindex(idx)
-                    row["trim20w"] = float(np.abs(r["trim20_glob"] - r["age"]).mean())
+                    row["trim20w"] = float(np.abs(r["trim20"] - r["age"]).mean())
                     err = (r["attention"] - r["age"]).to_numpy()
                     row["keep80r"] = at.mae_kept(err, -r["spread"].to_numpy())
+                    terr = (r["trim20"] - r["age"]).to_numpy()
+                    row["trim20w+keep80r"] = at.mae_kept(terr, -r["spread"].to_numpy())
                 rows.append(row)
     out = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     out.to_csv(args.out, index=False)
     for g, d in out.groupby("group", sort=False):
         print(f"\n{g} (n={d['n'].iloc[0]})")
-        print(d.set_index("model").reindex(MODELS)[[c for c in ("5 min", "all", "trim20w", "keep80r")
+        print(d.set_index("model").reindex(MODELS)[[c for c in ("5 min", "all", "trim20w", "keep80r", "trim20w+keep80r")
                                                      if c in d]].round(2).to_string())
 
 

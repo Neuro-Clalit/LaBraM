@@ -1007,3 +1007,75 @@ W7 gated + retention,val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.69
 "X6 bags 8-64, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.479343835351673,-0.11095699194758417
 "X6 bags 8-64, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.324999485460855,1.357492611482769
 "X6 bags 8-64, 20 ep",val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.78399613920095,0.40345329682117514
+"Y1 ungated + retention, 10 ep",test,none,TUAB,all,274,6.202592877338607,-0.2831265511099426
+"Y1 ungated + retention, 10 ep",test,none,TUAB,normal,149,4.497601894896072,-0.9191592347860795
+"Y1 ungated + retention, 10 ep",test,none,TUAB,abnormal,125,8.23494212841011,0.47502440783201244
+"Y1 ungated + retention, 10 ep",test,none,HEEDB,all,7338,6.071681724530337,0.4282271559884431
+"Y1 ungated + retention, 10 ep",test,none,HEEDB,normal,1518,5.7535940538021375,0.6963197170197488
+"Y1 ungated + retention, 10 ep",test,none,HEEDB,abnormal,2253,6.670125519185599,0.5671086635526937
+"Y1 ungated + retention, 10 ep",test,none,HEEDB,unlabelled,3567,5.829058571967146,0.22641483633950038
+"Y1 ungated + retention, 10 ep",test,recalibrate,TUAB,all,274,6.210795673202543,-0.7823259363413805
+"Y1 ungated + retention, 10 ep",test,recalibrate,TUAB,normal,149,4.5143303427997505,-1.1020559898353006
+"Y1 ungated + retention, 10 ep",test,recalibrate,TUAB,abnormal,125,8.232982347042668,-0.40120771257662746
+"Y1 ungated + retention, 10 ep",test,recalibrate,HEEDB,all,7338,6.122621792645623,-0.2876920874143456
+"Y1 ungated + retention, 10 ep",test,recalibrate,HEEDB,normal,1518,5.802824391422628,0.2281685067687088
+"Y1 ungated + retention, 10 ep",test,recalibrate,HEEDB,abnormal,2253,6.733174493216313,-0.3911235252901084
+"Y1 ungated + retention, 10 ep",test,recalibrate,HEEDB,unlabelled,3567,5.87307798010588,-0.441895998946665
+"Y1 ungated + retention, 10 ep",test,cole,TUAB,all,274,7.169483290195458,-0.3640884010671806
+"Y1 ungated + retention, 10 ep",test,cole,TUAB,normal,149,5.747453258120765,-2.250220367187368
+"Y1 ungated + retention, 10 ep",test,cole,TUAB,abnormal,125,8.864543088428492,1.8841809025480831
+"Y1 ungated + retention, 10 ep",test,cole,HEEDB,all,7338,7.090928918019465,1.203791029624805
+"Y1 ungated + retention, 10 ep",test,cole,HEEDB,normal,1518,6.874751684926659,0.4926484819339929
+"Y1 ungated + retention, 10 ep",test,cole,HEEDB,abnormal,2253,7.618958444205298,2.3003479098122956
+"Y1 ungated + retention, 10 ep",test,cole,HEEDB,unlabelled,3567,6.84941126097943,0.8138195511645412
+"Y1 ungated + retention, 10 ep",test,quadratic_gap,TUAB,all,274,5.789771242237318,-0.3106896452185938
+"Y1 ungated + retention, 10 ep",test,quadratic_gap,TUAB,normal,149,4.7225187249012555,-1.9925230260769369
+"Y1 ungated + retention, 10 ep",test,quadratic_gap,TUAB,abnormal,125,7.061936242901903,1.6940557447645515
+"Y1 ungated + retention, 10 ep",test,quadratic_gap,HEEDB,all,7338,5.8412816217736765,1.268238463579228
+"Y1 ungated + retention, 10 ep",test,quadratic_gap,HEEDB,normal,1518,5.612290731631275,0.5965354108354414
+"Y1 ungated + retention, 10 ep",test,quadratic_gap,HEEDB,abnormal,2253,6.3186057052255045,2.314477014648357
+"Y1 ungated + retention, 10 ep",test,quadratic_gap,HEEDB,unlabelled,3567,5.6372437779887585,0.8932650345089503
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,TUAB,all,482,6.1469314255800525,0.2183918883223995
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,TUAB,normal,271,5.4017117140876785,-0.2225913159372848
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,TUAB,abnormal,211,7.104061955506277,0.784773160144079
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,TUEG,all,2940,7.354176089206819,0.5938172712736526
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,TUEG,normal,1117,6.564937901788198,0.7621850984567131
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,TUEG,abnormal,1465,7.6641112845632735,0.0823841009825794
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,TUEG,unlabelled,358,8.548377190182775,2.161366800639417
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,HEEDB,all,7192,6.147566190987197,0.10656501478644345
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,HEEDB,normal,1493,5.548161048669019,0.2704900284349878
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,HEEDB,abnormal,2179,6.8041886610384195,0.3781233592875101
+"Y1 ungated + retention, 10 ep",val (cross-fitted),none,HEEDB,unlabelled,3520,5.995330825998399,-0.1310672801127329
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,TUAB,all,482,6.073983528549428,-0.21761191546805286
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,TUAB,normal,271,5.285842773622366,-0.44297807351773055
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,TUAB,abnormal,211,7.086240137958121,0.07183940600807326
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,TUEG,all,2940,7.32880859401481,-0.060371803777961947
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,TUEG,normal,1117,6.565815963288709,0.2880217644067923
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,TUEG,abnormal,1465,7.652456317672413,-0.732290960971412
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,TUEG,unlabelled,358,8.385006508435668,1.6022146476914065
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,HEEDB,all,7192,6.226451659896338,-0.5907237811699187
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,HEEDB,normal,1493,5.610741527715868,-0.12253496058513867
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,HEEDB,abnormal,2179,6.8986076938977385,-0.5269599824151218
+"Y1 ungated + retention, 10 ep",val (cross-fitted),recalibrate,HEEDB,unlabelled,3520,6.071516213662358,-0.828776970550538
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,TUAB,all,482,7.083206320258271,-0.12935227669746355
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,TUAB,normal,271,6.5926563430197405,-1.4526953862119485
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,TUAB,abnormal,211,7.713249182019608,1.5702969303092917
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,TUEG,all,2940,8.075545205073531,1.1108907019027678
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,TUEG,normal,1117,7.360457253169599,0.6163034196087199
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,TUEG,abnormal,1465,8.29938611721987,1.2164054227644552
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,TUEG,unlabelled,358,9.390702484353723,2.222273183076173
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,HEEDB,all,7192,7.136465545122651,0.8292886915530182
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,HEEDB,normal,1493,6.66105438109874,-0.21260673063201754
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,HEEDB,abnormal,2179,7.7115767345720805,1.9037880212646492
+"Y1 ungated + retention, 10 ep",val (cross-fitted),cole,HEEDB,unlabelled,3520,6.9820966775310005,0.6060545511781931
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,TUAB,all,482,5.845692558143507,-0.32870188801658784
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,TUAB,normal,271,5.533659460807292,-1.452826965006193
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,TUAB,abnormal,211,6.246455446191442,1.1150796089700616
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,TUEG,all,2940,6.599024476776706,0.8349068775818165
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,TUEG,normal,1117,6.088195340916432,0.3521529116468324
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,TUEG,abnormal,1465,6.700258067394405,1.0566151062580686
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,TUEG,unlabelled,358,7.7786025061091015,1.4338834835557495
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,HEEDB,all,7192,5.8498841740174194,0.9666633907696233
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,HEEDB,normal,1493,5.426082202706753,-0.007814782041061449
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,HEEDB,abnormal,2179,6.345873604197129,1.952977242411391
+"Y1 ungated + retention, 10 ep",val (cross-fitted),quadratic_gap,HEEDB,unlabelled,3520,5.722604450950725,0.7694241945420495

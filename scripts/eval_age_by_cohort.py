@@ -297,6 +297,20 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
                                         channel_drop=getattr(cfg, "channel_drop", None),
                                         num_workers=num_workers, logits_out=logits,
                                         age_input=getattr(cfg.model, "age_input", "off") != "off")
+            if windows_path:
+                # Window-level model: same parquet as the bag path, with uniform
+                # weights alpha = 1/n (the recording prediction is the window mean).
+                import pandas as pd
+                wdf = pd.DataFrame({"recording": list(recs),
+                                    "window_pred": np.asarray(utils.denormalize(
+                                        pred, pred_stats or bundle.target_stats), float).reshape(-1),
+                                    "age": np.asarray(utils.denormalize(
+                                        true, bundle.target_stats), float).reshape(-1)})
+                wdf["slot"] = wdf.groupby("recording").cumcount()
+                wdf["alpha"] = 1.0 / wdf.groupby("recording")["recording"].transform("size")
+                path = windows_path.format(split=split)
+                os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                wdf.to_parquet(path)
         ids, p, t = _per_recording(pred, true, recs, bundle.target_stats, pred_stats)
         # group ids are recording stems; no label = unlabelled (e.g. HEEDB without a report)
         cohort = np.array([labels.get(r) if labels.get(r) in ("normal", "abnormal")
@@ -355,8 +369,9 @@ def main():
     ap.add_argument("--eval-minutes", type=float, default=None,
                     help="override data.eval_minutes, the per-recording val/test budget (0 = every window)")
     ap.add_argument("--save-windows", default=None, metavar="DIR",
-                    help="bag runs: write every window's attention weight and own prediction to "
-                         "DIR/<run>_<split>.parquet (for attention-based trimming analyses)")
+                    help="write every window's own prediction and pooling weight to "
+                         "DIR/<run>_<split>.parquet (bag runs: the attention weight; window runs: "
+                         "uniform 1/n) for the trimming / rejection analyses")
     ap.add_argument("--num-workers", type=int, default=8, help="data-loader workers")
     ap.add_argument("--bag-batch-size", type=int, default=None,
                     help="recordings per batch for bag runs (default 12, 2 with --eval-minutes 0)")

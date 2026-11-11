@@ -94,6 +94,9 @@ def collect():
     x2 = glob.glob(os.path.join(LOCAL, "X2_*", "analysis"))
     if x2:
         bag["X2 local"] = (x2[0], 10)
+    y1 = glob.glob(os.path.join(LOCAL, "Y1_*", "analysis"))
+    if y1:
+        bag["Y1"] = (y1[0], 6)
     for name, (d, ep) in bag.items():
         for split in ("val", "test"):
             path = os.path.join(d, f"{split}_bag_weights_epoch{ep:02d}.parquet")

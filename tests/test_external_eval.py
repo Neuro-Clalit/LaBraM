@@ -137,3 +137,38 @@ def test_test_sets_are_scored_every_n_epochs_and_on_the_last(tmp_path, monkeypat
     scored = [e["epoch"] for e in epochs if "test_ext_mae" in e]
     assert scored == [1, 2]                                  # epoch 2 (every 2) and epoch 3 (last)
     assert summary["last_test_set_stats"]["ext"]["mae"] < 100
+
+
+def test_window_model_saves_uniform_window_parquet_and_trims_by_deviation(tmp_path):
+    import pandas as pd
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+    import attention_trimming as at
+    import eval_age_by_cohort as ev
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    root = _test_only_cohort(tmp_path)
+    run = tmp_path / "run"
+    run.mkdir()
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy", "data.trim_start_sec": 0.0,
+           "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0, "finetune_checkpoint.finetune": "",
+           "model.nb_classes": 1, "model.task": "regression"})
+    cfg.save_to(str(run / "run_config.yaml"))
+    torch.save({"model": run_finetune.get_model(cfg).state_dict(), "epoch": 0}, run / "checkpoint-best.pth")
+    path = str(tmp_path / "w" / "E_{split}.parquet")
+    res = ev.evaluate_run(str(run), str(root), "checkpoint-best.pth", ["test"], torch.device("cpu"),
+                          batch_size=8, pred_stats=(50.0, 10.0), stage_dir="none", num_workers=0,
+                          windows_path=path)
+    w = pd.read_parquet(path.format(split="test"))
+    assert len(w) == 5 * 20 and w["recording"].nunique() == 5
+    assert np.allclose(w.groupby("recording")["alpha"].sum(), 1.0)
+    # the uniform pool reproduces the script's recording means
+    rec = at.recording_frame(w)
+    preds = pd.Series(res["splits"]["test"]["predictions"])
+    assert np.allclose(rec["attention"].reindex(preds.index), preds)
+    # the deviation trim drops floor(0.2 n) = 4 windows per recording: an outlier moves nothing
+    w.loc[0, "window_pred"] += 1000.0
+    t = at.trims(w)
+    r0 = w.loc[0, "recording"]
+    assert abs(t["trim20_dev"][r0] - at.recording_frame(w.drop(index=0))["mean"][r0]) < 5.0
