@@ -354,6 +354,7 @@ def main():
     ap.add_argument("--save-windows", default=None, metavar="DIR",
                     help="bag runs: write every window's attention weight and own prediction to "
                          "DIR/<run>_<split>.parquet (for attention-based trimming analyses)")
+    ap.add_argument("--num-workers", type=int, default=8, help="data-loader workers")
     ap.add_argument("--bag-batch-size", type=int, default=None,
                     help="recordings per batch for bag runs (default 12, 2 with --eval-minutes 0)")
     ap.add_argument("--out", default=None)
@@ -383,7 +384,7 @@ def main():
                                      stage_dir=args.stage_dir, eval_minutes=args.eval_minutes,
                                      windows_path=(os.path.join(args.save_windows, f"{name}_{{split}}.parquet")
                                                    if args.save_windows else None),
-                                     bag_batch_size=args.bag_batch_size)
+                                     bag_batch_size=args.bag_batch_size, num_workers=args.num_workers)
         if not utils.is_main_process():
             continue
         for split, cohorts in results[name]["splits"].items():
