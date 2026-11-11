@@ -90,8 +90,11 @@ def _predict(model, dataset, ch_names, device, batch_size, to_scalar=None, sessi
             if to_scalar is not None:          # soft-label head: bin logits -> expectation
                 out = to_scalar(out)
             preds.append(out.float().squeeze(-1).cpu())
-            targets.append(y.float())
-            recs.extend(rec)
+            # copies: a loader batch lives in worker shared memory, and keeping
+            # any view of it alive keeps the whole batch (it leaked ~26 GB over a
+            # 1.1 M-window test split)
+            targets.append(y.float().clone())
+            recs.extend(r if isinstance(r, str) else str(r) for r in rec)
     pred, true = torch.cat(preds).numpy(), torch.cat(targets).numpy()
     if sharded:
         if logits_out:                     # gathered in the same (dataset) order
@@ -136,8 +139,8 @@ def _predict_bags(model, dataset, ch_names, device, mil_cfg, batch_size=12, chan
                 windows_out.setdefault("window_pred", []).extend(
                     wout.float().reshape(len(b_idx), -1)[:, 0].tolist())
             preds.append(out.float().reshape(len(y), -1)[:, 0].cpu())
-            targets.append(y.reshape(len(y), -1)[:, 0].float().cpu())
-            recs.extend(stems)
+            targets.append(y.reshape(len(y), -1)[:, 0].float().cpu().clone())
+            recs.extend(str(s) for s in stems)
     return torch.cat(preds).numpy(), torch.cat(targets).numpy(), recs
 
 
