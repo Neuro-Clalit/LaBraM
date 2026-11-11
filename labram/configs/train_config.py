@@ -348,8 +348,10 @@ class MILConfig(ConfigBase):
     * Phased one-run schedule (the two-step E2L -> MIL recipe inside one job):
       ``window_epochs`` first epochs train window-level age only (encoder +
       head on single windows, like E2L; the pool is not trained), each epoch
-      drawing ``window_minutes_per_epoch`` of every training recording in
-      batches of ``window_batch_size`` windows. The next
+      drawing ``window_minutes_per_epoch`` of every training recording, read
+      recording by recording and flattened into batches of about
+      ``window_batch_size`` windows (``window_batch_size // windows per
+      recording`` recordings per step). The next
       ``freeze_encoder_epochs`` train the bag pool with the encoder frozen
       (and the head too when ``freeze_head``), then everything trains on bags.
       ``head_lr_scale`` applies from the first bag epoch. Retention (if any)

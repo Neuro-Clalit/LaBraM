@@ -1233,8 +1233,7 @@ def train_loop(
                     return None
                 seg = np.asarray(values[lo:hi], dtype=float)
                 return np.interp(np.linspace(0, len(seg) - 1, n_w), np.arange(len(seg)), seg)
-            logger.info("MIL epoch %d: window-level phase (%d steps of %d windows)",
-                        epoch, n_w, wl.batch_size)
+            logger.info("MIL epoch %d: window-level phase (%d steps)", epoch, n_w)
             train_stats = train_one_epoch(
                 model, criterion, wl, optimizer, device, epoch, loss_scaler,
                 trainer_cfg=config.trainer, optim_cfg=config.optimizer,

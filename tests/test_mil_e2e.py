@@ -126,7 +126,11 @@ def test_mil_phased_schedule_window_then_pool_then_joint(tmp_path):
                                  "mil.window_epochs": 1, "mil.window_batch_size": 4,
                                  "mil.window_minutes_per_epoch": 1.0, "mil.freeze_encoder_epochs": 1,
                                  "mil.freeze_head": True, "mil.retention_weight": 0.1,
-                                 "mil.head_lr_scale": 5.0, "mixup.enabled": True})
+                                 "mil.head_lr_scale": 5.0, "mixup.enabled": True,
+                                 # the SageMaker jobs' settings (submit_grid.sh BASE)
+                                 "channel_drop.enabled": True, "channel_drop.prob": 0.0,
+                                 "channel_drop.consistency_weight": 0.0,
+                                 "channel_drop.eval_consistency": False})
     snaps = []
 
     def snap(model, tag):
@@ -166,3 +170,17 @@ def test_mil_phased_schedule_window_then_pool_then_joint(tmp_path):
     assert train_mil.bag_phase(cfg.mil, 0) == (True, False)
     assert train_mil.bag_phase(cfg.mil, 1) == (False, True)
     assert train_mil.bag_phase(cfg.mil, 2) == (False, False)
+
+
+def test_collate_bag_windows_flattens_bags_into_window_samples():
+    from labram.data.bags import collate_bag_windows
+    a = (torch.randn(3, 2, 10), torch.tensor(40.0), "rec_a", torch.zeros(3))
+    b = (torch.randn(2, 2, 10), torch.tensor(70.0), "rec_b", torch.zeros(2))
+    x, y, ids = collate_bag_windows([a, b])
+    assert x.shape == (5, 2, 10) and torch.equal(x[:3], a[0]) and torch.equal(x[3:], b[0])
+    assert y.tolist() == [40.0, 40.0, 40.0, 70.0, 70.0]
+    assert ids == ["rec_a"] * 3 + ["rec_b"] * 2
+    # multitask targets [age, abnormal] repeat row-wise
+    c = (torch.randn(2, 2, 10), torch.tensor([50.0, 1.0]), "rec_c", torch.zeros(2))
+    _, yc, _ = collate_bag_windows([c])
+    assert yc.shape == (2, 2) and yc[1].tolist() == [50.0, 1.0]

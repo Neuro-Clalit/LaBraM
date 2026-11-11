@@ -93,6 +93,20 @@ def collate_bags(batch):
     return x, y, [b[2] for b in batch], minutes, mask
 
 
+def collate_bag_windows(batch):
+    """Flatten bags into a window batch ``(x [N, C, L], y [N, ...], recording ids)``:
+    every window is its own sample with its recording's target. Used by the window
+    phase of ``mil.window_epochs``, which reads recording by recording (``k`` windows
+    of each) because random single-window reads stream slowly from S3."""
+    xs, ys, ids = [], [], []
+    for xb, yb, stem, _ in batch:
+        n = xb.shape[0]
+        xs.append(xb)
+        ys.append(yb.unsqueeze(0).expand(n, *yb.shape))
+        ids.extend([stem] * n)
+    return torch.cat(xs), torch.cat(ys), ids
+
+
 def wrap_bags(dataset, mil_cfg, train: bool) -> Optional[RecordingBagDataset]:
     if dataset is None:
         return None

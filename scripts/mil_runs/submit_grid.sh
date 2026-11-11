@@ -73,10 +73,10 @@ CV=(cross_validation.enabled=true cross_validation.n_folds=5 cross_validation.fo
 PHASED=(optimizer.lr=0.00028 optimizer.warmup_epochs=4 trainer.epochs=16
   mil.window_epochs=10 mil.window_minutes_per_epoch=5 mil.window_batch_size=256
   mil.freeze_encoder_epochs=2 mil.freeze_head=true
-  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760
-  sagemaker.input_mode=File sagemaker.volume_size_gb=1200)
-# File mode: the window phase reads windows at random across recordings, which streams
-# (FastFile) at ~2 s/step on g5.2xlarge (W0); the 894 GB cohort is downloaded first instead.
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760)
+# The window phase streams (FastFile) recording by recording: random single-window
+# reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
+# mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
 
 declare -A JOBS=(
   [W0]="${WARM[*]} ${WINDOW[*]}"
