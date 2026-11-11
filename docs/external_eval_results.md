@@ -131,6 +131,7 @@ $\hat y$). It uses the cohort's ages, so it is **not** zero-shot.
 | W7 | 4.66 | −1.20 | 0.95 | 0.90 | 3.73 (+0.41) | 6.57 (−4.52) | 4.60 | 4.59 |
 | X1 | 4.53 | −0.50 | 0.95 | 0.91 | 3.68 (+1.24) | 6.29 (−4.08) | 4.54 | 4.50 |
 | **X3** | **4.47** | −0.67 | **0.96** | **0.91** | 3.61 (+0.85) | **6.24** (−3.81) | **4.46** | **4.37** |
+| X6 (bags 8–64) | 4.49 | −0.30 | 0.95 | 0.91 | 3.65 (+1.08) | 6.21 (−3.13) | 4.53 | 4.46 |
 
 Binning alone costs about 1.25 y of MAE: the mean absolute distance of a
 uniform age from its 5-year bin's midpoint.

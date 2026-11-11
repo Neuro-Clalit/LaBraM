@@ -89,7 +89,7 @@ def collect():
     # 20-epoch warm starts (section 12), at their best val epoch; the SageMaker
     # X2 lost epochs 7-12 to spot interruptions, so its last epoch is used.
     for name, sub, ep in (("X1", "x1", 17), ("X3", "x3", 7), ("X4", "x4", 6), ("X2 SM (last)", "x2sm", 19),
-                          ("X5", "x5", 12)):
+                          ("X5", "x5", 12), ("X6", "x6", 12)):
         bag[name] = (os.path.join(ART, sub, "finetune", "analysis"), ep)
     x2 = glob.glob(os.path.join(LOCAL, "X2_*", "analysis"))
     if x2:

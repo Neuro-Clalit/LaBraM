@@ -46,6 +46,7 @@ EXPERIMENTS = {
     "X4 ungated hq, 20 ep": "X4",
     "X2 ungated, 20 ep (local)": "X2 local",
     "X5 bags 8-32, 20 ep": "X5",
+    "X6 bags 8-64, 20 ep": "X6",
 }
 
 
