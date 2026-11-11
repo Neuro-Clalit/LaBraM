@@ -18,6 +18,12 @@ reader and the channel naming differ per corpus:
   mapped channels are re-referenced to their mean on reading
   (``reference="average"``); the models' input CAR makes this equivalent to any
   other reference. Ages are whole years from ``MIPDB_PublicFile.csv``.
+* ``chbp`` -- Cuban Human Brain Mapping Project (Valdes-Sosa et al. 2021,
+  Synapse ``syn22324937``, ``download_synapse.py``), BIDS EDF at 200 Hz,
+  recorded 0.5-50 Hz with a 60 Hz notch, 120 EEG channels (10-5). Only the
+  resting part (eyes closed, then eyes open / closed) up to the first
+  hyperventilation event is kept. Ages are whole years from
+  ``Demographic_data.csv``.
 
 Every recording is labelled ``normal`` (healthy volunteers; MIPDB's
 ``DX_Status`` is kept in the manifest) and placed in the **test** split, so a
@@ -133,7 +139,57 @@ def open_mipdb(path):
     return raw, present, "average"
 
 
-DATASETS = {"lemon": (lemon_recordings, open_lemon), "mipdb": (mipdb_recordings, open_mipdb)}
+# CHBP protocol events (Spanish in release 1.0, English in 1.1) that end the resting part.
+CHBP_NON_REST = ("hiperventilacion", "hyperventilation", "fotoestimulacion", "photic", "recuperacion", "recovery")
+
+
+def chbp_recordings(raw_dir, meta_csv):
+    import pandas as pd
+    meta = pd.read_csv(meta_csv, skiprows=1, encoding="utf-8-sig").dropna(axis=1, how="all")
+    meta = meta.dropna(subset=["Code"]).set_index("Code")
+    out = []
+    for edf in sorted(glob.glob(os.path.join(raw_dir, "sub-*", "eeg", "*_eeg.edf"))):
+        code = os.path.basename(edf).split("_")[0][len("sub-"):]
+        if code not in meta.index or pd.isna(meta.loc[code, "Age"]):
+            continue
+        m = meta.loc[code]
+        out.append({"stem": f"sub-{code}_chbp-rs", "path": os.path.relpath(edf, raw_dir), "corpus": "chbp",
+                    "subject": code, "session": "1", "age": float(m["Age"]), "raw_age": float(m["Age"]),
+                    "sex": m["Gender"] if m["Gender"] in ("M", "F") else None, "label": "normal", "_file": edf})
+    return out
+
+
+def chbp_resting_end(edf):
+    """Onset (s) of the first hyperventilation / recovery / photic event in the
+    BIDS ``events.tsv`` next to ``edf`` (None if there is none)."""
+    import csv
+    events = edf[:-len("_eeg.edf")] + "_events.tsv"
+    if not os.path.exists(events):
+        return None
+    with open(events, encoding="utf-8", errors="replace") as fh:
+        onsets = [float(r["onset"]) for r in csv.DictReader(fh, delimiter="\t")
+                  if any(k in r["trial_type"].lower() for k in CHBP_NON_REST)]
+    return min(onsets) if onsets else None
+
+
+def open_chbp(path):
+    """EDF at 200 Hz, recorded 0.5-50 Hz with a 60 Hz notch, 120 EEG channels
+    (10-5). Labels in release 1.0 carry a space and a reference suffix that
+    varies (``'F3 -REF'``, ``'F3 -A12'`` for linked ears, a truncated ``'F4 -'``),
+    so only the part before the hyphen is matched. Only the resting part is
+    kept: eyes closed (~10 min) then alternating eyes open / closed, cut where
+    hyperventilation starts."""
+    import mne
+    raw = mne.io.read_raw_edf(path, preload=False, verbose="error")
+    end = chbp_resting_end(path)
+    if end is not None and end < raw.times[-1]:
+        raw.crop(0, end, include_tmax=False)
+    present = channel_map(raw.ch_names, lambda label: bids_canonical_channel(label.split("-")[0].strip()))
+    return raw, present, None
+
+
+DATASETS = {"lemon": (lemon_recordings, open_lemon), "mipdb": (mipdb_recordings, open_mipdb),
+            "chbp": (chbp_recordings, open_chbp)}
 
 
 # ------------------------------------------------------------------ convert

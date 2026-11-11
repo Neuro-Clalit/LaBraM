@@ -627,7 +627,7 @@ What Tables 7.1–7.3 and Figure 7.1 show:
 
 ## 8. Not yet done
 
-- **CHBP and TDBRAIN** need a data use agreement (Synapse; brainclinics.com).
+- **CHBP** is onboarded and scored in `docs/chbp_onboarding.md` (Synapse). **TDBRAIN** needs a data use agreement (brainclinics.com).
   The converter takes a new reader per corpus in `make_external_npy.DATASETS`.
 - **A3 and the frozen-feature pools** were not scored. A3 needs the
   test-time-augmentation window cache.

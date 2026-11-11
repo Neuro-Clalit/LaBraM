@@ -46,6 +46,9 @@ def groups(cohort, meta):
         out += [("6-12", (age < 13).to_numpy()), ("13-17", ((age >= 13) & (age < 18)).to_numpy()),
                 ("adults 18-44", (age >= 18).to_numpy()),
                 ("controls (DX 0)", (meta["dx_status"] == 0).to_numpy())]
+    if cohort == "chbp":
+        out += [("18-29", (age < 30).to_numpy()), ("30-39", ((age >= 30) & (age < 40)).to_numpy()),
+                ("40-68", (age >= 40).to_numpy())]
     return out
 
 
