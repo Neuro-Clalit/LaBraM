@@ -425,6 +425,19 @@ class NeuralTransformer(NeuralTransformerBase):
         x = self.head(x)
         return (x, feature) if return_features else x
 
+    # Windows encoded per pass when no gradient is needed (evaluation, frozen
+    # encoder): a whole long recording is one bag at evaluation, and encoding
+    # its thousands of windows at once needs tens of GB. Windows are encoded
+    # independently, so chunking does not change the result.
+    BAG_ENCODE_CHUNK = 256
+
+    def _encode_windows(self, x, channel_indices):
+        n = self.BAG_ENCODE_CHUNK
+        if torch.is_grad_enabled() or x.shape[0] <= n:
+            return self.forward_features(x, channel_indices=channel_indices)
+        return torch.cat([self.forward_features(x[i:i + n], channel_indices=channel_indices)
+                          for i in range(0, x.shape[0], n)])
+
     def forward_bag(self, x, channel_indices, bag):
         """Recording-level MIL forward (``mil.*``; needs ``self.mil``, a
         :class:`labram.layers.bag_pool.MILPooling`).
@@ -443,7 +456,7 @@ class NeuralTransformer(NeuralTransformerBase):
         with ctx:
             present = bag.get('present')
             if present is None:
-                h = self.forward_features(x, channel_indices=channel_indices)
+                h = self._encode_windows(x, channel_indices)
             else:
                 ci_all = bag['ci_all']
                 patterns, inverse = torch.unique(present, dim=0, return_inverse=True)
@@ -454,7 +467,7 @@ class NeuralTransformer(NeuralTransformerBase):
                     if chans.numel() == 0:
                         raise ValueError("a window has no channel with signal")
                     ci = [ci_all[0]] + [ci_all[int(c) + 1] for c in chans]
-                    parts.append(self.forward_features(x[idx][:, chans], channel_indices=ci))
+                    parts.append(self._encode_windows(x[idx][:, chans], ci))
                     rows.append(idx)
                 order = torch.argsort(torch.cat(rows))
                 h = torch.cat([f.to(parts[0].dtype) for f in parts])[order]

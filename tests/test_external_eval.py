@@ -172,3 +172,32 @@ def test_window_model_saves_uniform_window_parquet_and_trims_by_deviation(tmp_pa
     t = at.trims(w)
     r0 = w.loc[0, "recording"]
     assert abs(t["trim20_dev"][r0] - at.recording_frame(w.drop(index=0))["mean"][r0]) < 5.0
+
+
+def test_bag_eval_encodes_long_recordings_in_chunks_with_the_same_result(tmp_path, monkeypatch):
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+    import eval_age_by_cohort as ev
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.models.neural_transformer import NeuralTransformer
+    from labram.runs import run_finetune
+    root = _test_only_cohort(tmp_path)
+    run = tmp_path / "run"
+    run.mkdir()
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy", "data.trim_start_sec": 0.0,
+           "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0, "finetune_checkpoint.finetune": "",
+           "mil.enabled": True, "mil.pool": "gated", "mil.score_input": "h",
+           "model.nb_classes": 1, "model.task": "regression"})
+    cfg.save_to(str(run / "run_config.yaml"))
+    torch.save({"model": run_finetune.get_model(cfg).state_dict(), "epoch": 0}, run / "checkpoint-best.pth")
+
+    def score():
+        res = ev.evaluate_run(str(run), str(root), "checkpoint-best.pth", ["test"], torch.device("cpu"),
+                              batch_size=4, pred_stats=(50.0, 10.0), stage_dir="none", num_workers=0)
+        return res["splits"]["test"]["predictions"]
+    whole = score()                                    # 20 windows per bag < 256: one pass
+    monkeypatch.setattr(NeuralTransformer, "BAG_ENCODE_CHUNK", 3)
+    chunked = score()
+    assert whole.keys() == chunked.keys()
+    assert np.allclose([whole[k] for k in whole], [chunked[k] for k in whole], atol=1e-4)
