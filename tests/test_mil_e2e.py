@@ -115,3 +115,54 @@ def test_mil_cross_validation_fold_with_held_out_test(tmp_path):
     assert metrics
     log = open(os.path.join(fold[0], "log.txt")).read()
     assert '"test_mae"' in log or "test_mae" in log
+
+
+def test_mil_phased_schedule_window_then_pool_then_joint(tmp_path):
+    """mil.window_epochs: a window-level epoch first (pool untouched), then a
+    frozen-encoder epoch training only the pool (freeze_head), then joint bag training."""
+    from labram.runs import run_finetune
+    from labram.train import train_finetune, train_mil
+    cfg, out = _cfg(tmp_path, **{"mil.pool": "gated", "mil.score_input": "h", "trainer.epochs": 3,
+                                 "mil.window_epochs": 1, "mil.window_batch_size": 4,
+                                 "mil.window_minutes_per_epoch": 1.0, "mil.freeze_encoder_epochs": 1,
+                                 "mil.freeze_head": True, "mil.retention_weight": 0.1,
+                                 "mil.head_lr_scale": 5.0, "mixup.enabled": True})
+    snaps = []
+
+    def snap(model, tag):
+        m = getattr(model, "module", model)
+        snaps.append((tag, {k: v.detach().clone() for k, v in m.state_dict().items()}))
+
+    real_win, real_bag = train_finetune.train_one_epoch, train_mil.train_one_epoch_bags
+
+    def win(model, *a, **k):
+        snap(model, "window_start")
+        out_ = real_win(model, *a, **k)
+        return out_
+
+    def bag(model, *a, **k):
+        snap(model, f"bag_start_{a[4]}")
+        return real_bag(model, *a, **k)
+    train_finetune.train_one_epoch, train_mil.train_one_epoch_bags = win, bag
+    try:
+        summary = run_finetune.main(cfg)
+    finally:
+        train_finetune.train_one_epoch, train_mil.train_one_epoch_bags = real_win, real_bag
+    assert summary["best_val_stats"]["mae"] > 0
+    tags = [t for t, _ in snaps]
+    assert tags == ["window_start", "bag_start_1", "bag_start_2"], tags
+    s = dict(snaps)
+
+    def changed(a, b, prefix):
+        return any(not torch.equal(s[a][k], s[b][k]) for k in s[a]
+                   if k.startswith(prefix) and s[a][k].is_floating_point())
+    assert not changed("window_start", "bag_start_1", "mil.")      # window phase: pool untouched
+    assert changed("window_start", "bag_start_1", "blocks.")       # ... encoder trained
+    assert changed("window_start", "bag_start_1", "head.")         # ... head trained
+    assert changed("bag_start_1", "bag_start_2", "mil.")           # frozen epoch: pool trained
+    assert not changed("bag_start_1", "bag_start_2", "blocks.")    # ... encoder frozen
+    assert not changed("bag_start_1", "bag_start_2", "head.")      # ... head frozen (freeze_head)
+    assert glob.glob(os.path.join(str(out) + "*", "retention_reference.pth"))
+    assert train_mil.bag_phase(cfg.mil, 0) == (True, False)
+    assert train_mil.bag_phase(cfg.mil, 1) == (False, True)
+    assert train_mil.bag_phase(cfg.mil, 2) == (False, False)

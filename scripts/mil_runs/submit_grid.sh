@@ -14,6 +14,7 @@
 # use WORKERS=10 there. ml.g5.4xlarge (64 GB) with 32 workers is fine.
 #   ONLY="W2 W3" scripts/mil_runs/submit_grid.sh       # a subset
 #   ONLY="CV_L1 CV_W4 CV_W7" FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh   # one-step CV fold 0
+#   scripts/mil_runs/submit_phased_cv.sh             # phased P_* jobs, all 5 folds
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PY=${PY:-/data/code/LaBraM/.venv/bin/python}
@@ -63,7 +64,19 @@ ONESTEP=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=48
   evaluation.train_eval_every=4 sagemaker.max_run_sec=259200)
 CV=(cross_validation.enabled=true cross_validation.n_folds=5 cross_validation.fold=${FOLD:-0}
   cross_validation.pool=train_val cross_validation.test_set=held_out cross_validation.split_by=subject
-  cross_validation.seed=0)
+  cross_validation.seed=0
+  cross_validation.split_json=s3://eeg-data-public/HEEDB/v4.1/derived/cv/tuh_heedb_v1_cv5_subject_seed0.json)
+# Phased one-run schedule from labram-base (the two-step recipe inside one job): 10
+# window-level epochs exactly like E2L (5 min per recording per epoch, batch 256,
+# lr 2.8e-4, 4 warm-up epochs, cosine over all 16), then 2 bag epochs training only
+# the attention pool (encoder and head frozen), then 4 joint bag epochs.
+PHASED=(optimizer.lr=0.00028 optimizer.warmup_epochs=4 trainer.epochs=16
+  mil.window_epochs=10 mil.window_minutes_per_epoch=5 mil.window_batch_size=256
+  mil.freeze_encoder_epochs=2 mil.freeze_head=true
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760
+  sagemaker.input_mode=File sagemaker.volume_size_gb=1200)
+# File mode: the window phase reads windows at random across recordings, which streams
+# (FastFile) at ~2 s/step on g5.2xlarge (W0); the 894 GB cohort is downloaded first instead.
 
 declare -A JOBS=(
   [W0]="${WARM[*]} ${WINDOW[*]}"
@@ -89,6 +102,11 @@ declare -A JOBS=(
   [CV_L1]="${ONESTEP[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
   [CV_W4]="${ONESTEP[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=h"
   [CV_W7]="${ONESTEP[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=q mil.retention_weight=0.1"
+  # Phased versions (P_<model>; FOLD=k), and L1 with 4-window bags (64 recordings per step).
+  [P_L1]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
+  [P_W4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=h"
+  [P_W7]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=q mil.retention_weight=0.1"
+  [P_L1_K4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.bag_size=4 trainer.batch_size=64"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"

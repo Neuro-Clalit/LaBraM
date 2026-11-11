@@ -1122,7 +1122,8 @@ def train_loop(
     if getattr(config, 'mil', None) is not None and config.mil.enabled:
         import functools
         from labram.train.train_mil import evaluate_bags, train_one_epoch_bags
-        train_epoch_fn = functools.partial(train_one_epoch_bags, mil_cfg=config.mil)
+        train_epoch_fn = functools.partial(train_one_epoch_bags, mil_cfg=config.mil,
+                                           out_dir=config.output.output_dir)
         evaluate_fn = functools.partial(evaluate_bags, mil_cfg=config.mil,
                                         out_dir=config.output.output_dir)
 
@@ -1212,29 +1213,66 @@ def train_loop(
             log_writer.set_step(epoch * num_training_steps_per_epoch * config.trainer.update_freq)
 
         train_timer = utils.PhaseTimer(device)
-        train_stats = train_epoch_fn(
-            model, criterion, loaders.train, optimizer,
-            device, epoch, loss_scaler,
-            trainer_cfg=config.trainer,
-            optim_cfg=config.optimizer,
-            num_training_steps_per_epoch=num_training_steps_per_epoch,
-            model_ema=model_ema,
-            log_writer=log_writer,
-            start_steps=epoch * num_training_steps_per_epoch,
-            lr_schedule_values=lr_schedule_values,
-            wd_schedule_values=wd_schedule_values,
-            ch_names=ch_names,
-            is_binary=is_binary,
-            eval_cfg=config.evaluation,
-            nb_classes=nb_classes,
-            task=task,
-            target_stats=target_stats,
-            logging_cfg=config.logging,
-            metrics=metrics,
-            mixup_cfg=getattr(config, 'mixup', None),
-            augment_cfg=getattr(config, 'augment', None),
-            channel_drop_cfg=getattr(config, 'channel_drop', None),
-        )
+        window_phase = (getattr(config, 'mil', None) is not None and config.mil.enabled
+                        and epoch < config.mil.window_epochs)
+        if getattr(config, 'mil', None) is not None and config.mil.enabled:
+            from labram.train.train_mil import set_head_lr_scale
+            set_head_lr_scale(optimizer, not window_phase)
+        if window_phase:
+            # Phased MIL schedule: window-level age training (encoder + head, like
+            # E2L) on loaders.train_windows; the LR / WD schedule of this epoch is
+            # resampled onto that loader's step count.
+            wl = loaders.train_windows
+            if hasattr(wl.sampler, 'set_epoch'):
+                wl.sampler.set_epoch(epoch)
+            n_w = max(1, len(wl) // config.trainer.update_freq)
+            lo, hi = epoch * num_training_steps_per_epoch, (epoch + 1) * num_training_steps_per_epoch
+
+            def _resample(values):
+                if values is None:
+                    return None
+                seg = np.asarray(values[lo:hi], dtype=float)
+                return np.interp(np.linspace(0, len(seg) - 1, n_w), np.arange(len(seg)), seg)
+            logger.info("MIL epoch %d: window-level phase (%d steps of %d windows)",
+                        epoch, n_w, wl.batch_size)
+            train_stats = train_one_epoch(
+                model, criterion, wl, optimizer, device, epoch, loss_scaler,
+                trainer_cfg=config.trainer, optim_cfg=config.optimizer,
+                num_training_steps_per_epoch=n_w, model_ema=model_ema,
+                log_writer=None,           # the step axis counts bag steps
+                start_steps=0, lr_schedule_values=_resample(lr_schedule_values),
+                wd_schedule_values=_resample(wd_schedule_values),
+                ch_names=ch_names, is_binary=is_binary, eval_cfg=config.evaluation,
+                nb_classes=nb_classes, task=task, target_stats=target_stats,
+                logging_cfg=config.logging, metrics=metrics,
+                mixup_cfg=getattr(config, 'mixup', None),
+                augment_cfg=getattr(config, 'augment', None),
+                channel_drop_cfg=getattr(config, 'channel_drop', None),
+            )
+        else:
+            train_stats = train_epoch_fn(
+                model, criterion, loaders.train, optimizer,
+                device, epoch, loss_scaler,
+                trainer_cfg=config.trainer,
+                optim_cfg=config.optimizer,
+                num_training_steps_per_epoch=num_training_steps_per_epoch,
+                model_ema=model_ema,
+                log_writer=log_writer,
+                start_steps=epoch * num_training_steps_per_epoch,
+                lr_schedule_values=lr_schedule_values,
+                wd_schedule_values=wd_schedule_values,
+                ch_names=ch_names,
+                is_binary=is_binary,
+                eval_cfg=config.evaluation,
+                nb_classes=nb_classes,
+                task=task,
+                target_stats=target_stats,
+                logging_cfg=config.logging,
+                metrics=metrics,
+                mixup_cfg=getattr(config, 'mixup', None),
+                augment_cfg=getattr(config, 'augment', None),
+                channel_drop_cfg=getattr(config, 'channel_drop', None),
+            )
         train_timing = utils.timing_stats(
             'train', train_timer.elapsed(), int(train_stats.get('samples_processed', 0)))
 

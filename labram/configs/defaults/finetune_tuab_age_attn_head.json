@@ -419,6 +419,10 @@
         "freeze_encoder_epochs": 0,
         "retention_weight": 0.0,
         "descriptor_fit_batches": 50,
-        "save_weights": true
+        "save_weights": true,
+        "window_epochs": 0,
+        "window_minutes_per_epoch": 5.0,
+        "window_batch_size": 256,
+        "freeze_head": false
     }
 }

@@ -106,6 +106,8 @@ class DataLoaders:
     train_eval: Optional[torch.utils.data.DataLoader] = None
     # Named extra test sets (``evaluation.test_sets``), scored like test.
     test_sets: Optional[Dict[str, torch.utils.data.DataLoader]] = None
+    # Window-level training loader of the phased MIL schedule (``mil.window_epochs``).
+    train_windows: Optional[torch.utils.data.DataLoader] = None
 
 
 def build_train_eval_loader(dataset_train, eval_cfg, data_cfg, batch_size: int, num_workers: int,

@@ -391,6 +391,20 @@ def main(config: FinetuneRunConfig, bundle=None):
             batch_size=config.trainer.batch_size, eval_batch_size=config.evaluation.eval_batch_size,
             num_workers=config.data.num_workers, pin_memory=pin_memory,
             collate_fn=_bag_collate() if mil_on else None)
+    if mil_on and config.mil.window_epochs > 0 and not config.trainer.eval:
+        # Phased MIL schedule: the first mil.window_epochs train on single windows
+        # (like E2L), each epoch a fresh window_minutes_per_epoch of every recording.
+        from labram.data.samplers import RecordingSubsetSampler
+        per_recording = max(1, int(config.mil.window_minutes_per_epoch * 60 // config.data.window_sec))
+        loaders.train_windows = torch.utils.data.DataLoader(
+            dataset_train_windows,
+            sampler=RecordingSubsetSampler(dataset_train_windows, per_recording, num_replicas=num_tasks,
+                                           rank=global_rank, seed=config.distributed.seed),
+            batch_size=config.mil.window_batch_size, num_workers=config.data.num_workers,
+            pin_memory=pin_memory, drop_last=True)
+        logger.info("MIL phased schedule: %d window epochs (%d windows per recording, batch %d), "
+                    "%d frozen-encoder bag epochs, then joint", config.mil.window_epochs, per_recording,
+                    config.mil.window_batch_size, config.mil.freeze_encoder_epochs)
     if mil_on and not config.trainer.eval and dataset_val is not None:
         loaders.train_eval = _bag_train_eval_loader(
             dataset_train_windows, config, pin_memory, distributed=config.distributed.dist_eval and num_tasks > 1)

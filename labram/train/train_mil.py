@@ -108,6 +108,8 @@ def split_head_lr(optimizer: torch.optim.Optimizer, model: torch.nn.Module, scal
         ng = {k: v for k, v in g.items() if k != "params"}
         ng["params"] = moved
         ng["lr_scale"] = g.get("lr_scale", 1.0) * scale
+        ng["mil_base_lr_scale"] = g.get("lr_scale", 1.0)
+        ng["mil_lr_factor"] = scale
         new_groups.append(ng)
     optimizer.param_groups[:] = [g for g in optimizer.param_groups if g["params"]]
     for ng in new_groups:
@@ -116,6 +118,22 @@ def split_head_lr(optimizer: torch.optim.Optimizer, model: torch.nn.Module, scal
 
 
 @torch.no_grad()
+def set_head_lr_scale(optimizer: torch.optim.Optimizer, on: bool) -> None:
+    """Switch the pool + head ``head_lr_scale`` multiplier on (bag epochs) or off
+    (the window phase of ``mil.window_epochs``, where the head trains like E2L's)."""
+    for g in optimizer.param_groups:
+        if "mil_lr_factor" in g:
+            g["lr_scale"] = g["mil_base_lr_scale"] * (g["mil_lr_factor"] if on else 1.0)
+
+
+def bag_phase(mil_cfg, epoch: int):
+    """(in the window phase, encoder frozen) for ``epoch`` under the phased schedule:
+    ``window_epochs`` window-level epochs, then ``freeze_encoder_epochs`` bag epochs
+    with the encoder frozen, then joint bag training."""
+    w = getattr(mil_cfg, "window_epochs", 0)
+    return epoch < w, w <= epoch < w + mil_cfg.freeze_encoder_epochs
+
+
 def fit_descriptor_norm(model, loader, device, n_batches: int) -> None:
     """Fit ``model.mil.desc_norm`` on the descriptors of the first training bags."""
     m = getattr(model, "module", model)
@@ -168,11 +186,22 @@ def _bag_loss(criterion, out, y):
 _REF = {}
 
 
-def _reference_encoder(model):
-    """A frozen copy of the model as it was when training started (retention)."""
+def _reference_encoder(model, path=None):
+    """A frozen copy of the model as it was at its first bag epoch (retention):
+    the start of training, or the end of the window phase (``mil.window_epochs``).
+    With ``path`` the snapshot is saved there, and a resumed run reloads it
+    instead of copying the resumed (already moved) weights."""
     key = id(model)
     if key not in _REF:
-        ref = copy.deepcopy(getattr(model, "module", model)).eval()
+        m = getattr(model, "module", model)
+        ref = copy.deepcopy(m).eval()
+        if path and os.path.exists(path):
+            ref.load_state_dict(torch.load(path, map_location="cpu", weights_only=False)["model"])
+            logger.info("MIL retention: reference encoder loaded from %s", path)
+        elif path and utils.is_main_process():
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            torch.save({"model": m.state_dict()}, path)
+            logger.info("MIL retention: reference encoder saved to %s", path)
         for p in ref.parameters():
             p.requires_grad_(False)
         _REF[key] = ref
@@ -184,17 +213,22 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
                          trainer_cfg=None, optim_cfg=None, num_training_steps_per_epoch=None,
                          model_ema=None, log_writer=None, start_steps=0, lr_schedule_values=None,
                          wd_schedule_values=None, ch_names=None, target_stats=None, mixup_cfg=None,
-                         augment_cfg=None, channel_drop_cfg=None, mil_cfg=None, **_ignored) -> Dict[str, float]:
+                         augment_cfg=None, channel_drop_cfg=None, mil_cfg=None, out_dir=None,
+                         **_ignored) -> Dict[str, float]:
     model.train(True)
     m = getattr(model, "module", model)
     dropper = ChannelDropper.from_config(channel_drop_cfg, ch_names)
     update_freq = trainer_cfg.update_freq if trainer_cfg is not None else 1
     clip_grad = getattr(optim_cfg, "clip_grad", None)
-    frozen = epoch < mil_cfg.freeze_encoder_epochs
+    _, frozen = bag_phase(mil_cfg, epoch)
+    head_frozen = frozen and getattr(mil_cfg, "freeze_head", False)
+    for p in m.head.parameters():
+        p.requires_grad_(not head_frozen)
     if frozen:
-        logger.info("MIL epoch %d: encoder frozen (pool + head only)", epoch)
+        logger.info("MIL epoch %d: encoder frozen (%s only)", epoch, "pool" if head_frozen else "pool + head")
     retention = mil_cfg.retention_weight > 0 and not frozen
-    ref = _reference_encoder(model) if mil_cfg.retention_weight > 0 else None
+    ref = (_reference_encoder(model, os.path.join(out_dir, "retention_reference.pth") if out_dir else None)
+           if mil_cfg.retention_weight > 0 else None)
     mixup_on = (mixup_cfg is not None and getattr(mixup_cfg, "enabled", False))
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
