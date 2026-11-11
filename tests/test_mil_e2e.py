@@ -94,3 +94,24 @@ def test_warm_start_from_a_finetuned_checkpoint_loads_weights(tmp_path):
     load_finetune_checkpoint(dst, cfg.finetune_checkpoint)
     assert torch.equal(dst.blocks[0].attn.qkv.weight, src.blocks[0].attn.qkv.weight)
     assert float(dst.head.bias) == 3.0
+
+
+def test_mil_cross_validation_fold_with_held_out_test(tmp_path):
+    """One-step bag training (no warm start) as CV fold 0: folds over train+val by
+    subject, the original test split held out as the fold's test set."""
+    import json
+    from labram.runs import finetune_cv
+    cfg, out = _cfg(tmp_path, **{"mil.pool": "gated", "mil.gated": False, "mil.score_input": "h",
+                                 "cross_validation.enabled": True, "cross_validation.n_folds": 3,
+                                 "cross_validation.fold": 0, "cross_validation.pool": "train_val",
+                                 "cross_validation.test_set": "held_out",
+                                 "cross_validation.split_by": "subject", "trainer.epochs": 1})
+    finetune_cv.run_cross_validation(cfg)
+    fold = glob.glob(os.path.join(str(out) + "*", "fold_0"))
+    assert fold, os.listdir(tmp_path)
+    split = json.load(open(glob.glob(os.path.join(fold[0], "cv_split.json"))[0]))
+    assert split["pool"] == "train_val"
+    metrics = json.load(open(os.path.join(fold[0], "fold_metrics.json")))
+    assert metrics
+    log = open(os.path.join(fold[0], "log.txt")).read()
+    assert '"test_mae"' in log or "test_mae" in log

@@ -13,6 +13,7 @@
 # list, so ml.g5.2xlarge (32 GB) ran out of memory with 24 workers (16 held);
 # use WORKERS=10 there. ml.g5.4xlarge (64 GB) with 32 workers is fine.
 #   ONLY="W2 W3" scripts/mil_runs/submit_grid.sh       # a subset
+#   ONLY="CV_L1 CV_W4 CV_W7" FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh   # one-step CV fold 0
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PY=${PY:-/data/code/LaBraM/.venv/bin/python}
@@ -52,6 +53,17 @@ K32="mil.bag_size_choices=[$(seq -s, 8 32)] trainer.batch_size=16"
 K64="mil.bag_size_choices=[$(seq -s, 8 64)] trainer.batch_size=8"
 # Window-level control: 8 windows per recording per epoch, batch 256 windows.
 WINDOW=(mil.enabled=false data.train_minutes_per_epoch=1.3334 trainer.batch_size=256)
+# One-step (end-to-end) from labram-base, no E2L step, as 5-fold CV over train+val by
+# subject with the original test split held out (every fold scores the same 7,612 test
+# recordings as the two-step runs). 48 bag epochs (8 windows per recording each, ~384
+# per recording in total) roughly match the two-step data budget (E2L 16 x 30 windows +
+# 4 bag epochs x 8); the 12-epoch F runs saw a quarter of it and ended ~0.45 y behind.
+# FOLD selects the fold (default 0, the verification fold).
+ONESTEP=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=48
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200)
+CV=(cross_validation.enabled=true cross_validation.n_folds=5 cross_validation.fold=${FOLD:-0}
+  cross_validation.pool=train_val cross_validation.test_set=held_out cross_validation.split_by=subject
+  cross_validation.seed=0)
 
 declare -A JOBS=(
   [W0]="${WARM[*]} ${WINDOW[*]}"
@@ -73,6 +85,10 @@ declare -A JOBS=(
   # Y: L1 (ungated ABMIL) + retention 0.1, 10 epochs with 4 frozen; attention on h (Y1) or h + q (Y2).
   [Y1]="${MID[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.retention_weight=0.1"
   [Y2]="${MID[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=hq mil.retention_weight=0.1"
+  # CV one-step versions of L1, W4, W7 (CV_<model>; FOLD=k picks the fold).
+  [CV_L1]="${ONESTEP[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
+  [CV_W4]="${ONESTEP[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=h"
+  [CV_W7]="${ONESTEP[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=q mil.retention_weight=0.1"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"
@@ -84,6 +100,6 @@ for name in $NAMES; do
   echo "=== $name: ${JOBS[$name]}"
   "$PY" -m labram.runs.submit_sagemaker --phase finetune --detach \
     --config labram/configs/defaults/finetune_tuab_age.json "${EXTRA[@]}" --set "${BASE[@]}" "${over[@]}" \
-    clearml.task_name="heedb_mil_${name}" "clearml.tags=[\"heedb\",\"mil\",\"${name}\"]" \
-    sagemaker.job_name_prefix="labram-mil-${name,,}"
+    clearml.task_name="heedb_mil_${name}${FOLD:+_fold${FOLD}}" "clearml.tags=[\"heedb\",\"mil\",\"${name}\"]" \
+    sagemaker.job_name_prefix="labram-mil-$(echo "${name,,}" | tr _ -)${FOLD:+-f${FOLD}}"
 done
