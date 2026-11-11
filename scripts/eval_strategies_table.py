@@ -19,6 +19,18 @@ abnormal of the own test split, and LEMON young / old / all):
 * ``trim20w+keep80r`` -- both: the ``trim20w`` predictions of the recordings
   ``keep80r`` keeps.
 
+and three with **thresholds fitted on the validation split**
+(``scripts/confidence_thresholds.py``, read from ``--thresholds``; nothing is
+fitted on test):
+
+* ``val trim`` -- the val-chosen window rule and threshold tau (attention
+  weight or deviation from the recording median; "none" when val found no
+  gain);
+* ``val keep`` -- all windows; recordings whose spread exceeds the val-fitted
+  theta (no trim) get no prediction; ``val keep share`` is the share kept;
+* ``val trim+keep`` -- the ``val trim`` windows, then the theta fitted on val
+  after that trim; ``val trim+keep share``.
+
 Inputs are ``scripts/eval_age_by_cohort.py`` JSONs (per-recording predictions)
 and ``--save-windows`` parquets.
 
@@ -35,6 +47,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
 import attention_trimming as at  # noqa: E402
+import confidence_thresholds as ct  # noqa: E402
 
 MODELS = ["E2", "E2L", "W4", "L1", "W7", "X1", "X3", "Y1"]
 WINDOW_MODELS = {"E2", "E2L"}          # uniform weights: trimmed by deviation, not attention
@@ -58,13 +71,37 @@ def predictions(root, files):
     return out
 
 
+def val_thresholds(d):
+    """{model: (kind, tau, theta without trim, theta after the trim)} from the
+    ``confidence_thresholds.py`` outputs in ``d`` (spread rejection)."""
+    if not d or not os.path.exists(os.path.join(d, "trim_selected.csv")):
+        return {}
+    trim = pd.read_csv(os.path.join(d, "trim_selected.csv"))
+    rej = pd.read_csv(os.path.join(d, "reject_selected.csv"))
+    rej = rej[(rej.split == "val") & (rej.group == "all") & (rej.score == "spread")]
+    out = {}
+    for model, g in trim.groupby("model"):
+        best = g.loc[g["val_mae_trim"].idxmin()]
+        th = dict(zip(rej[rej.model == model]["trim"], rej[rej.model == model]["theta"]))
+        label = f"{best['kind']} {best['tau_val']:g}"
+        out[model] = (best["kind"], float(best["tau_val"]), th.get("none"), th.get(label, th.get("none")))
+    return out
+
+
+def val_frames(path, rule):
+    """Per-recording (no trim, val trim) frames of a test windows parquet."""
+    w = ct.load(path)
+    kind, tau = rule[0], rule[1]
+    return (ct.recordings(w, np.ones(len(w), bool)), ct.recordings(w, ct.keep_mask(w, kind, tau)))
+
+
 def group_masks(cohort, idx, ages, meta):
     if cohort == "lemon":
         a = ages.reindex(idx)
         return [("LEMON all", np.ones(len(idx), bool)), ("LEMON young", (a < 40).to_numpy()),
                 ("LEMON old", (a >= 55).to_numpy())]
     m = meta.reindex(idx)
-    out = []
+    out = [("Test all", np.ones(len(idx), bool))]
     for src, label in (("HEEDB", "Harvard"), ("TUAB", "Temple (TUAB)")):
         for c in ("normal", "abnormal", "unlabelled"):
             mk = ((m["source"] == src) & (m["cohort"] == c)).to_numpy()
@@ -77,13 +114,16 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--root", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--thresholds", default="docs/data/confidence_thresholds/min_keep_0.80",
+                    help="confidence_thresholds.py output with the val-fitted thresholds")
     args = ap.parse_args()
+    rules = val_thresholds(args.thresholds)
     import mil_cohort_summary as mcs
     meta = mcs.recording_table()
     rows = []
     for cohort, (f5, fall, wdir) in SOURCES.items():
         p5, pall = predictions(args.root, f5), predictions(args.root, fall)
-        recs = {}
+        recs, vframes = {}, {}
         for model in MODELS:
             wp = os.path.join(args.root, "windows", wdir, f"{model}_test.parquet")
             if os.path.exists(wp):
@@ -92,6 +132,8 @@ def main():
                 tr = at.trims(w)
                 rf["trim20"] = tr["trim20_dev" if model in WINDOW_MODELS else "trim20_glob"]
                 recs[model] = rf
+                if model in rules:
+                    vframes[model] = val_frames(wp, rules[model])
         ref = next((r for r in recs.values()), None)
         if ref is None:
             continue
@@ -111,13 +153,22 @@ def main():
                     row["keep80r"] = at.mae_kept(err, -r["spread"].to_numpy())
                     terr = (r["trim20"] - r["age"]).to_numpy()
                     row["trim20w+keep80r"] = at.mae_kept(terr, -r["spread"].to_numpy())
+                if model in vframes:
+                    r0, r1 = (f.reindex(idx) for f in vframes[model])
+                    _, _, th0, th1 = rules[model]
+                    row["val trim"] = ct.mae(r1)
+                    k0, k1 = r0["spread"] <= th0, r1["spread"] <= th1
+                    row["val keep"], row["val keep share"] = ct.mae(r0[k0]), float(k0.mean())
+                    row["val trim+keep"], row["val trim+keep share"] = ct.mae(r1[k1]), float(k1.mean())
                 rows.append(row)
     out = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     out.to_csv(args.out, index=False)
     for g, d in out.groupby("group", sort=False):
         print(f"\n{g} (n={d['n'].iloc[0]})")
-        print(d.set_index("model").reindex(MODELS)[[c for c in ("5 min", "all", "trim20w", "keep80r", "trim20w+keep80r")
+        print(d.set_index("model").reindex(MODELS)[[c for c in ("5 min", "all", "trim20w", "keep80r", "trim20w+keep80r", "val trim",
+                                                               "val keep", "val keep share", "val trim+keep",
+                                                               "val trim+keep share")
                                                      if c in d]].round(2).to_string())
 
 

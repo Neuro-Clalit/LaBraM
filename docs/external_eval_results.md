@@ -281,6 +281,20 @@ and the columns differ in $S_r$ and $R$:
 - **trim 20 % windows**: $S_r$ = all windows except those whose relative weight $\alpha_i\,n_r$ is below the 20th percentile over the split. This is label-free; a recording keeps at least its top window.
 - **keep 80 % recordings**: all windows. $R$ excludes the 20 % of recordings with the largest attention-weighted spread $s_r$, Eq. (6.2). The other 20 % get no prediction, so this column is selective prediction over 80 % of the recordings.
 - **trim 20 % + keep 80 %**: both at once. $S_r$ is the trim-20 % set, $R$ the keep-80 % set (ranked by $s_r$ over all windows).
+- **val trim / val keep / val trim + keep**: the same three operations with
+  **thresholds fitted on the validation split** (Section 7, Eqs. (7.1)–(7.2);
+  `scripts/confidence_thresholds.py`, the variant fitted to keep at least
+  80 % of val, $k_{\min} = 0.80$, for a like-for-like comparison with keep
+  80 %). Val trim drops the windows below the val-chosen $\tau$; val keep
+  rejects the recordings whose spread $s_r$ exceeds the val-fitted $\theta$;
+  val trim + keep does both, with $\theta$ fitted on val after the trim. The
+  share of the cohort's recordings kept is in parentheses: unlike keep 80 %,
+  it is not fixed per cohort. E2 has no val windows (—).
+
+The fixed-share columns (trim 20 %, keep 80 %) are label-free but set their
+cut-off from the test cohort itself, so each cohort loses exactly 20 %. The
+val columns are what a deployed model can do: one threshold, fixed before
+the test data are seen.
 
 $$
 s_r = \sqrt{\sum_{i} \alpha_i \,(p_i-\hat y_r)^2},\qquad
@@ -307,122 +321,122 @@ regularizer and the training epochs. Every model shares the
 E2L) or an E2L warm start (all attention models; bags of 32 recordings × 8
 windows). **Bold** marks the best value in a column of a table.
 
-### Table 6.1. Own test split, all recordings (n = 7,612), 5 min vs. all windows
+### Table 6.1. Own test split, all recordings (n = 7,612), MAE in years
 
-| model | setup (pool, features, epochs) | 5 min | all windows | change |
-|---|---|---|---|---|
-| E2 | window model: mean of 10 s window preds; LaBraM-base → TUH+HEEDB, 8 ep | 7.25 | 6.36 | −0.89 |
-| E2L | window model as E2, 16 ep (best 11) | 7.00 | 6.13 | −0.87 |
-| W4 | gated ABMIL on E2L windows, attn reads h; 4 ep end-to-end | 6.10 | 5.49 | −0.61 |
-| L1 | ungated ABMIL, h; 4 ep end-to-end | 6.09 | **5.46** | −0.63 |
-| W7 | gated ABMIL, h, + retention 0.1; 4 ep | 6.12 | 5.52 | −0.60 |
-| X1 | gated ABMIL, h, + retention 0.1; 20 ep (encoder frozen 0–3) | 6.09 | 5.50 | −0.59 |
-| X3 | gated ABMIL, h + q descriptors, + retention 0.1; 20 ep (frozen 0–3) | 6.15 | 5.57 | −0.58 |
-| Y1 | ungated ABMIL, h, + retention 0.1; 10 ep (frozen 0–3) | **6.08** | 5.51 | −0.57 |
+| model | setup | 5 min | all windows | trim 20 % | keep 80 % | trim 20 % + keep 80 % | val trim | val keep (kept) | val trim + keep (kept) |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | window model; 8 ep | 7.25 | 6.36 | 6.11† | 6.12 | 5.92† | — | — | — |
+| E2L | window model; 16 ep | 7.00 | 6.13 | 5.95† | 5.83 | 5.69† | 5.97 | 5.81 (77 %) | 5.87 (82 %) |
+| W4 | gated, h; 4 ep | 6.10 | 5.49 | 5.52 | 5.16 | 5.19 | 5.49 | 5.16 (80 %) | 5.16 (80 %) |
+| L1 | ungated, h; 4 ep | 6.09 | **5.46** | **5.51** | **5.11** | **5.16** | **5.46** | **5.10 (80 %)** | **5.11 (81 %)** |
+| W7 | gated, h, ret. 0.1; 4 ep | 6.12 | 5.52 | 5.54 | 5.16 | 5.18 | 5.53 | 5.16 (79 %) | 5.16 (80 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | 6.09 | 5.50 | 5.53 | 5.20 | 5.23 | 5.51 | 5.20 (80 %) | 5.20 (80 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 6.15 | 5.57 | 5.62 | 5.21 | 5.26 | 5.57 | 5.24 (81 %) | 5.25 (82 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | **6.08** | 5.51 | 5.57 | 5.20 | 5.27 | 5.51 | 5.20 (79 %) | 5.21 (79 %) |
 
 ### Table 6.2. Harvard normal (n = 1,518), MAE in years
 
-| model | setup (pool, features, epochs) | 5 min | all windows | trim 20 % windows | keep 80 % recordings | trim 20 % + keep 80 % |
-|---|---|---|---|---|---|---|
-| E2 | window model: mean of 10 s window preds; LaBraM-base → TUH+HEEDB, 8 ep | 7.43 | 6.07 | 5.68† | 5.93 | 5.65† |
-| E2L | window model as E2, 16 ep (best 11) | 7.12 | 5.77 | 5.46† | 5.55 | 5.35† |
-| W4 | gated ABMIL on E2L windows, attn reads h; 4 ep end-to-end | 5.72 | 4.80 | 4.78 | 4.52 | 4.51 |
-| L1 | ungated ABMIL, h; 4 ep end-to-end | **5.71** | **4.79** | 4.78 | **4.47** | **4.49** |
-| W7 | gated ABMIL, h, + retention 0.1; 4 ep | 5.83 | 4.88 | 4.87 | 4.61 | 4.61 |
-| X1 | gated ABMIL, h, + retention 0.1; 20 ep (encoder frozen 0–3) | **5.71** | 4.80 | **4.77** | 4.52 | 4.50 |
-| X3 | gated ABMIL, h + q descriptors, + retention 0.1; 20 ep (frozen 0–3) | 5.87 | 4.93 | 4.91 | 4.61 | 4.61 |
-| Y1 | ungated ABMIL, h, + retention 0.1; 10 ep (frozen 0–3) | 5.75 | 4.85 | 4.84 | 4.58 | 4.59 |
+| model | setup | 5 min | all windows | trim 20 % | keep 80 % | trim 20 % + keep 80 % | val trim | val keep (kept) | val trim + keep (kept) |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | window model; 8 ep | 7.43 | 6.07 | 5.68† | 5.93 | 5.65† | — | — | — |
+| E2L | window model; 16 ep | 7.12 | 5.77 | 5.46† | 5.55 | 5.35† | 5.49 | 5.52 (72 %) | 5.44 (82 %) |
+| W4 | gated, h; 4 ep | 5.72 | 4.80 | 4.78 | 4.52 | 4.51 | 4.79 | 4.52 (80 %) | 4.50 (80 %) |
+| L1 | ungated, h; 4 ep | **5.71** | **4.79** | 4.78 | **4.47** | **4.49** | **4.78** | **4.47 (79 %)** | **4.47 (80 %)** |
+| W7 | gated, h, ret. 0.1; 4 ep | 5.83 | 4.88 | 4.87 | 4.61 | 4.61 | 4.88 | 4.57 (77 %) | 4.57 (78 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | **5.71** | 4.80 | **4.77** | 4.52 | 4.50 | 4.79 | 4.51 (78 %) | 4.51 (79 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 5.87 | 4.93 | 4.91 | 4.61 | 4.61 | 4.92 | 4.60 (80 %) | 4.63 (81 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 5.75 | 4.85 | 4.84 | 4.58 | 4.59 | 4.85 | 4.54 (77 %) | 4.55 (77 %) |
 
 ### Table 6.3. Harvard abnormal (n = 2,253), MAE in years
 
-| model | setup (pool, features, epochs) | 5 min | all windows | trim 20 % windows | keep 80 % recordings | trim 20 % + keep 80 % |
-|---|---|---|---|---|---|---|
-| E2 | window model: mean of 10 s window preds; LaBraM-base → TUH+HEEDB, 8 ep | 7.83 | 6.84 | 6.64† | 6.53 | 6.35† |
-| E2L | window model as E2, 16 ep (best 11) | 7.56 | 6.63 | 6.49† | 6.27 | 6.16† |
-| W4 | gated ABMIL on E2L windows, attn reads h; 4 ep end-to-end | 6.77 | 6.27 | 6.33 | 5.89 | 5.96 |
-| L1 | ungated ABMIL, h; 4 ep end-to-end | 6.79 | 6.25 | 6.33 | 5.86 | 5.94 |
-| W7 | gated ABMIL, h, + retention 0.1; 4 ep | 6.73 | 6.23 | **6.27** | **5.82** | **5.85** |
-| X1 | gated ABMIL, h, + retention 0.1; 20 ep (encoder frozen 0–3) | 6.75 | 6.27 | 6.33 | 5.90 | 5.98 |
-| X3 | gated ABMIL, h + q descriptors, + retention 0.1; 20 ep (frozen 0–3) | 6.78 | 6.33 | 6.43 | 5.93 | 6.02 |
-| Y1 | ungated ABMIL, h, + retention 0.1; 10 ep (frozen 0–3) | **6.67** | **6.22** | 6.32 | 5.88 | 5.99 |
+| model | setup | 5 min | all windows | trim 20 % | keep 80 % | trim 20 % + keep 80 % | val trim | val keep (kept) | val trim + keep (kept) |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | window model; 8 ep | 7.83 | 6.84 | 6.64† | 6.53 | 6.35† | — | — | — |
+| E2L | window model; 16 ep | 7.56 | 6.63 | 6.49† | 6.27 | 6.16† | 6.50 | 6.22 (77 %) | 6.33 (82 %) |
+| W4 | gated, h; 4 ep | 6.77 | 6.27 | 6.33 | 5.89 | 5.96 | 6.28 | 5.90 (81 %) | 5.92 (80 %) |
+| L1 | ungated, h; 4 ep | 6.79 | 6.25 | 6.33 | 5.86 | 5.94 | 6.26 | 5.86 (80 %) | 5.90 (81 %) |
+| W7 | gated, h, ret. 0.1; 4 ep | 6.73 | 6.23 | **6.27** | **5.82** | **5.85** | 6.24 | **5.80 (79 %)** | **5.82 (79 %)** |
+| X1 | gated, h, ret. 0.1; 20 ep | 6.75 | 6.27 | 6.33 | 5.90 | 5.98 | 6.28 | 5.90 (80 %) | 5.91 (81 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 6.78 | 6.33 | 6.43 | 5.93 | 6.02 | 6.34 | 5.96 (81 %) | 5.98 (82 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | **6.67** | **6.22** | 6.32 | 5.88 | 5.99 | **6.22** | 5.88 (81 %) | 5.89 (81 %) |
 
 ### Table 6.4. Harvard unlabelled (n = 3,567), MAE in years
 
-| model | setup (pool, features, epochs) | 5 min | all windows | trim 20 % windows | keep 80 % recordings | trim 20 % + keep 80 % |
-|---|---|---|---|---|---|---|
-| E2 | window model: mean of 10 s window preds; LaBraM-base → TUH+HEEDB, 8 ep | 6.86 | 6.15 | 5.94† | 5.93 | 5.74† |
-| E2L | window model as E2, 16 ep (best 11) | 6.64 | 5.94 | 5.78† | 5.66 | 5.52† |
-| W4 | gated ABMIL on E2L windows, attn reads h; 4 ep end-to-end | 5.83 | 5.27 | 5.30 | 4.91 | 4.94 |
-| L1 | ungated ABMIL, h; 4 ep end-to-end | **5.80** | **5.22** | **5.27** | **4.83** | **4.89** |
-| W7 | gated ABMIL, h, + retention 0.1; 4 ep | 5.87 | 5.32 | 5.33 | 4.95 | 4.96 |
-| X1 | gated ABMIL, h, + retention 0.1; 20 ep (encoder frozen 0–3) | 5.84 | 5.28 | 5.32 | 4.98 | 5.02 |
-| X3 | gated ABMIL, h + q descriptors, + retention 0.1; 20 ep (frozen 0–3) | 5.87 | 5.33 | 5.38 | 4.98 | 5.03 |
-| Y1 | ungated ABMIL, h, + retention 0.1; 10 ep (frozen 0–3) | 5.83 | 5.30 | 5.37 | 5.00 | 5.07 |
+| model | setup | 5 min | all windows | trim 20 % | keep 80 % | trim 20 % + keep 80 % | val trim | val keep (kept) | val trim + keep (kept) |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | window model; 8 ep | 6.86 | 6.15 | 5.94† | 5.93 | 5.74† | — | — | — |
+| E2L | window model; 16 ep | 6.64 | 5.94 | 5.78† | 5.66 | 5.52† | 5.80 | 5.64 (79 %) | 5.71 (82 %) |
+| W4 | gated, h; 4 ep | 5.83 | 5.27 | 5.30 | 4.91 | 4.94 | 5.26 | 4.91 (80 %) | 4.91 (79 %) |
+| L1 | ungated, h; 4 ep | **5.80** | **5.22** | **5.27** | **4.83** | **4.89** | **5.22** | **4.83 (80 %)** | **4.83 (80 %)** |
+| W7 | gated, h, ret. 0.1; 4 ep | 5.87 | 5.32 | 5.33 | 4.95 | 4.96 | 5.32 | 4.94 (79 %) | 4.94 (80 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | 5.84 | 5.28 | 5.32 | 4.98 | 5.02 | 5.28 | 4.97 (80 %) | 4.98 (80 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 5.87 | 5.33 | 5.38 | 4.98 | 5.03 | 5.33 | 5.02 (81 %) | 5.02 (81 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 5.83 | 5.30 | 5.37 | 5.00 | 5.07 | 5.30 | 4.97 (79 %) | 4.99 (79 %) |
 
 ### Table 6.5. Temple (TUAB) normal (n = 149), MAE in years
 
-| model | setup (pool, features, epochs) | 5 min | all windows | trim 20 % windows | keep 80 % recordings | trim 20 % + keep 80 % |
-|---|---|---|---|---|---|---|
-| E2 | window model: mean of 10 s window preds; LaBraM-base → TUH+HEEDB, 8 ep | 5.13 | 5.14 | 5.00† | 5.01 | 4.83† |
-| E2L | window model as E2, 16 ep (best 11) | 4.91 | 4.81 | 4.72† | 4.66 | 4.54† |
-| W4 | gated ABMIL on E2L windows, attn reads h; 4 ep end-to-end | 4.45 | 4.15 | 4.14 | 4.13 | 4.11 |
-| L1 | ungated ABMIL, h; 4 ep end-to-end | 4.41 | 4.15 | 4.13 | 4.18 | 4.17 |
-| W7 | gated ABMIL, h, + retention 0.1; 4 ep | 4.36 | 4.15 | 4.12 | 4.08 | 4.07 |
-| X1 | gated ABMIL, h, + retention 0.1; 20 ep (encoder frozen 0–3) | **4.27** | **4.09** | **4.01** | **4.02** | **3.98** |
-| X3 | gated ABMIL, h + q descriptors, + retention 0.1; 20 ep (frozen 0–3) | 4.43 | 4.10 | 4.11 | 4.05 | 4.06 |
-| Y1 | ungated ABMIL, h, + retention 0.1; 10 ep (frozen 0–3) | 4.50 | 4.18 | 4.22 | 4.19 | 4.22 |
+| model | setup | 5 min | all windows | trim 20 % | keep 80 % | trim 20 % + keep 80 % | val trim | val keep (kept) | val trim + keep (kept) |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | window model; 8 ep | 5.13 | 5.14 | 5.00† | 5.01 | 4.83† | — | — | — |
+| E2L | window model; 16 ep | 4.91 | 4.81 | 4.72† | 4.66 | 4.54† | 4.74 | 4.71 (95 %) | 4.60 (81 %) |
+| W4 | gated, h; 4 ep | 4.45 | 4.15 | 4.14 | 4.13 | 4.11 | 4.14 | 4.12 (93 %) | 4.11 (93 %) |
+| L1 | ungated, h; 4 ep | 4.41 | 4.15 | 4.13 | 4.18 | 4.17 | 4.15 | 4.10 (93 %) | 4.10 (93 %) |
+| W7 | gated, h, ret. 0.1; 4 ep | 4.36 | 4.15 | 4.12 | 4.08 | 4.07 | 4.15 | 4.15 (94 %) | 4.15 (94 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | **4.27** | **4.09** | **4.01** | **4.02** | **3.98** | **4.08** | 4.09 (91 %) | 4.08 (91 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 4.43 | 4.10 | 4.11 | 4.05 | 4.06 | 4.10 | **4.03 (94 %)** | **4.03 (94 %)** |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 4.50 | 4.18 | 4.22 | 4.19 | 4.22 | 4.19 | 4.15 (93 %) | 4.17 (91 %) |
 
 ### Table 6.6. Temple (TUAB) abnormal (n = 125), MAE in years
 
-| model | setup (pool, features, epochs) | 5 min | all windows | trim 20 % windows | keep 80 % recordings | trim 20 % + keep 80 % |
-|---|---|---|---|---|---|---|
-| E2 | window model: mean of 10 s window preds; LaBraM-base → TUH+HEEDB, 8 ep | 8.56 | 8.32 | 8.27† | 7.79 | 7.68† |
-| E2L | window model as E2, 16 ep (best 11) | 8.50 | 8.52 | 8.42† | 7.87 | 7.78† |
-| W4 | gated ABMIL on E2L windows, attn reads h; 4 ep end-to-end | 8.20 | 8.14 | 8.14 | 7.98 | 7.97 |
-| L1 | ungated ABMIL, h; 4 ep end-to-end | 8.13 | **8.12** | **8.13** | 8.30 | 8.31 |
-| W7 | gated ABMIL, h, + retention 0.1; 4 ep | **8.07** | 8.14 | 8.16 | **7.65** | **7.66** |
-| X1 | gated ABMIL, h, + retention 0.1; 20 ep (encoder frozen 0–3) | 8.18 | 8.29 | 8.30 | 7.91 | 7.87 |
-| X3 | gated ABMIL, h + q descriptors, + retention 0.1; 20 ep (frozen 0–3) | 8.17 | 8.17 | 8.15 | 7.74 | 7.74 |
-| Y1 | ungated ABMIL, h, + retention 0.1; 10 ep (frozen 0–3) | 8.23 | 8.24 | 8.23 | 8.05 | 8.04 |
+| model | setup | 5 min | all windows | trim 20 % | keep 80 % | trim 20 % + keep 80 % | val trim | val keep (kept) | val trim + keep (kept) |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | window model; 8 ep | 8.56 | 8.32 | 8.27† | 7.79 | 7.68† | — | — | — |
+| E2L | window model; 16 ep | 8.50 | 8.52 | 8.42† | 7.87 | 7.78† | 8.49 | 8.03 (86 %) | 8.85 (74 %) |
+| W4 | gated, h; 4 ep | 8.20 | 8.14 | 8.14 | 7.98 | 7.97 | 8.14 | 7.95 (87 %) | 7.96 (87 %) |
+| L1 | ungated, h; 4 ep | 8.13 | **8.12** | **8.13** | 8.30 | 8.31 | **8.12** | 8.11 (87 %) | 8.11 (87 %) |
+| W7 | gated, h, ret. 0.1; 4 ep | **8.07** | 8.14 | 8.16 | **7.65** | **7.66** | 8.14 | **7.91 (85 %)** | **7.91 (85 %)** |
+| X1 | gated, h, ret. 0.1; 20 ep | 8.18 | 8.29 | 8.30 | 7.91 | 7.87 | 8.29 | 8.00 (86 %) | 8.00 (86 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 8.17 | 8.17 | 8.15 | 7.74 | 7.74 | 8.17 | 7.97 (86 %) | 7.97 (86 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 8.23 | 8.24 | 8.23 | 8.05 | 8.04 | 8.23 | 8.10 (86 %) | 8.12 (86 %) |
 
 ### Table 6.7. LEMON all (n = 214), MAE in years
 
-| model | setup (pool, features, epochs) | 5 min | all windows | trim 20 % windows | keep 80 % recordings | trim 20 % + keep 80 % |
-|---|---|---|---|---|---|---|
-| E2 | window model: mean of 10 s window preds; LaBraM-base → TUH+HEEDB, 8 ep | 5.81 | 5.75 | 5.43† | 4.78 | 4.56† |
-| E2L | window model as E2, 16 ep (best 11) | 5.22 | 5.20 | 4.89† | 4.37 | 4.19† |
-| W4 | gated ABMIL on E2L windows, attn reads h; 4 ep end-to-end | 4.62 | 4.51 | 4.39 | 3.80 | 3.82 |
-| L1 | ungated ABMIL, h; 4 ep end-to-end | 4.68 | 4.56 | 4.51 | 3.86 | 3.94 |
-| W7 | gated ABMIL, h, + retention 0.1; 4 ep | 4.66 | 4.59 | 4.58 | 3.96 | 3.96 |
-| X1 | gated ABMIL, h, + retention 0.1; 20 ep (encoder frozen 0–3) | 4.53 | 4.50 | 4.30 | 3.88 | 3.72 |
-| X3 | gated ABMIL, h + q descriptors, + retention 0.1; 20 ep (frozen 0–3) | **4.47** | **4.37** | **4.20** | **3.75** | **3.68** |
-| Y1 | ungated ABMIL, h, + retention 0.1; 10 ep (frozen 0–3) | 4.55 | 4.51 | 4.40 | 3.89 | 3.83 |
+| model | setup | 5 min | all windows | trim 20 % | keep 80 % | trim 20 % + keep 80 % | val trim | val keep (kept) | val trim + keep (kept) |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | window model; 8 ep | 5.81 | 5.75 | 5.43† | 4.78 | 4.56† | — | — | — |
+| E2L | window model; 16 ep | 5.22 | 5.20 | 4.89† | 4.37 | 4.19† | 4.95 | 4.59 (87 %) | 4.61 (86 %) |
+| W4 | gated, h; 4 ep | 4.62 | 4.51 | 4.39 | 3.80 | 3.82 | 4.52 | 3.97 (86 %) | 3.94 (85 %) |
+| L1 | ungated, h; 4 ep | 4.68 | 4.56 | 4.51 | 3.86 | 3.94 | 4.56 | 4.05 (86 %) | 4.06 (86 %) |
+| W7 | gated, h, ret. 0.1; 4 ep | 4.66 | 4.59 | 4.58 | 3.96 | 3.96 | 4.60 | 4.11 (85 %) | 4.11 (85 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | 4.53 | 4.50 | 4.30 | 3.88 | 3.72 | 4.49 | **3.93 (87 %)** | **3.93 (87 %)** |
+| X3 | gated, h + q, ret. 0.1; 20 ep | **4.47** | **4.37** | **4.20** | **3.75** | **3.68** | **4.37** | **3.93 (89 %)** | **3.93 (89 %)** |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 4.55 | 4.51 | 4.40 | 3.89 | 3.83 | 4.50 | 3.99 (86 %) | 3.95 (88 %) |
 
 ### Table 6.8. LEMON young (n = 144), MAE in years
 
-| model | setup (pool, features, epochs) | 5 min | all windows | trim 20 % windows | keep 80 % recordings | trim 20 % + keep 80 % |
-|---|---|---|---|---|---|---|
-| E2 | window model: mean of 10 s window preds; LaBraM-base → TUH+HEEDB, 8 ep | 4.52 | 4.59 | 4.22† | 3.42 | 3.19† |
-| E2L | window model as E2, 16 ep (best 11) | 3.88 | 3.94 | 3.59† | 3.04 | 2.85† |
-| W4 | gated ABMIL on E2L windows, attn reads h; 4 ep end-to-end | **3.55** | **3.48** | 3.32 | 2.86 | 2.97 |
-| L1 | ungated ABMIL, h; 4 ep end-to-end | 3.75 | 3.63 | 3.56 | 2.97 | 3.11 |
-| W7 | gated ABMIL, h, + retention 0.1; 4 ep | 3.73 | 3.64 | 3.60 | 2.94 | 2.94 |
-| X1 | gated ABMIL, h, + retention 0.1; 20 ep (encoder frozen 0–3) | 3.68 | 3.64 | 3.40 | 2.82 | **2.70** |
-| X3 | gated ABMIL, h + q descriptors, + retention 0.1; 20 ep (frozen 0–3) | 3.61 | 3.51 | **3.31** | **2.72** | **2.70** |
-| Y1 | ungated ABMIL, h, + retention 0.1; 10 ep (frozen 0–3) | 3.78 | 3.74 | 3.50 | 2.98 | 2.94 |
+| model | setup | 5 min | all windows | trim 20 % | keep 80 % | trim 20 % + keep 80 % | val trim | val keep (kept) | val trim + keep (kept) |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | window model; 8 ep | 4.52 | 4.59 | 4.22† | 3.42 | 3.19† | — | — | — |
+| E2L | window model; 16 ep | 3.88 | 3.94 | 3.59† | 3.04 | 2.85† | 3.61 | 3.64 (93 %) | 3.31 (92 %) |
+| W4 | gated, h; 4 ep | **3.55** | **3.48** | 3.32 | 2.86 | 2.97 | **3.49** | 3.16 (92 %) | 3.17 (92 %) |
+| L1 | ungated, h; 4 ep | 3.75 | 3.63 | 3.56 | 2.97 | 3.11 | 3.63 | 3.26 (92 %) | 3.27 (92 %) |
+| W7 | gated, h, ret. 0.1; 4 ep | 3.73 | 3.64 | 3.60 | 2.94 | 2.94 | 3.65 | 3.34 (92 %) | 3.34 (92 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | 3.68 | 3.64 | 3.40 | 2.82 | **2.70** | 3.64 | **3.13 (92 %)** | **3.13 (92 %)** |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 3.61 | 3.51 | **3.31** | **2.72** | **2.70** | 3.51 | 3.21 (93 %) | 3.21 (93 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 3.78 | 3.74 | 3.50 | 2.98 | 2.94 | 3.74 | 3.33 (91 %) | 3.27 (93 %) |
 
 ### Table 6.9. LEMON old (n = 70), MAE in years
 
-| model | setup (pool, features, epochs) | 5 min | all windows | trim 20 % windows | keep 80 % recordings | trim 20 % + keep 80 % |
-|---|---|---|---|---|---|---|
-| E2 | window model: mean of 10 s window preds; LaBraM-base → TUH+HEEDB, 8 ep | 8.47 | 8.12 | 7.91† | 7.07 | 6.98† |
-| E2L | window model as E2, 16 ep (best 11) | 7.97 | 7.77 | 7.56† | 6.91 | 6.82† |
-| W4 | gated ABMIL on E2L windows, attn reads h; 4 ep end-to-end | 6.82 | 6.65 | 6.60 | 5.90 | 6.02 |
-| L1 | ungated ABMIL, h; 4 ep end-to-end | 6.61 | 6.47 | 6.47 | 5.90 | 6.05 |
-| W7 | gated ABMIL, h, + retention 0.1; 4 ep | 6.57 | 6.54 | 6.58 | 5.97 | 5.81 |
-| X1 | gated ABMIL, h, + retention 0.1; 20 ep (encoder frozen 0–3) | 6.29 | 6.25 | 6.14 | 5.76 | 5.71 |
-| X3 | gated ABMIL, h + q descriptors, + retention 0.1; 20 ep (frozen 0–3) | 6.24 | 6.13 | **6.01** | 5.73 | **5.64** |
-| Y1 | ungated ABMIL, h, + retention 0.1; 10 ep (frozen 0–3) | **6.13** | **6.08** | 6.25 | **5.57** | 5.82 |
+| model | setup | 5 min | all windows | trim 20 % | keep 80 % | trim 20 % + keep 80 % | val trim | val keep (kept) | val trim + keep (kept) |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | window model; 8 ep | 8.47 | 8.12 | 7.91† | 7.07 | 6.98† | — | — | — |
+| E2L | window model; 16 ep | 7.97 | 7.77 | 7.56† | 6.91 | 6.82† | 7.70 | 6.99 (76 %) | 7.92 (74 %) |
+| W4 | gated, h; 4 ep | 6.82 | 6.65 | 6.60 | 5.90 | 6.02 | 6.64 | 6.02 (74 %) | 5.97 (71 %) |
+| L1 | ungated, h; 4 ep | 6.61 | 6.47 | 6.47 | 5.90 | 6.05 | 6.47 | 6.05 (74 %) | 6.06 (74 %) |
+| W7 | gated, h, ret. 0.1; 4 ep | 6.57 | 6.54 | 6.58 | 5.97 | 5.81 | 6.55 | 6.18 (70 %) | 6.19 (70 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | 6.29 | 6.25 | 6.14 | 5.76 | 5.71 | 6.26 | 5.88 (77 %) | 5.89 (77 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 6.24 | 6.13 | **6.01** | 5.73 | **5.64** | 6.13 | 5.64 (81 %) | **5.64 (81 %)** |
+| Y1 | ungated, h, ret. 0.1; 10 ep | **6.13** | **6.08** | 6.25 | **5.57** | 5.82 | **6.06** | **5.63 (76 %)** | **5.64 (77 %)** |
 
 What Tables 6.1–6.9 show:
 
@@ -437,27 +451,31 @@ What Tables 6.1–6.9 show:
     −0.87 y overall). The 5-minute evaluation budget, not the pooling, was
     the main limit.
   - The attention models' lead over E2/E2L stays (5.46–5.57 vs. 6.13–6.36).
-* **Trimming helps the window models, not the attention models, on our own data.**
-  - E2 / E2L gain 0.1–0.4 y from dropping each recording's 20 % outlier
-    windows (Harvard normal E2L 5.77 → 5.46, unlabelled 5.94 → 5.78; TUAB
-    normal 4.81 → 4.72). A plain mean is hurt by outlier windows.
-  - The attention models already give those windows little weight. Attention
-    trimming moves them by at most 0.1 y (Harvard abnormal / unlabelled get
-    slightly worse).
-  - On LEMON, which no model saw in training, trimming helps every model
-    (E2L 5.20 → 4.89, X3 4.37 → 4.20, X1 4.50 → 4.30).
-* **Rejecting the 20 % least confident recordings** (largest spread of the
-  window predictions) lowers the MAE of the rest by 0.1–0.4 y on HEEDB and
-  0.6–0.8 y on LEMON, for window and attention models alike.
-  - On the small TUAB cohorts it is mixed: −0.4 to −0.7 y on abnormal for
-    E2L, W7 and X3, but +0.2 y for L1.
-  - It is a selective-prediction trade: one recording in five gets no age.
-    Here the 20 % is a quantile of each test cohort itself; Section 7 fixes
-    the thresholds on val instead.
-* **Trim + reject together** is the best E2 / E2L setting everywhere (E2L
-  Harvard normal 5.35, LEMON 4.19), but still 0.3–0.9 y behind the attention
-  models' rejection alone on Harvard. For the attention models it is within ±0.1 y of
-  rejection alone on our data, and it helps X1 / X3 on LEMON (3.72 / 3.68).
+* **Trimming helps the window models, not the attention models.**
+  - E2 / E2L gain 0.15–0.25 y overall from trimming (fixed 20 % or the val
+    threshold, which drops about half the windows): E2L 6.13 → 5.95 / 5.97.
+  - For the attention models the fixed 20 % trim is slightly harmful on our
+    data (+0.02 to +0.06 y overall), and the val threshold leaves them
+    unchanged (±0.01 y). On LEMON the fixed 20 % trim still helps them
+    (X3 4.37 → 4.20), the val threshold does not.
+* **Rejecting recordings is the reliable gain, and the val threshold matches
+  the fixed 20 %.**
+  - Overall, val keep gives the same MAE as keep 80 % (L1 5.10 vs 5.11, W4 /
+    W7 5.16, X1 / Y1 5.20) while keeping 79–81 % of the recordings.
+  - Per cohort the val threshold redistributes the rejections: it keeps
+    77–81 % of Harvard (E2L 72 % of Harvard normal), 91–95 % of TUAB normal
+    and 85–87 % of TUAB abnormal. On TUAB normal, where the fixed 20 % cut
+    also rejects good recordings, it is better for L1, X3 and Y1 (L1 4.10 vs
+    4.18) and 0.07 y worse for W7 and X1, while keeping 13 points more.
+  - On LEMON the val threshold keeps 85–89 % (young 91–93 %, old 70–81 %), so
+    its MAE (3.93–4.11) is above keep 80 % (3.75–3.96), which rejects more.
+    The old group, the hardest one, is rejected most: the spread flags it.
+* **Trim + keep adds nothing over keep for the attention models** (fixed or
+  val: overall 0 to +0.07 y; per cohort ±0.15 y, helping X1 / X3 only on
+  LEMON). For E2L the fixed version is its best setting
+  (5.69 overall), but the val version (θ fitted after a trim that removed
+  half the windows) is worse than val keep alone on TUAB abnormal (8.85,
+  74 % kept) and LEMON old.
 * **Y1** (ungated + retention, 10 epochs) gains 0.57 y from all windows
   (6.08 → 5.51) and is the best model on Harvard abnormal (6.22) and LEMON
   old (6.08; 5.57 after rejection).
