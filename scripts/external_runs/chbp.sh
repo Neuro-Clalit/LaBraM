@@ -49,3 +49,15 @@ if [[ $step == report || $step == all ]]; then
     --eval chbp=$OUT/chbp_5min.json --cohort chbp=$ROOT/cohorts/chbp_v1 \
     --out-dir docs/data/external_eval/chbp --fig-dir docs/figures/chbp
 fi
+
+if [[ $step == metrics || $step == all ]]; then
+  # the guide's external-test metrics for E2L / L1 / W4 / W7 + their median ensemble;
+  # bias correction fitted on each model's own tuh_heedb_v1 validation predictions
+  VAL=(); for m in E2L L1 W4 W7; do VAL+=(--val $m=$OUT/own_all_val_$m.json); done
+  for tag in 5min all; do
+    $PY scripts/external_age_metrics.py --eval $OUT/chbp_$tag.json \
+      --meta $ROOT/cohorts/chbp_v1/age_metadata.json --models E2L L1 W4 W7 --train-mean 53.52 \
+      "${VAL[@]}" --val-meta /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1/age_metadata.json \
+      --out docs/data/external_eval/chbp/models_E2L_L1_W4_W7_$tag.csv
+  done
+fi

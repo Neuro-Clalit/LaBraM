@@ -195,7 +195,91 @@ grey line is identity.
   The ranking that held on LEMON (X3 best, E2 worst) reverses here: E2 is best
   and X3 worst. The shift hits the newer attention / bag models a bit harder.
 
-## 4. What to do next
+## 4. E2L, L1, W4 and W7 under the full external-test protocol
+
+`scripts/external_age_metrics.py` adds the remaining metrics of the Synapse
+evaluation guide for the four models, and for their per-recording median
+ensemble. It also scores the `cvbase` ensemble as a reference: the five TUH
+cross-validation folds (`all_both_v3_cvcompact`, TUAB test 7.44), downloaded
+from their SageMaker artifacts to `/data/runs/tuh_cv/cvbase`.
+
+### Metrics added
+
+With $e_i = \hat y_i - y_i$ as in Eq. (3.1):
+
+- the 95 % CI of the MAE is the 2.5 / 97.5 percentile of the MAE (3.1) over
+  2,000 bootstrap resamples of the recordings (seed 0) (4.1);
+- $\mathrm{RMSE} = \sqrt{\tfrac{1}{n}\sum_i e_i^2}$ (4.2);
+- the error slope is the OLS slope $s$ of $e_i = s\,y_i + c$ over the external
+  recordings (4.3). $s < 0$ means regression toward the mean.
+
+The training-mean baseline predicts 53.52 years, the training targets' mean,
+for every recording. It is the honest external baseline (4.4).
+
+The bias correction is fitted on our own data, never on CHBP. On the model's
+validation predictions for the normal-report recordings of `tuh_heedb_v1`
+(every window, `own_all_val_<model>.json`), fit
+
+$$ \hat y_j - y_j = a\,y_j + b \tag{4.5} $$
+
+by OLS. Then correct each CHBP prediction:
+
+$$ \hat y_i^{\mathrm{corr}} = \hat y_i - (a\,y_i + b) \tag{4.6} $$
+
+This is the usual brain-age gap correction (it uses the true age, as every
+such correction does). For the ensemble, $(a, b)$ is the median of the four
+fits.
+
+### Table 4.1. CHBP, n = 250, the four models and their ensemble
+
+All values are in years except r and R². Columns: MAE (3.1) with its 95 % CI
+(4.1), RMSE (4.2), R² (3.3), r (3.4), bias (3.2), error slope (4.3), MAE after
+the correction (4.6) with its bias, and the MAE over every resting window. The
+first 5 minutes is the training protocol. Baselines: CHBP mean (3.5) 7.27,
+training mean (4.4) 22.21.
+
+| model | MAE [95 % CI] | RMSE | R² | r | bias | slope | trend (4.5) $a$, $b$ | MAE corrected (bias) | every window: MAE / corrected |
+|---|---|---|---|---|---|---|---|---|---|
+| E2L | 9.55 [8.62, 10.50] | 12.16 | −0.71 | 0.44 | +7.05 | −0.55 | −0.25, 11.90 | **7.40** (+3.22) | 9.35 / **7.05** |
+| L1 | 9.37 [8.42, 10.34] | 12.04 | −0.68 | 0.47 | +5.26 | −0.43 | −0.15, 7.00 | 8.52 (+2.86) | 9.11 / 8.20 |
+| W4 | 9.19 [8.26, 10.17] | 11.83 | −0.62 | 0.47 | +5.04 | −0.44 | −0.15, 7.43 | 8.30 (+2.41) | 8.92 / 7.95 |
+| W7 | **9.10** [8.19, 10.10] | **11.75** | **−0.60** | 0.46 | **+4.83** | −0.45 | −0.15, 7.21 | 8.21 (+2.31) | **8.66** / 7.75 |
+| ensemble (median of 4) | 9.21 [8.31, 10.18] | 11.81 | −0.61 | 0.47 | +5.34 | −0.45 | −0.15, 7.32 | 8.22 (+2.76) | 8.87 / 7.86 |
+| `cvbase` ensemble (5 TUH folds; reference) | 8.58 [7.76, 9.42] | — | −0.37 | 0.35 | +5.20 | — | — | — | 8.38 / — |
+
+### Table 4.2. MAE (bias) by age group, first 5 minutes
+
+| model | 18–29 (n = 107) | 30–39 (n = 101) | 40–68 (n = 42) |
+|---|---|---|---|
+| predict the group mean (3.5) | 3.07 | 2.40 | 5.90 |
+| E2L | 11.63 (+11.28) | 8.17 (+5.62) | 7.55 (−0.27) |
+| L1 | 10.11 (+8.62) | 8.83 (+3.78) | 8.80 (+0.27) |
+| W4 | 10.01 (+8.55) | 8.61 (+3.43) | 8.49 (+0.00) |
+| W7 | 9.77 (+8.28) | 8.53 (+3.46) | 8.77 (−0.68) |
+| ensemble | 10.13 (+8.82) | 8.56 (+3.92) | 8.42 (−0.12) |
+| `cvbase` ensemble | 11.16 (+11.15) | — | 8.04 |
+
+Per-model rows, including the `cvbase` folds, are in
+`docs/data/external_eval/chbp/models_*.csv`.
+
+**What Tables 4.1 and 4.2 show:**
+- **Zero-shot, W7 is the best of the four** (9.10, every window 8.66). The
+  four are within 0.5 years of each other, and their bootstrap CIs overlap
+  completely. The median ensemble (9.21) does not beat the best single model.
+- **Every model over-predicts young adults.** Our own validation data shows
+  the same pattern: the fitted trends (4.5) give +2.2 to +3.9 years at age 32.
+  On CHBP the bias at that age is about +5 to +7 years.
+- **The correction with our own trend helps by about 1–2 years.** E2L, which
+  over-predicts most on its own validation data ($a = -0.25$), gains most:
+  7.40 on 5 min and 7.05 on every window. That is the only result below the
+  7.27 mean-age baseline, but it lies inside its CI. After correction a
+  residual bias of +2.3 to +3.2 years remains. That part is the CHBP-specific
+  shift (amplitude and spectrum, Section 2), not the age trend.
+- **The `cvbase` TUH ensemble** reaches a lower zero-shot MAE (8.58) and a
+  better R² (−0.37). It ranks people by age worse (r 0.35 vs 0.47), and
+  its young-adult offset is larger (+11.2 years).
+
+## 5. What to do next
 
 1. **Amplitude-robust input.** Train or fine-tune with per-recording amplitude
    normalization, or with amplitude-scaling augmentation. Then CHBP, LEMON and
@@ -211,7 +295,7 @@ grey line is identity.
 4. **Eyes-closed vs eyes-open.** Release 1.0 marks every block
    (`ojos cerrados` / `ojos abiertos`), so both states can be scored separately.
 
-## 5. MNCS (HarMNqEEG)
+## 6. MNCS (HarMNqEEG)
 
 All 1,966 subject `.mat` files (14 sites, 3.3 GB) are in
 `/data/datasets/EEG-public/MNCS/raw/ShareRawData/<site>/`. They are
