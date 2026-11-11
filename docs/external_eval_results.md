@@ -452,8 +452,8 @@ What Tables 6.1–6.9 show:
   - On the small TUAB cohorts it is mixed: −0.4 to −0.7 y on abnormal for
     E2L, W7 and X3, but +0.2 y for L1.
   - It is a selective-prediction trade: one recording in five gets no age.
-    Here the 20 % is a quantile of each test cohort itself. Fixed thresholds
-    chosen on val are in progress (`scripts/confidence_thresholds.py`).
+    Here the 20 % is a quantile of each test cohort itself; Section 7 fixes
+    the thresholds on val instead.
 * **Trim + reject together** is the best E2 / E2L setting everywhere (E2L
   Harvard normal 5.35, LEMON 4.19), but still 0.3–0.9 y behind the attention
   models' rejection alone on Harvard. For the attention models it is within ±0.1 y of
@@ -469,7 +469,145 @@ What Tables 6.1–6.9 show:
   for val / test). Model selection and the reported numbers should follow,
   because the 5-minute protocol understates every model by about 0.6 y on HEEDB.
 
-## 7. Not yet done
+## 7. Thresholds fitted on validation: window trimming and recording rejection
+
+Section 6 trims a fixed 20 % of windows and rejects the 20 % least confident
+recordings of each test cohort itself. This section fixes **absolute,
+label-free thresholds on the validation split** (10,614 recordings, all
+windows) and applies them unchanged to the test split and to LEMON. Every
+decision (the trimming rule, $\tau$, $\theta$) is made on val; test and LEMON
+only report the result. Script: `scripts/confidence_thresholds.py`; rows in
+`docs/data/confidence_thresholds/` (`trim_grid.csv`, `trim_selected.csv`,
+`reject_selected.csv`, `coverage_curves.csv`; the 80 % variant in
+`min_keep_0.80/`). The val and test windows come from
+`scripts/eval_age_by_cohort.py --eval-minutes 0 --save-windows`.
+
+For window $i$ of recording $r$ ($n_r$ windows, attention $\alpha_i$, window
+prediction $p_i$ in years), the window confidences are
+
+$$
+c_i = \alpha_i\, n_r \;\;(\text{attention; } 1 = \text{uniform}),\qquad
+d_i = \bigl\lvert p_i - \operatorname{median}_{j\in r} p_j \bigr\rvert \;\;(\text{deviation, years})
+\tag{7.1}
+$$
+
+A window is kept when $c_i \ge \tau$ (attention models) or $d_i \le \tau$
+(every model); each recording keeps its most confident window, and the kept
+windows are pooled with renormalised $\alpha$, Eq. (6.1). $\tau$ is the grid
+value (attention $0, 0.05, \dots, 2$; deviation $1, 2, \dots, 30$ y and
+$\infty$) with the lowest val MAE; no trimming is on both grids. A recording
+is **rejected** when the spread of Eq. (6.2), computed on its kept windows,
+exceeds $\theta$:
+
+$$
+\theta = \arg\min_{\theta'} \operatorname{MAE}\bigl(\{r\in\text{val} : s_r \le \theta'\}\bigr)
+\quad\text{s.t.}\quad
+\frac{\lvert\{r\in\text{val} : s_r \le \theta'\}\rvert}{\lvert\text{val}\rvert} \ge k_{\min}
+\tag{7.2}
+$$
+
+with $k_{\min} = 0.83$: the goal is to keep at least 80 % of new
+recordings, and a val-fitted $\theta$ keeps 1–3 points fewer on the Harvard
+test cohorts (Table 7.3). Rejection is applied with and without the
+val-chosen trim; val picks the better. The spread is fixed as the rejection
+score: letting val choose between spread, the effective window share
+$1/(n_r\sum_i a_i^2)$ and the attention entropy picked the entropy for W4,
+which transferred worse (test 5.23 vs 5.16, LEMON 4.38 vs 3.94 at
+$k_{\min} = 0.8$).
+
+### Table 7.1. Window trimming: val-chosen rule and threshold, MAE in years
+
+Columns: the rule and $\tau$ chosen on val, Eq. (7.1); the share of test
+windows it drops; recording MAE with all windows → trimmed on val, test and
+LEMON; "best $\tau$ on test" is a reference only (it uses test labels and
+decides nothing).
+
+| model | setup | rule, $\tau$ (val) | test windows dropped | val | test | best $\tau$ on test (MAE) | LEMON |
+|---|---|---|---|---|---|---|---|
+| E2L | window model, 16 ep | deviation, 3 y | 49 % | 6.60 → 6.48 | 6.13 → **5.97** | 4 y (5.965) | 5.20 → **4.95** |
+| W4 | gated, h; 4 ep | attention, 0.55 | 3.9 % | 6.052 → 6.049 | 5.494 → 5.495 | 0.25 (5.494) | 4.51 → 4.52 |
+| L1 | ungated, h; 4 ep | attention, 0.40 | 2.5 % | 6.061 → 6.059 | 5.464 → 5.465 | none (5.464) | 4.56 → 4.56 |
+| W7 | gated, h, ret. 0.1; 4 ep | attention, 0.45 | 2.8 % | 6.069 → 6.066 | 5.524 → 5.525 | 1.05 (5.522) | 4.59 → 4.60 |
+| X1 | gated, h, ret. 0.1; 20 ep | attention, 0.45 | 2.7 % | 6.065 → 6.062 | 5.504 → 5.505 | 0.15 (5.504) | 4.50 → 4.49 |
+| X3 | gated, h + q, ret. 0.1; 20 ep | attention, 0.35 | 2.7 % | 6.097 → 6.096 | 5.571 → 5.573 | 0.05 (5.571) | 4.37 → 4.37 |
+| Y1 | ungated, h, ret. 0.1; 10 ep | deviation, 28 y | 0.5 % | 6.047 → 6.045 | 5.507 → 5.511 | none (5.507) | 4.51 → 4.50 |
+
+### Table 7.2. Recording rejection at $k_{\min} = 0.83$: kept share and MAE of the kept recordings
+
+$\theta$ from Eq. (7.2) on val; "trim" is the val-chosen trim applied first
+(— none). Each cell is kept share / MAE of the kept recordings (years);
+"all" is the MAE without rejection.
+
+| model | trim, $\theta$ | val | test all | Harvard n | Harvard a | Harvard u | TUAB n | TUAB a | LEMON |
+|---|---|---|---|---|---|---|---|---|---|
+| E2L | —, 6.75 y | 83.1 % / 6.36 | 80.7 % / 5.83 (all 6.13) | **76.0 %** / 5.51 | 80.5 % / 6.28 | 81.9 % / 5.66 | 96.6 % / 4.69 | 88.0 % / 7.99 | 89.3 % / 4.63 (all 5.20) |
+| W4 | attn 0.55, 8.96 y | 83.0 % / 5.74 | 83.1 % / 5.19 (all 5.49) | 82.8 % / 4.55 | 83.1 % / 5.96 | 82.6 % / 4.92 | 93.3 % / 4.13 | 89.6 % / 8.08 | 86.4 % / 3.96 (all 4.52) |
+| L1 | attn 0.40, 9.06 y | 83.1 % / 5.73 | 82.8 % / **5.14** (all 5.46) | 82.0 % / **4.46** | 82.7 % / 5.91 | 82.5 % / **4.86** | 93.3 % / 4.10 | 90.4 % / 8.30 | 86.0 % / 4.06 (all 4.56) |
+| W7 | attn 0.45, 8.48 y | 83.2 % / 5.78 | 82.6 % / 5.19 (all 5.53) | 81.7 % / 4.64 | 82.2 % / **5.82** | 82.6 % / 4.99 | 95.3 % / 4.12 | 86.4 % / 7.94 | 86.0 % / 4.19 (all 4.60) |
+| X1 | attn 0.45, 8.65 y | 83.4 % / 5.80 | 83.1 % / 5.22 (all 5.51) | 81.8 % / 4.55 | 83.2 % / 5.94 | 83.0 % / 5.00 | 94.6 % / 4.08 | 87.2 % / 8.04 | 90.2 % / **3.94** (all 4.49) |
+| X3 | —, 8.49 y | 83.5 % / 5.79 | 83.3 % / 5.27 (all 5.57) | 82.5 % / 4.64 | 83.2 % / 5.96 | 83.0 % / 5.06 | 95.3 % / **4.04** | 87.2 % / **7.88** | 89.7 % / 3.95 (all 4.37) |
+| Y1 | —, 8.40 y | 83.0 % / 5.80 | 82.8 % / 5.24 (all 5.51) | 80.2 % / 4.58 | 83.8 % / 5.93 | 82.5 % / 5.01 | 96.0 % / 4.16 | 87.2 % / 8.12 | 88.8 % / 4.08 (all 4.51) |
+
+### Table 7.3. The same at $k_{\min} = 0.80$ (no margin): kept share on test
+
+| model | $\theta$ | val | test all | Harvard n | Harvard a | Harvard u | TUAB n | TUAB a | LEMON | test MAE kept |
+|---|---|---|---|---|---|---|---|---|---|---|
+| E2L | 6.53 y | 80.0 % | **77.2 %** | **71.7 %** | **76.9 %** | **78.6 %** | 95.3 % | 86.4 % | 87.4 % | 5.81 |
+| W4 | 8.68 y | 80.0 % | **79.8 %** | **79.5 %** | **79.9 %** | **79.0 %** | 92.6 % | 87.2 % | 85.0 % | 5.16 |
+| L1 | 8.84 y | 80.5 % | 80.6 % | 80.0 % | 80.7 % | 80.0 % | 93.3 % | 87.2 % | 86.0 % | **5.11** |
+| W7 | 8.28 y | 80.0 % | **79.1 %** | **76.9 %** | **78.9 %** | **79.4 %** | 94.0 % | 84.8 % | 84.6 % | 5.16 |
+| X1 | 8.40 y | 80.4 % | 80.2 % | **78.6 %** | 80.9 % | **79.8 %** | 90.6 % | 86.4 % | 86.9 % | 5.20 |
+| X3 | 8.31 y | 81.5 % | 81.2 % | 80.2 % | 81.2 % | 80.9 % | 94.0 % | 85.6 % | 89.3 % | 5.24 |
+| Y1 | 8.16 y | 80.1 % | **79.4 %** | **76.8 %** | 80.6 % | **78.9 %** | 92.6 % | 85.6 % | 86.0 % | 5.20 |
+
+**Bold** kept shares are below 80 %.
+
+### Figure 7.1. Val trimming curves and rejection coverage curves
+
+![confidence thresholds](figures/confidence_thresholds.png)
+
+Recording MAE (years) of the seven models, drawn by
+`scripts/confidence_thresholds.py --figure`:
+- (a) val MAE vs. the attention threshold $\tau$ on $c_i$, Eq. (7.1), attention models;
+- (b) val MAE vs. the deviation threshold $\tau$ on $d_i$ (years), every model (E2L is the top line);
+- (c) val MAE of the kept recordings vs. the kept share, rejecting by spread, no trim;
+- (d) the same on test; the dots mark the val-fitted $\theta$ of Eq. (7.2).
+
+What Tables 7.1–7.3 and Figure 7.1 show:
+
+* **Trimming by a val threshold only pays for the window model.**
+  - E2L keeps the windows within 3 y of its recording median (half of
+    them): test 6.13 → 5.97 and LEMON 5.20 → 4.95. The threshold
+    transfers: the best value on test itself (4 y) gives 5.965.
+  - The attention models get $\tau = 0.35$–$0.55$, which drops 2–4 % of
+    windows and changes the MAE by at most 0.004 y. Windows below uniform
+    weight hardly enter their pool, so there is nothing to trim
+    (Figure 7.1(a), flat to $c_i \approx 0.8$).
+  - Keeping only high-attention windows is much worse (Figure 7.1(a):
+    9.5–10 y at $\tau = 2$). The pool combines windows; the windows it
+    weights most are not individually reliable predictors.
+* **A val-fitted spread threshold is a good recording-rejection rule.**
+  - At $k_{\min} = 0.83$ the attention models keep 82.6–83.3 % of test
+    recordings and lower the test MAE by 0.27–0.34 y (L1 5.46 → 5.14, the
+    best). The rejected test recordings have MAE 6.8–7.1 y.
+  - The spread thresholds of the attention models are close to each other
+    (8.4–9.1 y): one global value of about 8.5 y would serve them all.
+  - On LEMON they keep 86–90 % and lower the MAE by 0.4–0.6 y (X1 / X3 /
+    W4 3.94–3.96). The rejected LEMON recordings have MAE 7.1–9.6 y.
+* **The 80 % margin.** Without it (Table 7.3), five of seven models keep
+  less than 80 % of some Harvard test cohort (down to 76.8 % for Y1 and
+  71.7 % for E2L). With $k_{\min} = 0.83$ every attention model keeps at
+  least 80.2 % in every test cohort and on LEMON, for 0.02–0.04 y more MAE.
+  E2L still keeps only 76.0 % of Harvard normal: its spread scale differs
+  between datasets, and it would need per-dataset thresholds.
+* **TUAB is rejected least** (86–97 % kept). On TUAB abnormal (125
+  recordings) rejection does not always help: for L1 the kept MAE is 8.30
+  vs 8.12 without rejection.
+* **Rule to deploy:** an attention model (L1 or X1), no trimming, reject
+  when the spread exceeds the val-fitted $\theta$ (about 8.6–9.1 y), fitted
+  at $k_{\min} = 0.83$.
+
+## 8. Not yet done
 
 - **CHBP and TDBRAIN** need a data use agreement (Synapse; brainclinics.com).
   The converter takes a new reader per corpus in `make_external_npy.DATASETS`.

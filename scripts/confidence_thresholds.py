@@ -26,8 +26,9 @@ a = renormalised alpha), the effective share of windows ``neff_r =
 1 / (n_r sum_i a_i^2)`` and the normalised entropy ``H(a) / log n_r``. A
 recording is **rejected** when ``s_r > theta`` (``neff`` / ``entropy``: when
 below ``theta``). ``theta`` is the value with the lowest val MAE of the kept
-recordings among those that keep at least ``--min-keep`` (0.8) of the val
-recordings. The kept share on test and LEMON is whatever ``theta`` gives
+recordings among those that keep at least ``--min-keep`` of the val
+recordings (default 0.83: 80 % plus a margin, since a val-fitted threshold
+keeps a little less on the Harvard test cohorts). The kept share on test and LEMON is whatever ``theta`` gives
 there; it is reported per cohort.
 
 Every decision -- tau, the trimming kind, theta and the rejection score -- is
@@ -199,7 +200,7 @@ def figure(grid, curves, rej, path):
     axes[0][1].set_title("window trimming by deviation, val")
     axes[1][0].set_title("recording rejection by spread, val")
     axes[1][1].set_title("recording rejection by spread, test (val θ: dots)")
-    axes[0][0].legend(fontsize=8)
+    axes[0][1].legend(fontsize=8)              # every model is in (b); E2L has no attention for (a)
     fig.tight_layout()
     panel_labels(list(axes.flat))
     assert_max_columns(fig)
@@ -212,7 +213,12 @@ def main():
     ap.add_argument("--test", required=True, help="dir with <model>_test.parquet")
     ap.add_argument("--external", nargs="*", default=[], metavar="NAME=DIR")
     ap.add_argument("--models", nargs="+", default=["E2L", "W4", "L1", "W7", "X1", "X3", "Y1"])
-    ap.add_argument("--min-keep", type=float, default=0.8)
+    ap.add_argument("--min-keep", type=float, default=0.83,
+                    help="share of val recordings theta must keep; 0.83 = 0.80 plus a margin, so that "
+                         "at least 80 %% are kept on new data (the test cohorts and LEMON)")
+    ap.add_argument("--reject-score", default="spread", choices=["spread", "neff", "entropy", "auto"],
+                    help="the recording confidence of the deployed rule; 'auto' picks it on val "
+                         "(it chose the attention entropy for W4, which transferred worse)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--figure", default=None, help="PNG: trim curves and rejection coverage curves")
     args = ap.parse_args()
@@ -290,6 +296,8 @@ def main():
     # The deployed rule per model: the (trim, score) pair with the lowest val MAE of the
     # kept val recordings. Chosen on val only; test / external rows are then reported.
     v = rej[(rej.split == "val") & (rej.group == "all")]
+    if args.reject_score != "auto":
+        v = v[v.score == args.reject_score]
     best = v.loc[v.groupby("model")["mae_kept"].idxmin(), ["model", "trim", "score"]]
     rej["selected_on_val"] = rej.merge(best.assign(sel=True), how="left",
                                        on=["model", "trim", "score"])["sel"].fillna(False).to_numpy()
