@@ -256,7 +256,172 @@ On SageMaker the LEMON folder is mounted from its S3 copy
 missing on a machine is skipped with a warning. Add MIPDB with
 `--set 'evaluation.test_sets=["temple","lemon=…","mipdb=/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1"]'`.
 
-## 6. Not yet done
+## 6. Evaluation strategies per cohort: 5 min, all windows, attention trimming, recording rejection
+
+Script: `scripts/eval_strategies_table.py`, with rows in
+`docs/data/external_eval/strategies_by_cohort.csv`. The data are the own test
+split of `tuh_heedb_v1` (Harvard = HEEDB, Temple = the TUAB eval set) and LEMON,
+scored zero-shot.
+
+For a recording $r$ with selected windows $i \in S_r$, attention weights
+$\alpha_i$ and window predictions $p_i$ (years), every column pools as
+
+$$
+\hat y_r = \frac{\sum_{i\in S_r}\alpha_i\,p_i}{\sum_{i\in S_r}\alpha_i},
+\qquad
+\mathrm{MAE} = \frac{1}{|R|}\sum_{r\in R}\lvert \hat y_r - y_r\rvert
+\tag{6.1}
+$$
+
+and the columns differ in $S_r$ and $R$:
+- **5 min** (default): $S_r$ = the first 30 windows after the 60 s trim; $R$ = all recordings.
+- **all windows**: $S_r$ = every window between the 60 s trims (`--eval-minutes 0`).
+- **trim 20 % windows**: $S_r$ = all windows except those whose relative weight $\alpha_i\,n_r$ is below the 20th percentile over the split. This is label-free; a recording keeps at least its top window.
+- **keep 80 % recordings**: all windows. $R$ excludes the 20 % of recordings with the largest attention-weighted spread $\sqrt{\sum_i \alpha_i (p_i-\hat y_r)^2}$. The other 20 % get no prediction, so this column is selective prediction over 80 % of the recordings.
+
+The window-level models E2 and E2L have no attention: $\alpha_i$ is uniform,
+and their trim / reject cells are empty (—). **Bold** marks the best value in
+a column of a table.
+
+### Table 6.1. Own test split, all recordings (n = 7,612), 5 min vs. all windows
+
+| model | 5 min | all windows | change |
+|---|---|---|---|
+| E2 (TUH + HEEDB) | 7.25 | 6.36 | −0.89 |
+| E2L (E2, 16 epochs) | 7.00 | 6.13 | −0.87 |
+| W4 gated ABMIL | 6.10 | 5.49 | −0.61 |
+| L1 ungated ABMIL | **6.09** | **5.46** | −0.63 |
+| W7 gated + retention | 6.12 | 5.52 | −0.60 |
+| X1 gated + retention, 20 ep | **6.09** | 5.50 | −0.59 |
+| X3 gated h+q + retention, 20 ep | 6.15 | 5.57 | −0.58 |
+
+### Table 6.2. Harvard normal (n = 1,518), MAE in years
+
+| model | 5 min | all windows | trim 20 % windows | keep 80 % recordings |
+|---|---|---|---|---|
+| E2 (TUH + HEEDB) | 7.43 | 6.07 | — | — |
+| E2L (E2, 16 epochs) | 7.12 | 5.77 | — | — |
+| W4 gated ABMIL | 5.72 | 4.80 | 4.78 | 4.52 |
+| L1 ungated ABMIL | **5.71** | **4.79** | 4.78 | **4.47** |
+| W7 gated + retention | 5.83 | 4.88 | 4.87 | 4.61 |
+| X1 gated + retention, 20 ep | **5.71** | 4.80 | **4.77** | 4.52 |
+| X3 gated h+q + retention, 20 ep | 5.87 | 4.93 | 4.91 | 4.61 |
+
+### Table 6.3. Harvard abnormal (n = 2,253), MAE in years
+
+| model | 5 min | all windows | trim 20 % windows | keep 80 % recordings |
+|---|---|---|---|---|
+| E2 (TUH + HEEDB) | 7.83 | 6.84 | — | — |
+| E2L (E2, 16 epochs) | 7.56 | 6.63 | — | — |
+| W4 gated ABMIL | 6.77 | 6.27 | 6.33 | 5.89 |
+| L1 ungated ABMIL | 6.79 | 6.25 | 6.33 | 5.86 |
+| W7 gated + retention | **6.73** | **6.23** | **6.27** | **5.82** |
+| X1 gated + retention, 20 ep | 6.75 | 6.27 | 6.33 | 5.90 |
+| X3 gated h+q + retention, 20 ep | 6.78 | 6.33 | 6.43 | 5.93 |
+
+### Table 6.4. Harvard unlabelled (n = 3,567), MAE in years
+
+| model | 5 min | all windows | trim 20 % windows | keep 80 % recordings |
+|---|---|---|---|---|
+| E2 (TUH + HEEDB) | 6.86 | 6.15 | — | — |
+| E2L (E2, 16 epochs) | 6.64 | 5.94 | — | — |
+| W4 gated ABMIL | 5.83 | 5.27 | 5.30 | 4.91 |
+| L1 ungated ABMIL | **5.80** | **5.22** | **5.27** | **4.83** |
+| W7 gated + retention | 5.87 | 5.32 | 5.33 | 4.95 |
+| X1 gated + retention, 20 ep | 5.84 | 5.28 | 5.32 | 4.98 |
+| X3 gated h+q + retention, 20 ep | 5.87 | 5.33 | 5.38 | 4.98 |
+
+### Table 6.5. Temple (TUAB) normal (n = 149), MAE in years
+
+| model | 5 min | all windows | trim 20 % windows | keep 80 % recordings |
+|---|---|---|---|---|
+| E2 (TUH + HEEDB) | 5.13 | 5.14 | — | — |
+| E2L (E2, 16 epochs) | 4.91 | 4.81 | — | — |
+| W4 gated ABMIL | 4.45 | 4.15 | 4.14 | 4.13 |
+| L1 ungated ABMIL | 4.41 | 4.15 | 4.13 | 4.18 |
+| W7 gated + retention | 4.36 | 4.15 | 4.12 | 4.08 |
+| X1 gated + retention, 20 ep | **4.27** | **4.09** | **4.01** | **4.02** |
+| X3 gated h+q + retention, 20 ep | 4.43 | 4.10 | 4.11 | 4.05 |
+
+### Table 6.6. Temple (TUAB) abnormal (n = 125), MAE in years
+
+| model | 5 min | all windows | trim 20 % windows | keep 80 % recordings |
+|---|---|---|---|---|
+| E2 (TUH + HEEDB) | 8.56 | 8.32 | — | — |
+| E2L (E2, 16 epochs) | 8.50 | 8.52 | — | — |
+| W4 gated ABMIL | 8.20 | 8.14 | 8.14 | 7.98 |
+| L1 ungated ABMIL | 8.13 | **8.12** | **8.13** | 8.30 |
+| W7 gated + retention | **8.07** | 8.14 | 8.16 | **7.65** |
+| X1 gated + retention, 20 ep | 8.18 | 8.29 | 8.30 | 7.91 |
+| X3 gated h+q + retention, 20 ep | 8.17 | 8.17 | 8.15 | 7.74 |
+
+### Table 6.7. LEMON all (n = 214), MAE in years
+
+| model | 5 min | all windows | trim 20 % windows | keep 80 % recordings |
+|---|---|---|---|---|
+| E2 (TUH + HEEDB) | 5.81 | 5.75 | — | — |
+| E2L (E2, 16 epochs) | 5.22 | 5.20 | — | — |
+| W4 gated ABMIL | 4.62 | 4.51 | 4.39 | 3.80 |
+| L1 ungated ABMIL | 4.68 | 4.56 | 4.51 | 3.86 |
+| W7 gated + retention | 4.66 | 4.59 | 4.58 | 3.96 |
+| X1 gated + retention, 20 ep | 4.53 | 4.50 | 4.30 | 3.88 |
+| X3 gated h+q + retention, 20 ep | **4.47** | **4.37** | **4.20** | **3.75** |
+
+### Table 6.8. LEMON young (n = 144), MAE in years
+
+| model | 5 min | all windows | trim 20 % windows | keep 80 % recordings |
+|---|---|---|---|---|
+| E2 (TUH + HEEDB) | 4.52 | 4.59 | — | — |
+| E2L (E2, 16 epochs) | 3.88 | 3.94 | — | — |
+| W4 gated ABMIL | **3.55** | **3.48** | 3.32 | 2.86 |
+| L1 ungated ABMIL | 3.75 | 3.63 | 3.56 | 2.97 |
+| W7 gated + retention | 3.73 | 3.64 | 3.60 | 2.94 |
+| X1 gated + retention, 20 ep | 3.68 | 3.64 | 3.40 | 2.82 |
+| X3 gated h+q + retention, 20 ep | 3.61 | 3.51 | **3.31** | **2.72** |
+
+### Table 6.9. LEMON old (n = 70), MAE in years
+
+| model | 5 min | all windows | trim 20 % windows | keep 80 % recordings |
+|---|---|---|---|---|
+| E2 (TUH + HEEDB) | 8.47 | 8.12 | — | — |
+| E2L (E2, 16 epochs) | 7.97 | 7.77 | — | — |
+| W4 gated ABMIL | 6.82 | 6.65 | 6.60 | 5.90 |
+| L1 ungated ABMIL | 6.61 | 6.47 | 6.47 | 5.90 |
+| W7 gated + retention | 6.57 | 6.54 | 6.58 | 5.97 |
+| X1 gated + retention, 20 ep | 6.29 | 6.25 | 6.14 | 5.76 |
+| X3 gated h+q + retention, 20 ep | **6.24** | **6.13** | **6.01** | **5.73** |
+
+What Tables 6.1–6.9 show:
+
+* **Scoring the whole recording is the largest gain on our own test split.**
+  - All windows instead of the first 5 minutes lower the test MAE by 0.6–0.9 y
+    for every model (Table 6.1). L1 goes 6.09 → 5.46 and E2L 7.00 → 6.13.
+  - The gain is on HEEDB, whose recordings are long (median about 25 min):
+    Harvard normal 5.71 → 4.79 (L1), unlabelled 5.80 → 5.22, abnormal
+    6.79 → 6.25.
+  - TUAB gains less: normal 4.41 → 4.15 (L1), abnormal unchanged at about 8.1.
+  - The window-level models gain as much as the attention models (E2L
+    −0.87 y overall). The 5-minute evaluation budget, not the pooling, was
+    the main limit.
+  - The attention models' lead over E2/E2L stays (5.46–5.57 vs. 6.13–6.36).
+* **Attention trimming adds nothing on top of all windows on our own data**
+  (±0.06 y). On LEMON it still helps (X3 4.37 → 4.20, X1 4.50 → 4.30): the
+  attention is less sure on data it never saw, and trimming its weakest
+  windows helps there.
+* **Rejecting the 20 % least confident recordings** lowers the MAE of the
+  rest by 0.3–0.5 y on HEEDB and 0.6–0.8 y on LEMON.
+  - On the small TUAB cohorts it is mixed: −0.3 to −0.5 y for X3 / W7 on
+    abnormal, +0.2 y for L1 on abnormal.
+  - It is a selective-prediction trade: one recording in five gets no age.
+* **Best per cohort with all windows:**
+  - Harvard: L1 / W4 / X1 (normal 4.79–4.80, unlabelled 5.22–5.28), W7 on abnormal (6.23);
+  - TUAB: X1 normal (4.09), L1 abnormal (8.12);
+  - LEMON: X3 (4.37; 4.20 with trimming).
+* **Implication:** evaluate on every window by default (`data.eval_minutes=0`
+  for val / test). Model selection and the reported numbers should follow,
+  because the 5-minute protocol understates every model by about 0.6 y on HEEDB.
+
+## 7. Not yet done
 
 - **CHBP and TDBRAIN** need a data use agreement (Synapse; brainclinics.com).
   The converter takes a new reader per corpus in `make_external_npy.DATASETS`.
