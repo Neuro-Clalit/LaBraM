@@ -14,6 +14,13 @@ predictions** (``--val name=json``, normal-report recordings of
 ``pred - (a * age + b)``. ``ensemble`` is the per-recording median over the
 chosen models (and over its fits for the correction).
 
+``--cv-split`` (a ``cv_split.json`` of ``labram.runs.finetune_cv``) adds a
+within-cohort comparison on exactly those folds: for each test fold *k* the
+linear recalibration ``age = c * pred + d`` is fitted (OLS) on the recordings of
+every other fold and applied to fold *k*; reported are the pooled out-of-fold
+MAE / R^2 / r and the MAE mean +- std over folds. It uses the cohort's ages, so
+it is a within-cohort CV result, comparable with published within-cohort CV.
+
     python scripts/external_age_metrics.py \\
         --eval /data/runs/heedb/external_eval/chbp_5min.json \\
         --meta /data/datasets/EEG-public/CHBP/cohorts/chbp_v1/age_metadata.json \\
@@ -50,6 +57,34 @@ def age_metrics(y, yhat, train_mean=None, n_boot=2000, seed=0):
     return out
 
 
+def cv_folds(path, stems):
+    """Fold index per stem from a ``cv_split.json`` (groups are subjects = stem prefix)."""
+    split = json.load(open(path))
+    of = {g: f["fold"] for f in split["folds"] for g in f["groups"]}
+    return np.array([of[s.split("_")[0]] for s in stems])
+
+
+def fold_r2(y, yhat):
+    """R^2 within one test fold (as Engemann et al. 2022 report it, then averaged)."""
+    return 1 - ((yhat - y) ** 2).sum() / ((y - y.mean()) ** 2).sum()
+
+
+def cv_recalibration(y, yhat, fold):
+    """Out-of-fold ``c * pred + d`` (OLS of age on pred over the other folds)."""
+    out = np.empty_like(yhat)
+    for k in np.unique(fold):
+        c, d = np.polyfit(yhat[fold != k], y[fold != k], 1)
+        out[fold == k] = c * yhat[fold == k] + d
+    per_fold = [np.abs(out[fold == k] - y[fold == k]).mean() for k in np.unique(fold)]
+    r2_fold = [fold_r2(y[fold == k], out[fold == k]) for k in np.unique(fold)]
+    err = out - y
+    return {"cv_mae": np.abs(err).mean(), "cv_mae_fold_mean": np.mean(per_fold),
+            "cv_mae_fold_std": np.std(per_fold, ddof=1),
+            "cv_r2_fold_mean": np.mean(r2_fold), "cv_r2_fold_std": np.std(r2_fold, ddof=1),
+            "cv_r2": 1 - (err ** 2).sum() / ((y - y.mean()) ** 2).sum(),
+            "cv_r": np.corrcoef(y, out)[0, 1]}
+
+
 def gap_trend(val_json, name, val_ages):
     """(a, b) of ``pred - age = a * age + b`` on the model's own normal val recordings."""
     p = pd.Series(json.load(open(val_json))[name]["splits"]["val"]["predictions"])
@@ -66,6 +101,7 @@ def main():
     ap.add_argument("--train-mean", type=float, default=None)
     ap.add_argument("--val", action="append", default=[], metavar="NAME=JSON")
     ap.add_argument("--val-meta", default=None)
+    ap.add_argument("--cv-split", default=None, help="cv_split.json for within-cohort CV recalibration")
     ap.add_argument("--bins", nargs="+", type=float, default=[18, 30, 40, 69])
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
@@ -85,6 +121,7 @@ def main():
         if all(m in trend for m in args.models):
             trend["ensemble"] = np.median([trend[m] for m in args.models], axis=0)
 
+    fold = cv_folds(args.cv_split, pred.index) if args.cv_split else None
     bins = pd.cut(age, args.bins, right=False)
     rows = []
     y = age.to_numpy()
@@ -96,6 +133,8 @@ def main():
             corr = yhat - (a * y + b)
             row.update({"trend_a": a, "trend_b": b, "mae_corrected": np.abs(corr - y).mean(),
                         "bias_corrected": (corr - y).mean()})
+        if fold is not None:
+            row.update(cv_recalibration(y, yhat, fold))
         for interval, mask in bins.groupby(bins, observed=True).groups.items():
             sel = age.index.get_indexer(mask)
             e = yhat[sel] - y[sel]

@@ -281,19 +281,23 @@ Per-model rows, including the `cvbase` folds, are in
 
 ## 5. What to do next
 
-1. **Amplitude-robust input.** Train or fine-tune with per-recording amplitude
-   normalization, or with amplitude-scaling augmentation. Then CHBP, LEMON and
-   MIPDB can be rescored without the diagnostic factor. Unsupervised re-centring
-   (Mellot 2023) is the label-free post-hoc alternative.
-2. **Within-CHBP 10-fold CV fine-tune.** Fine-tune the best checkpoint on 9
-   folds, shuffled and split by subject with a fixed seed, and predict the 10th.
-   This is like-for-like with Engemann's 6.48 (guide Section 6.4,
-   `synapse_age_eval.chbp_cv_splits`).
-3. **Band-limit test on the training side.** Score the TUH / HEEDB test sets
-   after a 0.5–50 Hz filter. That measures how much of the gap is the recording
-   filter alone.
-4. **Eyes-closed vs eyes-open.** Release 1.0 marks every block
-   (`ojos cerrados` / `ojos abiertos`), so both states can be scored separately.
+CHBP stays an external test set: it is not used for training, tuning or
+fitting (decision of 2026-11-11). Why the models degrade on it, and how to
+normalize such data, is analysed in `docs/chbp_domain_shift.md`. In short:
+- CHBP's 0.5–50 Hz recording band takes away content above 50 Hz that the models
+  rely on for ranking ages;
+- its amplitude, about 0.6× the training data's, adds an offset of about +6 years;
+- its 120-channel recordings carry an extra shift.
+
+Next steps, all on the training side:
+1. **Band-limited, amplitude-robust training on Temple / Harvard.** Use a common
+   band such as 0.5 (or 1) to 45 Hz, and per-recording amplitude normalization
+   or gain augmentation. Then rescore CHBP, LEMON and MIPDB.
+2. **Robustness checks during training.** Score the label-free forward tests of
+   `docs/chbp_domain_shift.md` (Table 7.1) on the validation split as a
+   robustness benchmark.
+3. **Eyes-closed vs eyes-open.** Release 1.0 marks every block (`ojos cerrados`
+   / `ojos abiertos`), so the two states can be scored separately.
 
 ## 6. MNCS (HarMNqEEG)
 
