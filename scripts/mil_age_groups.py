@@ -48,6 +48,7 @@ EXPERIMENTS = {
     "X5 bags 8-32, 20 ep": "X5",
     "X6 bags 8-64, 20 ep": "X6",
     "Y1 ungated + retention, 10 ep": "Y1",
+    "Y2 ungated hq + retention, 10 ep": "Y2",
 }
 
 

@@ -20,10 +20,11 @@ from labram.eval.age_plots import assert_max_columns, panel_labels  # noqa: E402
 
 STYLE = {"X1": ("C0", "-"), "X3": ("C1", "-"), "X2 (SageMaker)": ("C2", "-"), "X2 (local)": ("C2", ":"),
          "X4": ("C3", "-"), "X5": ("C4", "-"), "X6": ("C5", "-"),
-         "W4": ("C0", "--"), "L1": ("C2", "--"), "W7": ("C1", "--"), "Y1": ("C6", "-")}
+         "W4": ("C0", "--"), "L1": ("C2", "--"), "W7": ("C1", "--"), "Y1": ("C6", "-"), "Y2": ("C7", "-")}
 LABEL = {"X1": "X1 gated + retention", "X3": "X3 gated hq + retention", "X2 (SageMaker)": "X2 ungated (SageMaker)",
          "X2 (local)": "X2 ungated (local)", "X4": "X4 ungated hq", "X5": "X5 bags 8-32",
-         "X6": "X6 bags 8-64", "W4": "W4 (4 epochs)", "L1": "L1 (4 epochs)", "W7": "W7 (4 epochs)", "Y1": "Y1 ungated + retention (10 ep)"}
+         "X6": "X6 bags 8-64", "W4": "W4 (4 epochs)", "L1": "L1 (4 epochs)", "W7": "W7 (4 epochs)", "Y1": "Y1 ungated + retention (10 ep)",
+         "Y2": "Y2 ungated hq + retention (10 ep)"}
 
 
 def main():

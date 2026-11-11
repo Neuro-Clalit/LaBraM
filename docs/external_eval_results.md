@@ -97,7 +97,7 @@ Predictions are de-normalised with the training-target statistics of
 The models:
 - **E2:** TUH + HEEDB;
 - **E2L:** E2 trained longer;
-- **W4 / L1 / W7 / X1 / X3 / X6 / Y1:** the attention-MIL models of `docs/mil_stage1_results.md`, scored bag-wise.
+- **W4 / L1 / W7 / X1 / X3 / X6 / Y1 / Y2:** the attention-MIL models of `docs/mil_stage1_results.md`, scored bag-wise.
 
 Columns, for recordings $r$ of a group $G$ with true age $y_r$ and prediction $\hat y_r$:
 
@@ -133,6 +133,7 @@ $\hat y$). It uses the cohort's ages, so it is **not** zero-shot.
 | **X3** | **4.47** | −0.67 | **0.96** | **0.91** | 3.61 (+0.85) | 6.24 (−3.81) | **4.46** | **4.37** |
 | X6 (bags 8–64) | 4.49 | −0.30 | 0.95 | 0.91 | 3.65 (+1.08) | 6.21 (−3.13) | 4.53 | 4.46 |
 | Y1 (ungated + retention, 10 ep) | 4.55 | −0.59 | 0.95 | 0.91 | 3.78 (+0.87) | **6.13** (−3.60) | 4.55 | 4.51 |
+| Y2 (ungated h + q + retention, 10 ep) | 4.56 | −0.73 | 0.95 | 0.91 | 3.61 (+1.11) | 6.52 (−4.51) | 4.51 | 4.51 |
 
 Binning alone costs about 1.25 y of MAE: the mean absolute distance of a
 uniform age from its 5-year bin's midpoint.

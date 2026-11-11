@@ -1005,7 +1005,7 @@ Launcher: `scripts/mil_runs/submit_grid.sh` (jobs `X1`–`X6`); X2 also runs on
 the local GPU (`scripts/mil_runs/run_local_abmil.sh trainer.epochs=20
 mil.freeze_encoder_epochs=4`). ClearML project `LaBraM/heedb_mil`.
 
-### Table 12.1. Jobs (status 2026-11-11 09:40 UTC)
+### Table 12.1. Jobs (status 2026-11-11 15:20 UTC)
 
 | job | pool | attention reads | retention | bag | where | status |
 |---|---|---|---|---|---|---|
@@ -1017,7 +1017,7 @@ mil.freeze_encoder_epochs=4`). ClearML project `LaBraM/heedb_mil`.
 | X5 | gated (X1) | $h$ | 0.1 | 16 × K, K ~ U{8..32} | SM g5.2xlarge on-demand | done (13:49 UTC; ~53 min per trained epoch) |
 | X6 | gated (X1) | $h$ | 0.1 | 8 × K, K ~ U{8..64} | SM g5.4xlarge on-demand (resubmitted) | done (01:27 UTC, 11 Nov; ~92 min per trained epoch) |
 | Y1 | ungated (L1) | $h$ | 0.1 | 32 × 8 | local GPU (no SageMaker g5 capacity); 10 epochs, frozen 0–3 | done (best val epoch 6) |
-| Y2 | ungated (L1) | $h$ + $q$ | 0.1 | 32 × 8 | local GPU, after Y1; 10 epochs, frozen 0–3 | running |
+| Y2 | ungated (L1) | $h$ + $q$ | 0.1 | 32 × 8 | local GPU, after Y1; 10 epochs, frozen 0–3 | done (14:53 UTC; best val epoch 9) |
 
 Infrastructure notes:
 - **X6, first attempt** (spot `g5.4xlarge`) stopped logging silently in
@@ -1122,6 +1122,7 @@ $\eta$ is the share of the train-eval improvement that reached val.
 | X5 bags 8–32 | 6.64 → 6.60 (12) | 6.16 / 6.18 | 4.16 → 3.37 | 2.48 → 3.07 → 3.26 | 0.06 |
 | X6 bags 8–64 | 6.73 → 6.63 (12) | 6.21 / 6.24 | 4.37 → 3.27 | 2.35 → 3.09 → 3.41 | 0.08 |
 | Y1 ungated + retention, 10 ep | 6.64 → **6.48** (6) | **6.08** / **6.06** | 4.17 → 3.76 | 2.47 → 2.64 → 2.73 | 0.39 |
+| Y2 ungated hq + retention, 10 ep | 6.63 → 6.50 (9) | 6.09 / 6.09 | 4.14 → 3.83 | 2.49 → 2.68 → 2.68 | 0.39 |
 
 ### Table 12.4. Gap per dataset: L1 after 4 epochs vs. X2 after 20 (same model; val − train-eval, years)
 
@@ -1167,9 +1168,10 @@ larger, so 0.2 y is a lower bound there.
 | X4 | ungated ABMIL, h + q; 20 ep, frozen 0–3 (best 6) | **6.59** | 5.65 / 7.26 | **6.63** / **7.83** / **8.35** | **5.65** / **6.98** / **6.08** | **6.20** / **5.67** / 6.96 / **5.94** | 4.63 / 8.57 | **5.77** / 6.87 / **5.94** |
 | X2 local | ungated ABMIL, h; 20 ep, frozen 0–3 (best 10) | **6.61** | **5.49** / 7.43 | **6.57** / 7.92 / 8.95 | **5.56** / **6.94** / **6.12** | **6.13** / **5.58** / **6.90** / **5.88** | 4.53 / 8.58 | **5.68** / **6.80** / **5.88** |
 | X2 SageMaker | as X2 local (last epoch 19) | **6.63** | 5.53 / 7.33 | 6.74 / 7.94 / 8.54 | **5.51** / 7.02 / **6.12** | **6.16** / **5.61** / **6.92** / **5.90** | 4.62 / **8.24** | **5.71** / **6.84** / **5.90** |
-| X5 | gated ABMIL, h, retention 0.1, bags 16 × 8–32; 20 ep, frozen 0–3 (best 12) | **6.59** | **5.45** / **7.16** | 6.73 / 7.90 / 8.65 | **5.61** / **6.93** / **6.06** | **6.16** / **5.65** / **6.88** / **5.91** | **4.47** / **8.27** | **5.76** / **6.81** / **5.91** |
+| X5 | gated ABMIL, h, retention 0.1, bags 16 × 8–32; 20 ep, frozen 0–3 (best 12) | **6.59** | **5.45** / **7.16** | 6.73 / 7.90 / 8.65 | **5.61** / **6.93** / **6.06** | **6.16** / **5.65** / **6.88** / **5.91** | **4.47** / 8.27 | **5.76** / **6.81** / **5.91** |
 | X6 | gated ABMIL, h, retention 0.1, bags 8 × 8–64; 20 ep, frozen 0–3 (best 12) | **6.63** | 5.53 / **7.09** | 6.80 / 7.99 / 8.74 | **5.64** / **6.95** / **6.08** | **6.21** / **5.74** / **6.94** / **5.95** | 4.75 / 8.33 | **5.84** / **6.86** / **5.95** |
 | Y1 | ungated ABMIL, h, retention 0.1; 10 ep, frozen 0–3 (best 6) | **6.48** | **5.40** / **7.10** | **6.56** / **7.66** / 8.55 | **5.55** / **6.80** / **6.00** | **6.08** / **5.64** / **6.75** / **5.83** | 4.50 / **8.23** | **5.75** / **6.67** / **5.83** |
+| Y2 | ungated ABMIL, h + q, retention 0.1; 10 ep, frozen 0–3 (best 9) | **6.50** | **5.34** / 7.23 | **6.52** / **7.70** / **8.45** | **5.56** / **6.88** / **6.02** | **6.09** / **5.64** / **6.78** / **5.84** | **4.35** / **8.04** | **5.77** / **6.71** / **5.84** |
 
 ### Table 12.6. $R^2$ per cohort at the best val epoch (same runs, epochs and columns as Table 12.5)
 
@@ -1186,12 +1188,12 @@ column (ties at three decimals all bold).
 
 | run | setup (pool, attention input, regularizer, epochs) | val all | val TUAB n / a | val TUEG n / a / u | val HEEDB n / a / u | test all / n / a / u | test TUAB n / a | test HEEDB n / a / u |
 |---|---|---|---|---|---|---|---|---|
-| E2L | window model, mean of window preds; 16 ep (best 11) | 0.754 | **0.779** / 0.588 | 0.702 / 0.633 / **0.404** | 0.784 / 0.723 / 0.802 | 0.791 / 0.781 / 0.741 / 0.811 | 0.855 / 0.598 | 0.775 / 0.748 / 0.811 |
+| E2L | window model, mean of window preds; 16 ep (best 11) | 0.754 | 0.779 / 0.588 | 0.702 / 0.633 / **0.404** | 0.784 / 0.723 / 0.802 | 0.791 / 0.781 / 0.741 / 0.811 | 0.855 / 0.598 | 0.775 / 0.748 / 0.811 |
 | A3 | post-hoc window weights on frozen E2L (descriptors → softmax); no retraining | 0.769 | 0.775 / 0.594 | 0.693 / 0.632 / 0.387 | 0.817 / 0.750 / 0.819 | 0.812 / 0.813 / 0.765 / 0.826 | 0.852 / 0.588 | 0.809 / 0.773 / 0.826 |
 | W4 | gated ABMIL, h; 4 ep (best 3) | 0.783 | 0.777 / 0.602 | 0.699 / 0.628 / 0.366 | **0.846** / 0.769 / 0.833 | 0.826 / 0.838 / 0.771 / 0.841 | 0.876 / 0.609 | **0.835** / 0.779 / 0.841 |
-| L1 | ungated ABMIL, h; 4 ep (best 3) | 0.781 | 0.768 / **0.620** | **0.703** / 0.619 / 0.361 | 0.843 / 0.763 / 0.835 | 0.826 / 0.838 / 0.771 / **0.842** | 0.879 / **0.617** | 0.834 / 0.778 / **0.842** |
+| L1 | ungated ABMIL, h; 4 ep (best 3) | 0.781 | 0.768 / **0.620** | 0.703 / 0.619 / 0.361 | 0.843 / 0.763 / 0.835 | 0.826 / 0.838 / 0.771 / **0.842** | 0.879 / **0.617** | 0.834 / 0.778 / **0.842** |
 | W7 | gated ABMIL, h, retention 0.1; 4 ep (best 3) | 0.783 | 0.778 / 0.589 | 0.700 / 0.632 / 0.376 | 0.839 / 0.768 / 0.835 | 0.826 / 0.833 / 0.775 / 0.841 | 0.882 / 0.603 | 0.829 / 0.783 / 0.841 |
-| X1 | gated ABMIL, h, retention 0.1; 20 ep, frozen 0–3 (best 17) | 0.782 | **0.779** / 0.606 | 0.695 / 0.627 / 0.351 | 0.844 / 0.767 / 0.835 | 0.826 / **0.839** / 0.772 / **0.842** | **0.885** / 0.600 | **0.835** / 0.780 / **0.842** |
+| X1 | gated ABMIL, h, retention 0.1; 20 ep, frozen 0–3 (best 17) | 0.782 | 0.779 / 0.606 | 0.695 / 0.627 / 0.351 | 0.844 / 0.767 / 0.835 | 0.826 / **0.839** / 0.772 / **0.842** | **0.885** / 0.600 | **0.835** / 0.780 / **0.842** |
 | X3 | gated ABMIL, h + q, retention 0.1; 20 ep, frozen 0–3 (best 7) | 0.780 | 0.777 / 0.581 | 0.689 / 0.622 / 0.341 | 0.837 / 0.765 / **0.838** | 0.823 / 0.827 / 0.771 / 0.840 | 0.880 / 0.603 | 0.823 / 0.779 / 0.840 |
 | X4 | ungated ABMIL, h + q; 20 ep, frozen 0–3 (best 6) | 0.778 | 0.757 / 0.592 | 0.701 / 0.615 / 0.375 | 0.838 / 0.762 / 0.832 | 0.822 / 0.834 / 0.764 / 0.838 | 0.869 / 0.567 | 0.831 / 0.773 / 0.838 |
 | X2 local | ungated ABMIL, h; 20 ep, frozen 0–3 (best 10) | 0.775 | 0.776 / 0.560 | 0.698 / 0.615 / 0.306 | 0.841 / 0.760 / 0.828 | 0.822 / 0.838 / 0.765 / 0.836 | 0.874 / 0.572 | **0.835** / 0.774 / 0.836 |
@@ -1199,6 +1201,7 @@ column (ties at three decimals all bold).
 | X5 | gated ABMIL, h, retention 0.1, bags 16 × 8–32; 20 ep, frozen 0–3 (best 12) | 0.779 | 0.774 / 0.608 | 0.690 / 0.618 / 0.338 | 0.840 / 0.765 / 0.835 | 0.824 / 0.835 / 0.771 / 0.839 | 0.879 / 0.605 | 0.832 / 0.778 / 0.839 |
 | X6 | gated ABMIL, h, retention 0.1, bags 8 × 8–64; 20 ep, frozen 0–3 (best 12) | 0.775 | 0.767 / 0.618 | 0.685 / 0.609 / 0.334 | 0.837 / 0.761 / 0.833 | 0.820 / 0.830 / 0.766 / 0.836 | 0.865 / 0.591 | 0.827 / 0.774 / 0.836 |
 | Y1 | ungated ABMIL, h, retention 0.1; 10 ep, frozen 0–3 (best 6) | **0.785** | 0.773 / 0.605 | 0.699 / **0.636** / 0.359 | 0.842 / **0.772** / 0.837 | **0.827** / 0.835 / **0.777** / **0.842** | 0.876 / 0.592 | 0.832 / **0.785** / **0.842** |
+| Y2 | ungated ABMIL, h + q, retention 0.1; 10 ep, frozen 0–3 (best 9) | 0.784 | **0.781** / 0.600 | **0.705** / 0.633 / 0.376 | 0.843 / 0.768 / 0.836 | **0.827** / 0.837 / 0.776 / **0.842** | 0.884 / 0.612 | 0.833 / 0.783 / **0.842** |
 
 Per cohort, Tables 12.5 and 12.6 show:
 * **HEEDB:** the long runs equal the 4-epoch ones (val normal 5.50–5.65,
@@ -1254,6 +1257,20 @@ Per cohort, Tables 12.5 and 12.6 show:
     level ($d$ 0.25, AUC 0.586), still well below E2L's 0.38.
   - On LEMON zero-shot it scores 4.55 (all windows 4.51) and has the best
     old-group MAE, 6.13 (`docs/external_eval_results.md`, Table 3.1).
+* **Y2 (Y1 + descriptors $q$ in the attention input) ties Y1.**
+  - Best val 6.50 at the last epoch 9 (test 6.09), against Y1's 6.48 / 6.08.
+    Per epoch (val / test / train-eval) from the unfreeze: 6.60 / 6.23 /
+    4.18, 6.56 / 6.13 / 3.94, 6.53 / 6.13 / 3.84, 6.55 / 6.14 / 3.86,
+    6.51 / 6.09 / 3.85, **6.50 / 6.09 / 3.83**. Gap 2.68 and $\eta = 0.39$,
+    as Y1 (Table 12.3).
+  - Per cohort (Table 12.5) it trades with Y1 within the noise: better on
+    test TUAB normal (4.35, the best of every run) and abnormal (8.04) and
+    on val TUEG unlabelled (8.45), slightly worse on HEEDB abnormal (6.88 /
+    6.71 vs 6.80 / 6.67).
+  - Same pattern as X3 vs X1 and X4 vs X2: the descriptors add nothing to
+    the overall MAE once the attention reads $h$.
+  - Its standing test sets: Temple 6.03, LEMON 4.56 at epoch 9 (4.44 at
+    epoch 5; `evaluation.test_sets`).
 * **A3 (post-hoc window weights on E2L, no retraining)** gets about half of
   the attention models' HEEDB gain (val normal 7.02 → 6.11 vs 5.50 for X1 /
   W4; test all 7.00 → 6.46 vs 6.09). It leaves TUAB and TUEG at E2L's level,
@@ -1287,7 +1304,7 @@ Rows are from `scripts/mil_age_groups.py` (CSVs in `docs/data/mil_age/`).
 | A3 | post-hoc weights on E2L | 5.55 | 5.19 | 6.10 | 6.98 | 6.13 | 5.87 | 6.66 | 10.52 | −0.21 | **0.40** / 0.54 / **0.38** | **0.630** |
 | W4 | gated, h; 4 ep | 4.00 | 4.63 | 6.03 | 6.73 | 6.15 | 5.99 | 6.29 | 8.49 | −0.16 | 0.23 / 0.46 / 0.20 | 0.577 |
 | L1 | ungated, h; 4 ep | 3.85 | 4.64 | 6.10 | 6.70 | 6.13 | 5.96 | 6.30 | 8.48 | −0.16 | 0.22 / 0.50 / 0.20 | 0.577 |
-| W7 | gated, h, ret. 0.1; 4 ep | 4.03 | 4.75 | **6.01** | 6.71 | 6.17 | 6.01 | 6.19 | 8.67 | −0.16 | 0.23 / 0.46 / 0.21 | 0.580 |
+| W7 | gated, h, ret. 0.1; 4 ep | 4.03 | 4.75 | 6.01 | 6.71 | 6.17 | 6.01 | 6.19 | 8.67 | −0.16 | 0.23 / 0.46 / 0.21 | 0.580 |
 | X1 | gated, h, ret. 0.1; 20 ep | 4.20 | 4.71 | 6.04 | 6.80 | 6.16 | 5.94 | 6.14 | 8.51 | −0.17 | 0.23 / 0.42 / 0.20 | 0.578 |
 | X3 | gated, h + q, ret. 0.1; 20 ep | 4.35 | 4.78 | 6.28 | 7.09 | 6.40 | 6.06 | 5.93 | **7.97** | −0.15 | 0.25 / 0.47 / 0.22 | 0.586 |
 | X4 | ungated, h + q; 20 ep | 3.63 | 4.70 | 6.37 | 6.90 | 6.13 | 6.10 | 6.43 | 8.57 | −0.15 | 0.22 / 0.46 / 0.19 | 0.576 |
@@ -1295,6 +1312,7 @@ Rows are from `scripts/mil_age_groups.py` (CSVs in `docs/data/mil_age/`).
 | X5 | gated, h, ret. 0.1, bags 8–32; 20 ep | 4.53 | 4.95 | 6.28 | 7.01 | 6.08 | 5.72 | 6.14 | 8.82 | −0.18 | 0.20 / 0.41 / 0.18 | 0.573 |
 | X6 | gated, h, ret. 0.1, bags 8–64; 20 ep | 4.28 | 4.87 | 6.20 | 7.04 | 6.34 | 6.09 | 6.27 | 8.12 | −0.16 | 0.17 / 0.36 / 0.15 | 0.559 |
 | Y1 | ungated, h, ret. 0.1; 10 ep | 4.04 | 4.69 | 6.31 | 7.03 | 6.33 | 5.95 | **5.80** | 8.02 | −0.15 | 0.25 / 0.48 / 0.22 | 0.586 |
+| Y2 | ungated, h + q, ret. 0.1; 10 ep | 4.40 | 4.66 | **5.93** | 6.71 | 6.10 | 6.01 | 6.18 | 8.61 | −0.17 | 0.25 / 0.46 / 0.22 | 0.585 |
 
 * **Long training leaves the age profile of the error unchanged.** Every
   attention run has $\beta \approx -0.15$ to $-0.17$, vs −0.30 for E2L.
