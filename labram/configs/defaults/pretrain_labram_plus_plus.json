@@ -186,7 +186,10 @@
         "common_average_reference": true,
         "z_score_patches": true,
         "z_score_eps": 1e-05,
-        "phase_loss": "sincos"
+        "phase_loss": "sincos",
+        "band_hz": [],
+        "amplitude_norm": "",
+        "amplitude_target": 0.1
     },
     "sagemaker": {
         "py/object": "labram.configs.sagemaker_config.SageMakerConfig",

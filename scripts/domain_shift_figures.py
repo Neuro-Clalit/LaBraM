@@ -9,6 +9,8 @@ Inputs are the outputs of ``scripts/external_runs/chbp_domain_shift.sh``:
   ratio with the amplitude response of CHBP's recording filters;
 * ``chbp_shift_amplitude.png`` -- (a) channel std against age; (b) W7's mean
   error per amplitude bin;
+* ``chbp_fix_methods.png`` -- (a) MAE and (b) r of E2L under every CHBP fix
+  (test-time normalizations and the device-robust model; table ``--fixes``);
 * ``chbp_shift_tests.png`` -- (a) mean error and (b) MAE of every transform test
   (W7; the table ``--tests`` has every model and CHBP's two caps).
 """
@@ -184,6 +186,73 @@ def tests_table(d, out_csv, chbp_raw, encoding_csv, models=("E2L", "L1", "W4", "
     return df
 
 
+S = "/data/runs/heedb/domain_shift/scores"
+F = "/data/runs/chbp_fix/scores"
+EXT = "/data/runs/heedb/external_eval"
+FIXES = [  # (label, kind, [score files], model key)  -- CHBP, first 5 minutes; no CHBP labels used
+    ("as recorded", "test-time", [f"{EXT}/chbp_5min.json"], None),
+    ("global gain x 1.615", "test-time", [f"{S}/chbp_x1.615.json"], None),
+    ("per-recording amplitude", "test-time", [f"{S}/chbp_peramp.json"], None),
+    ("per-recording GSF", "test-time", [f"{S}/chbp_gsf.json"], None),
+    ("spectrum matching, whole cohort", "test-time", [f"{S}/chbp_psdmatchU.json"], None),
+    ("spectrum matching per cap", "test-time", [f"{S}/chbp64_psdmatchU.json", f"{S}/chbp120_psdmatchU.json"], None),
+    ("spectrum matching per cap and channel", "test-time",
+     [f"{S}/chbp64_psdmatchchU.json", f"{S}/chbp120_psdmatchchU.json"], None),
+    ("spectrum matching 0.5-45 Hz + refill (age-matched ref.)", "test-time", [f"{S}/chbp_psdmatch45_fill.json"], None),
+    ("device-robust E2L, as recorded", "training", [f"{F}/chbp_raw.json"], "E2L-robust"),
+    ("device-robust E2L, per-cap matching", "training",
+     [f"{F}/chbp64_psdmatchU.json", f"{F}/chbp120_psdmatchU.json"], "E2L-robust"),
+]
+
+
+def fixes_table(out_csv, encoding_csv, models=("E2L", "L1", "W4", "W7")):
+    """MAE / bias / r of every CHBP fix, per model, overall and per cap."""
+    ages = {s: r["age"] for s, r in json.load(open(os.path.join(CHBP, "age_metadata.json")))["recordings"].items()}
+    enc = pd.read_csv(encoding_csv).set_index("stem")["enc"]
+    rows = []
+    for label, kind, paths, only in FIXES:
+        if not all(os.path.exists(p) for p in paths):
+            continue
+        for m in ([only] if only else models):
+            pred = {}
+            for path in paths:
+                pred.update(json.load(open(path))[m]["splits"]["test"]["predictions"])
+            p = pd.Series(pred)
+            y = np.array([ages[s] for s in p.index])
+            cap = enc.reindex(p.index).to_numpy()
+            row = {"method": label, "kind": kind, "model": "E2L" if m == "E2L-robust" else m, "n": len(p)}
+            for sub, mask in (("", np.ones(len(p), bool)), ("_64ch", cap == "12-bit"), ("_120ch", cap == "16-bit")):
+                e = p.to_numpy()[mask] - y[mask]
+                row.update({f"mae{sub}": np.abs(e).mean(), f"bias{sub}": e.mean(),
+                            f"r{sub}": np.corrcoef(p.to_numpy()[mask], y[mask])[0, 1]})
+            rows.append(row)
+    df = pd.DataFrame(rows)
+    df.to_csv(out_csv, index=False)
+    return df
+
+
+def fig_fixes(table, out):
+    t = pd.read_csv(table)
+    t = t[t.model == "E2L"].reset_index(drop=True)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 0.5 * len(t) + 1.8))
+    y = np.arange(len(t))[::-1]
+    color = [COLORS["temple"] if k == "training" else COLORS["chbp"] for k in t["kind"]]
+    for ax, col, xlabel, title, ref in ((axes[0], "mae", "MAE (years)", "MAE", 7.27),
+                                        (axes[1], "r", "Pearson r", "Correlation with age", None)):
+        ax.barh(y, t[col], color=color, height=0.6)
+        for yi, v in zip(y, t[col]):
+            ax.text(v + 0.02 * t[col].max(), yi, f"{v:.2f}", va="center", ha="left", color=INK, fontsize=9)
+        if ref is not None:
+            ax.axvline(ref, color=MUTED, linestyle="--", linewidth=1)
+            ax.text(ref, len(t) - 0.4, " predict the mean", color=MUTED, fontsize=9, va="bottom")
+        ax.set_xlim(0, t[col].max() * 1.18)
+        ax.set_yticks(y, t["method"])
+        ax.set_xlabel(xlabel, color=INK)
+        ax.set_title(title)
+        style(ax)
+    finish(fig, list(axes), os.path.join(out, "chbp_fix_methods.png"))
+
+
 def fig_tests(table, out):
     t = pd.read_csv(table)
     t = t[(t.model == "W7") & (t.subset == "all")].reset_index(drop=True)
@@ -218,13 +287,17 @@ def main():
                     help="CHBP as recorded, scored like the tests (first 5 min)")
     ap.add_argument("--tests", default=None, help="write the transform-test table to this CSV and plot it")
     ap.add_argument("--encoding", default="/data/runs/heedb/domain_shift/chbp_edf_encoding.csv")
-    ap.add_argument("--only", nargs="*", default=["psd", "amplitude", "tests"])
+    ap.add_argument("--fixes", default=None, help="write the CHBP-fix table to this CSV and plot it")
+    ap.add_argument("--only", nargs="*", default=["psd", "amplitude", "tests", "fixes"])
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     if "psd" in args.only:
         fig_psd(args.dir, args.out)
     if "amplitude" in args.only:
         fig_amplitude(args.dir, args.out, args.pred_val, args.pred_chbp)
+    if "fixes" in args.only and args.fixes:
+        fixes_table(args.fixes, args.encoding)
+        fig_fixes(args.fixes, args.out)
     if "tests" in args.only and args.tests:
         tests_table(args.dir, args.tests, args.pred_chbp_5min, args.encoding)
         fig_tests(args.tests, args.out)

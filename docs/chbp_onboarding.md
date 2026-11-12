@@ -289,10 +289,18 @@ normalize such data, is analysed in `docs/chbp_domain_shift.md`. In short:
 - its amplitude, about 0.6× the training data's, adds an offset of about +6 years;
 - its 120-channel recordings carry an extra shift.
 
+The fix (`docs/chbp_domain_shift.md` §10) is a device-robust E2L: fine-tuned on
+Temple / Harvard with a 1–45 Hz input band and per-window amplitude
+normalization (`labram_plus.band_hz`, `labram_plus.amplitude_norm`). It scores
+CHBP as recorded at MAE 6.39, r 0.55 (E2L 9.55, r 0.44), zero-shot. Without
+retraining, per-cap spectrum matching to a label-free Temple / Harvard spectrum
+gives E2L 6.70.
+
 Next steps, all on the training side:
-1. **Band-limited, amplitude-robust training on Temple / Harvard.** Use a common
-   band such as 0.5 (or 1) to 45 Hz, and per-recording amplitude normalization
-   or gain augmentation. Then rescore CHBP, LEMON and MIPDB.
+1. **Close the in-domain gap of the device-robust model.** After 4 short
+   epochs: val 8.10 vs 7.24, LEMON 6.52 vs 5.22, with the ranking unchanged.
+   A 6-epoch continuation is running (`scripts/external_runs/chbp_robust_e2l.sh
+   continue`). Then rescore CHBP, LEMON and MIPDB.
 2. **Robustness checks during training.** Score the label-free forward tests of
    `docs/chbp_domain_shift.md` (Table 7.1) on the validation split as a
    robustness benchmark.

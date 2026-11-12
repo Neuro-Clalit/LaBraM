@@ -22,7 +22,12 @@ Code:
 - `scripts/make_transformed_cohort.py`: label-free signal transforms of an npy
   cohort (gain, band limits, per-recording amplitude, global scale factor,
   spectrum matching) and the age-matched reference sample;
-- `scripts/domain_shift_figures.py`: the figures and the transform-test table;
+- `scripts/domain_shift_figures.py`: the figures, the transform-test and CHBP-fix tables;
+- `scripts/hc_domain_features.py`: handcrafted-feature brain-age models (spectral,
+  wavelet, CWT, entropy, cepstral, scattering) across domains, and the
+  per-family domain separability;
+- `labram_plus.band_hz` / `labram_plus.amplitude_norm` (`labram/data/preprocess.py`):
+  the device-robust model inputs of Section 10.2;
 - `scripts/external_runs/chbp_domain_shift.sh`: the whole pipeline.
 
 Outputs:
@@ -59,6 +64,22 @@ Outputs:
      re-created.
    - The robust fix is on the training side and needs no CHBP data
      (Section 9.2).
+6. **Closing the loop (Section 10).** The fixes were tested, still without any
+   CHBP labels:
+   - **Best: a device-robust model.** E2L fine-tuned on Temple + Harvard with a
+     1–45 Hz input band and per-window amplitude normalization scores CHBP
+     *as recorded* at MAE 6.39, r 0.55 (E2L: 9.55, r 0.44). That is level with
+     the best published within-CHBP result (6.48, trained on CHBP). The
+     120-channel cap goes from 13.10 to 6.98.
+   - **It is invariant to the CHBP-like degradation** (Table 10.3).
+   - **Its in-domain calibration is worse after the short fine-tune** (val MAE
+     8.10 vs 7.24; ranking unchanged). A longer continuation is running.
+   - **Best without retraining: spectrum matching per cap** to a label-free
+     Temple / Harvard reference: E2L 6.70, all four models improved
+     (Table 10.1).
+   - **Handcrafted features do not transfer better** (Table 10.4). Spectral
+     features hold up best, wavelets and STFT worse, and wavelet scattering
+     worst (CHBP r 0.11).
 
 ## 2. Data and methods
 
@@ -510,6 +531,8 @@ external test). Each step is supported by Section 8:
 4. **Report CHBP per cap**, and as a separate check on top of the cohort mean,
    the age-matched training-domain reference of Table 3.1.
 
+Section 10 tests these steps.
+
 ### 9.3 Comparison with published CHBP results
 
 The only published CHBP age results are within-CHBP 10-fold CV (Engemann et
@@ -529,7 +552,260 @@ and a ridge regression on frozen E2 embeddings gives 5.93
 (`docs/data/external_eval/chbp/cv10_*.csv`). Neither is pursued, because CHBP is
 kept as an external test.
 
-## 10. References
+## 10. Closing the loop: fixing CHBP for the age models
+
+No CHBP age is used to fit, select or tune anything in this section. CHBP ages
+only score the result. The test-time methods use CHBP *signals* (cohort-level
+spectra), never its labels. A recording's cap (64 or 120 channels, from the EDF
+header, Table 4.2) is acquisition metadata.
+
+### 10.1 Test-time normalization of CHBP (no retraining)
+
+**Methods.** Besides (7.1)–(7.5):
+- **per cap:** spectrum matching (7.5) with one gain curve per acquisition group,
+  $\bar P_{\mathrm{CHBP}}$ taken over that cap's recordings;
+- **per cap and channel:** one curve per cap and channel;
+- **band-restricted matching with spectral completion:** (7.5) with gain 1
+  outside 0.5–45 Hz, then independent Gaussian noise added to every channel in
+  the bands the recording chain removed:
+
+$$ n_c(t)\ \text{with one-sided PSD}\ \bar P_{\mathrm{ref}}(f)\ \text{for}\ f \in [0.1, 0.5] \cup [48, 75]\ \text{Hz},\ 0\ \text{elsewhere} \tag{10.1} $$
+
+**Reference spectrum.** $\bar P_{\mathrm{ref}}$ is the median spectrum of 300
+random adult Temple + Harvard validation recordings (150 + 150, normal report,
+ages 18–89, mean 47). It is **not** matched to CHBP's ages. The age-matched
+reference of Section 7 implicitly used CHBP's age distribution; this
+label-free one does at least as well (per cap: E2L 6.70 vs 6.81).
+
+### Table 10.1. CHBP fixes without retraining
+
+CHBP, first 5 minutes, n = 250 (64-ch cap 161, 120-ch cap 89). MAE and bias
+(2.2), r (2.3); the last two columns are E2L per cap, MAE (r). Predict the mean:
+7.27 (per cap 7.19 / 7.32). All models: `docs/data/external_eval/chbp/chbp_fix_methods.csv`.
+
+| method | E2L MAE | E2L bias | E2L r | W7 MAE | W7 bias | W7 r | E2L 64-ch | E2L 120-ch |
+|---|---|---|---|---|---|---|---|---|
+| as recorded | 9.55 | +7.05 | 0.44 | 9.10 | +4.83 | 0.46 | 7.58 (0.55) | 13.10 (0.27) |
+| global gain × 1.615 (7.1) | 7.89 | +0.83 | 0.44 | 8.31 | −0.98 | 0.46 | 6.89 (0.52) | 9.69 (0.34) |
+| per-recording amplitude (7.3) | 7.64 | +0.78 | 0.43 | 8.09 | −1.04 | 0.46 | 6.99 (0.48) | 8.81 (0.35) |
+| per-recording GSF (7.4) | 8.86 | +5.11 | 0.44 | 8.50 | +2.87 | 0.46 | 7.56 (0.49) | 11.20 (0.34) |
+| spectrum matching, whole cohort (7.5) | 7.00 | +1.63 | 0.50 | 7.54 | −1.54 | 0.51 | 6.17 (0.58) | 8.50 (0.39) |
+| **spectrum matching per cap** | **6.70** | +0.82 | **0.52** | 7.38 | −2.39 | 0.53 | 6.23 (0.57) | **7.55 (0.45)** |
+| spectrum matching per cap and channel | 7.67 | +3.88 | 0.47 | 7.39 | +1.49 | 0.49 | 6.53 (0.55) | 9.72 (0.37) |
+| matching 0.5–45 Hz + refill (10.1), age-matched ref. | 7.51 | +0.58 | 0.40 | 8.40 | −3.00 | 0.42 | 6.70 (0.45) | 8.96 (0.31) |
+
+### Table 10.2. Known-truth validation on Temple + Harvard recordings
+
+The age-matched sample of Section 7 (n = 300) made CHBP-like and then repaired
+with the same label-free methods. Here the truth is known and no CHBP data is
+involved. First 5 minutes; MAE, bias (2.2), r (2.3).
+
+| Temple + Harvard recordings | W7 MAE | W7 bias | W7 r | E2L MAE | E2L bias | E2L r |
+|---|---|---|---|---|---|---|
+| as recorded | 5.99 | +2.79 | 0.70 | 7.02 | +5.10 | 0.66 |
+| low-pass 50 Hz | 7.36 | +0.42 | 0.44 | 8.04 | +3.75 | 0.40 |
+| low-pass 50 Hz, then refill > 48 Hz (10.1) | 7.02 | −3.03 | 0.52 | 6.71 | +0.23 | 0.48 |
+| band 0.5–50 Hz | 8.54 | +3.75 | 0.40 | 9.75 | +6.79 | 0.38 |
+| band 0.5–50 Hz, then refill both bands (10.1) | 7.01 | −1.29 | 0.51 | 7.21 | +2.29 | 0.47 |
+| × 0.62 and band 0.5–50 Hz | 11.46 | +9.31 | 0.37 | 13.71 | +12.59 | 0.37 |
+| × 0.62 and band 0.5–50 Hz, then spectrum matching (7.5) | 7.61 | +1.83 | 0.46 | 8.74 | +5.33 | 0.43 |
+
+**What Tables 10.1 and 10.2 show:**
+- **Per-cap spectrum matching is the best test-time fix.** It improves every model
+  (E2L 9.55 → 6.70, L1 9.37 → 7.29, W4 9.19 → 7.13, W7 9.10 → 7.38) and the
+  120-channel cap most (E2L 13.10 → 7.55). It needs no labels, only the
+  cohort's own spectrum and its cap.
+- **Gain-only fixes** (global or per recording) remove the bias but not the
+  ranking (r 0.43–0.44).
+- **The per-recording GSF under-corrects**, because CHBP's strong alpha inflates
+  its log-power mean.
+- **Per-channel curves help the 64-channel cap for three of the four models but
+  hurt the 120-channel cap.** That cap's difference is not an electrode-specific
+  gain or frequency response.
+- **On known truth, spectrum matching repairs the offset completely but the
+  ranking only in part** (Table 10.2: bias back to +1.8 / +5.3, as before the
+  degradation; r 0.37 → 0.43–0.46, not 0.70).
+- **Synthetic refill of the missing bands recovers part of the ranking**
+  (r 0.40 → 0.48–0.52). The rest of what the models take from above 50 Hz is
+  real information, which no test-time method can restore.
+
+### 10.2 Device-robust model, trained on Temple + Harvard only
+
+Two model-owned input options (`labram_plus.band_hz`, `labram_plus.amplitude_norm`;
+`labram/data/preprocess.py`) are applied to every 10 s input window after the
+common average reference, in training and evaluation alike. The band limit is
+
+$$ \begin{aligned} X'(f) &= X(f)\,G_{\mathrm{HP}}(f)\,G_{\mathrm{LP}}(f), \qquad f_{\mathrm{lo}} = 1\ \text{Hz},\ f_{\mathrm{hi}} = 45\ \text{Hz} \\ G_{\mathrm{HP}}(f) &= \frac{(f/f_{\mathrm{lo}})^{16}}{1 + (f/f_{\mathrm{lo}})^{16}}, \qquad G_{\mathrm{LP}}(f) = \frac{1}{1 + (f/f_{\mathrm{hi}})^{16}} \end{aligned} \tag{10.2} $$
+
+the squared magnitude of order-8 Butterworth filters (zero phase), applied with
+1 s of reflect padding. The amplitude normalization is
+
+$$ x' = \frac{a^\ast}{s}\,x, \qquad s = \operatorname{median}_c \operatorname{std}_t(x_c), \quad a^\ast = 0.1\ (= 10\ \text{µV}) \tag{10.3} $$
+
+where the median runs over the non-zero channels of the window.
+
+**Training.**
+- Starting point: E2L's best checkpoint.
+- Data: the `tuh_heedb_v1` train split (84,891 recordings), with 6 windows per
+  recording per epoch (509,346 windows), 4 epochs.
+- Optimizer: lr 1e-4 (1-epoch warm-up, cosine to 1e-6), E2L's layer decay and
+  mixup.
+- Selection: the in-domain validation MAE. The best epoch was 2: val 8.10,
+  test 8.04 (E2L: 7.24 / 7.00).
+- Launcher: `/data/runs/chbp_fix/run_e2l_band45_amp.sh`.
+
+### Table 10.3. E2L and device-robust E2L
+
+First 5 minutes; MAE, bias (2.2), r (2.3). CHBP as recorded, with no test-time
+step.
+
+| set | n | E2L MAE | E2L bias | E2L r | robust MAE | robust bias | robust r |
+|---|---|---|---|---|---|---|---|
+| Temple + Harvard, age-matched | 300 | 7.02 | +5.10 | 0.66 | 8.61 | +7.48 | 0.65 |
+| same, × 0.62 and band 0.5–50 Hz | 300 | 13.71 | +12.59 | 0.37 | **8.48** | +7.30 | **0.65** |
+| LEMON | 214 | 5.22 | −1.11 | 0.95 | 6.52 | +1.05 | 0.94 |
+| **CHBP as recorded** | 250 | 9.55 | +7.05 | 0.44 | **6.39** | +1.34 | **0.55** |
+| CHBP 64-ch cap | 161 | 7.58 | | 0.55 | **6.07** | | **0.59** |
+| CHBP 120-ch cap | 89 | 13.10 | | 0.27 | **6.98** | | **0.46** |
+| CHBP, per-cap spectrum matching | 250 | 6.70 | +0.82 | 0.52 | 6.75 | +2.53 | 0.53 |
+
+### Figure 10.1. Every CHBP fix, E2L
+
+![fixes](figures/chbp/chbp_fix_methods.png)
+
+(a) MAE and (b) r of E2L on CHBP (n = 250, first 5 minutes) for every
+test-time normalization (aqua) and for the device-robust model (blue). The
+dashed line is the predict-the-mean MAE, 7.27.
+
+**What Table 10.3 and Figure 10.1 show:**
+- **The device-robust model is the best fix.**
+  - On CHBP as recorded: MAE 6.39, R² 0.19, r 0.55, bias +1.3.
+  - It needs no test-time step at all. Spectrum matching on top adds nothing
+    (6.75).
+  - It also fixes the 120-channel cap (13.10 → 6.98) without knowing about it.
+- **It is invariant to the CHBP-like degradation on known truth**
+  (8.61 → 8.48, r 0.65 → 0.65; E2L: 7.02 → 13.71, r 0.66 → 0.37).
+- **Its in-domain and LEMON accuracy is worse after 4 short epochs**
+  (age-matched in-domain 8.61 vs 7.02; LEMON 6.52 vs 5.22). The ranking is
+  intact (r 0.65 / 0.94 vs 0.66 / 0.95), so the loss is calibration: a larger
+  young-age bias (+7.5 vs +5.1).
+  - It should shrink with longer training. A 6-epoch continuation at 2 minutes
+    per recording is running (`/data/runs/chbp_fix/run_e2l_band45_amp_cont.sh`).
+
+### 10.3 Handcrafted features: wavelets, scattering and others
+
+**Setup.**
+- Features: the toolkit of `labram/features` (`scripts/hc_domain_features.py`)
+  under its reference preparation (19 channels, CAR, 1–45 Hz, median over 30
+  clean 10 s windows). The input is band-limited to 1–45 Hz by construction, so
+  these models do not see the content CHBP lacks.
+- Model: one ridge regression per feature family (standardized,
+  $\alpha \in 10^{[-1, 5]}$ by efficient leave-one-out).
+- Training data: 2,400 Temple + Harvard normal-report adults of the train
+  split (1,200 + 1,200; age 47.8 ± 18.5).
+- Training-domain 5-fold out-of-fold r: 0.71 over the full age range.
+- "Gain-invariant" centres every log-power family per recording (a
+  feature-domain GSF); it changes the results by at most 0.5 years.
+
+A family's domain separability is
+
+$$ \mathrm{AUC}_{\mathrm{dom}} = P\big(\hat s_{\mathrm{CHBP}} > \hat s_{\mathrm{in\text{-}domain}}\big) \tag{10.4} $$
+
+where $\hat s$ is the out-of-fold score (5 folds) of an L2 logistic regression on
+the family's standardized features, reduced to 50 principal components. It
+separates the age-matched in-domain validation set (n = 300) from CHBP
+(n = 250).
+
+### Table 10.4. Feature-based brain age, in-domain and on CHBP
+
+MAE, bias (2.2), r (2.3). In-domain is the age-matched Temple + Harvard
+validation sample (n = 300). The last column is CHBP after per-cap spectrum
+matching. Full table (both gain variants):
+`docs/data/external_eval/chbp/hc_feature_models.csv`.
+
+| features (ridge unless noted) | in-domain MAE / bias / r | CHBP MAE / bias / r | CHBP matched MAE / r |
+|---|---|---|---|
+| spectral: band powers, ratios, 1/f, peak alpha | 11.41 / +8.45 / 0.39 | 10.28 / +3.84 / 0.27 | **9.90 / 0.29** |
+| 1 Hz log-PSD bins | 10.81 / +7.81 / 0.48 | 12.19 / +9.36 / 0.31 | 11.12 / 0.32 |
+| DWT (db4, 6 levels) | 11.59 / +8.56 / 0.38 | 10.19 / +4.99 / 0.21 | 10.53 / 0.20 |
+| wavelet packets (db4, 5 levels) | 11.41 / +8.68 / 0.43 | 11.18 / +7.00 / 0.20 | 10.26 / 0.24 |
+| complex-Morlet CWT | 11.40 / +8.95 / 0.40 | 11.71 / +7.66 / 0.24 | 11.71 / 0.22 |
+| STFT statistics | 11.73 / +9.37 / 0.38 | 12.11 / +9.25 / 0.20 | 12.49 / 0.18 |
+| band-power dynamics | 15.16 / +13.94 / 0.23 | 13.96 / +11.96 / −0.04 | 14.79 / −0.03 |
+| cepstral coefficients | 10.79 / +7.86 / 0.45 | 11.30 / +6.01 / 0.25 | 11.23 / 0.26 |
+| multiscale permutation entropy | 12.73 / +10.98 / 0.40 | 10.79 / +6.73 / 0.24 | 12.19 / 0.27 |
+| time domain (Hjorth, variance, …) | 14.85 / +13.37 / 0.21 | 13.56 / +12.01 / 0.06 | 13.25 / 0.07 |
+| wavelet scattering J = 7 | 12.02 / +10.37 / 0.40 | 16.47 / +12.96 / 0.11 | 17.97 / 0.10 |
+| wavelet scattering J = 9 | 11.58 / +9.62 / 0.41 | 15.34 / +11.44 / 0.11 | 17.45 / 0.12 |
+| all but scattering | 10.32 / +7.50 / 0.49 | 10.63 / +6.68 / 0.28 | 10.46 / 0.28 |
+| all | 10.63 / +8.12 / 0.47 | 13.10 / +9.06 / 0.16 | 14.09 / 0.17 |
+| gradient boosting, spectral + PSD + DWT + WPD + cepstral (gain-invariant) | 10.79 / +9.31 / 0.50 | 10.42 / +8.35 / 0.34 | 10.01 / 0.38 |
+| deep E2L (reference, Table 10.3) | 7.02 / +5.10 / 0.66 | 9.55 / +7.05 / 0.44 | 6.70 / 0.52 |
+
+### Table 10.5. How separable CHBP is from the training domain, per feature family
+
+AUC (10.4) between the in-domain validation sample and CHBP, as recorded and
+after whole-cohort spectrum matching (age-matched reference). 0.5 means
+indistinguishable.
+
+| family | as recorded | matched | family | as recorded | matched |
+|---|---|---|---|---|---|
+| spectral | 0.979 | 0.955 | STFT | 0.994 | 0.979 |
+| PSD bins | 0.995 | 0.952 | band-power dynamics | 0.955 | 0.946 |
+| DWT | 0.981 | 0.962 | cepstral | 0.982 | 0.973 |
+| wavelet packets | 0.993 | 0.934 | time domain | 0.983 | 0.964 |
+| CWT | 0.988 | 0.985 | multiscale entropy | 0.970 | 0.903 |
+| scattering J = 7 | 0.976 | 0.985 | scattering J = 9 | 0.975 | 0.985 |
+| all | 0.988 | 0.993 | | | |
+
+**What Tables 10.4 and 10.5 show:**
+- **Handcrafted features are weaker than the deep models, in-domain and on CHBP.**
+  - At CHBP's ages in-domain: r 0.21–0.50 vs 0.66–0.70.
+  - On CHBP: r ≤ 0.34 (ridge) / 0.38 (gradient boosting), vs 0.52–0.55 for the
+    deep fixes.
+  - Their in-domain bias at young ages is large (+7.5 to +14). Inverting it with
+    the training-set calibration line makes the MAE worse (13–18 years), as the
+    literature warns (de Lange & Cole 2020; Beheshti et al. 2019).
+- **Even with a 1–45 Hz input they transfer worse than the device-robust deep
+  model.** The band alone is not enough; the deep representation matters.
+- **Spectral features transfer best** (CHBP MAE 9.9–10.3). Wavelets, CWT, STFT
+  and cepstral features are worse.
+- **Wavelet scattering is the most domain-specific** (CHBP r 0.11, MAE 15–18),
+  although it is competitive in-domain.
+- **Every family still separates the domains almost perfectly** (AUC 0.90–0.995),
+  and spectrum matching hardly changes that. CHBP differs from clinical EEG in
+  far more than the spectrum. What decides transfer is whether a model's age
+  mapping relies on the properties that differ.
+
+### 10.4 Which fix is best
+
+**Ranking on CHBP** (E2L, MAE / r; no CHBP labels anywhere):
+1. **device-robust model, as recorded: 6.39 / 0.55**;
+2. per-cap spectrum matching: 6.70 / 0.52;
+3. whole-cohort spectrum matching: 7.00 / 0.50;
+4. gain-only fixes: 7.6–7.9 / 0.43–0.44;
+5. as recorded: 9.55 / 0.44.
+
+The feature models reach ≥ 9.5 / ≤ 0.38.
+
+**Recommendation:**
+1. **Train age models on device-robust inputs:** band 1–45 Hz and per-window
+   amplitude normalization (10.2, 10.3). It removes both shifted properties at
+   the source and needs nothing from the target cohort. The remaining cost is
+   in-domain calibration after a short fine-tune; a longer run is under way.
+2. **Without retraining, use per-cap spectrum matching** to a label-free
+   Temple / Harvard reference spectrum (7.5).
+3. **Keep CHBP an external test.** Report it per cap, beside the 7.27
+   mean-age baseline.
+
+**Against the published result.** The best published CHBP result is
+within-CHBP 10-fold CV, 6.48 ± 0.60 (R² 0.18; Engemann et al. 2022), trained
+on CHBP. The device-robust model reaches 6.39 (R² 0.19) zero-shot, never having
+seen CHBP. Spectrum matching to a training-set barycenter spectrum is the idea
+behind Convolutional Monge Mapping Normalization (Gnassounou et al. 2023), which
+was used for sleep staging.
+
+## 11. References
 
 - Beheshti I et al. 2019. Bias-adjustment in neuroimaging-based brain age frameworks. *NeuroImage: Clinical* 24:102063. doi:10.1016/j.nicl.2019.102063
 - Bomatter P et al. 2024. Machine learning of brain-specific biomarkers from EEG. *EBioMedicine* 106:105259. doi:10.1016/j.ebiom.2024.105259
@@ -538,6 +814,7 @@ kept as an external test.
 - Butler ER et al. 2021. Pitfalls in brain age analyses. *Hum Brain Mapp* 42:4092–4101. doi:10.1002/hbm.25533
 - de Lange AMG, Cole JH. 2020. Commentary: correction procedures in brain-age prediction. *NeuroImage: Clinical* 26:102229. doi:10.1016/j.nicl.2020.102229
 - Donoghue T et al. 2020. Parameterizing neural power spectra into periodic and aperiodic components. *Nat Neurosci* 23:1655–1665. doi:10.1038/s41593-020-00744-x
+- Gnassounou T, Flamary R, Gramfort A. 2023. Convolutional Monge mapping normalization for learning on sleep data. NeurIPS 36, arXiv:2305.18831
 - Engemann DA et al. 2022. A reusable benchmark of brain-age prediction from M/EEG resting-state signals. *NeuroImage* 262:119521. doi:10.1016/j.neuroimage.2022.119521
 - Gemein LAW et al. 2024. Brain age revisited. *Imaging Neuroscience*. doi:10.1162/imag_a_00210
 - Gemein LAW et al. 2026. Clinically altered brain activity may not look like aged brain activity. *Alzheimer's Dement TRCI* 12(3):e70302. doi:10.1002/trc2.70302

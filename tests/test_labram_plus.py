@@ -302,3 +302,72 @@ class TestConfigFiles:
         cfg = cls.load_config(path)
         assert cfg.labram_plus.enabled is False
         assert cfg.labram_plus.resolved_phase_loss == "angle"
+
+
+# ---------------------------------------------------------------------------
+# Device-robustness options: band-limit and amplitude normalization
+# ---------------------------------------------------------------------------
+
+def _tone(freq_hz, amp=1.0, n_ch=3, seconds=10, fs=200):
+    t = torch.arange(seconds * fs, dtype=torch.float32) / fs
+    sig = amp * torch.sin(2 * math.pi * freq_hz * t)
+    return sig.repeat(1, n_ch, 1).reshape(1, n_ch, seconds, fs)       # [B, N, A, T]
+
+
+class TestDeviceRobustness:
+    def test_band_limit_keeps_passband_and_removes_stopband(self):
+        from labram.data.preprocess import band_limit
+        x = _tone(10.0) + _tone(60.0) + _tone(0.2)
+        y = band_limit(x, 1.0, 45.0)
+        spec = torch.fft.rfft(y.reshape(1, 3, -1)[0, 0])
+        f = torch.fft.rfftfreq(2000, 1 / 200)
+        mag = spec.abs() / 1000
+        assert mag[(f - 10).abs().argmin()] == pytest.approx(1.0, abs=0.02)
+        assert mag[(f - 60).abs().argmin()] < 0.02
+        assert mag[(f - 0.2).abs().argmin()] < 0.01
+        assert y.shape == x.shape and y.dtype == x.dtype
+
+    def test_band_limit_without_highpass(self):
+        from labram.data.preprocess import band_limit
+        x = _tone(0.5) + _tone(70.0)
+        y = band_limit(x, 0.0, 45.0)
+        mag = torch.fft.rfft(y.reshape(1, 3, -1)[0, 0]).abs() / 1000
+        f = torch.fft.rfftfreq(2000, 1 / 200)
+        assert mag[(f - 0.5).abs().argmin()] == pytest.approx(1.0, abs=0.02)
+        assert mag[(f - 70).abs().argmin()] < 0.02
+
+    def test_amplitude_normalize_is_gain_invariant(self):
+        from labram.data.preprocess import amplitude_normalize
+        torch.manual_seed(0)
+        x = torch.randn(2, 5, 10, 200) * torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0])[None, :, None, None]
+        x[:, 4] = 0.0                                               # a missing (all-zero) channel
+        y1 = amplitude_normalize(x, target=0.1)
+        y2 = amplitude_normalize(7.5 * x, target=0.1)
+        assert torch.allclose(y1, y2, atol=1e-5)
+        std = y1.reshape(2, 5, -1).std(dim=-1)[:, :4]
+        assert torch.allclose(std.median(dim=1).values, torch.full((2,), 0.1), atol=0.01)
+        assert torch.all(y1[:, 4] == 0)
+
+    def test_options_are_off_by_default_and_validated(self):
+        cfg = LaBraMPlusConfig(enabled=True, common_average_reference=False, z_score_patches=False)
+        assert not cfg.use_band and not cfg.use_amplitude_norm and not cfg.preprocesses_input
+        cfg = LaBraMPlusConfig(enabled=True, band_hz=[1.0, 45.0], amplitude_norm="window")
+        assert cfg.use_band and cfg.use_amplitude_norm and cfg.preprocesses_input
+        assert not LaBraMPlusConfig(enabled=False, band_hz=[1.0, 45.0]).use_band
+        with pytest.raises(ValueError):
+            LaBraMPlusConfig(amplitude_norm="recording")
+        with pytest.raises(ValueError):
+            LaBraMPlusConfig(band_hz=[45.0, 1.0])
+
+    def test_preprocess_applies_band_and_amplitude(self):
+        # identical channels: CAR off, or it would cancel the test signal
+        cfg = LaBraMPlusConfig(enabled=True, common_average_reference=False, z_score_patches=False,
+                               band_hz=[1.0, 45.0], amplitude_norm="window", amplitude_target=0.1)
+        torch.manual_seed(0)
+        x = 3.0 * (_tone(10.0, n_ch=4) + _tone(60.0, n_ch=4))
+        x = x + torch.randn_like(x) * 0.001
+        y = apply_labram_plus_preprocess(x, cfg)
+        assert torch.allclose(apply_labram_plus_preprocess(5 * x, cfg), y, atol=1e-4)
+        mag = torch.fft.rfft(y.reshape(1, 4, -1)[0, 0]).abs()
+        f = torch.fft.rfftfreq(2000, 1 / 200)
+        assert mag[(f - 60).abs().argmin()] < 0.02 * mag[(f - 10).abs().argmin()]
