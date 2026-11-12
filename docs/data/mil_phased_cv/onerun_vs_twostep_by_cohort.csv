@@ -1,0 +1,577 @@
+recipe,model,cohort,epoch,mean,std,count
+one run,L1,all,0,10.847999999999999,0.2307921142500324,5
+one run,L1,all,1,9.665000000000001,0.2885740806101612,5
+one run,L1,all,2,9.179599999999999,0.31570128286087157,5
+one run,L1,all,3,8.7478,0.15189042102779177,5
+one run,L1,all,4,8.4056,0.35333242138247084,5
+one run,L1,all,5,8.4008,0.38234696284918984,5
+one run,L1,all,6,8.4292,0.1291866866205648,5
+one run,L1,all,7,7.9368,0.38576962036946394,5
+one run,L1,all,8,7.6926000000000005,0.23022879924110287,5
+one run,L1,all,9,7.6838,0.2159900460669422,5
+one run,L1,all,10,6.9158,0.09783762057613642,5
+one run,L1,all,11,6.895999999999999,0.08721525095990951,5
+one run,L1,all,12,6.2726,0.016410362579784624,5
+one run,L1,all,13,6.212000000000001,0.028591956910991513,5
+one run,L1,all,14,6.174799999999999,0.01630030674557965,5
+one run,L1,all,15,6.161,0.010862780491200078,5
+one run,L1,harvard_abnormal,0,11.386,0.27862160720231266,5
+one run,L1,harvard_abnormal,1,10.196,0.34681407122549107,5
+one run,L1,harvard_abnormal,2,9.618,0.3691476669301861,5
+one run,L1,harvard_abnormal,3,9.158,0.14237275020171541,5
+one run,L1,harvard_abnormal,4,8.83,0.35818989377144633,5
+one run,L1,harvard_abnormal,5,8.846,0.2268920448142689,5
+one run,L1,harvard_abnormal,6,9.072,0.2140560674215985,5
+one run,L1,harvard_abnormal,7,8.456,0.5300283011311749,5
+one run,L1,harvard_abnormal,8,8.132,0.30507376157250826,5
+one run,L1,harvard_abnormal,9,8.18,0.24829418035870246,5
+one run,L1,harvard_abnormal,10,7.273999999999999,0.10853570840972117,5
+one run,L1,harvard_abnormal,11,7.258,0.09757048734120365,5
+one run,L1,harvard_abnormal,12,6.676,0.01673320053068171,5
+one run,L1,harvard_abnormal,13,6.642,0.033466401061363026,5
+one run,L1,harvard_abnormal,14,6.622,0.0363318042491697,5
+one run,L1,harvard_abnormal,15,6.609999999999999,0.029154759474226414,5
+one run,L1,harvard_normal,0,11.128,0.30605555051330136,5
+one run,L1,harvard_normal,1,9.854,0.23060789231940867,5
+one run,L1,harvard_normal,2,9.43,0.4188675208225147,5
+one run,L1,harvard_normal,3,9.065999999999999,0.1962906008957128,5
+one run,L1,harvard_normal,4,8.654,0.35641268215370797,5
+one run,L1,harvard_normal,5,8.642,0.5986818854784232,5
+one run,L1,harvard_normal,6,8.532,0.19588261791185035,5
+one run,L1,harvard_normal,7,8.09,0.3409545424246463,5
+one run,L1,harvard_normal,8,7.906000000000001,0.22277791632026675,5
+one run,L1,harvard_normal,9,7.892,0.21087911228948253,5
+one run,L1,harvard_normal,10,6.822,0.11691877522451202,5
+one run,L1,harvard_normal,11,6.794,0.09208691546577036,5
+one run,L1,harvard_normal,12,6.101999999999999,0.04266145801540323,5
+one run,L1,harvard_normal,13,6.023999999999999,0.05029910535983716,5
+one run,L1,harvard_normal,14,5.96,0.01870828693386987,5
+one run,L1,harvard_normal,15,5.942,0.014832396974191243,5
+one run,L1,harvard_unlabelled,0,10.538,0.21787611158637812,5
+one run,L1,harvard_unlabelled,1,9.338,0.30458168034207184,5
+one run,L1,harvard_unlabelled,2,8.861999999999998,0.28899826989101507,5
+one run,L1,harvard_unlabelled,3,8.412,0.15546703830716,5
+one run,L1,harvard_unlabelled,4,8.078,0.36272579174908426,5
+one run,L1,harvard_unlabelled,5,8.064,0.3992868642968363,5
+one run,L1,harvard_unlabelled,6,8.048,0.10232301793829142,5
+one run,L1,harvard_unlabelled,7,7.5920000000000005,0.34193566646373746,5
+one run,L1,harvard_unlabelled,8,7.364,0.21078424988599145,5
+one run,L1,harvard_unlabelled,9,7.324,0.21102132593650333,5
+one run,L1,harvard_unlabelled,10,6.726000000000001,0.09370165420097987,5
+one run,L1,harvard_unlabelled,11,6.704000000000001,0.08988882021697675,5
+one run,L1,harvard_unlabelled,12,6.086,0.02607680962081016,5
+one run,L1,harvard_unlabelled,13,6.014,0.02880972058177603,5
+one run,L1,harvard_unlabelled,14,5.978,0.029495762407504938,5
+one run,L1,harvard_unlabelled,15,5.964,0.02880972058177556,5
+one run,L1,temple_abnormal,0,11.022,0.1793599732381787,5
+one run,L1,temple_abnormal,1,10.424,0.2706104210853684,5
+one run,L1,temple_abnormal,2,10.016,0.15565988564816655,5
+one run,L1,temple_abnormal,3,9.78,0.1668831926827867,5
+one run,L1,temple_abnormal,4,9.646,0.3910626548265638,5
+one run,L1,temple_abnormal,5,9.638,0.33973519099439803,5
+one run,L1,temple_abnormal,6,9.428,0.17512852423291933,5
+one run,L1,temple_abnormal,7,9.168000000000001,0.32706268512320325,5
+one run,L1,temple_abnormal,8,9.0,0.23895606290696952,5
+one run,L1,temple_abnormal,9,8.83,0.12409673645990867,5
+one run,L1,temple_abnormal,10,8.792,0.15786069808536876,5
+one run,L1,temple_abnormal,11,8.76,0.14089002803605405,5
+one run,L1,temple_abnormal,12,8.168000000000001,0.12457929201917911,5
+one run,L1,temple_abnormal,13,8.120000000000001,0.13583077707206126,5
+one run,L1,temple_abnormal,14,8.1,0.14781745499094526,5
+one run,L1,temple_abnormal,15,8.064,0.14188023118109144,5
+one run,L1,temple_normal,0,7.2,0.3696620077854902,5
+one run,L1,temple_normal,1,6.9,0.1620185174601961,5
+one run,L1,temple_normal,2,6.858,0.4800729111291327,5
+one run,L1,temple_normal,3,6.481999999999999,0.23199137915017404,5
+one run,L1,temple_normal,4,6.276,0.3124579971772208,5
+one run,L1,temple_normal,5,6.215999999999999,0.6555760825411496,5
+one run,L1,temple_normal,6,5.970000000000001,0.23643180835073768,5
+one run,L1,temple_normal,7,5.728,0.07854934754662217,5
+one run,L1,temple_normal,8,5.651999999999999,0.23647410006171918,5
+one run,L1,temple_normal,9,5.662,0.12969194269498718,5
+one run,L1,temple_normal,10,5.442,0.12755391017134668,5
+one run,L1,temple_normal,11,5.438000000000001,0.12029131306956452,5
+one run,L1,temple_normal,12,4.832,0.08642916174532729,5
+one run,L1,temple_normal,13,4.75,0.053851648071345404,5
+one run,L1,temple_normal,14,4.7219999999999995,0.05263078946776317,5
+one run,L1,temple_normal,15,4.7219999999999995,0.05630275304103688,5
+one run,W4,all,0,10.7474,0.4143136493044856,5
+one run,W4,all,1,9.5536,0.49448488348987935,5
+one run,W4,all,2,9.340399999999999,0.31840744338033306,5
+one run,W4,all,3,9.0884,0.2775649473546688,5
+one run,W4,all,4,8.2674,0.3382111766337712,5
+one run,W4,all,5,8.687999999999999,0.27381837045749785,5
+one run,W4,all,6,8.1746,0.5726223013470572,5
+one run,W4,all,7,8.0522,0.4154223152407684,5
+one run,W4,all,8,7.800999999999999,0.31089950144701106,5
+one run,W4,all,9,7.853,0.3611250937463825,4
+one run,W4,all,10,6.952800000000001,0.13824507224490823,5
+one run,W4,all,11,6.9316,0.12810659623922582,5
+one run,W4,all,12,6.2634,0.03508275929855082,5
+one run,W4,all,13,6.2286,0.025948024973010866,5
+one run,W4,all,14,6.1786,0.013390294993015901,5
+one run,W4,all,15,6.1658,0.013311649033835594,5
+one run,W4,harvard_abnormal,0,11.186,0.6862433970538443,5
+one run,W4,harvard_abnormal,1,9.936,0.6056649238646726,5
+one run,W4,harvard_abnormal,2,9.684000000000001,0.3344846782739087,5
+one run,W4,harvard_abnormal,3,9.623999999999999,0.3820732913983915,5
+one run,W4,harvard_abnormal,4,8.68,0.3318885355055222,5
+one run,W4,harvard_abnormal,5,9.040000000000001,0.2668332812825261,5
+one run,W4,harvard_abnormal,6,8.666,0.603100323329378,5
+one run,W4,harvard_abnormal,7,8.553999999999998,0.47029777800878425,5
+one run,W4,harvard_abnormal,8,8.268,0.28490349243208657,5
+one run,W4,harvard_abnormal,9,8.3775,0.39220530338076753,4
+one run,W4,harvard_abnormal,10,7.314,0.15175638372075148,5
+one run,W4,harvard_abnormal,11,7.292,0.13627178724886518,5
+one run,W4,harvard_abnormal,12,6.674000000000001,0.040373258476372735,5
+one run,W4,harvard_abnormal,13,6.651999999999999,0.04147288270665535,5
+one run,W4,harvard_abnormal,14,6.617999999999999,0.03492849839314578,5
+one run,W4,harvard_abnormal,15,6.609999999999999,0.035355339059327424,5
+one run,W4,harvard_normal,0,11.078,0.3541468621913798,5
+one run,W4,harvard_normal,1,9.948,0.4494663502421515,5
+one run,W4,harvard_normal,2,9.762,0.3488839348551323,5
+one run,W4,harvard_normal,3,9.324,0.3255456957172065,5
+one run,W4,harvard_normal,4,8.512,0.43251589566165044,5
+one run,W4,harvard_normal,5,9.072,0.2928651566847786,5
+one run,W4,harvard_normal,6,8.395999999999999,0.6702835221009095,5
+one run,W4,harvard_normal,7,8.268,0.4054873610853979,5
+one run,W4,harvard_normal,8,8.006,0.37627117880592476,5
+one run,W4,harvard_normal,9,8.0525,0.38870511530807816,4
+one run,W4,harvard_normal,10,6.859999999999999,0.14335271186831433,5
+one run,W4,harvard_normal,11,6.8340000000000005,0.12934450123604024,5
+one run,W4,harvard_normal,12,6.08,0.04472135954999623,5
+one run,W4,harvard_normal,13,6.044,0.039115214431215614,5
+one run,W4,harvard_normal,14,5.968,0.022803508501982813,5
+one run,W4,harvard_normal,15,5.948,0.013038404810405291,5
+one run,W4,harvard_unlabelled,0,10.443999999999999,0.34789366191409704,5
+one run,W4,harvard_unlabelled,1,9.22,0.4764976390287796,5
+one run,W4,harvard_unlabelled,2,9.012,0.31019348800385826,5
+one run,W4,harvard_unlabelled,3,8.732,0.2516346558008259,5
+one run,W4,harvard_unlabelled,4,7.946,0.3228467128530197,5
+one run,W4,harvard_unlabelled,5,8.354,0.28360183356247953,5
+one run,W4,harvard_unlabelled,6,7.824,0.5315825429789804,5
+one run,W4,harvard_unlabelled,7,7.696,0.3989736833426484,5
+one run,W4,harvard_unlabelled,8,7.462000000000001,0.3066268090040401,5
+one run,W4,harvard_unlabelled,9,7.495,0.3469389955981695,4
+one run,W4,harvard_unlabelled,10,6.7620000000000005,0.13423859355639867,5
+one run,W4,harvard_unlabelled,11,6.746,0.12837445228704983,5
+one run,W4,harvard_unlabelled,12,6.082,0.04266145801540345,5
+one run,W4,harvard_unlabelled,13,6.036,0.038470768123342484,5
+one run,W4,harvard_unlabelled,14,5.9879999999999995,0.023874672772626806,5
+one run,W4,harvard_unlabelled,15,5.9719999999999995,0.022803508501982546,5
+one run,W4,temple_abnormal,0,10.959999999999999,0.12549900398011102,5
+one run,W4,temple_abnormal,1,10.187999999999999,0.14149204924659262,5
+one run,W4,temple_abnormal,2,10.075999999999999,0.3165912190822733,5
+one run,W4,temple_abnormal,3,9.858,0.37251845591862964,5
+one run,W4,temple_abnormal,4,9.518,0.19097120201747686,5
+one run,W4,temple_abnormal,5,9.702,0.30310064335134695,5
+one run,W4,temple_abnormal,6,9.314,0.3612893577176056,5
+one run,W4,temple_abnormal,7,9.132,0.26395075298244525,5
+one run,W4,temple_abnormal,8,9.134,0.23691770723185715,5
+one run,W4,temple_abnormal,9,8.865,0.30446674695276715,4
+one run,W4,temple_abnormal,10,8.786,0.23362362894193756,5
+one run,W4,temple_abnormal,11,8.728,0.24056184236075323,5
+one run,W4,temple_abnormal,12,8.106,0.1764369575797543,5
+one run,W4,temple_abnormal,13,8.142,0.20462160198766835,5
+one run,W4,temple_abnormal,14,8.068000000000001,0.18593009439033736,5
+one run,W4,temple_abnormal,15,8.07,0.20579115627256683,5
+one run,W4,temple_normal,0,7.772,0.4886921321241016,5
+one run,W4,temple_normal,1,7.228,0.5358824497965943,5
+one run,W4,temple_normal,2,7.078,0.6008910050916055,5
+one run,W4,temple_normal,3,6.5760000000000005,0.17008821240756242,5
+one run,W4,temple_normal,4,6.168,0.3810774199555777,5
+one run,W4,temple_normal,5,6.5760000000000005,0.2802320467041554,5
+one run,W4,temple_normal,6,5.966,0.494398624593556,5
+one run,W4,temple_normal,7,5.898000000000001,0.3845386846599444,5
+one run,W4,temple_normal,8,5.65,0.2686075203712657,5
+one run,W4,temple_normal,9,5.68,0.2453568829277061,4
+one run,W4,temple_normal,10,5.452,0.0887130204648674,5
+one run,W4,temple_normal,11,5.456,0.09476286192385688,5
+one run,W4,temple_normal,12,4.756,0.1553383404057092,5
+one run,W4,temple_normal,13,4.764,0.055045435778091456,5
+one run,W4,temple_normal,14,4.682,0.13160547101089665,5
+one run,W4,temple_normal,15,4.682,0.12676750372236564,5
+one run,W7,all,0,10.9408,0.2619030354921455,5
+one run,W7,all,1,9.9488,0.7208340308281792,5
+one run,W7,all,2,9.354000000000001,0.5304257723753626,5
+one run,W7,all,3,8.8616,0.497716083726456,5
+one run,W7,all,4,8.7878,0.3958316561367972,5
+one run,W7,all,5,8.160599999999999,0.3654781799232342,5
+one run,W7,all,6,8.5676,0.3361908684066243,5
+one run,W7,all,7,8.3464,0.425395463069366,5
+one run,W7,all,8,7.83525,0.19759111822144226,4
+one run,W7,all,9,7.7294,0.33924961311694923,5
+one run,W7,all,10,7.131600000000001,0.309239874531083,5
+one run,W7,all,11,7.1178,0.30340187870215973,5
+one run,W7,all,12,6.3545,0.029263173671584895,4
+one run,W7,all,13,6.291,0.019373521448960346,4
+one run,W7,all,14,6.255,0.019949937343259824,4
+one run,W7,all,15,6.2363333333333335,0.009291573243177415,3
+one run,W7,harvard_abnormal,0,11.342,0.4122135368956244,5
+one run,W7,harvard_abnormal,1,10.348,0.9293115731550966,5
+one run,W7,harvard_abnormal,2,9.856,0.6275587621888488,5
+one run,W7,harvard_abnormal,3,9.376,0.5709027938274609,5
+one run,W7,harvard_abnormal,4,9.120000000000001,0.20049937655763458,5
+one run,W7,harvard_abnormal,5,8.594,0.38656176738006537,5
+one run,W7,harvard_abnormal,6,9.02,0.3189827581547313,5
+one run,W7,harvard_abnormal,7,8.83,0.48938737212968664,5
+one run,W7,harvard_abnormal,8,8.345,0.27404379212089447,4
+one run,W7,harvard_abnormal,9,8.244,0.3656227564033731,5
+one run,W7,harvard_abnormal,10,7.5280000000000005,0.32337284981890485,5
+one run,W7,harvard_abnormal,11,7.510000000000001,0.31764760348537213,5
+one run,W7,harvard_abnormal,12,6.7475000000000005,0.06291528696058951,4
+one run,W7,harvard_abnormal,13,6.7025,0.03593976442141297,4
+one run,W7,harvard_abnormal,14,6.67,0.04396968652757655,4
+one run,W7,harvard_abnormal,15,6.656666666666666,0.047258156262526205,3
+one run,W7,harvard_normal,0,11.296000000000001,0.446407885235017,5
+one run,W7,harvard_normal,1,10.274,0.6214740541647733,5
+one run,W7,harvard_normal,2,9.654,0.4924733495327435,5
+one run,W7,harvard_normal,3,9.117999999999999,0.5630008880987667,5
+one run,W7,harvard_normal,4,9.2,0.5549774770204643,5
+one run,W7,harvard_normal,5,8.428,0.3993369504566292,5
+one run,W7,harvard_normal,6,8.862,0.4201428328556851,5
+one run,W7,harvard_normal,7,8.602,0.4158966217703631,5
+one run,W7,harvard_normal,8,8.057500000000001,0.19155068954891913,4
+one run,W7,harvard_normal,9,7.93,0.37006756139926666,5
+one run,W7,harvard_normal,10,7.018000000000001,0.3453548899320816,5
+one run,W7,harvard_normal,11,6.9959999999999996,0.3409985337211877,5
+one run,W7,harvard_normal,12,6.2225,0.03862210075418829,4
+one run,W7,harvard_normal,13,6.155,0.03511884584284262,4
+one run,W7,harvard_normal,14,6.115,0.03511884584284241,4
+one run,W7,harvard_normal,15,6.080000000000001,0.036055512754639925,3
+one run,W7,harvard_unlabelled,0,10.652000000000001,0.3021919919521364,5
+one run,W7,harvard_unlabelled,1,9.646,0.6800955815177747,5
+one run,W7,harvard_unlabelled,2,8.995999999999999,0.5056975380600539,5
+one run,W7,harvard_unlabelled,3,8.494,0.4646826874330488,5
+one run,W7,harvard_unlabelled,4,8.46,0.4453650188328672,5
+one run,W7,harvard_unlabelled,5,7.822,0.35308639169472367,5
+one run,W7,harvard_unlabelled,6,8.22,0.34110115801621016,5
+one run,W7,harvard_unlabelled,7,7.986,0.41246818059093904,5
+one run,W7,harvard_unlabelled,8,7.465,0.1771063710504697,4
+one run,W7,harvard_unlabelled,9,7.362,0.3234501507187777,5
+one run,W7,harvard_unlabelled,10,6.926,0.29644561052577606,5
+one run,W7,harvard_unlabelled,11,6.9159999999999995,0.2915990397789401,5
+one run,W7,harvard_unlabelled,12,6.15,0.03559026084010425,4
+one run,W7,harvard_unlabelled,13,6.0825000000000005,0.01892969448600125,4
+one run,W7,harvard_unlabelled,14,6.0425,0.030956959368344437,4
+one run,W7,harvard_unlabelled,15,6.023333333333333,0.028867513459481187,3
+one run,W7,temple_abnormal,0,11.224,0.34932792616680397,5
+one run,W7,temple_abnormal,1,10.726,0.29466930617218984,5
+one run,W7,temple_abnormal,2,10.186,0.28439409276565536,5
+one run,W7,temple_abnormal,3,9.948,0.30646370095004705,5
+one run,W7,temple_abnormal,4,9.646,0.18902380802428032,5
+one run,W7,temple_abnormal,5,9.386,0.12320714265009103,5
+one run,W7,temple_abnormal,6,9.453999999999999,0.20659138413786707,5
+one run,W7,temple_abnormal,7,9.386,0.14638989036132286,5
+one run,W7,temple_abnormal,8,9.0975,0.14500000000000007,4
+one run,W7,temple_abnormal,9,9.056000000000001,0.2848332845718702,5
+one run,W7,temple_abnormal,10,9.07,0.26296387584609415,5
+one run,W7,temple_abnormal,11,9.081999999999999,0.267058046124808,5
+one run,W7,temple_abnormal,12,8.3775,0.13301002468485867,4
+one run,W7,temple_abnormal,13,8.305,0.1059874206372308,4
+one run,W7,temple_abnormal,14,8.275,0.14933184523068038,4
+one run,W7,temple_abnormal,15,8.256666666666668,0.18147543451754844,3
+one run,W7,temple_normal,0,7.956,0.9961576180504772,5
+one run,W7,temple_normal,1,7.212000000000001,0.3421549356651167,5
+one run,W7,temple_normal,2,6.642,0.32995454232363586,5
+one run,W7,temple_normal,3,6.386,0.2005741758053617,5
+one run,W7,temple_normal,4,6.6739999999999995,1.0048034633698268,5
+one run,W7,temple_normal,5,5.956,0.33886575513025785,5
+one run,W7,temple_normal,6,6.286,0.3835752859609179,5
+one run,W7,temple_normal,7,6.17,0.5199519208542265,5
+one run,W7,temple_normal,8,5.672499999999999,0.28964058187116426,4
+one run,W7,temple_normal,9,5.61,0.21365860619221466,5
+one run,W7,temple_normal,10,5.568,0.18579558659989734,5
+one run,W7,temple_normal,11,5.564,0.1851485889765299,5
+one run,W7,temple_normal,12,4.975,0.22531459488161568,4
+one run,W7,temple_normal,13,4.845,0.09255628917943254,4
+one run,W7,temple_normal,14,4.81,0.08041558721209884,4
+one run,W7,temple_normal,15,4.833333333333333,0.11930353445448798,3
+two-step,L1,all,0,10.178718103202712,,1
+two-step,L1,all,1,8.563642607894305,,1
+two-step,L1,all,2,8.471966205174596,,1
+two-step,L1,all,3,8.582076968893237,,1
+two-step,L1,all,4,7.469825132385492,,1
+two-step,L1,all,5,8.43592228841642,,1
+two-step,L1,all,6,7.731242964692454,,1
+two-step,L1,all,7,7.812461743087282,,1
+two-step,L1,all,8,7.0222445777365525,,1
+two-step,L1,all,9,7.290111852214718,,1
+two-step,L1,all,10,7.303308843181761,,1
+two-step,L1,all,11,7.000170608416767,,1
+two-step,L1,all,12,6.313,,1
+two-step,L1,all,13,6.279,,1
+two-step,L1,all,14,6.153,,1
+two-step,L1,all,15,6.088,,1
+two-step,L1,harvard_abnormal,0,10.865419461894128,,1
+two-step,L1,harvard_abnormal,1,9.08895629181495,,1
+two-step,L1,harvard_abnormal,2,8.990898574155448,,1
+two-step,L1,harvard_abnormal,3,9.112559301726636,,1
+two-step,L1,harvard_abnormal,4,7.926143438397513,,1
+two-step,L1,harvard_abnormal,5,8.674383183691912,,1
+two-step,L1,harvard_abnormal,6,8.300933776151181,,1
+two-step,L1,harvard_abnormal,7,8.42842279276631,,1
+two-step,L1,harvard_abnormal,8,7.517363541177351,,1
+two-step,L1,harvard_abnormal,9,7.887017589518694,,1
+two-step,L1,harvard_abnormal,10,7.787687208683653,,1
+two-step,L1,harvard_abnormal,11,7.556299206794561,,1
+two-step,L1,harvard_abnormal,12,6.87,,1
+two-step,L1,harvard_abnormal,13,6.97,,1
+two-step,L1,harvard_abnormal,14,6.82,,1
+two-step,L1,harvard_abnormal,15,6.79,,1
+two-step,L1,harvard_normal,0,10.33391896845643,,1
+two-step,L1,harvard_normal,1,8.842457832300626,,1
+two-step,L1,harvard_normal,2,8.76959116381342,,1
+two-step,L1,harvard_normal,3,8.856344113292971,,1
+two-step,L1,harvard_normal,4,7.812793976695102,,1
+two-step,L1,harvard_normal,5,8.941494201934749,,1
+two-step,L1,harvard_normal,6,7.987394242631902,,1
+two-step,L1,harvard_normal,7,7.933416433319724,,1
+two-step,L1,harvard_normal,8,7.200348533400435,,1
+two-step,L1,harvard_normal,9,7.380412132717593,,1
+two-step,L1,harvard_normal,10,7.535611890880084,,1
+two-step,L1,harvard_normal,11,7.11613197339266,,1
+two-step,L1,harvard_normal,12,6.02,,1
+two-step,L1,harvard_normal,13,5.95,,1
+two-step,L1,harvard_normal,14,5.79,,1
+two-step,L1,harvard_normal,15,5.71,,1
+two-step,L1,harvard_unlabelled,0,9.816277718414655,,1
+two-step,L1,harvard_unlabelled,1,8.187914696993134,,1
+two-step,L1,harvard_unlabelled,2,8.101618433114517,,1
+two-step,L1,harvard_unlabelled,3,8.224544208715814,,1
+two-step,L1,harvard_unlabelled,4,7.077785686739366,,1
+two-step,L1,harvard_unlabelled,5,8.108203920237633,,1
+two-step,L1,harvard_unlabelled,6,7.306314455404166,,1
+two-step,L1,harvard_unlabelled,7,7.426174308692738,,1
+two-step,L1,harvard_unlabelled,8,6.666462772037081,,1
+two-step,L1,harvard_unlabelled,9,6.9156108549760305,,1
+two-step,L1,harvard_unlabelled,10,6.955137386453876,,1
+two-step,L1,harvard_unlabelled,11,6.634562943189406,,1
+two-step,L1,harvard_unlabelled,12,6.08,,1
+two-step,L1,harvard_unlabelled,13,5.99,,1
+two-step,L1,harvard_unlabelled,14,5.89,,1
+two-step,L1,harvard_unlabelled,15,5.8,,1
+two-step,L1,temple_abnormal,0,10.336232849668116,,1
+two-step,L1,temple_abnormal,1,9.29619133710794,,1
+two-step,L1,temple_abnormal,2,9.26575473745195,,1
+two-step,L1,temple_abnormal,3,9.094627591357636,,1
+two-step,L1,temple_abnormal,4,8.700572127349053,,1
+two-step,L1,temple_abnormal,5,9.424243574859943,,1
+two-step,L1,temple_abnormal,6,8.99020474769688,,1
+two-step,L1,temple_abnormal,7,9.004053154472118,,1
+two-step,L1,temple_abnormal,8,8.464720581392902,,1
+two-step,L1,temple_abnormal,9,8.639877540962717,,1
+two-step,L1,temple_abnormal,10,8.325231577713344,,1
+two-step,L1,temple_abnormal,11,8.49474769002017,,1
+two-step,L1,temple_abnormal,12,8.31,,1
+two-step,L1,temple_abnormal,13,8.39,,1
+two-step,L1,temple_abnormal,14,8.12,,1
+two-step,L1,temple_abnormal,15,8.13,,1
+two-step,L1,temple_normal,0,6.758600214906775,,1
+two-step,L1,temple_normal,1,6.160150168369237,,1
+two-step,L1,temple_normal,2,5.793158298302343,,1
+two-step,L1,temple_normal,3,5.895743456627247,,1
+two-step,L1,temple_normal,4,5.428546468910485,,1
+two-step,L1,temple_normal,5,6.695792736146458,,1
+two-step,L1,temple_normal,6,5.623851901787548,,1
+two-step,L1,temple_normal,7,5.5142663562586325,,1
+two-step,L1,temple_normal,8,5.02828062567668,,1
+two-step,L1,temple_normal,9,5.177493691863502,,1
+two-step,L1,temple_normal,10,5.090199852914081,,1
+two-step,L1,temple_normal,11,4.908313712356404,,1
+two-step,L1,temple_normal,12,4.61,,1
+two-step,L1,temple_normal,13,4.45,,1
+two-step,L1,temple_normal,14,4.47,,1
+two-step,L1,temple_normal,15,4.41,,1
+two-step,W4,all,0,10.178718103202712,,1
+two-step,W4,all,1,8.563642607894305,,1
+two-step,W4,all,2,8.471966205174596,,1
+two-step,W4,all,3,8.582076968893237,,1
+two-step,W4,all,4,7.469825132385492,,1
+two-step,W4,all,5,8.43592228841642,,1
+two-step,W4,all,6,7.731242964692454,,1
+two-step,W4,all,7,7.812461743087282,,1
+two-step,W4,all,8,7.0222445777365525,,1
+two-step,W4,all,9,7.290111852214718,,1
+two-step,W4,all,10,7.303308843181761,,1
+two-step,W4,all,11,7.000170608416767,,1
+two-step,W4,all,12,6.331,,1
+two-step,W4,all,13,6.259,,1
+two-step,W4,all,14,6.105,,1
+two-step,W4,all,15,6.1,,1
+two-step,W4,harvard_abnormal,0,10.865419461894128,,1
+two-step,W4,harvard_abnormal,1,9.08895629181495,,1
+two-step,W4,harvard_abnormal,2,8.990898574155448,,1
+two-step,W4,harvard_abnormal,3,9.112559301726636,,1
+two-step,W4,harvard_abnormal,4,7.926143438397513,,1
+two-step,W4,harvard_abnormal,5,8.674383183691912,,1
+two-step,W4,harvard_abnormal,6,8.300933776151181,,1
+two-step,W4,harvard_abnormal,7,8.42842279276631,,1
+two-step,W4,harvard_abnormal,8,7.517363541177351,,1
+two-step,W4,harvard_abnormal,9,7.887017589518694,,1
+two-step,W4,harvard_abnormal,10,7.787687208683653,,1
+two-step,W4,harvard_abnormal,11,7.556299206794561,,1
+two-step,W4,harvard_abnormal,12,6.88,,1
+two-step,W4,harvard_abnormal,13,6.89,,1
+two-step,W4,harvard_abnormal,14,6.74,,1
+two-step,W4,harvard_abnormal,15,6.77,,1
+two-step,W4,harvard_normal,0,10.33391896845643,,1
+two-step,W4,harvard_normal,1,8.842457832300626,,1
+two-step,W4,harvard_normal,2,8.76959116381342,,1
+two-step,W4,harvard_normal,3,8.856344113292971,,1
+two-step,W4,harvard_normal,4,7.812793976695102,,1
+two-step,W4,harvard_normal,5,8.941494201934749,,1
+two-step,W4,harvard_normal,6,7.987394242631902,,1
+two-step,W4,harvard_normal,7,7.933416433319724,,1
+two-step,W4,harvard_normal,8,7.200348533400435,,1
+two-step,W4,harvard_normal,9,7.380412132717593,,1
+two-step,W4,harvard_normal,10,7.535611890880084,,1
+two-step,W4,harvard_normal,11,7.11613197339266,,1
+two-step,W4,harvard_normal,12,6.06,,1
+two-step,W4,harvard_normal,13,5.92,,1
+two-step,W4,harvard_normal,14,5.75,,1
+two-step,W4,harvard_normal,15,5.72,,1
+two-step,W4,harvard_unlabelled,0,9.816277718414655,,1
+two-step,W4,harvard_unlabelled,1,8.187914696993134,,1
+two-step,W4,harvard_unlabelled,2,8.101618433114517,,1
+two-step,W4,harvard_unlabelled,3,8.224544208715814,,1
+two-step,W4,harvard_unlabelled,4,7.077785686739366,,1
+two-step,W4,harvard_unlabelled,5,8.108203920237633,,1
+two-step,W4,harvard_unlabelled,6,7.306314455404166,,1
+two-step,W4,harvard_unlabelled,7,7.426174308692738,,1
+two-step,W4,harvard_unlabelled,8,6.666462772037081,,1
+two-step,W4,harvard_unlabelled,9,6.9156108549760305,,1
+two-step,W4,harvard_unlabelled,10,6.955137386453876,,1
+two-step,W4,harvard_unlabelled,11,6.634562943189406,,1
+two-step,W4,harvard_unlabelled,12,6.1,,1
+two-step,W4,harvard_unlabelled,13,6.0,,1
+two-step,W4,harvard_unlabelled,14,5.85,,1
+two-step,W4,harvard_unlabelled,15,5.83,,1
+two-step,W4,temple_abnormal,0,10.336232849668116,,1
+two-step,W4,temple_abnormal,1,9.29619133710794,,1
+two-step,W4,temple_abnormal,2,9.26575473745195,,1
+two-step,W4,temple_abnormal,3,9.094627591357636,,1
+two-step,W4,temple_abnormal,4,8.700572127349053,,1
+two-step,W4,temple_abnormal,5,9.424243574859943,,1
+two-step,W4,temple_abnormal,6,8.99020474769688,,1
+two-step,W4,temple_abnormal,7,9.004053154472118,,1
+two-step,W4,temple_abnormal,8,8.464720581392902,,1
+two-step,W4,temple_abnormal,9,8.639877540962717,,1
+two-step,W4,temple_abnormal,10,8.325231577713344,,1
+two-step,W4,temple_abnormal,11,8.49474769002017,,1
+two-step,W4,temple_abnormal,12,8.3,,1
+two-step,W4,temple_abnormal,13,8.31,,1
+two-step,W4,temple_abnormal,14,8.18,,1
+two-step,W4,temple_abnormal,15,8.2,,1
+two-step,W4,temple_normal,0,6.758600214906775,,1
+two-step,W4,temple_normal,1,6.160150168369237,,1
+two-step,W4,temple_normal,2,5.793158298302343,,1
+two-step,W4,temple_normal,3,5.895743456627247,,1
+two-step,W4,temple_normal,4,5.428546468910485,,1
+two-step,W4,temple_normal,5,6.695792736146458,,1
+two-step,W4,temple_normal,6,5.623851901787548,,1
+two-step,W4,temple_normal,7,5.5142663562586325,,1
+two-step,W4,temple_normal,8,5.02828062567668,,1
+two-step,W4,temple_normal,9,5.177493691863502,,1
+two-step,W4,temple_normal,10,5.090199852914081,,1
+two-step,W4,temple_normal,11,4.908313712356404,,1
+two-step,W4,temple_normal,12,4.66,,1
+two-step,W4,temple_normal,13,4.69,,1
+two-step,W4,temple_normal,14,4.46,,1
+two-step,W4,temple_normal,15,4.45,,1
+two-step,W7,all,0,10.178718103202712,,1
+two-step,W7,all,1,8.563642607894305,,1
+two-step,W7,all,2,8.471966205174596,,1
+two-step,W7,all,3,8.582076968893237,,1
+two-step,W7,all,4,7.469825132385492,,1
+two-step,W7,all,5,8.43592228841642,,1
+two-step,W7,all,6,7.731242964692454,,1
+two-step,W7,all,7,7.812461743087282,,1
+two-step,W7,all,8,7.0222445777365525,,1
+two-step,W7,all,9,7.290111852214718,,1
+two-step,W7,all,10,7.303308843181761,,1
+two-step,W7,all,11,7.000170608416767,,1
+two-step,W7,all,12,6.31,,1
+two-step,W7,all,13,6.223,,1
+two-step,W7,all,14,6.21,,1
+two-step,W7,all,15,6.12,,1
+two-step,W7,harvard_abnormal,0,10.865419461894128,,1
+two-step,W7,harvard_abnormal,1,9.08895629181495,,1
+two-step,W7,harvard_abnormal,2,8.990898574155448,,1
+two-step,W7,harvard_abnormal,3,9.112559301726636,,1
+two-step,W7,harvard_abnormal,4,7.926143438397513,,1
+two-step,W7,harvard_abnormal,5,8.674383183691912,,1
+two-step,W7,harvard_abnormal,6,8.300933776151181,,1
+two-step,W7,harvard_abnormal,7,8.42842279276631,,1
+two-step,W7,harvard_abnormal,8,7.517363541177351,,1
+two-step,W7,harvard_abnormal,9,7.887017589518694,,1
+two-step,W7,harvard_abnormal,10,7.787687208683653,,1
+two-step,W7,harvard_abnormal,11,7.556299206794561,,1
+two-step,W7,harvard_abnormal,12,6.87,,1
+two-step,W7,harvard_abnormal,13,6.86,,1
+two-step,W7,harvard_abnormal,14,6.81,,1
+two-step,W7,harvard_abnormal,15,6.73,,1
+two-step,W7,harvard_normal,0,10.33391896845643,,1
+two-step,W7,harvard_normal,1,8.842457832300626,,1
+two-step,W7,harvard_normal,2,8.76959116381342,,1
+two-step,W7,harvard_normal,3,8.856344113292971,,1
+two-step,W7,harvard_normal,4,7.812793976695102,,1
+two-step,W7,harvard_normal,5,8.941494201934749,,1
+two-step,W7,harvard_normal,6,7.987394242631902,,1
+two-step,W7,harvard_normal,7,7.933416433319724,,1
+two-step,W7,harvard_normal,8,7.200348533400435,,1
+two-step,W7,harvard_normal,9,7.380412132717593,,1
+two-step,W7,harvard_normal,10,7.535611890880084,,1
+two-step,W7,harvard_normal,11,7.11613197339266,,1
+two-step,W7,harvard_normal,12,6.07,,1
+two-step,W7,harvard_normal,13,5.97,,1
+two-step,W7,harvard_normal,14,5.92,,1
+two-step,W7,harvard_normal,15,5.83,,1
+two-step,W7,harvard_unlabelled,0,9.816277718414655,,1
+two-step,W7,harvard_unlabelled,1,8.187914696993134,,1
+two-step,W7,harvard_unlabelled,2,8.101618433114517,,1
+two-step,W7,harvard_unlabelled,3,8.224544208715814,,1
+two-step,W7,harvard_unlabelled,4,7.077785686739366,,1
+two-step,W7,harvard_unlabelled,5,8.108203920237633,,1
+two-step,W7,harvard_unlabelled,6,7.306314455404166,,1
+two-step,W7,harvard_unlabelled,7,7.426174308692738,,1
+two-step,W7,harvard_unlabelled,8,6.666462772037081,,1
+two-step,W7,harvard_unlabelled,9,6.9156108549760305,,1
+two-step,W7,harvard_unlabelled,10,6.955137386453876,,1
+two-step,W7,harvard_unlabelled,11,6.634562943189406,,1
+two-step,W7,harvard_unlabelled,12,6.06,,1
+two-step,W7,harvard_unlabelled,13,5.93,,1
+two-step,W7,harvard_unlabelled,14,5.96,,1
+two-step,W7,harvard_unlabelled,15,5.87,,1
+two-step,W7,temple_abnormal,0,10.336232849668116,,1
+two-step,W7,temple_abnormal,1,9.29619133710794,,1
+two-step,W7,temple_abnormal,2,9.26575473745195,,1
+two-step,W7,temple_abnormal,3,9.094627591357636,,1
+two-step,W7,temple_abnormal,4,8.700572127349053,,1
+two-step,W7,temple_abnormal,5,9.424243574859943,,1
+two-step,W7,temple_abnormal,6,8.99020474769688,,1
+two-step,W7,temple_abnormal,7,9.004053154472118,,1
+two-step,W7,temple_abnormal,8,8.464720581392902,,1
+two-step,W7,temple_abnormal,9,8.639877540962717,,1
+two-step,W7,temple_abnormal,10,8.325231577713344,,1
+two-step,W7,temple_abnormal,11,8.49474769002017,,1
+two-step,W7,temple_abnormal,12,8.38,,1
+two-step,W7,temple_abnormal,13,8.13,,1
+two-step,W7,temple_abnormal,14,8.21,,1
+two-step,W7,temple_abnormal,15,8.07,,1
+two-step,W7,temple_normal,0,6.758600214906775,,1
+two-step,W7,temple_normal,1,6.160150168369237,,1
+two-step,W7,temple_normal,2,5.793158298302343,,1
+two-step,W7,temple_normal,3,5.895743456627247,,1
+two-step,W7,temple_normal,4,5.428546468910485,,1
+two-step,W7,temple_normal,5,6.695792736146458,,1
+two-step,W7,temple_normal,6,5.623851901787548,,1
+two-step,W7,temple_normal,7,5.5142663562586325,,1
+two-step,W7,temple_normal,8,5.02828062567668,,1
+two-step,W7,temple_normal,9,5.177493691863502,,1
+two-step,W7,temple_normal,10,5.090199852914081,,1
+two-step,W7,temple_normal,11,4.908313712356404,,1
+two-step,W7,temple_normal,12,4.59,,1
+two-step,W7,temple_normal,13,4.56,,1
+two-step,W7,temple_normal,14,4.41,,1
+two-step,W7,temple_normal,15,4.36,,1

@@ -1495,7 +1495,22 @@ Table 12.5. n folds: L1 5, W4 4, W7 3.
 | TUAB normal (149) | 4.72 ± 0.06 | 4.65 | **4.41** | 4.66 ± 0.13 | 4.54 | **4.45** | 4.83 ± 0.12 | 4.76 | **4.36** |
 | TUAB abnormal (125) | 8.06 ± 0.14 | **7.97** | 8.13 | 8.04 ± 0.22 | **7.93** | 8.20 | 8.25 ± 0.18 | 8.17 | **8.07** |
 
-What Tables 13.2–13.4 show:
+### Figure 13.1. Test MAE per cohort over epochs: one run vs. two-step
+
+![one run vs two-step by cohort](figures/mil_phased_vs_twostep_by_cohort.png)
+
+Test recording MAE in years (5-minute evaluation, the 7,612-recording test
+split), per cohort, from the per-epoch `Test EEG mae by dataset/cohort` lines
+(rows in `docs/data/mil_phased_cv/onerun_vs_twostep_by_cohort.csv`). Solid:
+the one-run models, fold mean with a ±1 SD band (Eq. (13.1); L1 and W4 5
+folds, W7 3–5). Dashed: the two-step models, i.e. E2L at its epochs 0–11
+(the W runs start from its epoch-11 checkpoint, so the three dashed lines
+coincide there) followed by the 4-epoch bag warm start drawn as epochs 12–15.
+Shaded: the one run's attention-only epochs. Panels: (a) all test
+recordings; (b)–(d) Harvard normal, abnormal, unlabelled; (e)–(f) TUAB
+normal, abnormal.
+
+What Tables 13.2–13.4 and Figure 13.1 show:
 
 * **One run from `labram-base` reaches the two-step result.**
   - A single fold model is 0.07 y behind for L1 and W4 (6.16 / 6.17 vs.
@@ -1505,6 +1520,11 @@ What Tables 13.2–13.4 show:
     W4 6.08, against 6.09 / 6.10.
   - The folds agree to within 0.01–0.02 y on test (Table 13.2, epochs 12–15),
     so the result hardly depends on which subjects are trained on.
+* **Over epochs (Figure 13.1)** the one run is behind two-step in every
+  cohort throughout the window phase, overtakes it on Harvard abnormal and
+  TUAB abnormal from the attention epochs on (Figure 13.1(c), (f)), and stays
+  behind on the normal and unlabelled cohorts to the end (Figure 13.1(b),
+  (d), (e)).
 * **The cohort profile shifts.** Against the two-step models the phased runs
   are better on the abnormal cohorts (Harvard abnormal 6.51–6.59 ensemble vs.
   6.73–6.79; TUAB abnormal 7.93–7.97 vs. 8.13–8.20 for L1 / W4) and worse on
