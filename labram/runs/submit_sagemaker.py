@@ -686,7 +686,13 @@ def resolve_checkpoint_uri(sm, base_job_name: str, region: str = "",
     from the role ARN); ``off`` never; any other value is the prefix. The job's
     folder is ``<base_job_name>-<UTC time>`` so every submission (and every CV
     fold, whose base name carries the fold) gets its own, and a spot restart of
-    the same job finds its checkpoints again."""
+    the same job finds its checkpoints again. ``sagemaker.resume_checkpoint_s3_uri``
+    (an existing job's folder) is used verbatim, so a new job resumes that one."""
+    resume = (getattr(sm, "resume_checkpoint_s3_uri", "") or "").strip()
+    if resume:
+        if not resume.startswith("s3://"):
+            raise ValueError(f"sagemaker.resume_checkpoint_s3_uri must be an s3:// folder, got {resume!r}")
+        return resume.rstrip("/") + "/"
     value = (sm.checkpoint_s3_uri or "").strip()
     if value.lower() in ("", "off", "none", "false"):
         return ""

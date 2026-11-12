@@ -15,6 +15,7 @@
 #   ONLY="W2 W3" scripts/mil_runs/submit_grid.sh       # a subset
 #   ONLY="CV_L1 CV_W4 CV_W7" FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh   # one-step CV fold 0
 #   scripts/mil_runs/submit_phased_cv.sh             # phased P_* jobs, all 5 folds
+#   RESUME=s3://.../<job>-<time>/ ONLY=P_W7 FOLD=1 ... # continue a failed job from its checkpoints
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PY=${PY:-/data/code/LaBraM/.venv/bin/python}
@@ -118,6 +119,7 @@ for name in $NAMES; do
   echo "=== $name: ${JOBS[$name]}"
   "$PY" -m labram.runs.submit_sagemaker --phase finetune --detach \
     --config labram/configs/defaults/finetune_tuab_age.json "${EXTRA[@]}" --set "${BASE[@]}" "${over[@]}" \
+    ${RESUME:+sagemaker.resume_checkpoint_s3_uri=$RESUME} \
     clearml.task_name="heedb_mil_${name}${FOLD:+_fold${FOLD}}" "clearml.tags=[\"heedb\",\"mil\",\"${name}\"]" \
     sagemaker.job_name_prefix="labram-mil-$(echo "${name,,}" | tr _ -)${FOLD:+-f${FOLD}}"
 done
