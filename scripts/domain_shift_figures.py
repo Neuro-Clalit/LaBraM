@@ -188,6 +188,7 @@ def tests_table(d, out_csv, chbp_raw, encoding_csv, models=("E2L", "L1", "W4", "
 
 S = "/data/runs/heedb/domain_shift/scores"
 F = "/data/runs/chbp_fix/scores"
+FC = "/data/runs/chbp_fix/scores/e2l_band45_amp_cont_20261112_001004_075"   # 4 + 6 epochs
 EXT = "/data/runs/heedb/external_eval"
 FIXES = [  # (label, kind, [score files], model key)  -- CHBP, first 5 minutes; no CHBP labels used
     ("as recorded", "test-time", [f"{EXT}/chbp_5min.json"], None),
@@ -199,9 +200,12 @@ FIXES = [  # (label, kind, [score files], model key)  -- CHBP, first 5 minutes; 
     ("spectrum matching per cap and channel", "test-time",
      [f"{S}/chbp64_psdmatchchU.json", f"{S}/chbp120_psdmatchchU.json"], None),
     ("spectrum matching 0.5-45 Hz + refill (age-matched ref.)", "test-time", [f"{S}/chbp_psdmatch45_fill.json"], None),
-    ("device-robust E2L, as recorded", "training", [f"{F}/chbp_raw.json"], "E2L-robust"),
-    ("device-robust E2L, per-cap matching", "training",
+    ("device-robust E2L (4 epochs), as recorded", "training", [f"{F}/chbp_raw.json"], "E2L-robust"),
+    ("device-robust E2L (4 epochs), per-cap matching", "training",
      [f"{F}/chbp64_psdmatchU.json", f"{F}/chbp120_psdmatchU.json"], "E2L-robust"),
+    ("device-robust E2L (+6 epochs), as recorded", "training", [f"{FC}/chbp_raw.json"], "E2L-robust"),
+    ("device-robust E2L (+6 epochs), per-cap matching", "training",
+     [f"{FC}/chbp64_psdmatchU.json", f"{FC}/chbp120_psdmatchU.json"], "E2L-robust"),
 ]
 
 

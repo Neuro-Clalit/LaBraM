@@ -68,12 +68,13 @@ Outputs:
    CHBP labels:
    - **Best: a device-robust model.** E2L fine-tuned on Temple + Harvard with a
      1–45 Hz input band and per-window amplitude normalization scores CHBP
-     *as recorded* at MAE 6.39, r 0.55 (E2L: 9.55, r 0.44). That is level with
-     the best published within-CHBP result (6.48, trained on CHBP). The
-     120-channel cap goes from 13.10 to 6.98.
+     *as recorded* at MAE 6.38, r 0.55, bias +0.3 (E2L: 9.55, r 0.44). That is
+     level with the best published within-CHBP result (6.48, trained on CHBP).
+     The 120-channel cap goes from 13.10 to 7.01.
    - **It is invariant to the CHBP-like degradation** (Table 10.3).
-   - **Its in-domain calibration is worse after the short fine-tune** (val MAE
-     8.10 vs 7.24; ranking unchanged). A longer continuation is running.
+   - **It costs some in-domain accuracy:** val 7.86 vs 7.24, LEMON 6.23 vs 5.22,
+     with the ranking unchanged. The cost is a level offset at young ages from
+     discarding amplitude.
    - **Best without retraining: spectrum matching per cap** to a label-free
      Temple / Harvard reference: E2L 6.70, all four models improved
      (Table 10.1).
@@ -652,22 +653,30 @@ where the median runs over the non-zero channels of the window.
   mixup.
 - Selection: the in-domain validation MAE. The best epoch was 2: val 8.10,
   test 8.04 (E2L: 7.24 / 7.00).
-- Launcher: `/data/runs/chbp_fix/run_e2l_band45_amp.sh`.
+- Continuation: 6 more epochs from that checkpoint, 12 windows per recording
+  per epoch, lr 1e-4 (no warm-up, cosine to 1e-6). The best epoch was 2 of 6:
+  val 7.86, test 7.73. Later epochs: val 7.93–7.99.
+- Launchers: `scripts/external_runs/chbp_robust_e2l.sh train` / `continue` /
+  `score`.
 
 ### Table 10.3. E2L and device-robust E2L
 
-First 5 minutes; MAE, bias (2.2), r (2.3). CHBP as recorded, with no test-time
-step.
+First 5 minutes; MAE / bias (2.2) / r (2.3). CHBP is scored as recorded, with no
+test-time step. "4 ep." is the first fine-tune; "+6 ep." its continuation.
+In-domain val / test is the `tuh_heedb_v1` validation and test split, all
+reports and ages (MAE only). Per-model rows:
+`docs/data/external_eval/chbp/robust_e2l_comparison.csv`.
 
-| set | n | E2L MAE | E2L bias | E2L r | robust MAE | robust bias | robust r |
-|---|---|---|---|---|---|---|---|
-| Temple + Harvard, age-matched | 300 | 7.02 | +5.10 | 0.66 | 8.61 | +7.48 | 0.65 |
-| same, × 0.62 and band 0.5–50 Hz | 300 | 13.71 | +12.59 | 0.37 | **8.48** | +7.30 | **0.65** |
-| LEMON | 214 | 5.22 | −1.11 | 0.95 | 6.52 | +1.05 | 0.94 |
-| **CHBP as recorded** | 250 | 9.55 | +7.05 | 0.44 | **6.39** | +1.34 | **0.55** |
-| CHBP 64-ch cap | 161 | 7.58 | | 0.55 | **6.07** | | **0.59** |
-| CHBP 120-ch cap | 89 | 13.10 | | 0.27 | **6.98** | | **0.46** |
-| CHBP, per-cap spectrum matching | 250 | 6.70 | +0.82 | 0.52 | 6.75 | +2.53 | 0.53 |
+| set | n | E2L | robust, 4 ep. | robust, +6 ep. |
+|---|---|---|---|---|
+| in-domain val / test, MAE | — | 7.24 / 7.00 | 8.10 / 8.04 | 7.86 / 7.73 |
+| Temple + Harvard, age-matched | 300 | 7.02 / +5.10 / 0.66 | 8.61 / +7.48 / 0.65 | 8.50 / +7.39 / 0.65 |
+| same, × 0.62 and band 0.5–50 Hz | 300 | 13.71 / +12.59 / 0.37 | 8.48 / +7.30 / 0.65 | **8.23** / +6.99 / **0.65** |
+| LEMON | 214 | 5.22 / −1.11 / 0.95 | 6.52 / +1.05 / 0.94 | 6.23 / +1.49 / 0.94 |
+| **CHBP as recorded** | 250 | 9.55 / +7.05 / 0.44 | 6.39 / +1.34 / 0.55 | **6.38 / +0.28 / 0.55** |
+| CHBP 64-ch cap | 161 | 7.58 / +4.98 / 0.55 | 6.07 / +1.11 / 0.59 | **6.03 / −0.10 / 0.60** |
+| CHBP 120-ch cap | 89 | 13.10 / +10.80 / 0.27 | 6.98 / +1.77 / 0.46 | 7.01 / +0.95 / 0.45 |
+| CHBP, per-cap spectrum matching | 250 | 6.70 / +0.82 / 0.52 | 6.75 / +2.53 / 0.53 | 6.71 / +2.74 / 0.55 |
 
 ### Figure 10.1. Every CHBP fix, E2L
 
@@ -679,18 +688,27 @@ dashed line is the predict-the-mean MAE, 7.27.
 
 **What Table 10.3 and Figure 10.1 show:**
 - **The device-robust model is the best fix.**
-  - On CHBP as recorded: MAE 6.39, R² 0.19, r 0.55, bias +1.3.
+  - On CHBP as recorded: MAE 6.38, R² 0.18, r 0.55, bias +0.3 after the
+    continuation (4 epochs: 6.39, R² 0.19, bias +1.3).
   - It needs no test-time step at all. Spectrum matching on top adds nothing
-    (6.75).
-  - It also fixes the 120-channel cap (13.10 → 6.98) without knowing about it.
+    (6.71).
+  - It also fixes the 120-channel cap (13.10 → 7.01) without knowing about it.
 - **It is invariant to the CHBP-like degradation on known truth**
-  (8.61 → 8.48, r 0.65 → 0.65; E2L: 7.02 → 13.71, r 0.66 → 0.37).
-- **Its in-domain and LEMON accuracy is worse after 4 short epochs**
-  (age-matched in-domain 8.61 vs 7.02; LEMON 6.52 vs 5.22). The ranking is
-  intact (r 0.65 / 0.94 vs 0.66 / 0.95), so the loss is calibration: a larger
-  young-age bias (+7.5 vs +5.1).
-  - It should shrink with longer training. A 6-epoch continuation at 2 minutes
-    per recording is running (`/data/runs/chbp_fix/run_e2l_band45_amp_cont.sh`).
+  (8.50 → 8.23, r 0.65 → 0.65; E2L: 7.02 → 13.71, r 0.66 → 0.37).
+- **Training longer narrows its in-domain cost without changing CHBP.**
+  - In-domain val 8.10 → 7.86 (E2L 7.24).
+  - LEMON 6.52 → 6.23 (E2L 5.22).
+  - CHBP stays at 6.38–6.39.
+- **The remaining cost is a level offset at young ages, not compression.** On
+  the age-matched in-domain sample the bias is +7.4 vs E2L's +5.1, while the
+  ranking is equal (r 0.65 vs 0.66). The spread of the predictions matches that
+  of the ages (SD 9.56 vs 9.57 years).
+  - Per-window amplitude normalization (10.3) discards a cue that is real within
+    one device: young clinical recordings have higher amplitude (Figure 5.1(a)).
+    The same cue misleads across devices, which is why it was removed.
+  - Keeping it within a device while removing the gain between devices points
+    to the next variant: band-limited training without amplitude normalization,
+    plus one cohort-level gain to the training median at test time (7.1).
 
 ### 10.3 Handcrafted features: wavelets, scattering and others
 
@@ -780,7 +798,7 @@ indistinguishable.
 ### 10.4 Which fix is best
 
 **Ranking on CHBP** (E2L, MAE / r; no CHBP labels anywhere):
-1. **device-robust model, as recorded: 6.39 / 0.55**;
+1. **device-robust model, as recorded: 6.38 / 0.55** (6.39 after 4 epochs);
 2. per-cap spectrum matching: 6.70 / 0.52;
 3. whole-cohort spectrum matching: 7.00 / 0.50;
 4. gain-only fixes: 7.6–7.9 / 0.43–0.44;
@@ -792,7 +810,9 @@ The feature models reach ≥ 9.5 / ≤ 0.38.
 1. **Train age models on device-robust inputs:** band 1–45 Hz and per-window
    amplitude normalization (10.2, 10.3). It removes both shifted properties at
    the source and needs nothing from the target cohort. The remaining cost is
-   in-domain calibration after a short fine-tune; a longer run is under way.
+   in-domain: val 7.86 vs 7.24, LEMON 6.23 vs 5.22, a young-age offset from the
+   discarded amplitude cue. The next variant is band-only training with a
+   cohort-level gain at test time (Section 10.2).
 2. **Without retraining, use per-cap spectrum matching** to a label-free
    Temple / Harvard reference spectrum (7.5).
 3. **Keep CHBP an external test.** Report it per cap, beside the 7.27
@@ -800,7 +820,7 @@ The feature models reach ≥ 9.5 / ≤ 0.38.
 
 **Against the published result.** The best published CHBP result is
 within-CHBP 10-fold CV, 6.48 ± 0.60 (R² 0.18; Engemann et al. 2022), trained
-on CHBP. The device-robust model reaches 6.39 (R² 0.19) zero-shot, never having
+on CHBP. The device-robust model reaches 6.38 (R² 0.18) zero-shot, never having
 seen CHBP. Spectrum matching to a training-set barycenter spectrum is the idea
 behind Convolutional Monge Mapping Normalization (Gnassounou et al. 2023), which
 was used for sleep staging.
