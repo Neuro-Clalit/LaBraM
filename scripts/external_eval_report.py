@@ -49,6 +49,16 @@ def groups(cohort, meta):
     if cohort == "chbp":
         out += [("18-29", (age < 30).to_numpy()), ("30-39", ((age >= 30) & (age < 40)).to_numpy()),
                 ("40-68", (age >= 40).to_numpy())]
+    if cohort == "tdbrain":
+        out += [("5-17", (age < 18).to_numpy()), ("adults 18-44", ((age >= 18) & (age < 45)).to_numpy()),
+                ("45-88", (age >= 45).to_numpy())]
+        out += [(name, meta[col].fillna(False).astype(bool).to_numpy()) for name, col in
+                (("healthy", "healthy"), ("MDD", "dx_mdd"), ("ADHD", "dx_adhd"), ("OCD", "dx_ocd"),
+                 ("SMC", "dx_smc"), ("other dx", "dx_other"), ("blinded (REPLICATION)", "blinded"),
+                 ("indication unknown", "unknown")) if col in meta]
+        if "task" in meta:
+            out += [("eyes closed", (meta["task"] == "restEC").to_numpy()),
+                    ("eyes open", (meta["task"] == "restEO").to_numpy())]
     return out
 
 

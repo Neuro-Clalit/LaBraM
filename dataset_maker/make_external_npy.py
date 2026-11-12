@@ -25,8 +25,17 @@ reader and the channel naming differ per corpus:
   hyperventilation event is kept. Ages are whole years from
   ``Demographic_data.csv``.
 
-Every recording is labelled ``normal`` (healthy volunteers; MIPDB's
-``DX_Status`` is kept in the manifest) and placed in the **test** split, so a
+* ``tdbrain`` -- TDBRAIN (van Dijk et al. 2022, brainclinics.com/resources,
+  ORCID login + DUA), BIDS BrainVision at 500 Hz, DC-coupled, 26 EEG channels
+  (10-10) referenced to averaged mastoids, 2 min eyes closed + 2 min eyes open
+  per session, each converted as its own recording. Psychiatric patients
+  (MDD, ADHD, SMC, OCD, ...) and healthy controls, 5-88 years, decimal ages and
+  clinical flags from ``participants.tsv``; ``clinical.parquet`` keeps every
+  participants.tsv column. See ``docs/tdbrain_onboarding.md``.
+
+The healthy-volunteer corpora are labelled ``normal`` (MIPDB's ``DX_Status``
+is kept in the manifest); in TDBRAIN only the healthy controls are, the
+patients stay unlabelled. Every recording is placed in the **test** split, so a
 model trained elsewhere scores the whole cohort
 (``scripts/eval_age_by_cohort.py --splits test --pred-stats-from-log``).
 
@@ -188,13 +197,184 @@ def open_chbp(path):
     return raw, present, None
 
 
+# ------------------------------------------------------------------ TDBRAIN
+TDBRAIN_TASKS = ("restEC", "restEO")
+# Indication keyword (upper case, substring) -> clinical flag. The first match of
+# each token of the indication wins; a token matching none sets ``dx_other``.
+TDBRAIN_INDICATIONS = (("HEALTHY", "healthy"), ("CONTROL", "healthy"), ("REPLICATION", "blinded"),
+                       ("UNKNOWN", "unknown"), ("MDD", "dx_mdd"), ("DEPRESS", "dx_mdd"),
+                       ("ADHD", "dx_adhd"), ("ADD", "dx_adhd"), ("OCD", "dx_ocd"), ("SMC", "dx_smc"))
+TDBRAIN_DX = ("dx_mdd", "dx_adhd", "dx_ocd", "dx_smc", "dx_other")
+
+
+def _column(df, *names, required=False):
+    """The column of ``df`` matching one of ``names`` (case, spaces, ``_`` and
+    ``/`` ignored), else None; ``required`` raises listing the columns found."""
+    def key(s):
+        return "".join(ch for ch in str(s).lower() if ch.isalnum())
+    cols = {key(c): c for c in df.columns}
+    for name in names:
+        if key(name) in cols:
+            return cols[key(name)]
+    if required:
+        raise KeyError(f"none of {names} in participants.tsv; columns: {list(df.columns)}")
+    return None
+
+
+def _number(value):
+    """``'35,53'`` / ``'35.53'`` / 35.53 -> 35.53; blank or text -> NaN."""
+    try:
+        return float(str(value).strip().replace(",", "."))
+    except ValueError:
+        return float("nan")
+
+
+def _bare_id(value):
+    s = str(value).strip()
+    return s[len("sub-"):] if s.startswith("sub-") else s
+
+
+def tdbrain_indication_flags(indication):
+    """``'MDD/ADHD'`` -> ``{'healthy': False, 'dx_mdd': True, 'dx_adhd': True, ...,
+    'clinical_group': 'dx_mdd'}``. The group is ``healthy``, ``blinded`` (the
+    REPLICATION set, diagnosis withheld by the authors), ``unknown`` (no
+    indication; *not* healthy, per van Dijk et al. 2022) or the first diagnosis."""
+    import re
+    flags = {"healthy": False, "blinded": False, "unknown": False, **{d: False for d in TDBRAIN_DX}}
+    text = "" if indication is None or str(indication).strip().lower() in ("", "nan", "n/a") else str(indication)
+    tokens = [t.strip() for t in re.split(r"[/,;+&]|\bAND\b", text.upper()) if t.strip()]
+    first = None
+    for tok in tokens:
+        flag = next((f for kw, f in TDBRAIN_INDICATIONS if kw in tok), "dx_other")
+        flags[flag] = True
+        first = first or flag
+    if not tokens:
+        flags["unknown"] = True
+    group = ("healthy" if flags["healthy"] else "blinded" if flags["blinded"]
+             else first if first in TDBRAIN_DX else "unknown")
+    return {**flags, "clinical_group": group}
+
+
+def tdbrain_clinical_table(participants_tsv):
+    """One row per participants.tsv row with every original column kept and
+    harmonised ones added: ``subject`` (id without ``sub-``), ``session``
+    (str, None if the file has no session column), ``age`` (years, decimal
+    comma accepted), ``sex`` (M / F from the ``participants.json`` levels
+    next to the tsv; None when they cannot be decoded), ``indication``,
+    ``formal_status`` (DSM diagnosis vs referral indication), ``disc_rep``
+    (DISCOVERY / REPLICATION) and the flags of :func:`tdbrain_indication_flags`.
+    TDBRAIN has no EEG report and no ICD / medication record (medication was
+    allowed but not tracked); the clinical information is the indication."""
+    import pandas as pd
+    df = pd.read_csv(participants_tsv, sep="\t", dtype=str, keep_default_na=False)
+    pid = _column(df, "participants_ID", "participant_id", required=True)
+    age = _column(df, "age", required=True)
+    ses = _column(df, "sessID", "session_id", "session", "ses")
+    sex = _column(df, "gender", "sex")
+    ind = _column(df, "indication")
+    fstat = _column(df, "formal_status", "formal_dx", "formalstatus")
+    drep = _column(df, "DISC/REP", "disc_rep", "discrep")
+    levels = {}
+    sidecar = os.path.splitext(participants_tsv)[0] + ".json"
+    if sex and os.path.exists(sidecar):
+        desc = json.load(open(sidecar, encoding="utf-8", errors="replace")).get(sex, {})
+        levels = {str(k).strip(): str(v) for k, v in (desc.get("Levels") or {}).items()}
+
+    def decode_sex(v):
+        word = levels.get(str(v).strip(), str(v)).strip().lower()
+        return {"m": "M", "male": "M", "man": "M", "f": "F", "female": "F", "woman": "F"}.get(word)
+
+    out = df.copy()
+    out["subject"] = df[pid].map(_bare_id)
+    out["session"] = df[ses].map(lambda v: str(v).strip().removeprefix("ses-") or None) if ses else None
+    out["age"] = df[age].map(_number)
+    out["raw_age"] = df[age]
+    out["sex"] = df[sex].map(decode_sex) if sex else None
+    out["indication"] = df[ind].str.strip() if ind else None
+    out["formal_status"] = df[fstat].str.strip().str.upper() if fstat else None
+    out["disc_rep"] = df[drep].str.strip().str.upper() if drep else None
+    flags = pd.DataFrame([tdbrain_indication_flags(v) for v in (out["indication"] if ind else [None] * len(df))],
+                         index=df.index)
+    # sub-19* is the blinded replication set even where the indication column says otherwise
+    blinded = out["subject"].str.startswith("19") | (out["disc_rep"] == "REPLICATION")
+    flags.loc[blinded & ~flags["healthy"], ["blinded", "clinical_group"]] = [True, "blinded"]
+    return pd.concat([out, flags], axis=1)
+
+
+def tdbrain_vhdr_files(raw_dir):
+    """``(subject, session, task, path)`` of every BIDS resting file under
+    ``raw_dir`` (``sub-*/ses-*/eeg/*_task-rest{EC,EO}_eeg.vhdr``), the
+    ``derivatives`` copies (csv) skipped."""
+    import re
+    pat = re.compile(r"^sub-([^_]+)_ses-([^_]+)_task-(rest(?:EC|EO))_eeg\.vhdr$", re.I)
+    out = []
+    for dirpath, dirnames, filenames in os.walk(raw_dir):
+        dirnames[:] = sorted(d for d in dirnames if d.lower() != "derivatives")
+        for name in sorted(filenames):
+            m = pat.match(name)
+            if m:
+                task = "restEC" if m[3].upper().endswith("EC") else "restEO"
+                out.append((m[1], m[2], task, os.path.join(dirpath, name)))
+    return out
+
+
+def tdbrain_recordings(raw_dir, meta_tsv):
+    """One recording per (subject, session, task): the 2-min eyes-closed and
+    eyes-open files are converted separately (stem
+    ``sub-<id>_ses-<n>_<task>_tdbrain``) and scored per file or pooled per
+    session. Age, sex and the clinical flags come from the participants.tsv row
+    of that session (or of the subject when the file lists no session).
+    ``label`` is ``normal`` for healthy participants only; patients stay
+    unlabelled (no EEG report exists, a psychiatric indication is not an EEG
+    finding)."""
+    table = tdbrain_clinical_table(meta_tsv)
+    by_session = {(r.subject, r.session): r for r in table.itertuples()} if table["session"].notna().any() else {}
+    by_subject = {}
+    for r in table.itertuples():
+        by_subject.setdefault(r.subject, r)
+    keep = ("indication", "formal_status", "disc_rep", "healthy", "blinded", "unknown", *TDBRAIN_DX,
+            "clinical_group")
+    out = []
+    for sub, ses, task, path in tdbrain_vhdr_files(raw_dir):
+        row = by_session.get((sub, ses)) or by_session.get((sub, ses.lstrip("0") or "0"))
+        matched = row is not None
+        row = row if matched else by_subject.get(sub)
+        if row is None or not np.isfinite(row.age):
+            continue
+        out.append({"stem": f"sub-{sub}_ses-{ses}_{task}_tdbrain", "path": os.path.relpath(path, raw_dir),
+                    "corpus": "tdbrain", "subject": sub, "session": ses, "task": task,
+                    "age": float(row.age), "raw_age": row.raw_age, "sex": row.sex,
+                    "label": "normal" if row.healthy else None, "age_session_matched": matched,
+                    **{k: (bool(getattr(row, k)) if isinstance(getattr(row, k), (bool, np.bool_))
+                           else getattr(row, k)) for k in keep},
+                    "_file": path})
+    return out
+
+
+def open_tdbrain(path):
+    """BrainVision at 500 Hz, DC-coupled (low-pass 100 Hz), 26 EEG channels
+    (10-10) + EOG / ECG / EMG, re-referenced offline to averaged mastoids, so
+    A1/A2 (and T1/T2) are absent. The recording is DC-coupled: each channel's
+    mean is removed before the pipeline's 0.1 Hz high-pass, which otherwise
+    leaves a transient over the first seconds of a 2-min file. The original
+    files are never written to (DUA)."""
+    import mne
+    raw = mne.io.read_raw_brainvision(path, preload=True, verbose="error")
+    raw._data -= raw._data.mean(axis=1, keepdims=True)
+    return raw, channel_map(raw.ch_names, bids_canonical_channel), None
+
+
 DATASETS = {"lemon": (lemon_recordings, open_lemon), "mipdb": (mipdb_recordings, open_mipdb),
-            "chbp": (chbp_recordings, open_chbp)}
+            "chbp": (chbp_recordings, open_chbp), "tdbrain": (tdbrain_recordings, open_tdbrain)}
 
 
 # ------------------------------------------------------------------ convert
 def convert_one(rec, opener, out_dir):
     raw, present, reference = opener(rec["_file"])
+    # recorder markers (segment boundaries, events): a mid-file boundary means a discontinuity
+    annotations = {}
+    for desc in raw.annotations.description:
+        annotations[str(desc)] = annotations.get(str(desc), 0) + 1
     sfreq = float(raw.info["sfreq"])
     duration = raw.n_times / sfreq
     if duration < MIN_DURATION_SEC:
@@ -209,7 +389,8 @@ def convert_one(rec, opener, out_dir):
     return {"stem": rec["stem"], "n_windows": x.shape[0] // WINDOW_SAMPLES, "n_samples": x.shape[0],
             "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data), "channel_mask": mask,
             "dtype": "float16", "notch": "50,60", "line": "interp:50,60",
-            "reference": reference or "as recorded", "sfreq_native": sfreq, "duration_sec": duration}
+            "reference": reference or "as recorded", "sfreq_native": sfreq, "duration_sec": duration,
+            "annotations": annotations}
 
 
 def main():
@@ -262,6 +443,9 @@ def main():
     }
     with open(os.path.join(args.out, "manifest.json"), "w") as fh:
         json.dump(manifest, fh)
+    if args.dataset == "tdbrain":
+        # every participants.tsv column (questionnaires, demographics) + the harmonised clinical flags
+        tdbrain_clinical_table(args.meta).to_parquet(os.path.join(args.out, "clinical.parquet"), index=False)
     fields = ("stem", "subject", "session", "token", "age", "sex", "year", "raw_age", "label")
     with open(os.path.join(args.out, "age_metadata.json"), "w") as fh:
         json.dump({"version": 1, "recordings": {r["stem"]: {k: r.get(k) for k in fields} for r in rows}}, fh)

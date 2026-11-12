@@ -200,7 +200,7 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
                  train_data_path=None, window_qc=True, session_features=None, return_windows=False,
                  tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None, num_workers=8,
                  class_probs=False, pred_stats=None, eval_minutes=None, windows_path=None,
-                 bag_batch_size=None):
+                 bag_batch_size=None, trim_start_sec=None, trim_end_sec=None):
     """Score one run on ``splits``. With ``return_windows`` each split also
     carries its window-level predictions (``windows``: names, recording ids,
     predicted / true age in years) and the result the run's window settings
@@ -209,13 +209,20 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     recording -> the mean sigmoid probability of its windows per class column
     (status, diagnosis groups; as training's per-recording metrics), and the
     result its ``class_names``. ``pred_stats`` (mean, std) de-normalizes the
-    predictions (default: from ``train_data_path``, else the scored data's own)."""
+    predictions (default: from ``train_data_path``, else the scored data's own).
+    ``trim_start_sec`` / ``trim_end_sec`` override the run's trims (short
+    external recordings, e.g. TDBRAIN's 2-min files, would otherwise lose
+    every window to the training 60 s + 60 s)."""
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
     if stage_dir is not None:                 # e.g. "none": read in place, no NVMe copy
         cfg.data.stage_dir = stage_dir
     if eval_minutes is not None:              # val/test budget per recording (0 = every window)
         cfg.data.eval_minutes = eval_minutes
+    if trim_start_sec is not None:
+        cfg.data.trim_start_sec = trim_start_sec
+    if trim_end_sec is not None:
+        cfg.data.trim_end_sec = trim_end_sec
     if data_format:
         cfg.data.data_format = data_format
     if cfg.model.codebook_reg.enabled:
@@ -368,6 +375,10 @@ def main():
                     help="session-feature file for --data-path (default: the run's own)")
     ap.add_argument("--eval-minutes", type=float, default=None,
                     help="override data.eval_minutes, the per-recording val/test budget (0 = every window)")
+    ap.add_argument("--trim-start-sec", type=float, default=None,
+                    help="override data.trim_start_sec (seconds dropped at each recording's start)")
+    ap.add_argument("--trim-end-sec", type=float, default=None,
+                    help="override data.trim_end_sec (seconds dropped at each recording's end)")
     ap.add_argument("--save-windows", default=None, metavar="DIR",
                     help="write every window's own prediction and pooling weight to "
                          "DIR/<run>_<split>.parquet (bag runs: the attention weight; window runs: "
@@ -400,6 +411,7 @@ def main():
                                      pred_stats=(tuple(args.pred_stats) if args.pred_stats else
                                                  logged_target_stats(run_dir) if args.pred_stats_from_log else None),
                                      stage_dir=args.stage_dir, eval_minutes=args.eval_minutes,
+                                     trim_start_sec=args.trim_start_sec, trim_end_sec=args.trim_end_sec,
                                      windows_path=(os.path.join(args.save_windows, f"{name}_{{split}}.parquet")
                                                    if args.save_windows else None),
                                      bag_batch_size=args.bag_batch_size, num_workers=args.num_workers)
