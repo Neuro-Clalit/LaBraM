@@ -184,3 +184,34 @@ def test_collate_bag_windows_flattens_bags_into_window_samples():
     c = (torch.randn(2, 2, 10), torch.tensor([50.0, 1.0]), "rec_c", torch.zeros(2))
     _, yc, _ = collate_bag_windows([c])
     assert yc.shape == (2, 2) and yc[1].tolist() == [50.0, 1.0]
+
+
+def test_bag_dataset_repeats_draw_each_recording_several_times(tmp_path):
+    from labram.data.bags import RecordingBagDataset
+    from labram.data import get_dataset_bundle
+    from labram.data.window_selection import WindowSelection, apply_window_selection
+    from test_window_qc import _corpus
+    from labram.configs.run_configs import FinetuneRunConfig
+    root = _corpus(tmp_path / "data")
+    cfg = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_age.json",
+                                        **{"data.trim_start_sec": 0.0, "data.trim_end_sec": 0.0,
+                                           "data.eval_minutes": 0.0})
+    bundle = apply_window_selection(get_dataset_bundle("TUAB_AGE", str(root), data_format="npy"),
+                                    WindowSelection.from_data_config(cfg.data))
+    one = RecordingBagDataset(bundle.train, k=2, train=True)
+    rep = RecordingBagDataset(bundle.train, k=2, train=True, repeats=3)
+    n = len(one)
+    assert len(rep) == 3 * n
+    assert rep[0][2] == rep[n][2] == rep[2 * n][2]          # same recording ...
+    torch.manual_seed(0)
+    draws = {tuple(rep[n * j][3].tolist()) for j in range(3) for _ in range(5)}
+    assert len(draws) > 1                                     # ... fresh window draws
+
+
+def test_mil_phased_schedule_with_window_bag_repeats(tmp_path):
+    from labram.runs import run_finetune
+    cfg, out = _cfg(tmp_path, **{"mil.pool": "gated", "mil.gated": False, "mil.score_input": "h",
+                                 "trainer.epochs": 2, "mil.window_epochs": 1, "mil.window_minutes_per_epoch": 0.3334,
+                                 "mil.window_bag_repeats": 3, "mil.window_batch_size": 4,
+                                 "mil.freeze_encoder_epochs": 1, "mil.freeze_head": True})
+    assert run_finetune.main(cfg)["best_val_stats"]["mae"] > 0

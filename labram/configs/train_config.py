@@ -351,7 +351,11 @@ class MILConfig(ConfigBase):
       drawing ``window_minutes_per_epoch`` of every training recording, read
       recording by recording and flattened into batches of about
       ``window_batch_size`` windows (``window_batch_size // windows per
-      recording`` recordings per step). The next
+      recording`` recordings per step). ``window_bag_repeats`` draws every
+      recording that many times per epoch (each a fresh random set of
+      ``window_minutes_per_epoch`` of windows), so more recordings share a step
+      without less data per epoch: 1.33 min (8 windows) x 4 repeats with batch
+      256 = 32 recordings x 8 windows per step, 32 windows per recording per epoch. The next
       ``freeze_encoder_epochs`` train the bag pool with the encoder frozen
       (and the head too when ``freeze_head``), then everything trains on bags.
       ``head_lr_scale`` applies from the first bag epoch. Retention (if any)
@@ -383,6 +387,7 @@ class MILConfig(ConfigBase):
     window_epochs: int = 0
     window_minutes_per_epoch: float = 5.0
     window_batch_size: int = 256
+    window_bag_repeats: int = 1
     freeze_head: bool = False
 
     def validate(self) -> None:
@@ -396,9 +401,10 @@ class MILConfig(ConfigBase):
             raise ValueError("mil.bag_size (and bag_size_choices) must be >= 1")
         if self.head_lr_scale <= 0:
             raise ValueError("mil.head_lr_scale must be > 0")
-        if self.window_epochs < 0 or self.window_minutes_per_epoch <= 0 or self.window_batch_size < 1:
-            raise ValueError("mil.window_epochs >= 0, window_minutes_per_epoch > 0 and "
-                             "window_batch_size >= 1 are required")
+        if (self.window_epochs < 0 or self.window_minutes_per_epoch <= 0 or self.window_batch_size < 1
+                or self.window_bag_repeats < 1):
+            raise ValueError("mil.window_epochs >= 0, window_minutes_per_epoch > 0, "
+                             "window_batch_size >= 1 and window_bag_repeats >= 1 are required")
 
 @dataclass
 class DistributedConfig(ConfigBase):

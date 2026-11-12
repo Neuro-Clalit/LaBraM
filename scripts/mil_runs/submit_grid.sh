@@ -75,6 +75,16 @@ PHASED=(optimizer.lr=0.00028 optimizer.warmup_epochs=4 trainer.epochs=16
   mil.window_epochs=10 mil.window_minutes_per_epoch=5 mil.window_batch_size=256
   mil.freeze_encoder_epochs=2 mil.freeze_head=true
   evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760)
+# Phased v2 (P2_*): E2L's data budget in the window phase with diverse batches -- 16
+# window epochs of 32 recordings x 8 windows per step, every recording drawn 4x per
+# epoch (32 windows/recording/epoch, 512 in all), cosine over 22 epochs so the window
+# phase ends at E2L's checkpoint LR (0.7e-4); then 2 attention-only + 4 joint epochs.
+# On-demand jobs only checkpoint with an explicit checkpoint_s3_uri.
+PHASED2=(optimizer.lr=0.00028 optimizer.warmup_epochs=4 trainer.epochs=22
+  mil.window_epochs=16 mil.window_minutes_per_epoch=1.3334 mil.window_bag_repeats=4 mil.window_batch_size=256
+  mil.freeze_encoder_epochs=2 mil.freeze_head=true
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760
+  sagemaker.checkpoint_s3_uri=s3://sagemaker-us-east-1-574441342949/labram/checkpoints)
 # The window phase streams (FastFile) recording by recording: random single-window
 # reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
 # mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
@@ -107,6 +117,7 @@ declare -A JOBS=(
   [P_L1]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
   [P_W4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=h"
   [P_W7]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=q mil.retention_weight=0.1"
+  [P2_L1]="${PHASED2[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
   [P_L1_K4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.bag_size=4 trainer.batch_size=64"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"

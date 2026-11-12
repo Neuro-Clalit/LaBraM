@@ -421,6 +421,7 @@
         "window_epochs": 0,
         "window_minutes_per_epoch": 5.0,
         "window_batch_size": 256,
+        "window_bag_repeats": 1,
         "freeze_head": false
     }
 }

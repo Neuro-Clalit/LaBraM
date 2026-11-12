@@ -39,8 +39,12 @@ def _files(dataset) -> List[str]:
 
 class RecordingBagDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, k: int = 8, train: bool = True,
-                 k_choices: Sequence[int] = (), max_windows: int = 0, window_minutes: float = 10 / 60):
+                 k_choices: Sequence[int] = (), max_windows: int = 0, window_minutes: float = 10 / 60,
+                 repeats: int = 1):
         self.base = dataset
+        # repeats > 1 lists every recording that many times per epoch, each item a
+        # fresh random draw of its windows (the phased window phase, mil.window_bag_repeats)
+        self.repeats = max(1, int(repeats))
         self.k, self.train = int(k), bool(train)
         self.k_choices = [int(v) for v in k_choices]
         self.max_windows = int(max_windows)
@@ -54,7 +58,7 @@ class RecordingBagDataset(torch.utils.data.Dataset):
         self.windows = [sorted(by_rec[s]) for s in self.stems]   # [(window index, item)]
 
     def __len__(self):
-        return len(self.stems)
+        return len(self.stems) * self.repeats
 
     def bag_indices(self, r: int):
         rows = self.windows[r]
@@ -68,6 +72,7 @@ class RecordingBagDataset(torch.utils.data.Dataset):
         return rows
 
     def __getitem__(self, r: int):
+        r = r % len(self.stems)
         rows = self.bag_indices(r)
         first = self.windows[r][0][0]
         xs, y = [], None
