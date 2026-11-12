@@ -1426,15 +1426,18 @@ $$
 where $T$ is the test split or one of its cohorts, $\hat y_{r,k} =
 \sum_i \alpha_{i} p_{i}$ the attention-pooled prediction of fold $k$'s model,
 and $s$ the sample SD over folds. Every table reports the epoch with the best
-fold-val MAE, which was the last epoch (15) in 12 of 13 finished runs (W4
-fold 1: epoch 14, test 6.169 vs 6.170 at 15).
+fold-val MAE, which was the last epoch (15) in 14 of 16 runs (W4 fold 1 and
+W7 fold 4: epoch 14; their test MAE at epoch 15 differs by at most 0.01 y).
 
 ### Table 13.2. Test MAE per epoch: mean ± SD over folds (n folds), vs. E2L's own epochs
 
-Columns: Eq. (13.1) per epoch for each model and over all runs; E2L is the
+Rows of Tables 13.2–13.4: `scripts/mil_runs/phased_cv_tables.py`; Figure 13.1:
+`scripts/mil_runs/phased_vs_twostep_plot.py` (both read the jobs' CloudWatch
+logs). Columns: Eq. (13.1) per epoch for each model and over all runs; E2L is the
 single two-step stage-1 run (16 epochs, its own cosine schedule); the last
 column is L1 fold 0 with 8-window vs. 4-window bags (P_L1_K4). Rows with
-fewer than 5 folds lack the three OOM-killed jobs' epochs (see below).
+fewer than 5 folds miss an evaluation lost to an OOM kill (W4 fold 4 at
+epoch 9, W7 fold 4 at epoch 8; see Infrastructure).
 
 | epoch | phase | L1 | W4 | W7 | all runs | E2L | L1 fold 0: 8 / 4 windows |
 |---|---|---|---|---|---|---|---|
@@ -1442,18 +1445,18 @@ fewer than 5 folds lack the three OOM-killed jobs' epochs (see below).
 | 1 | window | 9.67 ± 0.29 (5) | 9.55 ± 0.49 (5) | 9.95 ± 0.72 (5) | 9.72 ± 0.52 (15) | 8.56 | 9.97 / 9.96 |
 | 2 | window | 9.18 ± 0.32 (5) | 9.34 ± 0.32 (5) | 9.35 ± 0.53 (5) | 9.29 ± 0.38 (15) | 8.47 | 9.11 / 9.11 |
 | 3 | window | 8.75 ± 0.15 (5) | 9.09 ± 0.28 (5) | 8.86 ± 0.50 (5) | 8.90 ± 0.35 (15) | 8.58 | 8.71 / 8.74 |
-| 4 | window | 8.41 ± 0.35 (5) | 8.27 ± 0.34 (5) | 8.79 ± 0.40 (5) | 8.49 ± 0.41 (15) | 7.47 | 8.32 / 8.31 |
+| 4 | window | 8.41 ± 0.35 (5) | 8.27 ± 0.34 (5) | 8.79 ± 0.40 (5) | 8.49 ± 0.41 (15) | 7.47 | 8.32 / 8.30 |
 | 5 | window | 8.40 ± 0.38 (5) | 8.69 ± 0.27 (5) | 8.16 ± 0.37 (5) | 8.42 ± 0.39 (15) | 8.44 | 8.42 / 8.42 |
 | 6 | window | 8.43 ± 0.13 (5) | 8.17 ± 0.57 (5) | 8.57 ± 0.34 (5) | 8.39 ± 0.40 (15) | 7.73 | 8.38 / 8.36 |
 | 7 | window | 7.94 ± 0.39 (5) | 8.05 ± 0.42 (5) | 8.35 ± 0.43 (5) | 8.11 ± 0.42 (15) | 7.81 | 7.75 / 7.76 |
 | 8 | window | 7.69 ± 0.23 (5) | 7.80 ± 0.31 (5) | 7.84 ± 0.20 (4) | 7.77 ± 0.24 (14) | 7.02 | 7.91 / 7.91 |
-| 9 | window | 7.68 ± 0.22 (5) | 7.85 ± 0.36 (4) | 7.76 ± 0.38 (4) | 7.76 ± 0.30 (13) | 7.29 | 7.48 / 7.47 |
-| 10 | attention only | 6.92 ± 0.10 (5) | 6.95 ± 0.14 (5) | 7.16 ± 0.35 (4) | 7.00 ± 0.22 (14) | 7.30 | 6.86 / 6.87 |
-| 11 | attention only | 6.90 ± 0.09 (5) | 6.93 ± 0.13 (5) | 7.14 ± 0.34 (4) | 6.98 ± 0.22 (14) | 7.00 | 6.86 / 6.86 |
-| 12 | joint | 6.27 ± 0.02 (5) | 6.26 ± 0.04 (5) | 6.34 ± 0.01 (3) | 6.28 ± 0.04 (13) | 7.09 | 6.30 / 6.40 |
-| 13 | joint | 6.21 ± 0.03 (5) | 6.24 ± 0.02 (4) | 6.28 ± 0.02 (3) | 6.24 ± 0.04 (12) | 7.21 | 6.21 / 6.28 |
-| 14 | joint | 6.17 ± 0.02 (5) | 6.18 ± 0.01 (4) | 6.25 ± 0.01 (3) | 6.19 ± 0.03 (12) | 7.08 | 6.17 / 6.26 |
-| 15 | joint | **6.16 ± 0.01** (5) | **6.17 ± 0.02** (4) | **6.24 ± 0.01** (3) | 6.18 ± 0.03 (12) | 7.13 | 6.17 / 6.26 |
+| 9 | window | 7.68 ± 0.22 (5) | 7.85 ± 0.36 (4) | 7.73 ± 0.34 (5) | 7.75 ± 0.29 (14) | 7.29 | 7.48 / 7.47 |
+| 10 | attention only | 6.92 ± 0.10 (5) | 6.95 ± 0.14 (5) | 7.13 ± 0.31 (5) | 7.00 ± 0.21 (15) | 7.30 | 6.86 / 6.87 |
+| 11 | attention only | 6.90 ± 0.09 (5) | 6.93 ± 0.13 (5) | 7.12 ± 0.30 (5) | 6.98 ± 0.21 (15) | 7.00 | 6.86 / 6.86 |
+| 12 | joint | 6.27 ± 0.02 (5) | 6.26 ± 0.04 (5) | 6.36 ± 0.03 (5) | 6.30 ± 0.05 (15) | 7.09 | 6.30 / 6.40 |
+| 13 | joint | 6.21 ± 0.03 (5) | 6.23 ± 0.03 (5) | 6.30 ± 0.02 (5) | 6.25 ± 0.05 (15) | 7.21 | 6.21 / 6.28 |
+| 14 | joint | 6.17 ± 0.02 (5) | 6.18 ± 0.01 (5) | 6.26 ± 0.02 (5) | 6.20 ± 0.04 (15) | 7.08 | 6.17 / 6.26 |
+| 15 | joint | **6.16 ± 0.01** (5) | **6.17 ± 0.01** (5) | **6.25 ± 0.02** (5) | 6.19 ± 0.04 (15) | 7.13 | 6.17 / 6.26 |
 
 ### Table 13.3. Final runs per fold: best val epoch, fold-val MAE, test MAE and the standing test sets
 
@@ -1465,35 +1468,35 @@ best val epoch. Fold val sets differ, so val is comparable only within a fold.
 |---|---|---|---|---|---|---|
 | L1 | 0 | 15 | 6.60 | 6.17 | 6.24 | 5.02 |
 | L1 | 1 | 15 | 6.67 | 6.15 | 6.28 | 5.08 |
-| L1 | 2 | 15 | 6.65 | 6.16 | 6.35 | 4.96 |
+| L1 | 2 | 15 | 6.65 | 6.16 | 6.34 | 4.96 |
 | L1 | 3 | 15 | 6.53 | 6.16 | 6.25 | 5.06 |
-| L1 | 4 | 15 | 6.56 | 6.18 | 6.13 | 5.11 |
+| L1 | 4 | 15 | 6.56 | 6.17 | 6.13 | 5.11 |
 | W4 | 0 | 15 | 6.61 | 6.14 | 6.12 | 5.10 |
 | W4 | 1 | 14 | 6.71 | 6.17 | 6.20 | 4.90 |
 | W4 | 2 | 15 | 6.67 | 6.17 | 6.18 | 4.93 |
 | W4 | 3 | 15 | 6.56 | 6.18 | 6.28 | 5.00 |
-| W4 | 4 | — | running (resumed) | | | |
+| W4 | 4 | 15 | 6.55 | 6.17 | 6.34 | 5.10 |
 | W7 | 0 | 15 | 6.69 | 6.23 | 6.40 | 5.07 |
-| W7 | 1 | — | running (resumed) | | | |
+| W7 | 1 | 15 | 6.75 | 6.27 | 6.47 | 5.14 |
 | W7 | 2 | 15 | 6.73 | 6.25 | 6.41 | 5.21 |
 | W7 | 3 | 15 | 6.61 | 6.23 | 6.37 | 5.17 |
-| W7 | 4 | — | running (resumed) | | | |
+| W7 | 4 | 14 | 6.63 | 6.28 | 6.38 | 4.89 |
 | L1, 4-window bags | 0 | 15 | 6.67 | 6.26 | 6.32 | 5.09 |
 
 ### Table 13.4. Test MAE per cohort: fold mean ± SD and the fold ensemble (Eq. (13.1)) vs. the two-step models
 
 From the saved per-window attention weights of epoch 15
 (`analysis/test_bag_weights_epoch15.parquet`); the two-step values are
-Table 12.5. n folds: L1 5, W4 4, W7 3.
+Table 12.5. 5 folds per model.
 
 | cohort (n) | L1 folds | L1 ensemble | two-step L1 | W4 folds | W4 ensemble | two-step W4 | W7 folds | W7 ensemble | two-step W7 |
 |---|---|---|---|---|---|---|---|---|---|
-| all (7,612) | 6.16 ± 0.01 | **6.08** | 6.09 | 6.17 ± 0.02 | **6.08** | 6.10 | 6.24 ± 0.01 | 6.17 | 6.12 |
-| Harvard normal (1,518) | 5.94 ± 0.01 | 5.88 | **5.71** | 5.95 ± 0.01 | 5.89 | **5.72** | 6.08 ± 0.04 | 6.04 | **5.83** |
-| Harvard abnormal (2,253) | 6.61 ± 0.03 | **6.51** | 6.79 | 6.62 ± 0.04 | **6.53** | 6.77 | 6.66 ± 0.04 | **6.59** | 6.73 |
-| Harvard unlabelled (3,567) | 5.96 ± 0.03 | 5.87 | **5.80** | 5.97 ± 0.03 | 5.89 | **5.83** | 6.02 ± 0.03 | 5.96 | **5.87** |
-| TUAB normal (149) | 4.72 ± 0.06 | 4.65 | **4.41** | 4.66 ± 0.13 | 4.54 | **4.45** | 4.83 ± 0.12 | 4.76 | **4.36** |
-| TUAB abnormal (125) | 8.06 ± 0.14 | **7.97** | 8.13 | 8.04 ± 0.22 | **7.93** | 8.20 | 8.25 ± 0.18 | 8.17 | **8.07** |
+| all (7,612) | 6.16 ± 0.01 | **6.08** | 6.09 | 6.17 ± 0.01 | **6.08** | 6.10 | 6.25 ± 0.02 | 6.18 | **6.12** |
+| Harvard normal (1,518) | 5.94 ± 0.01 | 5.88 | **5.71** | 5.95 ± 0.01 | 5.88 | **5.72** | 6.09 ± 0.04 | 6.04 | **5.83** |
+| Harvard abnormal (2,253) | 6.61 ± 0.03 | **6.51** | 6.79 | 6.61 ± 0.04 | **6.51** | 6.77 | 6.68 ± 0.05 | **6.60** | 6.73 |
+| Harvard unlabelled (3,567) | 5.96 ± 0.03 | 5.87 | **5.80** | 5.97 ± 0.02 | 5.88 | **5.83** | 6.03 ± 0.03 | 5.96 | **5.87** |
+| TUAB normal (149) | 4.72 ± 0.06 | 4.65 | **4.41** | 4.68 ± 0.13 | 4.55 | **4.45** | 4.82 ± 0.09 | 4.75 | **4.36** |
+| TUAB abnormal (125) | 8.06 ± 0.14 | **7.97** | 8.13 | 8.07 ± 0.20 | **7.94** | 8.20 | 8.29 ± 0.14 | 8.18 | **8.07** |
 
 ### Figure 13.1. Test MAE per cohort over epochs: one run vs. two-step
 
@@ -1503,21 +1506,57 @@ Test recording MAE in years (5-minute evaluation, the 7,612-recording test
 split), per cohort, from the per-epoch `Test EEG mae by dataset/cohort` lines
 (rows in `docs/data/mil_phased_cv/onerun_vs_twostep_by_cohort.csv`). Solid:
 the one-run models, fold mean with a ±1 SD band (Eq. (13.1); L1 and W4 5
-folds, W7 3–5). Dashed: the two-step models, i.e. E2L at its epochs 0–11
+folds each). Dashed: the two-step models, i.e. E2L at its epochs 0–11
 (the W runs start from its epoch-11 checkpoint, so the three dashed lines
 coincide there) followed by the 4-epoch bag warm start drawn as epochs 12–15.
 Shaded: the one run's attention-only epochs. Panels: (a) all test
 recordings; (b)–(d) Harvard normal, abnormal, unlabelled; (e)–(f) TUAB
 normal, abnormal.
 
-What Tables 13.2–13.4 and Figure 13.1 show:
+### Table 13.5. LEMON zero-shot by age group: one run vs. two-step (5-minute evaluation, n = 214)
+
+Per model the fold ensemble of Eq. (13.1) (`scripts/eval_age_by_cohort.py`
+on the 15 fold checkpoints, predictions in
+`/data/runs/heedb/external_eval/lemon_5min_phased*.json`). Bias is the mean
+of $\hat y_r - y_r$ in the group (young: true age < 40, n = 144, mean 25.4;
+old: ≥ 55, n = 70, mean 67.6); the slope is the OLS slope $b$ of
+$\hat y_r = a + b\,y_r$ over all 214 recordings (1 = no compression toward
+the mean). LEMON ages are 5-year bin midpoints (Section 3 of
+`docs/external_eval_results.md`).
+
+| model | MAE | young MAE / bias | old MAE / bias | slope |
+|---|---|---|---|---|
+| E2L (window model) | 5.22 | 3.88 / +1.97 | 7.97 / −7.43 | 0.77 |
+| two-step L1 | 4.68 | 3.75 / +0.32 | 6.61 / −4.44 | 0.88 |
+| two-step W4 | **4.62** | **3.55** / +0.48 | 6.82 / −5.00 | 0.86 |
+| two-step W7 | 4.66 | 3.73 / +0.41 | **6.57** / −4.52 | **0.88** |
+| one-run L1, 5-fold ensemble | 5.00 | 3.88 / +1.23 | 7.32 / −5.78 | 0.83 |
+| one-run W4, 5-fold ensemble | 4.95 | 3.85 / +1.30 | 7.19 / −5.68 | 0.83 |
+| one-run W7, 5-fold ensemble | 5.03 | 4.00 / +0.49 | 7.14 / −5.53 | 0.85 |
+
+### Table 13.6. Fit: train-eval, val and the gap per phase (fold means of all one-run models)
+
+Train-eval is 500 training recordings per dataset scored like val
+(`evaluation.train_eval_recordings`, every 4 epochs and the last); the gap
+is Eq. (12.1). The two-step rows are Table 12.3's last epochs.
+
+| run | epoch | train-eval | val | gap |
+|---|---|---|---|---|
+| one run (15 runs) | 3, window | 8.17 | 8.96 | 0.79 |
+| | 7, window | 7.14 | 8.24 | 1.10 |
+| | 11, attention only | 6.20 | 7.31 | 1.11 |
+| | 15, joint | 5.10 | 6.63 | **1.54** |
+| two-step W4 / L1 / W7 | 3 (end) | 3.69 / 3.71 / 3.98 | 6.51 / 6.55 / 6.54 | 2.82 / 2.84 / 2.56 |
+| two-step X1–X4 | 19 (end) | 3.21–3.53 | 6.52–6.61 | 3.00–3.41 |
+
+What Tables 13.2–13.6 and Figure 13.1 show:
 
 * **One run from `labram-base` reaches the two-step result.**
-  - A single fold model is 0.07 y behind for L1 and W4 (6.16 / 6.17 vs.
-    6.09 / 6.10) and 0.12 y for W7 (6.24 vs. 6.12), inside the 0.2-year tie
-    rule of Section 12.
-  - The **5-fold ensemble ties or beats the two-step models**: L1 6.08 and
-    W4 6.08, against 6.09 / 6.10.
+  - A single fold model is 0.07 y behind for L1 and W4 (6.16 ± 0.01 /
+    6.17 ± 0.01 vs. 6.09 / 6.10) and 0.13 y for W7 (6.25 ± 0.02 vs. 6.12),
+    inside the 0.2-year tie rule of Section 12.
+  - The **5-fold ensemble ties or beats the two-step models** for L1 and W4
+    (6.08 and 6.08 vs. 6.09 / 6.10); W7's is 6.18 vs. 6.12.
   - The folds agree to within 0.01–0.02 y on test (Table 13.2, epochs 12–15),
     so the result hardly depends on which subjects are trained on.
 * **Over epochs (Figure 13.1)** the one run is behind two-step in every
@@ -1525,30 +1564,47 @@ What Tables 13.2–13.4 and Figure 13.1 show:
   TUAB abnormal from the attention epochs on (Figure 13.1(c), (f)), and stays
   behind on the normal and unlabelled cohorts to the end (Figure 13.1(b),
   (d), (e)).
-* **The cohort profile shifts.** Against the two-step models the phased runs
-  are better on the abnormal cohorts (Harvard abnormal 6.51–6.59 ensemble vs.
-  6.73–6.79; TUAB abnormal 7.93–7.97 vs. 8.13–8.20 for L1 / W4) and worse on
-  the normal and unlabelled ones (Harvard normal 5.88 vs. 5.71, TUAB normal
-  4.54–4.76 vs. 4.36–4.45).
-* **The window phase ends behind E2L** (epoch 9: 7.76 ± 0.30 vs. 7.29; E2L's
+* **The cohort profile shifts** (Table 13.4). Against the two-step models the
+  one-run ensembles are better on the abnormal cohorts (Harvard abnormal
+  6.51–6.60 vs. 6.73–6.79; TUAB abnormal 7.94–7.97 vs. 8.13–8.20 for L1 / W4)
+  and worse on the normal and unlabelled ones (Harvard normal 5.88–6.04 vs.
+  5.71–5.83, TUAB normal 4.55–4.75 vs. 4.36–4.45).
+* **The window phase ends behind E2L** (epoch 9: 7.75 ± 0.29 vs. 7.29; E2L's
   best 7.00), and is 0.3–1.2 y behind at every window epoch except epoch 5.
   A likely cause, not yet checked: each step's 240 windows come from only
   8 recordings, so batches are far more correlated than E2L's 256 windows
-  from about 256 recordings.
-* **The attention phases close the gap.** Two attention-only epochs on the
-  frozen encoder take test from 7.76 to 6.98, already E2L's best; joint
-  training then reaches 6.18. Every run's best val epoch is (nearly) the last:
-  the runs were still improving when the LR schedule ended.
-* **LEMON is worse than with two steps**: 4.90–5.21 (5 minutes) vs. 4.62–4.68
-  for the two-step W4 / L1 / W7 (Table 3.1 of `docs/external_eval_results.md`).
-  The one-run models generalise less well to an unseen cohort, possibly
-  through the weaker window phase.
+  from about 256 recordings; the phase also stops at half the peak LR while
+  val is still falling (8.24 → 7.95 → 7.92 at epochs 7–9).
+* **The attention phases close most of the gap.** Two attention-only epochs on
+  the frozen encoder take test from 7.75 to 6.98, already E2L's best; joint
+  training then reaches 6.19.
+* **LEMON is worse than with two steps** (Table 13.5): 4.87–5.22 per fold and
+  4.95–5.03 per ensemble, vs. 4.62–4.68.
+  - The loss is age compression, mostly at the old end: old subjects are
+    under-predicted by about 1 y more (bias −5.6 to −5.8 vs. −4.4 to −5.0),
+    young ones over-predicted more (+1.2–1.3 for L1 / W4 vs. +0.3–0.5), and
+    the slope falls from 0.86–0.88 to 0.83–0.85.
+  - Averaging the folds does not fix it, so it is systematic, not variance.
+  - On the own test split the slopes match (0.83–0.84 for both recipes), so
+    it is specific to the unseen cohort.
+  - It probably starts in the window phase: at its end (mean-pooled
+    windows, like E2L) LEMON is 6.55 ± 0.51 vs. E2L's 5.22, a 1.3 y gap,
+    while the own test gap is 0.45 y. The attention phases recover most of
+    it (6.55 → 5.0).
+* **The one run under-fits rather than over-fits** (Table 13.6). Its final
+  gap is 1.54 y vs. 2.6–2.8 for the two-step runs and 3.0–3.4 for the
+  20-epoch X runs, its train-eval (5.10) is far above two-step's (3.7), and
+  val falls until the last epoch (the best val epoch is the last in 14 of 16
+  runs). More training should help, in the window phase rather than the
+  joint phase (Section 12: longer bag training only memorised).
 * **4-window bags** (64 recordings per step) are identical to L1 fold 0 up to
   epoch 11 (bag size only enters the bag phase) and 0.07–0.10 y worse in the
   joint epochs (6.26 vs. 6.17 at the end): keep 8-window bags.
-* **Next:** read the window phase as 32 recordings × 8 windows per step
-  (still clustered reads, four times more recordings per step) to bring it
-  to E2L's level, and train longer (the curve has not flattened).
+* **Next (proposed, not run):** a fold-0 L1 with a window phase of E2L's
+  length (16 epochs) read as 32 recordings × 8 windows per step, then 2
+  attention-only and 4 joint epochs (22 in all, about 18–19 h on one
+  g5.2xlarge). It should match E2L at the end of the window phase (test
+  about 7.0, LEMON about 5.2) and two-step at the end, LEMON slope included.
 
 **Infrastructure.**
 - 16 jobs on SageMaker within the quotas: on-demand 1 × g5.4xlarge (L1
