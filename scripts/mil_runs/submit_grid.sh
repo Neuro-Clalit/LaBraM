@@ -113,6 +113,16 @@ declare -A JOBS=(
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"
   [F3]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=hq mil.time_encoding=true"
 )
+if [ -n "${RESUME:-}" ]; then
+  # A resume folder must be one job's checkpoint folder holding a checkpoint.pth
+  # (an empty variable in a caller's loop once left only the shared root).
+  [ -n "${FOLD:-}" ] || { echo "RESUME needs FOLD" >&2; exit 1; }
+  [[ "${RESUME%/}" == *"-fold-${FOLD}-"* ]] \
+    || { echo "RESUME=$RESUME is not a fold-${FOLD} job folder" >&2; exit 1; }
+  listing=$(aws s3 ls --recursive "${RESUME%/}/" 2>/dev/null || true)   # no grep -q: SIGPIPE + pipefail
+  grep "/checkpoint.pth$" <<< "$listing" > /dev/null \
+    || { echo "RESUME=$RESUME holds no checkpoint.pth" >&2; exit 1; }
+fi
 NAMES=${ONLY:-"W0 W1 W2 W3 W4 W5 W6 W7 F0 F1 F2 F3"}
 for name in $NAMES; do
   read -r -a over <<< "${JOBS[$name]}"
