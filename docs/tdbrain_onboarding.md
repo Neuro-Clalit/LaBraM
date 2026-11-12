@@ -145,7 +145,8 @@ reference at their input. TDBRAIN-specific choices:
 |---|---|
 | paper + DUA read, access routes checked | done 2026-11-12 |
 | converter, clinical table, report groups, eval trim overrides, tests | done, synthetic data only |
-| ORCID login + DUA on brainclinics.com, download links / zips | **waiting for the user** |
+| ORCID login + DUA on brainclinics.com | done 2026-11-12 (zip password received) |
+| zips on the server (`zips/` or `s3://…/TDBRAIN/v1/zips/`) | **waiting for the user** |
 | `tdbrain.sh unpack` and a look at the real tree: column names, sex coding, task names, markers, units | after the download |
 | `tdbrain.sh mirror` (private S3) and `convert` | after the download |
 | QC, zero-shot scoring, per-diagnosis gap, results note | after the conversion |
@@ -163,4 +164,4 @@ download:
   the expected 5–20 µV range;
 - the indication vocabulary (combined labels, spelling) for the keyword map
   `TDBRAIN_INDICATIONS`;
-- whether the zips are Info-ZIP splits (`.z01`, need `7z`) or byte splits (`.zip.001`, concatenated).
+- the zip layout. The EEG zip is **password protected**: Brainclinics e-mails the password after the DUA. It is kept in `/data/datasets/EEG-public/TDBRAIN/.zip_password` (mode 600, never in git or on S3) or `$TDBRAIN_ZIP_PASSWORD`. `tdbrain.sh unpack` extracts with 7z (`p7zip-full`), which handles ZipCrypto, AES, `.z01` and `.zip.001` splits and nested zips.

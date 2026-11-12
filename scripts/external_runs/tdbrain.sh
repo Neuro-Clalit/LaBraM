@@ -17,7 +17,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export PYTHONPATH=$PWD${PYTHONPATH:+:$PYTHONPATH}
-ROOT=/data/datasets/EEG-public/TDBRAIN
+ROOT=${TDBRAIN_ROOT:-/data/datasets/EEG-public/TDBRAIN}
 S3=s3://eeg-data-public/TDBRAIN/v1
 COHORT=$ROOT/cohorts/tdbrain_v1
 PY=${PY:-/opt/pytorch/bin/python}            # training env (mne, torch)
@@ -40,21 +40,26 @@ if [[ $step == fetch ]]; then
 fi
 
 if [[ $step == unpack || $step == all ]]; then
+  # The EEG zip is password protected (password e-mailed by Brainclinics after the DUA).
+  # It is read from $TDBRAIN_ZIP_PASSWORD or $ROOT/.zip_password (mode 600, outside git
+  # and outside the S3 mirror). 7z (apt-get install p7zip-full) handles ZipCrypto and
+  # AES, Info-ZIP splits (.z01 ... .zip, opened through the .zip) and byte splits (.zip.001).
+  command -v 7z >/dev/null || { echo "install p7zip-full (7z) first"; exit 1; }
+  PW=${TDBRAIN_ZIP_PASSWORD:-$( [[ -r $ROOT/.zip_password ]] && head -n1 "$ROOT/.zip_password" )}
   mkdir -p "$ROOT/raw"
-  cd "$ROOT/zips"
-  if ls ./*.z01 >/dev/null 2>&1; then
-    # Info-ZIP split archive (.z01 .z02 ... .zip): needs 7z (apt-get install p7zip-full)
-    command -v 7z >/dev/null || { echo "split archive: install p7zip-full (7z) first"; exit 1; }
-    for z in ./*.zip; do 7z x -y -o"$ROOT/raw" "$z"; done
-  elif ls ./*.zip.001 >/dev/null 2>&1; then
-    for first in ./*.zip.001; do        # 7-zip style byte split: the parts concatenate to a zip
-      cat "${first%.001}".[0-9][0-9][0-9] > "$ROOT/combined.zip"
-      unzip -qn "$ROOT/combined.zip" -d "$ROOT/raw" && rm "$ROOT/combined.zip"
-    done
-  else
-    for z in ./*.zip; do unzip -qn "$z" -d "$ROOT/raw"; done
-  fi
-  cd - >/dev/null
+  shopt -s nullglob
+  archives=("$ROOT"/zips/*.zip.001)
+  [[ ${#archives[@]} -gt 0 ]] || archives=("$ROOT"/zips/*.zip)
+  [[ ${#archives[@]} -gt 0 ]] || { echo "no zip in $ROOT/zips"; exit 1; }
+  for z in "${archives[@]}"; do
+    echo "extracting $(basename "$z")"
+    7z x -y -aos -bd -p"$PW" -o"$ROOT/raw" "$z" | grep -E "^(Everything is Ok|Files|Folders|Size|ERROR|Wrong)" || true
+  done
+  # nested zips (e.g. a dataset zip inside a download bundle) are extracted in place
+  find "$ROOT/raw" -name '*.zip' -not -path '*derivatives*' | while read -r inner; do
+    echo "extracting nested $(basename "$inner")"
+    7z x -y -aos -bd -p"$PW" -o"$(dirname "$inner")" "$inner" | grep -E "^(Everything is Ok|Files|ERROR|Wrong)" || true
+  done
   echo "BIDS root: $(bids_root)"
   find "$ROOT/raw" -name '*_eeg.vhdr' -not -path '*derivatives*' | wc -l
 fi
