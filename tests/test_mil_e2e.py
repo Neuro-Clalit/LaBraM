@@ -215,3 +215,43 @@ def test_mil_phased_schedule_with_window_bag_repeats(tmp_path):
                                  "mil.window_bag_repeats": 3, "mil.window_batch_size": 4,
                                  "mil.freeze_encoder_epochs": 1, "mil.freeze_head": True})
     assert run_finetune.main(cfg)["best_val_stats"]["mae"] > 0
+
+
+def test_phased_lr_schedule_restarts_for_the_bag_phase():
+    from types import SimpleNamespace
+    import numpy as np
+    from labram.train.train_mil import phased_lr_schedule
+    mil = SimpleNamespace(enabled=True, window_epochs=10, bag_lr=1e-4, bag_warmup_epochs=1)
+    opt = SimpleNamespace(lr=2.8e-4, min_lr=1e-6, warmup_epochs=3)
+    n = 50
+    base = np.zeros(17 * n)
+    s = phased_lr_schedule(base, mil, opt, 17, n)
+    assert len(s) == 17 * n
+    assert abs(s[3 * n] - 2.8e-4) < 1e-6                     # window peak after its warm-up
+    assert s[10 * n - 1] < 5e-6                              # window cosine ends near min_lr
+    assert s[10 * n] < 1e-5 and abs(s[11 * n] - 1e-4) < 2e-6  # bag warm-up from 0 to bag_lr
+    assert s[-1] < 5e-6
+    mil.bag_lr = 0.0
+    assert phased_lr_schedule(base, mil, opt, 17, n) is base   # off: unchanged
+
+
+def test_mil_p3_and_p4_recipes_run(tmp_path):
+    """P3: bag-phase LR restart + retention; P4: per-window loss + bag repeats."""
+    from labram.data.bags import wrap_bags
+    from labram.runs import run_finetune
+    common = {"mil.pool": "gated", "mil.gated": False, "mil.score_input": "h", "trainer.epochs": 3,
+              "mil.window_epochs": 1, "mil.window_minutes_per_epoch": 0.3334, "mil.window_bag_repeats": 2,
+              "mil.window_batch_size": 4, "mil.freeze_encoder_epochs": 1, "mil.freeze_head": True,
+              "mil.head_lr_scale": 5.0}
+    cfg, _ = _cfg(tmp_path / "p3", **{**common, "mil.bag_lr": 1e-4, "mil.bag_warmup_epochs": 1,
+                                      "mil.retention_weight": 0.1})
+    assert run_finetune.main(cfg)["best_val_stats"]["mae"] > 0
+    cfg, _ = _cfg(tmp_path / "p4", **{**common, "mil.window_loss_weight": 0.5, "mil.bag_repeats": 2})
+    assert run_finetune.main(cfg)["best_val_stats"]["mae"] > 0
+    from labram.data import get_dataset_bundle
+    from labram.data.window_selection import WindowSelection, apply_window_selection
+    b = apply_window_selection(get_dataset_bundle("TUAB_AGE", cfg.data.data_path, data_format="npy"),
+                               WindowSelection.from_data_config(cfg.data))
+    from labram.data.bags import RecordingBagDataset
+    n_recordings = len(RecordingBagDataset(b.train, k=3))
+    assert len(wrap_bags(b.train, cfg.mil, True)) == 2 * n_recordings      # bag_repeats=2

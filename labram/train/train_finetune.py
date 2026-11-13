@@ -1131,6 +1131,10 @@ def train_loop(
         config.optimizer, config.trainer, num_training_steps_per_epoch)
     wd_schedule_values = runner_common.make_wd_schedule(
         config.optimizer, config.trainer, num_training_steps_per_epoch)
+    if getattr(config, 'mil', None) is not None and config.mil.enabled:
+        from labram.train.train_mil import phased_lr_schedule
+        lr_schedule_values = phased_lr_schedule(lr_schedule_values, config.mil, config.optimizer,
+                                                config.trainer.epochs, num_training_steps_per_epoch)
 
     # The writer advances once per micro-batch here, so the run spans
     # epochs * steps_per_epoch * update_freq logging steps.

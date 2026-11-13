@@ -126,6 +126,21 @@ def set_head_lr_scale(optimizer: torch.optim.Optimizer, on: bool) -> None:
             g["lr_scale"] = g["mil_base_lr_scale"] * (g["mil_lr_factor"] if on else 1.0)
 
 
+def phased_lr_schedule(base_schedule, mil_cfg, optim_cfg, epochs: int, steps_per_epoch: int):
+    """Per-step LR of the phased schedule: unchanged unless ``mil.bag_lr`` > 0, then a
+    cosine over the window epochs only (peak ``optim_cfg.lr``, its warm-up) followed
+    by the bag epochs restarting at ``bag_lr`` (``bag_warmup_epochs`` warm-up, cosine
+    to ``optim_cfg.min_lr``)."""
+    if mil_cfg is None or not mil_cfg.enabled or getattr(mil_cfg, "bag_lr", 0) <= 0:
+        return base_schedule
+    w = mil_cfg.window_epochs
+    win = utils.cosine_scheduler(optim_cfg.lr, optim_cfg.min_lr, w, steps_per_epoch,
+                                 warmup_epochs=min(optim_cfg.warmup_epochs, w))
+    bag = utils.cosine_scheduler(mil_cfg.bag_lr, optim_cfg.min_lr, epochs - w, steps_per_epoch,
+                                 warmup_epochs=mil_cfg.bag_warmup_epochs)
+    return np.concatenate([win, bag])
+
+
 def bag_phase(mil_cfg, epoch: int):
     """(in the window phase, encoder frozen) for ``epoch`` under the phased schedule:
     ``window_epochs`` window-level epochs, then ``freeze_encoder_epochs`` bag epochs
@@ -227,6 +242,7 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
     if frozen:
         logger.info("MIL epoch %d: encoder frozen (%s only)", epoch, "pool" if head_frozen else "pool + head")
     retention = mil_cfg.retention_weight > 0 and not frozen
+    window_loss = getattr(mil_cfg, "window_loss_weight", 0.0) > 0
     ref = (_reference_encoder(model, os.path.join(out_dir, "retention_reference.pth") if out_dir else None)
            if mil_cfg.retention_weight > 0 else None)
     mixup_on = (mixup_cfg is not None and getattr(mixup_cfg, "enabled", False))
@@ -244,6 +260,7 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
             apply_lr_wd_schedule(optimizer, it, lr_schedule_values, wd_schedule_values)
         x4, ci, bag, y, _ = prepare(batch, device, ch_names, dropper, m.mil, augment_cfg, train=True)
         bag["no_grad_encoder"] = frozen
+        y_window = y                       # unmixed recording targets for the window loss
         if mixup_on and np.random.rand() < getattr(mixup_cfg, "prob", 1.0):
             lam = float(np.random.beta(mixup_cfg.alpha, mixup_cfg.alpha))
             perm = torch.randperm(y.shape[0], device=device)
@@ -255,6 +272,12 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
             ent = attention_entropy_gap(alpha.float(), bag["mask"])
             if mil_cfg.pool in COMPETING_POOLS and mil_cfg.entropy_weight > 0:
                 loss = loss + mil_cfg.entropy_weight * ent
+            win_loss = None
+            if window_loss and not frozen:
+                # per-window age loss: the head on each window's embedding vs. its recording's target
+                b_idx = bag["mask"].nonzero(as_tuple=True)[0]
+                win_loss, _ = _bag_loss(criterion, m.head(h.to(m.head_dtype())), y_window[b_idx])
+                loss = loss + mil_cfg.window_loss_weight * win_loss
             ret_loss = None
             if retention:
                 with torch.no_grad():
@@ -279,6 +302,8 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
                              attn_max=float(alpha.max(-1).values.mean()))
         if ret_loss is not None:
             metric_logger.update(retention_loss=float(ret_loss))
+        if win_loss is not None:
+            metric_logger.update(window_loss=float(win_loss))
         if grad_norm is not None:
             metric_logger.update(grad_norm=float(grad_norm))
         metric_logger.update(lr=max(g["lr"] for g in optimizer.param_groups))

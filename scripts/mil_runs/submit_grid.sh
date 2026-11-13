@@ -85,6 +85,22 @@ PHASED2=(optimizer.lr=0.00028 optimizer.warmup_epochs=4 trainer.epochs=22
   mil.freeze_encoder_epochs=2 mil.freeze_head=true
   evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760
   sagemaker.checkpoint_s3_uri=s3://sagemaker-us-east-1-574441342949/labram/checkpoints)
+# P3: v2's window batching, 10 window epochs on their own cosine (ends near zero), 1
+# attention-only epoch as the warm-up of a bag-phase LR restart at 1e-4, 6 joint epochs
+# (cosine to 0) with retention 0.1 toward the end-of-window encoder. 17 epochs.
+PHASED3=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=17
+  mil.window_epochs=10 mil.window_minutes_per_epoch=1.3334 mil.window_bag_repeats=4 mil.window_batch_size=256
+  mil.freeze_encoder_epochs=1 mil.freeze_head=true mil.bag_lr=0.0001 mil.bag_warmup_epochs=1
+  mil.retention_weight=0.1
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760
+  sagemaker.checkpoint_s3_uri=s3://sagemaker-us-east-1-574441342949/labram/checkpoints)
+# P4: earlier attention -- 8 window epochs, 1 attention-only, 8 joint epochs on the same
+# cosine (from ~1.7e-4), + 0.5 x per-window age loss, each recording drawn 2x per joint epoch.
+PHASED4=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=17
+  mil.window_epochs=8 mil.window_minutes_per_epoch=1.3334 mil.window_bag_repeats=4 mil.window_batch_size=256
+  mil.freeze_encoder_epochs=1 mil.freeze_head=true mil.window_loss_weight=0.5 mil.bag_repeats=2
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760
+  sagemaker.checkpoint_s3_uri=s3://sagemaker-us-east-1-574441342949/labram/checkpoints)
 # The window phase streams (FastFile) recording by recording: random single-window
 # reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
 # mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
@@ -118,6 +134,8 @@ declare -A JOBS=(
   [P_W4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=h"
   [P_W7]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=q mil.retention_weight=0.1"
   [P2_L1]="${PHASED2[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
+  [P3_L1]="${PHASED3[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
+  [P4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
   [P_L1_K4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.bag_size=4 trainer.batch_size=64"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"

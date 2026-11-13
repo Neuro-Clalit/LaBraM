@@ -117,4 +117,5 @@ def wrap_bags(dataset, mil_cfg, train: bool) -> Optional[RecordingBagDataset]:
         return None
     return RecordingBagDataset(dataset, k=mil_cfg.bag_size, train=train,
                                k_choices=mil_cfg.bag_size_choices,
-                               max_windows=0 if train else mil_cfg.eval_max_windows)
+                               max_windows=0 if train else mil_cfg.eval_max_windows,
+                               repeats=getattr(mil_cfg, "bag_repeats", 1) if train else 1)
