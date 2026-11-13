@@ -1626,3 +1626,98 @@ What Tables 13.2–13.6 and Figure 13.1 show:
   checkpoints spot jobs only); a crash there would have restarted from
   scratch.
 - Models, analysis files and logs: `/data/runs/heedb/mil_phased_cv/<model>/fold_<k>/`.
+
+### Recipe v2 (P2_L1, fold 0; 2026-11-12/13)
+
+Same model (L1), fold 0 of the same shared split and the same held-out test,
+from `labram-base`; only the window phase and the schedule change
+(`mil.window_bag_repeats`, launcher job `P2_L1`). Job
+`labram-mil-p2-l1-f0-fold-0-2026-11-12-19-02-49-545` (on-demand g5.4xlarge,
+32 loader workers; 0.336 s per 256-window step, GPU-bound; 18 h; host memory
+peaked at 98–99 % of 64 GB at the end of every window epoch without a kill).
+A first copy on g5.2xlarge with 8 workers was data-bound (0.87 s/step, 32
+recording files per step) and was stopped in epoch 0.
+
+### Table 13.7. Recipe v1 (P1) vs. v2 (P2), L1 fold 0
+
+| setting | v1 (P_L1) | v2 (P2_L1) |
+|---|---|---|
+| epochs: window / attention only / joint | 10 / 2 / 4 (16) | 16 / 2 / 4 (22) |
+| window step | 8 recordings × 30 windows | 32 recordings × 8 windows (4 draws per recording per epoch) |
+| windows per recording in the window phase | 300 | 512 |
+| LR | one cosine over 16 epochs, peak 2.8e-4, 4 warm-up | one cosine over 22 epochs, same peak / warm-up |
+| LR at the first bag epoch | 1.4e-4 | 0.7e-4 |
+| wall time | 11 h (g5.4xlarge) | 18 h (g5.4xlarge) |
+
+### Table 13.8. v2 per epoch: val / test / train-eval (years), with the v1 fold mean and E2L
+
+LR is the epoch-start learning rate (×1e-4); v1 is the 5-fold mean of
+Table 13.2 (its window phase ends at epoch 9, attention 10–11, joint 12–15).
+
+| epoch | v2 phase | v2 LR | v2 val / test / train-eval | v2 LEMON | v1 val / test | E2L val / test |
+|---|---|---|---|---|---|---|
+| 0 | window | 0.01 | 9.77 / 9.76 | 9.56 | 10.73 / 10.85 | 10.04 / 10.18 |
+| 2 | window | 1.40 | 8.56 / 8.45 | 7.82 | 9.32 / 9.29 | 8.49 / 8.47 |
+| 4 | window | 2.80 | 8.00 / 7.80 | 6.49 | 8.61 / 8.49 | 7.67 / 7.47 |
+| 7 | window | 2.61 | 7.44 / 7.17 / 5.79 | 5.52 | 8.24 / 8.11 | 7.99 / 7.81 |
+| 9 | window | 2.30 | 7.67 / 7.48 | 6.28 | 7.92 / 7.75 (v1 window end) | 7.49 / 7.29 |
+| 11 | window | 1.88 | 8.02 / 7.94 / 5.71 | — | 7.31 / 6.98 (attention) | **7.24 / 7.00** |
+| 13 | window | 1.40 | 7.39 / 7.13 | 5.37 | 6.68 / 6.25 (joint) | 7.41 / 7.21 |
+| 15 | window end | 0.93 | 7.69 / 7.45 / 4.71 | — | 6.63 / 6.19 (v1 end) | 7.33 / 7.13 |
+| 16 | attention only | 0.71 | 7.04 / 6.65 | 5.24 | | |
+| 17 | attention only | 0.51 | 7.02 / 6.63 | 5.20 | | |
+| 18 | joint | 0.34 | 6.61 / 6.13 | 4.77 | | |
+| 21 | joint (best val) | 0.03 | **6.60 / 6.13** / 3.32 | 4.86 | | |
+
+### Table 13.9. Final test MAE per cohort and LEMON: v2 vs. v1 fold 0 and two-step L1
+
+Per cohort from `analysis/test_bag_weights_epoch21.parquet` (Eq. (13.1),
+one model); LEMON scored with `scripts/eval_age_by_cohort.py` (5-minute
+evaluation; young / old and slope as in Table 13.5).
+
+| cohort (n) | v2 fold 0 | v1 fold 0 | v1 5-fold ensemble | two-step L1 |
+|---|---|---|---|---|
+| all (7,612) | 6.13 | 6.17 | **6.08** | 6.09 |
+| Harvard normal (1,518) | **5.72** | 5.96 | 5.88 | **5.71** |
+| Harvard abnormal (2,253) | 6.80 | **6.57** | 6.51 | 6.79 |
+| Harvard unlabelled (3,567) | 5.86 | 5.99 | 5.87 | **5.80** |
+| TUAB normal (149) | 4.61 | 4.68 | 4.65 | **4.41** |
+| TUAB abnormal (125) | 8.42 | **8.10** | 7.97 | 8.13 |
+| LEMON MAE (214) | 4.85 | 5.02 | 5.00 | **4.68** |
+| LEMON young MAE / bias | 3.92 / +1.89 | 3.94 / +1.35 | 3.88 / +1.23 | **3.75 / +0.32** |
+| LEMON old MAE / bias | 6.77 / −5.77 | 7.22 / −5.63 | 7.32 / −5.78 | **6.61 / −4.44** |
+| LEMON slope | 0.82 | 0.83 | 0.83 | **0.88** |
+
+What Tables 13.7–13.9 show:
+
+* **v2 reaches the same final val as v1 (6.60) and 0.04 y better test (6.13
+  vs. 6.17), at 1.6× the time.** Its cohort profile moves to the two-step
+  one: Harvard normal 5.72 (two-step 5.71, v1 5.96) and unlabelled 5.86, but
+  it loses v1's advantage on the abnormal cohorts (Harvard abnormal 6.80,
+  TUAB abnormal 8.42).
+* **LEMON improves at the old end only**: old MAE 6.77 vs. 7.22, but the
+  young subjects are over-predicted more (+1.89) and the slope stays
+  compressed (0.82; own test 0.81 vs. two-step 0.84). The two-step model
+  is still clearly better on LEMON (4.68, slope 0.88).
+* **Where the budget went** (Table 13.8):
+  - The window phase stopped improving after epoch 7: val stays at
+    7.39–8.13 for epochs 7–15 and swings ±0.3–0.6 y at the high LR, while
+    train-eval keeps falling (5.79 → 4.71). Its last eight epochs mostly
+    memorise; they are half the run's time.
+  - The first epoch of each new phase does nearly all of that phase's
+    work: attention only −0.65 y val (second epoch −0.02), joint −0.41 y
+    (the next three −0.01 in total). The same holds for v1 (−0.60 / −0.01;
+    −0.60 / −0.08).
+  - The joint phase runs at 0.34–0.03 ×1e-4, a tenth to a hundredth of the
+    peak, because one cosine spans the whole run; the two-step bag stage
+    restarted at 1e-4.
+* **Recommendation: do not rerun the 5-fold CV with v2.** Proposed instead
+  (not run), both 17 epochs and about 12 h:
+  - **P3**: 10 window epochs with v2's batching and their own cosine ending
+    near zero, 1 attention-only epoch as the warm-up of a bag-phase LR
+    restart at 1e-4, 6 joint epochs (cosine to 0) with retention 0.1 toward
+    the end-of-window encoder (needs `mil.bag_lr`, `mil.bag_warmup_epochs`).
+  - **P4**: 8 window epochs, 1 attention-only epoch, 8 joint epochs from LR
+    ≈1.7e-4 with an added per-window age loss (weight 0.5) on the bag's
+    windows and every recording drawn twice per joint epoch (needs
+    `mil.window_loss_weight`, `mil.bag_repeats`).
