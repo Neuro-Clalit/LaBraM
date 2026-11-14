@@ -1153,9 +1153,56 @@ unless marked. The published n is the participants with usable EEG of the
 | E2L + recalibration $a\hat y + b$ | 2 parameters | 6.59 ± 0.73 | 0.14 ± 0.19 | 6.59 [5.96, 7.30] | +0.03 | 0.43 | 0.18 |
 | device-robust E2L + recalibration $a\hat y + b$ | 2 parameters | 5.94 ± 0.71 | 0.29 ± 0.21 | 5.94 [5.39, 6.55] | +0.03 | 0.57 | 0.33 |
 | ridge probe on frozen E2 embeddings (Section 9.3) | 200-d ridge | 5.93 ± 0.48 | 0.28 ± 0.14 | 5.93 | — | 0.56 | 0.32 |
+| ridge probe on frozen E2L embeddings | 200-d ridge | 6.08 ± 0.49 | 0.24 ± 0.12 | 6.08 | — | 0.52 | 0.27 |
 
 All rows are in `docs/data/external_eval/chbp/sota_comparison.csv`; the probe
-row is from `cv10_embedding_probe.csv`.
+rows are from `cv10_embedding_probe.csv`.
+
+**How the two reference methods work.** Both are ours. In both, the LaBraM
+network is frozen: trained on Temple + Harvard only, its weights never updated
+on CHBP. Only a small model on top of it is fitted on CHBP ages, by 10-fold
+cross-validation on the benchmark's folds. Each fold is predicted by a model
+fitted on the other nine (about 225 recordings) and never sees its own ages.
+This mirrors the benchmark, which also trained on nine folds and tested on the
+tenth. Neither method is zero-shot.
+
+- **Recalibration** (`scripts/chbp_sota_table.py::recalibrate`,
+  `scripts/external_age_metrics.py::cv_recalibration`):
+  - The input is the frozen model's predicted age $\hat y_i$: one number per
+    recording, the mean over its first-5-minute windows.
+  - On the nine training folds, ordinary least squares fits
+    $y = a\,\hat y + b$, two parameters. The held-out fold gets
+    $\hat y' = a\,\hat y + b$.
+  - This is a linear calibration of brain-age predictions; for the related
+    bias-correction procedures see Beheshti et al. (2019) and de Lange & Cole
+    (2020).
+  - It can fix CHBP's offset and scale. It cannot change the ranking: r is the
+    same as the frozen model's (0.43 for E2L, 0.57 for the device-robust
+    model).
+- **Ridge probe on frozen embeddings** (`scripts/external_embedding_probe.py`):
+  - **Inputs:** for every 10 s window of the first 5 minutes (about 30 per
+    recording), the frozen network outputs the 200-d feature that its
+    age-regression head receives (`model(x, return_features=True)`, cached by
+    `labram/mil/cache.py`).
+  - **Recording vector:** the window features are averaged into one 200-d
+    vector per recording.
+  - **Fit:** on the nine training folds, a `StandardScaler` and ridge
+    regression of age on that vector are fitted. The ridge penalty is chosen
+    among 25 values from $10^{-1}$ to $10^{5}$ by efficient leave-one-out on
+    the training folds only (median $\alpha$ 316 for E2).
+  - **Output:** the held-out fold is predicted by that model.
+  - This is a *linear probe* (Alain & Bengio 2017): deep features learned
+    elsewhere, a linear model trained on the target data. The age head of the
+    network is not used. The probe learns a new read-out, so it can use
+    embedding directions the original head ignored on CHBP. That is why it
+    improves r (0.56 vs 0.46 for E2 zero-shot), which recalibration cannot.
+
+**Compared with the benchmark:**
+- The benchmark's models are trained end to end on CHBP: random forest on
+  handcrafted features, ShallowNet / Deep4Net on raw EEG.
+- Our two references train 2 or 201 parameters on CHBP, on top of a deep
+  network that has never seen CHBP.
+- Our zero-shot rows train nothing on CHBP.
 
 **What Table 10.11 shows:**
 - **As recorded, our models are 2–3 years worse than the benchmark** (8.66–9.55
@@ -1196,6 +1243,7 @@ row is from `cv10_embedding_probe.csv`.
 
 ## 11. References
 
+- Alain G, Bengio Y. 2017. Understanding intermediate layers using linear classifier probes. ICLR workshop, arXiv:1610.01644
 - Beheshti I et al. 2019. Bias-adjustment in neuroimaging-based brain age frameworks. *NeuroImage: Clinical* 24:102063. doi:10.1016/j.nicl.2019.102063
 - Bomatter P et al. 2024. Machine learning of brain-specific biomarkers from EEG. *EBioMedicine* 106:105259. doi:10.1016/j.ebiom.2024.105259
 - Bosch-Bayard J et al. 2020. EEG source-spectra norms… *Front Neurosci* 14:555119. doi:10.3389/fnins.2020.555119
