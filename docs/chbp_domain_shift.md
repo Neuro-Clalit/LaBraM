@@ -901,6 +901,39 @@ best epoch 9, val / test 7.46 / 7.22.
   interrupted as a spot job and its restart hung at the first NCCL all-reduce.
   `augment` never got an ml.g6e.12xlarge.
 
+### Table 10.8. Relative-amplitude model (`relamp`), adults
+
+Band 1–45 Hz + per-window amplitude normalization + the recording's amplitude
+relative to its acquisition group, r and r², as a head input
+(`rel_amplitude_v1.npz`). SageMaker job
+`labram-e2l-robust-relamp-2026-11-14-07-46-24-584`, ran all 16 epochs; best
+val / test 7.70 / 7.59. External cohorts are scored with their own feature
+files. In-domain rows: MAE; external rows: MAE / bias / r.
+
+| set | E2L | full robust | band | relamp |
+|---|---|---|---|---|
+| Temple + Harvard val / test | **7.25 / 7.00** | 7.64 / 7.55 | 7.47 / 7.22 | 7.70 / 7.58 |
+| Temple test / normal reports | **6.40 / 4.91** | 6.69 / 5.46 | 6.70 / 5.23 | 6.88 / 5.30 |
+| Harvard test / normal reports | **7.02 / 7.12** | 7.58 / 7.72 | 7.24 / 7.33 | 7.61 / 7.73 |
+| Harvard 18–29, test | **7.47** | 9.53 | 7.74 | 9.49 |
+| Harvard 60–69, test | 5.71 | **5.19** | 5.49 | 5.57 |
+| LEMON | **5.22** / −1.1 / 0.95 | 6.08 / +1.9 / 0.94 | 5.33 / +0.4 / 0.94 | 6.12 / +1.2 / 0.94 |
+| CHBP | 9.55 / +7.1 / 0.44 | **6.19** / −0.1 / **0.59** | 7.73 / +5.2 / 0.55 | 6.64 / −0.5 / 0.56 |
+| CHBP 64- / 120-channel cap, MAE | 7.58 / 13.10 | 5.92 / 6.67 | — | 6.24 / 7.37 |
+| MIPDB adults | **9.22** / +8.4 / 0.45 | 10.60 / +10.3 / 0.62 | 11.44 / +10.6 / 0.46 | 10.54 / +9.5 / 0.51 |
+
+**What Table 10.8 shows:**
+- **Giving the amplitude back as a recording-level scalar does not recover the
+  young-adult loss.** Harvard 18–29 is 9.49, against the full robust model's 9.53
+  and E2L's 7.47.
+- **Otherwise `relamp` is a slightly worse full robust model:** CHBP 6.64 vs 6.19,
+  in-domain 7.70 / 7.58 vs 7.64 / 7.55.
+- **So what the per-window normalization removes is not one relative amplitude
+  per recording.** It is probably the amplitude's interplay with the spectrum
+  and topography inside each window, which the encoder used. A linear head on
+  two scalars cannot rebuild that.
+- **Band-only keeps it, but then also keeps CHBP's gain bias** (Table 10.7).
+
 ### 10.4 Which fix is best
 
 **Ranking on CHBP** (E2L, MAE / r; no CHBP labels anywhere):
