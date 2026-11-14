@@ -409,3 +409,15 @@ class TestDeviceAugmentations:
                            channel_dropout_prob=0, time_mask_prob=0, gain_prob=1.0, lowpass_prob=1.0)
         y = augment_batch(x, on)
         assert y.shape == x.shape and not torch.equal(y, x)
+
+
+def test_filters_stay_finite_for_low_highpass_cutoffs():
+    """A 0.1 Hz high-pass overflowed (f / fc)^16 in float32 and produced NaN."""
+    from labram.data.preprocess import band_limit
+    from labram.train.augment import random_filter
+    torch.manual_seed(0)
+    x = torch.randn(8, 3, 2000)
+    y = random_filter(x, 1.0, 0.1, 0.1001, "high")
+    assert torch.isfinite(y).all()
+    z = band_limit(torch.randn(2, 3, 10, 200), 0.1, 45.0)
+    assert torch.isfinite(z).all()

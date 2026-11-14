@@ -49,9 +49,8 @@ def band_limit(x: torch.Tensor, lo: float, hi: float, fs: float = 200.0, order: 
     z = torch.nn.functional.pad(z, (pad, pad), mode="reflect")[:, 0]
     f = torch.fft.rfftfreq(z.shape[-1], d=1.0 / fs, device=z.device)
     gain = 1.0 / (1.0 + (f / hi) ** (2 * order))
-    if lo > 0:
-        r = (f / lo) ** (2 * order)
-        gain = gain * r / (1.0 + r)
+    if lo > 0:   # overflow-safe high-pass: (lo / f)^(2n), f = 0 -> inf -> gain 0
+        gain = gain / (1.0 + (lo / f) ** (2 * order))
     z = torch.fft.irfft(torch.fft.rfft(z, dim=-1) * gain, n=z.shape[-1], dim=-1)
     return z[:, pad:pad + length].reshape(b, n, a, t).to(x.dtype)
 

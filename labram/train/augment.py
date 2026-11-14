@@ -135,8 +135,12 @@ def random_filter(x: torch.Tensor, prob: float, lo_hz: float, hi_hz: float, kind
     z = x.float()
     f = torch.fft.rfftfreq(t, d=1.0 / sampling_rate, device=x.device)
     fc = lo_hz + torch.rand(x.shape[0], device=x.device) * (hi_hz - lo_hz)
-    r = (f[None, :] / fc[:, None]) ** (2 * order)                     # [B, F]
-    gain = 1.0 / (1.0 + r) if kind == "low" else r / (1.0 + r)
+    # Overflow-safe forms: (f / fc)^16 exceeds float32 for f / fc > ~250 (a 0.1 Hz
+    # high-pass at 100 Hz), and r / (1 + r) would then be inf / inf = NaN.
+    if kind == "low":
+        gain = 1.0 / (1.0 + (f[None, :] / fc[:, None]) ** (2 * order))     # [B, F]
+    else:
+        gain = 1.0 / (1.0 + (fc[:, None] / f[None, :]) ** (2 * order))     # f = 0 -> 0
     gain = torch.where(sel[:, None], gain, torch.ones_like(gain))
     out = torch.fft.irfft(torch.fft.rfft(z, dim=-1) * gain[:, None, :], n=t, dim=-1)
     return out.to(x.dtype)
