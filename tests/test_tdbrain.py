@@ -14,14 +14,17 @@ EEG = ["Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8", "FC3", "FCz", "FC4", "T7", "C
 EXTRA = ["VPVA", "VNVB", "HPHL", "HNHR", "Erbs", "OrbOcc", "Mass"]
 
 
-def _write_brainvision(path_vhdr, seconds, offset_uv=20000.0, seed=0):
-    """Minimal BrainVision triplet (float32, multiplexed, µV) with a DC offset."""
+def _write_brainvision(path_vhdr, seconds, offset_uv=20000.0, seed=0, pad_sec=0.98):
+    """Minimal BrainVision triplet (float32, multiplexed, µV) with a DC offset and,
+    like the release-3.1 BDFs, a constant pad at the end (``pad_sec``)."""
     base = os.path.basename(path_vhdr)[:-5]
     chans = EEG + EXTRA
     rng = np.random.default_rng(seed)
     t = np.arange(int(seconds * FS)) / FS
     x = (offset_uv + 10 * np.sin(2 * np.pi * 10 * t)[:, None]
          + rng.normal(0, 5, (len(t), len(chans)))).astype("<f4")
+    if pad_sec:
+        x[-int(pad_sec * FS):] = 1e-4                      # digital zero, ~0 µV after scaling
     x.tofile(path_vhdr[:-5] + ".eeg")
     infos = "\n".join(f"Ch{i}={c},,1,µV" for i, c in enumerate(chans, 1))
     with open(path_vhdr, "w", encoding="utf-8") as fh:
@@ -105,8 +108,28 @@ def test_convert_writes_cohort_with_19_channels_and_clinical_table(tmp_path, mon
     assert r["annotations"] == {"New Segment/": 1} and r["clinical_group"] == "blinded"   # sub-19* sorts first
     x = np.load(out / "recordings" / f"{r['stem']}.npy")
     assert x.shape == (12 * 2000, 23) and x.dtype == np.float16
-    # DC offset (20 mV) removed: no edge transient beyond the 10 µV alpha + noise
+    # DC offset (20 mV) removed and the end pad cut: no transient beyond the 10 µV alpha + noise
     assert np.abs(x[:, np.array(r["channel_mask"])].astype(np.float32)).max() < 200
     ages = json.load(open(out / "age_metadata.json"))["recordings"]
     assert ages[r["stem"]]["age"] == 12.3 and ages[r["stem"]]["label"] is None
     assert len(pd.read_parquet(out / "clinical.parquet")) == 5
+
+
+def test_clinical_table_reads_csv_and_xlsx(tmp_path):
+    """Release 3.1 ships the participants table separately; .csv (, or ;) and .xlsx read alike."""
+    import pytest
+    tsv = _tdbrain(tmp_path) / "participants.tsv"
+    ref = mx.tdbrain_clinical_table(str(tsv))
+    df = pd.read_csv(tsv, sep="\t", dtype=str, keep_default_na=False)
+    df.to_csv(tmp_path / "participants.csv", sep=";", index=False)
+    paths = [tmp_path / "participants.csv"]
+    try:
+        import openpyxl  # noqa: F401
+        df.to_excel(tmp_path / "participants.xlsx", index=False)
+        paths.append(tmp_path / "participants.xlsx")
+    except ImportError:
+        pytest.skip("openpyxl not installed")
+    for p in paths:
+        t = mx.tdbrain_clinical_table(str(p))
+        assert list(t["age"].fillna(-1)) == list(ref["age"].fillna(-1))
+        assert list(t["clinical_group"]) == list(ref["clinical_group"])

@@ -266,7 +266,12 @@ def tdbrain_clinical_table(participants_tsv):
     TDBRAIN has no EEG report and no ICD / medication record (medication was
     allowed but not tracked); the clinical information is the indication."""
     import pandas as pd
-    df = pd.read_csv(participants_tsv, sep="\t", dtype=str, keep_default_na=False)
+    ext = os.path.splitext(participants_tsv)[1].lower()
+    if ext in (".xlsx", ".xls"):          # the participants file may ship separately as a sheet
+        df = pd.read_excel(participants_tsv, dtype=str).fillna("")
+    else:                                 # .tsv, or .csv with , or ; (sniffed)
+        df = pd.read_csv(participants_tsv, sep="\t" if ext == ".tsv" else None, engine="python",
+                         dtype=str, keep_default_na=False)
     pid = _column(df, "participants_ID", "participant_id", required=True)
     age = _column(df, "age", required=True)
     ses = _column(df, "sessID", "session_id", "session", "ses")
@@ -301,12 +306,13 @@ def tdbrain_clinical_table(participants_tsv):
     return pd.concat([out, flags], axis=1)
 
 
-def tdbrain_vhdr_files(raw_dir):
+def tdbrain_eeg_files(raw_dir):
     """``(subject, session, task, path)`` of every BIDS resting file under
-    ``raw_dir`` (``sub-*/ses-*/eeg/*_task-rest{EC,EO}_eeg.vhdr``), the
-    ``derivatives`` copies (csv) skipped."""
+    ``raw_dir`` (``sub-*/ses-*/eeg/*_task-rest{EC,EO}_eeg.{bdf,vhdr}``: BDF in
+    release 3.1, BrainVision in the first release); the ``derivatives`` copies
+    (csv) and the oddball task are skipped."""
     import re
-    pat = re.compile(r"^sub-([^_]+)_ses-([^_]+)_task-(rest(?:EC|EO))_eeg\.vhdr$", re.I)
+    pat = re.compile(r"^sub-([^_]+)_ses-([^_]+)_task-(rest(?:EC|EO))_eeg\.(?:bdf|vhdr)$", re.I)
     out = []
     for dirpath, dirnames, filenames in os.walk(raw_dir):
         dirnames[:] = sorted(d for d in dirnames if d.lower() != "derivatives")
@@ -335,7 +341,7 @@ def tdbrain_recordings(raw_dir, meta_tsv):
     keep = ("indication", "formal_status", "disc_rep", "healthy", "blinded", "unknown", *TDBRAIN_DX,
             "clinical_group")
     out = []
-    for sub, ses, task, path in tdbrain_vhdr_files(raw_dir):
+    for sub, ses, task, path in tdbrain_eeg_files(raw_dir):
         row = by_session.get((sub, ses)) or by_session.get((sub, ses.lstrip("0") or "0"))
         matched = row is not None
         row = row if matched else by_subject.get(sub)
@@ -352,16 +358,31 @@ def tdbrain_recordings(raw_dir, meta_tsv):
 
 
 def open_tdbrain(path):
-    """BrainVision at 500 Hz, DC-coupled (low-pass 100 Hz), 26 EEG channels
-    (10-10) + EOG / ECG / EMG, re-referenced offline to averaged mastoids, so
-    A1/A2 (and T1/T2) are absent. The recording is DC-coupled: each channel's
+    """BDF (release 3.1) or BrainVision at 500 Hz, DC-coupled (low-pass
+    100 Hz), 26 EEG channels (10-10) + EOG / ECG / EMG (+ the BDF ``Status``),
+    referenced to linked mastoids, so A1/A2 (and T1/T2) are absent. The recording is DC-coupled: each channel's
     mean is removed before the pipeline's 0.1 Hz high-pass, which otherwise
     leaves a transient over the first seconds of a 2-min file. The original
     files are never written to (DUA)."""
     import mne
-    raw = mne.io.read_raw_brainvision(path, preload=True, verbose="error")
+    if path.lower().endswith(".bdf"):
+        raw = mne.io.read_raw_bdf(path, preload=True, verbose="error")
+    else:
+        raw = mne.io.read_raw_brainvision(path, preload=True, verbose="error")
+    # Release 3.1 pads each file with a constant (digital zero) up to whole 1-s BDF
+    # records, ~1 s; against a DC offset of mV that step would ring through the filters
+    # into the last windows. Samples where no 10-20 channel changes are cut at both ends.
+    present = channel_map(raw.ch_names, bids_canonical_channel)
+    moving = np.flatnonzero(np.any(np.diff(raw.get_data(picks=list(present.values())), axis=1) != 0, axis=0))
+    # moving[i] = j means sample j+1 differs from j: the signal runs from the first change
+    # (sample 0 when nothing leads) to the last sample before the final change into the pad
+    if moving.size:
+        first = moving[0] + 1 if moving[0] > 0 else 0
+        last = moving[-1] if moving[-1] < raw.n_times - 2 else raw.n_times - 1
+        if first > 0 or last < raw.n_times - 1:
+            raw.crop(first / raw.info["sfreq"], last / raw.info["sfreq"])
     raw._data -= raw._data.mean(axis=1, keepdims=True)
-    return raw, channel_map(raw.ch_names, bids_canonical_channel), None
+    return raw, present, None
 
 
 DATASETS = {"lemon": (lemon_recordings, open_lemon), "mipdb": (mipdb_recordings, open_mipdb),

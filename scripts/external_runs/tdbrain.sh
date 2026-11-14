@@ -24,8 +24,15 @@ PY=${PY:-/opt/pytorch/bin/python}            # training env (mne, torch)
 OUT=/data/runs/heedb/external_eval
 step=${1:-all}
 
-bids_root() {   # the folder holding the BIDS participants.tsv (not the derivatives copy)
-  find "$ROOT/raw" -name participants.tsv -not -path '*derivatives*' -printf '%d %h\n' | sort -n | head -1 | cut -d' ' -f2
+bids_root() {   # the folder holding the BIDS dataset_description.json (not a derivatives copy)
+  find "$ROOT/raw" -name dataset_description.json -not -path '*derivatives*' -printf '%d %h\n' | sort -n | head -1 | cut -d' ' -f2
+}
+# participants table: $TDBRAIN_META, else the BIDS participants.tsv, else a participants
+# file under meta/ (release 3.1 ships the EEG zip without one)
+participants() {
+  if [[ -n ${TDBRAIN_META:-} ]]; then echo "$TDBRAIN_META"; return; fi
+  { find "$(bids_root)" -maxdepth 1 -name participants.tsv; \
+    find "$ROOT/meta" -maxdepth 1 -iname '*participant*' \( -name '*.tsv' -o -name '*.csv' -o -name '*.xlsx' \); } | head -1
 }
 
 if [[ $step == fetch ]]; then
@@ -53,7 +60,7 @@ if [[ $step == unpack || $step == all ]]; then
   [[ ${#archives[@]} -gt 0 ]] || { echo "no zip in $ROOT/zips"; exit 1; }
   for z in "${archives[@]}"; do
     echo "extracting $(basename "$z")"
-    7z x -y -aos -bd -p"$PW" -o"$ROOT/raw" "$z" | grep -E "^(Everything is Ok|Files|Folders|Size|ERROR|Wrong)" || true
+    7z x -y -aos -bd -p"$PW" -o"$ROOT/raw" -x'r!.DS_Store' "$z" | grep -E "^(Everything is Ok|Files|Folders|Size|ERROR|Wrong)" || true
   done
   # nested zips (e.g. a dataset zip inside a download bundle) are extracted in place
   find "$ROOT/raw" -name '*.zip' -not -path '*derivatives*' | while read -r inner; do
@@ -61,7 +68,7 @@ if [[ $step == unpack || $step == all ]]; then
     7z x -y -aos -bd -p"$PW" -o"$(dirname "$inner")" "$inner" | grep -E "^(Everything is Ok|Files|ERROR|Wrong)" || true
   done
   echo "BIDS root: $(bids_root)"
-  find "$ROOT/raw" -name '*_eeg.vhdr' -not -path '*derivatives*' | wc -l
+  find "$ROOT/raw" \( -name '*_eeg.vhdr' -o -name '*_eeg.bdf' \) -not -path '*derivatives*' | wc -l
 fi
 
 if [[ $step == mirror || $step == all ]]; then
@@ -73,9 +80,11 @@ check_private(boto3.client('s3'), 'eeg-data-public'); print('bucket is private')
 fi
 
 if [[ $step == convert || $step == all ]]; then
-  BIDS=$(bids_root)
+  BIDS=$(bids_root); META=$(participants)
+  [[ -n $META ]] || { echo "no participants table: put it in $ROOT/meta or set TDBRAIN_META"; exit 1; }
+  echo "BIDS root: $BIDS; participants: $META"
   $PY -m dataset_maker.make_external_npy --dataset tdbrain \
-    --raw "$BIDS" --meta "$BIDS/participants.tsv" --out $COHORT --jobs 6
+    --raw "$BIDS" --meta "$META" --out $COHORT --jobs 6
   aws s3 sync $COHORT "$S3/cohorts/tdbrain_v1" --only-show-errors
 fi
 
