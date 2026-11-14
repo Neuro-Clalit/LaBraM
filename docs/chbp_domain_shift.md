@@ -69,8 +69,10 @@ Outputs:
    - **Best: a device-robust model.** The E2L recipe trained on Temple +
      Harvard with a 1–45 Hz input band and per-window amplitude normalization
      scores CHBP *as recorded* at MAE 6.19, R² 0.26, r 0.59, bias −0.1 (E2L:
-     9.55, r 0.44). That is better than the best published within-CHBP result
-     (6.48, trained on CHBP). The 120-channel cap goes from 13.10 to 6.67.
+     9.55, r 0.44). That is level with the best published within-CHBP result,
+     which was trained on CHBP: 6.19 ± 1.10 vs 6.48 ± 0.60 over the same
+     10 folds, within noise (Table 10.11). The 120-channel cap goes from 13.10
+     to 6.67.
    - **It is invariant to the CHBP-like degradation** (Table 10.3).
    - **It costs some in-domain accuracy:** val / test 7.64 / 7.55 vs 7.24 /
      7.00, LEMON 6.08 vs 5.22, MIPDB 15.18 vs 12.66. The ranking is unchanged
@@ -547,9 +549,12 @@ These models are trained on CHBP. Ours never are:
 - **After label-free spectrum matching:** 7.01 (E2L), and 6.27 on the
   64-channel cap.
 
-For reference only, since they use CHBP ages: on the same kind of 10 subject
-folds, a two-parameter recalibration of the frozen predictions gives 6.44–6.59,
-and a ridge regression on frozen E2 embeddings gives 5.93
+The full side-by-side table, on the benchmark's own folds and including the
+Section 10 fixes, is Table 10.11.
+
+For reference only, since they use CHBP ages: on the same 10 subject folds,
+a two-parameter recalibration of the frozen predictions gives 6.44–6.59, and a
+ridge regression on frozen E2 embeddings gives 5.93
 (`docs/data/external_eval/chbp/cv10_*.csv`). Neither is pursued, because CHBP is
 kept as an external test.
 
@@ -1071,12 +1076,123 @@ single-model variants (band, relamp, augment) reaches both.
 3. **Keep CHBP an external test.** Report it per cap, beside the 7.27
    mean-age baseline.
 
-**Against the published result.** The best published CHBP result is
-within-CHBP 10-fold CV, 6.48 ± 0.60 (R² 0.18; Engemann et al. 2022), trained
-on CHBP. The device-robust model reaches 6.19 (R² 0.26) zero-shot, never having
-seen CHBP. Spectrum matching to a training-set barycenter spectrum is the idea
-behind Convolutional Monge Mapping Normalization (Gnassounou et al. 2023), which
-was used for sleep staging.
+**Against the published result** (Table 10.11). The best published CHBP
+result is within-CHBP 10-fold CV, 6.48 ± 0.60 (R² 0.18 ± 0.17; Engemann et al.
+2022), trained on CHBP. The device-robust model reaches 6.19 ± 1.10 (R²
+0.20 ± 0.37) on the same folds, zero-shot, never having seen CHBP. That is level
+with the benchmark, not better: the difference is well inside the fold SD and
+the bootstrap CI. Spectrum matching to a training-set barycenter spectrum is the
+idea behind Convolutional Monge Mapping Normalization (Gnassounou et al. 2023),
+which was used for sleep staging.
+
+### 10.7 Against the published CHBP benchmark
+
+The only published CHBP age results are those of Engemann et al. (2022). The
+models were trained and tested within CHBP:
+- 10-fold CV, sklearn `KFold(shuffle=True, random_state=42)` over the
+  participants sorted by id;
+- eyes open and closed pooled, 0.1–49 Hz, 10 s epochs after autoreject.
+
+Their per-fold results are public and are copied unchanged, with source and
+licence, to `docs/data/external_eval/chbp/published_engemann2022/`. The paper
+reports, for the $K = 10$ test folds $F_k$ (mean ± SD with ddof 1 over $k$):
+
+$$ \mathrm{MAE}_k = \tfrac{1}{|F_k|}\textstyle\sum_{i \in F_k} \lvert \hat y_i - y_i \rvert \tag{10.6} $$
+
+$$ R^2_k = 1 - \frac{\sum_{i \in F_k} (\hat y_i - y_i)^2}{\sum_{i \in F_k} (y_i - \bar y_{F_k})^2} \tag{10.7} $$
+
+$\bar y_{F_k}$ is the mean age of fold $k$.
+
+`scripts/chbp_sota_table.py` puts our 250 recordings into the same `KFold`
+folds. They are the same folds as the 10-fold split used for the
+recalibration and embedding-probe references in Section 9.3. The script then
+computes (10.6) and (10.7) per fold. A frozen model's predictions do not depend
+on the folds; the folds only make both sides average the same way.
+
+For our rows the table also gives the pooled MAE (3.1) with its 95 % bootstrap
+CI (2,000 resamples), the bias, r, and the pooled R². Rows marked *uses CHBP
+labels* fit $\hat y' = a\,\hat y + b$ on the other nine folds. They are
+references, not zero-shot.
+
+### Table 10.11. CHBP brain age, ours vs the published within-CHBP benchmark
+
+Columns:
+- **fold MAE** is (10.6) and **fold R²** is (10.7), both mean ± SD over the 10
+  folds;
+- **MAE [95 % CI]** is the pooled MAE (3.1) with its bootstrap CI;
+- **bias** is (3.2), **r** is (3.4), and **pooled R²** is (3.3).
+
+Our rows are the first 5 minutes after a 60 s trim (the training protocol)
+unless marked. The published n is the participants with usable EEG of the
+282 listed. Ours is the 250 EEG recordings of release 1.0.
+
+| model | trained on CHBP? | fold MAE | fold R² | MAE [95 % CI] | bias | r | pooled R² |
+|---|---|---|---|---|---|---|---|
+| *published: Engemann et al. 2022, within-CHBP 10-fold CV* | | | | | | | |
+| handcrafted features + random forest | yes | **6.48 ± 0.60** | **0.18 ± 0.17** | — | — | — | — |
+| ShallowNet | yes | 6.65 ± 0.87 | 0.11 ± 0.27 | — | — | — | — |
+| Deep4Net | yes | 6.89 ± 0.99 | 0.01 ± 0.29 | — | — | — | — |
+| filterbank Riemann + ridge | yes | 7.17 ± 0.63 | −0.01 ± 0.13 | — | — | — | — |
+| filterbank source + ridge | yes | 7.76 ± 2.07 | −1.47 ± 4.58 | — | — | — | — |
+| predict the training-fold mean | yes | 7.33 ± 0.83 | −0.04 ± 0.05 | — | — | — | — |
+| *ours, zero-shot, CHBP as recorded* | | | | | | | |
+| E2L | no | 9.55 ± 1.38 | −0.95 ± 1.02 | 9.55 [8.62, 10.50] | +7.05 | 0.44 | −0.71 |
+| W7 | no | 9.10 ± 1.90 | −0.82 ± 1.02 | 9.10 [8.19, 10.10] | +4.83 | 0.46 | −0.60 |
+| W7, every window | no | 8.66 ± 1.67 | −0.69 ± 0.92 | 8.66 [7.76, 9.62] | +4.78 | 0.47 | −0.49 |
+| *ours, zero-shot, label-free test-time normalization (Table 10.1)* | | | | | | | |
+| E2L + per-cap spectrum matching | no | 6.70 ± 1.08 | −0.03 ± 0.57 | 6.70 [5.98, 7.42] | +0.82 | 0.52 | 0.10 |
+| *ours, zero-shot, retrained on Temple + Harvard only (Tables 10.3, 10.9)* | | | | | | | |
+| **device-robust E2L, full recipe** (band 1–45 Hz + window amplitude norm.) | no | **6.19 ± 1.10** | **0.20 ± 0.37** | **6.19 [5.57, 6.85]** | **−0.09** | 0.59 | **0.26** |
+| device-robust E2L, 4 epochs | no | 6.39 ± 0.99 | 0.13 ± 0.36 | 6.39 [5.77, 7.09] | +1.34 | 0.55 | 0.19 |
+| device-robust E2L, 4 + 6 epochs | no | 6.38 ± 1.24 | 0.11 ± 0.43 | 6.38 [5.75, 7.09] | +0.28 | 0.55 | 0.18 |
+| `relamp` | no | 6.64 ± 1.00 | 0.10 ± 0.40 | 6.64 [6.03, 7.29] | −0.53 | 0.56 | 0.19 |
+| `augment` | no | 6.97 ± 1.32 | −0.12 ± 0.63 | 6.97 [6.23, 7.70] | +3.88 | **0.60** | 0.02 |
+| `band` + cohort gain | no | 7.40 ± 1.06 | −0.11 ± 0.41 | 7.40 [6.69, 8.15] | −3.54 | 0.53 | −0.04 |
+| `band` | no | 7.73 ± 1.20 | −0.30 ± 0.63 | 7.73 [6.96, 8.57] | +5.23 | 0.55 | −0.16 |
+| *ours, reference only: uses CHBP labels (fit on the other 9 folds)* | | | | | | | |
+| E2L + recalibration $a\hat y + b$ | 2 parameters | 6.59 ± 0.73 | 0.14 ± 0.19 | 6.59 [5.96, 7.30] | +0.03 | 0.43 | 0.18 |
+| device-robust E2L + recalibration $a\hat y + b$ | 2 parameters | 5.94 ± 0.71 | 0.29 ± 0.21 | 5.94 [5.39, 6.55] | +0.03 | 0.57 | 0.33 |
+| ridge probe on frozen E2 embeddings (Section 9.3) | 200-d ridge | 5.93 ± 0.48 | 0.28 ± 0.14 | 5.93 | — | 0.56 | 0.32 |
+
+All rows are in `docs/data/external_eval/chbp/sota_comparison.csv`; the probe
+row is from `cv10_embedding_probe.csv`.
+
+**What Table 10.11 shows:**
+- **As recorded, our models are 2–3 years worse than the benchmark** (8.66–9.55
+  vs 6.48) and worse than its predict-the-mean baseline (7.33). The fold R² is
+  strongly negative, mostly from the +5 to +7 year offset.
+- **Without any CHBP labels, the device-robust E2L is level with the best
+  published result.**
+  - Fold MAE 6.19 ± 1.10 vs 6.48 ± 0.60, and fold R² 0.20 ± 0.37 vs 0.18 ± 0.17.
+  - The 0.29-year difference is far inside the fold SDs, and our bootstrap CI
+    [5.57, 6.85] contains 6.48. Our model is not significantly better.
+  - The published models' per-subject predictions are not public, so no paired
+    test is possible.
+  - Per-cap spectrum matching (6.70), the two short device-robust fine-tunes
+    (6.38–6.39) and `relamp` (6.64) also beat the published deep networks
+    (ShallowNet 6.65, Deep4Net 6.89) or match them, within noise.
+- **Our fold SDs are larger** (1.0–1.4 vs 0.6–1.0). This is probably because a
+  zero-shot model keeps each fold's composition effect, such as more
+  120-channel recordings or older participants. Fold-wise training absorbs part
+  of that.
+- **Our models rank people by age better than the benchmark explains
+  variance.**
+  - The device-robust models reach r 0.55–0.60.
+  - The benchmark's best R² of 0.18 implies r of about 0.42, if its predictions
+    were calibrated.
+  - CHBP's narrow age range (SD 9.3 years) caps R² for everyone.
+- **With CHBP labels, the gap opens further** (5.93–5.94, R² 0.28–0.29). A
+  two-parameter recalibration of the frozen device-robust model, or a ridge
+  probe on frozen embeddings, beats every published within-CHBP model by about
+  0.5 years. Both use CHBP ages, so they are references only. CHBP stays an
+  external test (decision of 2026-11-11).
+- **Caveats:**
+  - The benchmark pools eyes-open and eyes-closed epochs over the whole
+    resting recording, with 53 channels. Our protocol is the first 5 minutes,
+    19 channels.
+  - The subject sets probably differ by a few participants (theirs: those
+    passing their preprocessing).
+  - The comparison is like for like in fold scheme and metric definitions only.
 
 ## 11. References
 

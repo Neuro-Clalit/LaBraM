@@ -147,10 +147,19 @@ training preprocessing, so the column is a diagnostic.
 | W7 | 9.10 | +4.83 | 0.46 | −0.60 | 6.47 | 8.66 | 8.36 (−1.43) |
 | X1 | 9.38 | +5.53 | **0.48** | −0.67 | **6.43** | 9.03 | 8.44 (−0.75) |
 | X3 | 9.86 | +6.40 | 0.46 | −0.83 | 6.53 | 9.62 | 8.58 (+0.44) |
+| *published, trained on CHBP (Engemann et al. 2022, 10-fold CV, fold mean ± SD)* | | | | | | | |
+| handcrafted features + random forest | **6.48 ± 0.60** | — | — | **0.18 ± 0.17** | — | — | — |
+| ShallowNet | 6.65 ± 0.87 | — | — | 0.11 ± 0.27 | — | — | — |
+| Deep4Net | 6.89 ± 0.99 | — | — | 0.01 ± 0.29 | — | — | — |
+| filterbank Riemann + ridge | 7.17 ± 0.63 | — | — | −0.01 ± 0.13 | — | — | — |
+| predict the training-fold mean | 7.33 ± 0.83 | — | — | −0.04 ± 0.05 | — | — | — |
 
-Published within-CHBP 10-fold CV (Engemann et al. 2022): handcrafted features
-+ random forest 6.48 (R² 0.18), ShallowNet 6.65, Deep4Net 6.89, predict the
-mean 7.33.
+The published rows are means ± SD over the benchmark's 10 test folds of the
+fold MAE and fold R². Those are Eqs. (10.6)–(10.7) of
+`docs/chbp_domain_shift.md`, from the authors' per-fold result files
+(`docs/data/external_eval/chbp/published_engemann2022/`). Their R² is per fold;
+ours above is pooled. Table 10.11 of `docs/chbp_domain_shift.md` puts every
+model and fix of this study on the benchmark's own folds.
 
 ### Table 3.2. MAE (bias) by age group, first 5 minutes
 
@@ -246,6 +255,9 @@ training mean (4.4) 22.21.
 | W7 | **9.10** [8.19, 10.10] | **11.75** | **−0.60** | 0.46 | **+4.83** | −0.45 | −0.15, 7.21 | 8.21 (+2.31) | **8.66** / 7.75 |
 | ensemble (median of 4) | 9.21 [8.31, 10.18] | 11.81 | −0.61 | 0.47 | +5.34 | −0.45 | −0.15, 7.32 | 8.22 (+2.76) | 8.87 / 7.86 |
 | `cvbase` ensemble (5 TUH folds; reference) | 8.58 [7.76, 9.42] | — | −0.37 | 0.35 | +5.20 | — | — | — | 8.38 / — |
+| device-robust E2L, full recipe (`docs/chbp_domain_shift.md` §10.2; zero-shot, trained on Temple + Harvard) | **6.19** [5.57, 6.85] | **7.98** | **0.26** | **0.59** | **−0.09** | −0.49 | — | — | — |
+| *published, trained on CHBP:* handcrafted + random forest (Engemann et al. 2022) | 6.48 ± 0.60 (fold mean ± SD) | — | 0.18 ± 0.17 (fold) | — | — | — | — | — | — |
+| *published, trained on CHBP:* ShallowNet / Deep4Net | 6.65 ± 0.87 / 6.89 ± 0.99 | — | 0.11 / 0.01 (fold) | — | — | — | — | — | — |
 
 ### Table 4.2. MAE (bias) by age group, first 5 minutes
 
@@ -258,6 +270,7 @@ training mean (4.4) 22.21.
 | W7 | 9.77 (+8.28) | 8.53 (+3.46) | 8.77 (−0.68) |
 | ensemble | 10.13 (+8.82) | 8.56 (+3.92) | 8.42 (−0.12) |
 | `cvbase` ensemble | 11.16 (+11.15) | — | 8.04 |
+| device-robust E2L, full recipe | 5.15 (+3.97) | 6.18 (−1.52) | 8.85 (−7.00) |
 
 Per-model rows, including the `cvbase` folds, are in
 `docs/data/external_eval/chbp/models_*.csv`.
@@ -278,6 +291,16 @@ Per-model rows, including the `cvbase` folds, are in
 - **The `cvbase` TUH ensemble** reaches a lower zero-shot MAE (8.58) and a
   better R² (−0.37). It ranks people by age worse (r 0.35 vs 0.47), and
   its young-adult offset is larger (+11.2 years).
+- **Against the published benchmark** (trained on CHBP):
+  - The four models as recorded are 2.6–3.1 years worse than its best result
+    (6.48) and worse than its mean baseline (7.33).
+  - The device-robust E2L, trained on Temple + Harvard only, scores CHBP as
+    recorded at 6.19, level with that result. On the benchmark's own folds it
+    is 6.19 ± 1.10 vs 6.48 ± 0.60, fold R² 0.20 vs 0.18, so the difference is
+    within noise (`docs/chbp_domain_shift.md` Table 10.11).
+  - Its remaining error shifts with age: young adults are still
+    over-predicted (+4.0), and the 40–68 group is under-predicted (−7.0;
+    error slope −0.49).
 
 ## 5. What to do next
 
@@ -291,8 +314,11 @@ normalize such data, is analysed in `docs/chbp_domain_shift.md`. In short:
 
 The fix (`docs/chbp_domain_shift.md` §10) is a device-robust E2L: fine-tuned on
 Temple / Harvard with a 1–45 Hz input band and per-window amplitude
-normalization (`labram_plus.band_hz`, `labram_plus.amplitude_norm`). It scores
-CHBP as recorded at MAE 6.38, r 0.55 (E2L 9.55, r 0.44), zero-shot. Without
+normalization (`labram_plus.band_hz`, `labram_plus.amplitude_norm`). With the
+full E2L recipe it scores CHBP as recorded at MAE 6.19, R² 0.26, r 0.59 (E2L
+9.55, r 0.44), zero-shot. That is level with the best published within-CHBP
+result, which was trained on CHBP (6.48; `docs/chbp_domain_shift.md`
+Table 10.11). Without
 retraining, per-cap spectrum matching to a label-free Temple / Harvard spectrum
 gives E2L 6.70.
 
