@@ -1821,20 +1821,22 @@ runs' `epoch_time_sec` (E2L and two-step on the local A10G, P1–P4 on SageMaker
 g5.4xlarge / g5.2xlarge). **Bold**: within 0.2 y of the best value of its
 column (MAE columns), the best slope. Val of E2L / two-step L1 is on the
 original val split, of P1–P4 on fold 0's val, so val compares only among
-P1–P4. Rows in `docs/data/mil_phased_cv/l1_recipes_summary.csv`. The P1 fold-0
-task is the first link of the P1 rows; P4 was spot-interrupted three times,
-and its last few minutes ran as a second ClearML task ("final resume").
+P1–P4. Rows in `docs/data/mil_phased_cv/l1_recipes_summary.csv`. The ClearML
+column names each experiment (project / task for the CV folds); the P1
+5-fold mean row links folds 1–4 (fold 0 is the row above). P4 was
+spot-interrupted three times, and its last few minutes ran as a second
+ClearML task ("final resume").
 
 | run | val | test | Harvard n | Harvard a | Harvard u | TUAB n | TUAB a | LEMON | LEMON young | LEMON old | LEMON slope | gap | GPU h | ClearML |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| E2L | 7.24 | 7.00 | 7.12 | 7.56 | 6.63 | 4.91 | 8.49 | 5.22 | **3.88** | 7.97 | 0.77 | 2.85 | 26.6 | [task](https://app.clear.ml/projects/2862380ecbef4d4ca5cbea332c89f328/experiments/43c2a41534ae44b89e9bad07e384a41a) |
-| two-step L1 | **6.55** | **6.09** | **5.71** | 6.79 | **5.80** | **4.41** | **8.13** | **4.68** | **3.75** | **6.61** | **0.88** | 2.84 | 27.7 | [task](https://app.clear.ml/projects/a68654c45f714a39b57bc938511049d3/experiments/c3a0ce4fb92649ddb656367d72ff434b) |
-| P1 fold 0 | **6.60** | **6.17** | 5.96 | **6.57** | **5.99** | 4.68 | **8.10** | 5.02 | **3.94** | 7.22 | 0.83 | 1.48 | 10.9 | [task](https://app.clear.ml/projects/68e3f71d055c4de3bd48f79d6dc27f0b/experiments/4602060724314274af3677b5aebc8fb5) |
-| P1 5-fold mean | **6.60** | **6.16** | 5.94 | **6.61** | **5.96** | 4.72 | **8.06** | 5.05 | — | — | — | 1.57 | 12.0 | folds 1–4: [f1](https://app.clear.ml/projects/908c49ea417f475283d69f6ca56cbe49/experiments/9d17c1cc77944ab0b48489a58d8bf998), [f2](https://app.clear.ml/projects/2be6ea126bb94dbeb44a528147dc91eb/experiments/4f3b0784fb6342f0b826ac4ba2ca9c1e), [f3](https://app.clear.ml/projects/ecc155da2c9b43869a32215905c6f432/experiments/8eb556a31c9f45f3a1f54b5c5ae399e3), [f4](https://app.clear.ml/projects/a5508ab88d794fbbb45500c7437b76e1/experiments/b9a4be83cf8645e59563b2a60e9d9b8b) |
+| E2L | 7.24 | 7.00 | 7.12 | 7.56 | 6.63 | 4.91 | 8.49 | 5.22 | **3.88** | 7.97 | 0.77 | 2.85 | 26.6 | [heedb_E2L_tuh_heedb_ep16_local_resumed_bs256_20261104_215141_883](https://app.clear.ml/projects/2862380ecbef4d4ca5cbea332c89f328/experiments/43c2a41534ae44b89e9bad07e384a41a) |
+| two-step L1 | **6.55** | **6.09** | **5.71** | 6.79 | **5.80** | **4.41** | **8.13** | **4.68** | **3.75** | **6.61** | **0.88** | 2.84 | 27.7 | [heedb_mil_L1_abmil_local_20261109_022309_458](https://app.clear.ml/projects/a68654c45f714a39b57bc938511049d3/experiments/c3a0ce4fb92649ddb656367d72ff434b) |
+| P1 fold 0 | **6.60** | **6.17** | 5.96 | **6.57** | **5.99** | 4.68 | **8.10** | 5.02 | **3.94** | 7.22 | 0.83 | 1.48 | 10.9 | [heedb_mil_P_L1_fold0_cv5 / fold_0_20261111_225342_132](https://app.clear.ml/projects/68e3f71d055c4de3bd48f79d6dc27f0b/experiments/4602060724314274af3677b5aebc8fb5) |
+| P1 5-fold mean | **6.60** | **6.16** | 5.94 | **6.61** | **5.96** | 4.72 | **8.06** | 5.05 | — | — | — | 1.57 | 12.0 | [heedb_mil_P_L1_fold1_cv5 / fold_1](https://app.clear.ml/projects/908c49ea417f475283d69f6ca56cbe49/experiments/9d17c1cc77944ab0b48489a58d8bf998), [heedb_mil_P_L1_fold2_cv5 / fold_2](https://app.clear.ml/projects/2be6ea126bb94dbeb44a528147dc91eb/experiments/4f3b0784fb6342f0b826ac4ba2ca9c1e), [heedb_mil_P_L1_fold3_cv5 / fold_3](https://app.clear.ml/projects/ecc155da2c9b43869a32215905c6f432/experiments/8eb556a31c9f45f3a1f54b5c5ae399e3), [heedb_mil_P_L1_fold4_cv5 / fold_4](https://app.clear.ml/projects/a5508ab88d794fbbb45500c7437b76e1/experiments/b9a4be83cf8645e59563b2a60e9d9b8b) |
 | P1 5-fold ensemble | — | **6.08** | **5.88** | **6.51** | **5.87** | 4.65 | **7.97** | 5.00 | **3.88** | 7.32 | 0.83 | — | 60.0 | — |
-| P2 fold 0 | **6.60** | **6.13** | **5.72** | 6.80 | **5.86** | **4.61** | 8.42 | **4.85** | **3.92** | **6.77** | 0.82 | 3.29 | 17.6 | [task](https://app.clear.ml/projects/ca61f529346b4ba987513a3b846091f4/experiments/450fefa7709d49e9a4a5d7a4f4b0dfef) |
-| P3 fold 0 | **6.59** | **6.07** | **5.78** | **6.64** | **5.84** | 4.62 | **8.06** | 4.93 | **3.87** | 7.11 | 0.84 | 2.27 | 12.5 | [task](https://app.clear.ml/projects/1afdda310c1347c7a85c052d43230f11/experiments/519f180abda049799ac7c85ca3993238) |
-| P4 fold 0 | **6.59** | **6.06** | **5.71** | **6.62** | **5.82** | 4.65 | 8.31 | **4.87** | **3.90** | 6.85 | 0.82 | 2.89 | 12.8 | [main](https://app.clear.ml/projects/a4115428afa142df9beff2a73f3f9563/experiments/4cea884887f64363b4328b2785a7ab61), [final resume](https://app.clear.ml/projects/a4115428afa142df9beff2a73f3f9563/experiments/3b00d40d8f694d86be2156ee06d3ccee) |
+| P2 fold 0 | **6.60** | **6.13** | **5.72** | 6.80 | **5.86** | **4.61** | 8.42 | **4.85** | **3.92** | **6.77** | 0.82 | 3.29 | 17.6 | [heedb_mil_P2_L1_fold0_cv5 / fold_0_20261112_191854_080](https://app.clear.ml/projects/ca61f529346b4ba987513a3b846091f4/experiments/450fefa7709d49e9a4a5d7a4f4b0dfef) |
+| P3 fold 0 | **6.59** | **6.07** | **5.78** | **6.64** | **5.84** | 4.62 | **8.06** | 4.93 | **3.87** | 7.11 | 0.84 | 2.27 | 12.5 | [heedb_mil_P3_L1_fold0_cv5 / fold_0_20261113_235349_341](https://app.clear.ml/projects/1afdda310c1347c7a85c052d43230f11/experiments/519f180abda049799ac7c85ca3993238) |
+| P4 fold 0 | **6.59** | **6.06** | **5.71** | **6.62** | **5.82** | 4.65 | 8.31 | **4.87** | **3.90** | 6.85 | 0.82 | 2.89 | 12.8 | [heedb_mil_P4_L1_fold0_cv5 / fold_0_20261114_010503_055](https://app.clear.ml/projects/a4115428afa142df9beff2a73f3f9563/experiments/4cea884887f64363b4328b2785a7ab61), [heedb_mil_P4_L1_fold0_cv5 / fold_0_20261114_164231_253 (final resume)](https://app.clear.ml/projects/a4115428afa142df9beff2a73f3f9563/experiments/3b00d40d8f694d86be2156ee06d3ccee) |
 
 Recipes: E2L = window model, 16 epochs from `labram-base`; two-step L1 = E2L's
 epoch-11 checkpoint + 4 bag epochs (lr 1e-4, encoder frozen 1 epoch); P1–P4 =
