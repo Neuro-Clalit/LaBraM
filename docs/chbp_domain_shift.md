@@ -861,6 +861,46 @@ The training-side alternatives that keep one model are running on SageMaker
 - `augment`: raw input, training-only random gain 0.55–1.8× and band-edge
   augmentation (`augment.gain_prob` / `lowpass_prob` / `highpass_prob`).
 
+### Table 10.7. Band-only model (`band`), adults
+
+The E2L recipe with the 1–45 Hz band only; absolute amplitude kept. SageMaker job
+`labram-e2l-robust-band-2026-11-14-00-26-38-932`: early-stopped after epoch 14,
+best epoch 9, val / test 7.46 / 7.22.
+- In-domain rows: MAE.
+- External rows: MAE / bias / r.
+- "+ gain" multiplies the cohort by its training-median / cohort-median amplitude
+  (12.5 µV training median; CHBP × 2.15, LEMON × 1.43, MIPDB × 0.68). The factor
+  is estimated from signals only.
+
+| set | E2L | full robust | band | band + gain |
+|---|---|---|---|---|
+| Temple + Harvard val / test | 7.25 / 7.00 | 7.64 / 7.55 | 7.47 / 7.22 | — |
+| Temple test / normal reports | 6.40 / 4.91 | 6.69 / 5.46 | 6.70 / 5.23 | — |
+| Harvard test / normal reports | 7.02 / 7.12 | 7.58 / 7.72 | 7.24 / 7.33 | — |
+| Harvard 18–29, test | 7.47 | 9.53 | 7.74 | — |
+| Harvard 30–39, test | 6.34 | 7.75 | 6.66 | — |
+| LEMON | **5.22** / −1.1 / 0.95 | 6.08 / +1.9 / 0.94 | 5.33 / +0.4 / 0.94 | 5.58 / −4.0 / 0.94 |
+| CHBP | 9.55 / +7.1 / 0.44 | **6.19** / −0.1 / **0.59** | 7.73 / +5.2 / 0.55 | 7.40 / −3.5 / 0.53 |
+| MIPDB adults | **9.22** / +8.4 / 0.45 | 10.60 / +10.3 / 0.62 | 11.44 / +10.6 / 0.46 | 16.36 / +16.0 / 0.32 |
+
+**What Table 10.7 shows:**
+- **The band limit restores CHBP's ranking.** r 0.55, as for the full robust
+  model, against E2L's 0.44.
+- **It keeps most of the in-domain accuracy.** Young Harvard adults are back near
+  E2L (7.74 vs 7.47 at 18–29).
+- **LEMON is almost unchanged** (5.33 vs 5.22).
+- **The amplitude still sets CHBP's bias** (+5.2 years).
+- **One cohort-level gain is too blunt a fix.** Matched to the training median it
+  overshoots on CHBP (bias −3.5) and damages LEMON and, badly, MIPDB, whose high
+  amplitude belongs to its children.
+  - The right target amplitude depends on the cohort's age mix, which a
+    label-free gain cannot know.
+- **This confirms the split:** the 1–45 Hz band fixes the ranking; amplitude
+  causes the bias.
+- `relamp` and `augment` were resubmitted on 2026-11-14. The first `relamp` was
+  interrupted as a spot job and its restart hung at the first NCCL all-reduce.
+  `augment` never got an ml.g6e.12xlarge.
+
 ### 10.4 Which fix is best
 
 **Ranking on CHBP** (E2L, MAE / r; no CHBP labels anywhere):
