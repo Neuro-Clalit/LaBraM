@@ -10,6 +10,11 @@ amplitude scale intact; frequency/time stretching, global amplitude scaling and
 band-stop filters are deliberately absent. Each one is drawn per sample with its
 own probability, on the training batch ``x`` of shape ``(B, N, T)`` (channels
 ``N`` in ``ch_names`` order, time ``T`` at ``sampling_rate``) before mixup.
+
+The device-robustness options (``gain_prob``, ``lowpass_prob``,
+``highpass_prob``; off by default) are the exception: they change the amplitude
+or the band edges on purpose, so that a model learns not to depend on the
+gain and the filters of one recording chain (``docs/chbp_domain_shift.md``).
 """
 
 import math
@@ -111,14 +116,41 @@ def time_mask(x: torch.Tensor, prob: float, max_count: int, min_len: int, max_le
     return x.masked_fill(mask[:, None, :], 0.0)
 
 
+def random_gain(x: torch.Tensor, prob: float, lo: float, hi: float) -> torch.Tensor:
+    """Multiply selected samples by a gain drawn log-uniformly from [lo, hi]."""
+    sel = _pick(x.shape[0], prob, x.device)
+    u = torch.rand(x.shape[0], device=x.device)
+    gain = torch.exp(math.log(lo) + u * (math.log(hi) - math.log(lo)))
+    return x * torch.where(sel, gain, torch.ones_like(gain))[:, None, None].to(x.dtype)
+
+
+def random_filter(x: torch.Tensor, prob: float, lo_hz: float, hi_hz: float, kind: str,
+                  sampling_rate: int = 200, order: int = 8) -> torch.Tensor:
+    """Zero-phase Butterworth low- or high-pass (squared magnitude, FFT) of the
+    selected samples, cut-off drawn per sample uniformly from [lo_hz, hi_hz]."""
+    sel = _pick(x.shape[0], prob, x.device)
+    if not bool(sel.any()):
+        return x
+    t = x.shape[-1]
+    z = x.float()
+    f = torch.fft.rfftfreq(t, d=1.0 / sampling_rate, device=x.device)
+    fc = lo_hz + torch.rand(x.shape[0], device=x.device) * (hi_hz - lo_hz)
+    r = (f[None, :] / fc[:, None]) ** (2 * order)                     # [B, F]
+    gain = 1.0 / (1.0 + r) if kind == "low" else r / (1.0 + r)
+    gain = torch.where(sel[:, None], gain, torch.ones_like(gain))
+    out = torch.fft.irfft(torch.fft.rfft(z, dim=-1) * gain[:, None, :], n=t, dim=-1)
+    return out.to(x.dtype)
+
+
 def augment_batch(x: torch.Tensor, cfg: Optional[AugmentConfig],
                   ch_names: Optional[Sequence[str]] = None,
                   sampling_rate: int = 200) -> torch.Tensor:
     """Apply the enabled augmentations to a training batch ``(B, N, T)``.
 
     Order: hemisphere flip, sign flip, FT surrogate (which reshape the signal),
-    then channel dropout and time masking (which blank parts of it), so the
-    surrogate never smears a blanked segment.
+    the device-robustness filters and gain, then channel dropout and time
+    masking (which blank parts of it), so the surrogate never smears a blanked
+    segment.
     """
     if cfg is None or not cfg.enabled:
         return x
@@ -128,6 +160,14 @@ def augment_batch(x: torch.Tensor, cfg: Optional[AugmentConfig],
         x = sign_flip(x, cfg.sign_flip_prob)
     if cfg.ft_surrogate_prob > 0:
         x = ft_surrogate(x, cfg.ft_surrogate_prob, cfg.ft_phase_noise)
+    if getattr(cfg, "highpass_prob", 0) > 0:
+        x = random_filter(x, cfg.highpass_prob, cfg.highpass_min_hz, cfg.highpass_max_hz,
+                          "high", sampling_rate)
+    if getattr(cfg, "lowpass_prob", 0) > 0:
+        x = random_filter(x, cfg.lowpass_prob, cfg.lowpass_min_hz, cfg.lowpass_max_hz,
+                          "low", sampling_rate)
+    if getattr(cfg, "gain_prob", 0) > 0:
+        x = random_gain(x, cfg.gain_prob, cfg.gain_min, cfg.gain_max)
     if cfg.channel_dropout_prob > 0 and cfg.channel_dropout_p > 0:
         x = channel_dropout(x, cfg.channel_dropout_prob, cfg.channel_dropout_p)
     if cfg.time_mask_prob > 0:

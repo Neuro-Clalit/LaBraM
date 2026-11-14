@@ -371,3 +371,41 @@ class TestDeviceRobustness:
         mag = torch.fft.rfft(y.reshape(1, 4, -1)[0, 0]).abs()
         f = torch.fft.rfftfreq(2000, 1 / 200)
         assert mag[(f - 60).abs().argmin()] < 0.02 * mag[(f - 10).abs().argmin()]
+
+
+class TestDeviceAugmentations:
+    def test_random_gain_range_and_probability(self):
+        from labram.train.augment import random_gain
+        torch.manual_seed(0)
+        x = torch.ones(2000, 3, 50)
+        y = random_gain(x, 1.0, 0.55, 1.8)
+        g = y[:, 0, 0]
+        assert g.min() >= 0.55 - 1e-6 and g.max() <= 1.8 + 1e-6
+        assert torch.allclose(y, g[:, None, None].expand_as(y))           # one gain per sample
+        assert torch.equal(random_gain(x, 0.0, 0.55, 1.8), x)
+
+    def test_random_filter_low_and_high(self):
+        from labram.train.augment import random_filter
+        t = torch.arange(2000, dtype=torch.float32) / 200
+        x = (torch.sin(2 * math.pi * 10 * t) + torch.sin(2 * math.pi * 70 * t)
+             + torch.sin(2 * math.pi * 0.05 * t)).repeat(4, 2, 1)
+        f = torch.fft.rfftfreq(2000, 1 / 200)
+        low = torch.fft.rfft(random_filter(x, 1.0, 40.0, 45.0, "low")[0, 0]).abs() / 1000
+        assert low[(f - 10).abs().argmin()] == pytest.approx(1.0, abs=0.02)
+        assert low[(f - 70).abs().argmin()] < 0.02
+        high = torch.fft.rfft(random_filter(x, 1.0, 0.5, 1.0, "high")[0, 0]).abs() / 1000
+        assert high[(f - 10).abs().argmin()] == pytest.approx(1.0, abs=0.02)
+        assert high[(f - 0.05).abs().argmin()] < 0.02
+        assert torch.equal(random_filter(x, 0.0, 40.0, 45.0, "low"), x)
+
+    def test_augment_batch_runs_device_options_only_when_enabled(self):
+        from labram.configs.train_config import AugmentConfig
+        from labram.train.augment import augment_batch
+        x = torch.randn(4, 3, 2000)
+        off = AugmentConfig(enabled=True, hemisphere_flip_prob=0, sign_flip_prob=0, ft_surrogate_prob=0,
+                            channel_dropout_prob=0, time_mask_prob=0)
+        assert torch.equal(augment_batch(x, off), x)
+        on = AugmentConfig(enabled=True, hemisphere_flip_prob=0, sign_flip_prob=0, ft_surrogate_prob=0,
+                           channel_dropout_prob=0, time_mask_prob=0, gain_prob=1.0, lowpass_prob=1.0)
+        y = augment_batch(x, on)
+        assert y.shape == x.shape and not torch.equal(y, x)

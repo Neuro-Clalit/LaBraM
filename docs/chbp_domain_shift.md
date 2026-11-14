@@ -811,6 +811,56 @@ indistinguishable.
   far more than the spectrum. What decides transfer is whether a model's age
   mapping relies on the properties that differ.
 
+### 10.5 Choosing the model per recording or per cohort (no retraining)
+
+Two models are kept: E2L (A) and the full device-robust E2L (B). A recording,
+or a whole cohort, goes to B when it looks unlike the training data. The test
+uses its amplitude and its 45–70 Hz share of the 1–70 Hz power, against the
+*training split* of `tuh_heedb_v1`. No age and no external cohort enters the
+rule (`scripts/recording_amplitude_features.py`, `scripts/gated_ensemble.py`).
+
+- **Per recording:** inside the training [1 %, 99 %] range → A, else B. The
+  soft version weights $w\,A + (1 - w)\,B$ by the distance to that range.
+- **Per cohort / acquisition group:** a group goes to B when its *median*
+  amplitude or high-frequency share lies more than 1.5× outside the range
+  spanned by the training groups' medians (amplitude 9.1–18.9 µV,
+  high-frequency share 0.006–0.041).
+  - CHBP's two caps fall outside on both (5.5–5.9 µV; 0.0012–0.0017).
+  - LEMON (8.8 µV, 0.035) and MIPDB (18.4 µV, 0.016) fall inside.
+
+### Table 10.6. Model choice, adults, MAE
+
+| set | n | A: E2L | B: robust | mean of A and B | per recording, hard | per recording, soft | per cohort |
+|---|---|---|---|---|---|---|---|
+| Temple + Harvard val | 10,614 | **7.25** | 7.64 | 7.33 | 7.25 | 7.24 | **7.25** (A) |
+| Temple + Harvard test | 7,610 | **7.00** | 7.55 | 7.16 | 7.00 | 6.99 | **7.00** (A) |
+| LEMON | 214 | **5.22** | 6.08 | 5.49 | 5.22 | 5.22 | **5.22** (A) |
+| MIPDB adults | 31 | **9.22** | 10.60 | 9.85 | 9.40 | 9.36 | **9.22** (A) |
+| CHBP | 250 | 9.55 | **6.19** | 6.97 | 9.23 | 8.93 | **6.19** (B) |
+
+**What Table 10.6 shows:**
+- **The per-recording choice fails for CHBP.** It sends only 11 % of CHBP to B.
+  The training data is heterogeneous enough that a single CHBP recording is
+  rarely an outlier; CHBP stands out as a cohort.
+- **The per-cohort choice gives the best of both** with no retraining: E2L's
+  results on Temple, Harvard, LEMON and MIPDB, and the robust result on CHBP.
+- **Caveat:** the 1.5× tolerance was set while knowing where CHBP and LEMON
+  lie, so it needs confirmation on a further external cohort.
+- **Amplitude is U-shaped in age** in the training data: highest at 18–29,
+  lowest at 40–49, higher again from 70. So it is a non-linear age cue (|ρ| ≤ 0.04
+  overall; −0.10 for Harvard normal reports). That is why discarding it costs
+  mainly in young adults.
+
+The training-side alternatives that keep one model are running on SageMaker
+(`scripts/external_runs/submit_device_robust.sh`):
+- `band`: band 1–45 Hz only, amplitude kept, with one cohort-level gain at
+  test time;
+- `relamp`: band + amplitude normalization + the recording's amplitude relative
+  to its acquisition group, r and r², as a head input
+  (`rel_amplitude_v1.npz`);
+- `augment`: raw input, training-only random gain 0.55–1.8× and band-edge
+  augmentation (`augment.gain_prob` / `lowpass_prob` / `highpass_prob`).
+
 ### 10.4 Which fix is best
 
 **Ranking on CHBP** (E2L, MAE / r; no CHBP labels anywhere):

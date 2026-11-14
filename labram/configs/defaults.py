@@ -308,6 +308,7 @@ DEFAULT_SAGEMAKER_WEIGHT_S3_URIS: Dict[str, str] = {
 DEFAULT_SAGEMAKER_DATA_S3_URIS: Dict[str, str] = {
     '/data/datasets/EEG-public/LEMON/cohorts/lemon_v1': 's3://eeg-data-public/LEMON/v1/cohorts/lemon_v1',
     '/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1': 's3://eeg-data-public/MIPDB/v1/cohorts/mipdb_v1',
+    '/data/datasets/EEG-public/CHBP/cohorts/chbp_v1': 's3://eeg-data-public/CHBP/v1/cohorts/chbp_v1',
 }
 
 # ---------- Transformer architecture (NeuralTransformerBase) ----------

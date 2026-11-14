@@ -272,6 +272,17 @@ class AugmentConfig(ConfigBase):
     * ``channel_dropout_prob``: zero each channel with probability ``channel_dropout_p``.
     * ``time_mask_prob``: zero 1..``time_mask_max_count`` segments of
       ``time_mask_min_sec``..``time_mask_max_sec`` seconds across all channels.
+
+    Device-robustness augmentations (default off, ``*_prob = 0``). Unlike the
+    ones above they change amplitude or spectrum on purpose, to imitate other
+    recording chains (``docs/chbp_domain_shift.md``):
+
+    * ``gain_prob``: multiply the sample by a gain drawn log-uniformly from
+      [``gain_min``, ``gain_max``] (an amplifier / export-scale difference).
+    * ``lowpass_prob``: zero-phase order-8 Butterworth low-pass with a cut-off
+      drawn uniformly from [``lowpass_min_hz``, ``lowpass_max_hz``].
+    * ``highpass_prob``: the same high-pass, cut-off from
+      [``highpass_min_hz``, ``highpass_max_hz``].
     """
     enabled: bool = False
     hemisphere_flip_prob: float = 0.5
@@ -284,6 +295,15 @@ class AugmentConfig(ConfigBase):
     time_mask_max_count: int = 2
     time_mask_min_sec: float = 0.5
     time_mask_max_sec: float = 1.0
+    gain_prob: float = 0.0
+    gain_min: float = 0.55
+    gain_max: float = 1.8
+    lowpass_prob: float = 0.0
+    lowpass_min_hz: float = 40.0
+    lowpass_max_hz: float = 75.0
+    highpass_prob: float = 0.0
+    highpass_min_hz: float = 0.1
+    highpass_max_hz: float = 1.0
 
 
 @dataclass

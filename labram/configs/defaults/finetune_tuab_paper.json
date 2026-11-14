@@ -351,7 +351,8 @@
         "config_channel": "",
         "data_s3_uris": {
             "/data/datasets/EEG-public/LEMON/cohorts/lemon_v1": "s3://eeg-data-public/LEMON/v1/cohorts/lemon_v1",
-            "/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1": "s3://eeg-data-public/MIPDB/v1/cohorts/mipdb_v1"
+            "/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1": "s3://eeg-data-public/MIPDB/v1/cohorts/mipdb_v1",
+            "/data/datasets/EEG-public/CHBP/cohorts/chbp_v1": "s3://eeg-data-public/CHBP/v1/cohorts/chbp_v1"
         },
         "weight_s3_uris": {
             "./checkpoints/labram-base.pth": "s3://eeg-data-public/models/labram/labram-base.pth",
@@ -383,7 +384,16 @@
         "time_mask_prob": 0.5,
         "time_mask_max_count": 2,
         "time_mask_min_sec": 0.5,
-        "time_mask_max_sec": 1.0
+        "time_mask_max_sec": 1.0,
+        "gain_prob": 0.0,
+        "gain_min": 0.55,
+        "gain_max": 1.8,
+        "lowpass_prob": 0.0,
+        "lowpass_min_hz": 40.0,
+        "lowpass_max_hz": 75.0,
+        "highpass_prob": 0.0,
+        "highpass_min_hz": 0.1,
+        "highpass_max_hz": 1.0
     },
     "channel_drop": {
         "py/object": "labram.configs.train_config.ChannelDropConfig",
