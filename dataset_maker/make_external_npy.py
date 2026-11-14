@@ -205,6 +205,7 @@ TDBRAIN_INDICATIONS = (("HEALTHY", "healthy"), ("CONTROL", "healthy"), ("REPLICA
                        ("UNKNOWN", "unknown"), ("MDD", "dx_mdd"), ("DEPRESS", "dx_mdd"),
                        ("ADHD", "dx_adhd"), ("ADD", "dx_adhd"), ("OCD", "dx_ocd"), ("SMC", "dx_smc"))
 TDBRAIN_DX = ("dx_mdd", "dx_adhd", "dx_ocd", "dx_smc", "dx_other")
+TDBRAIN_PLACEHOLDER_AGE = 50.0          # signals-only conversion, see tdbrain_recordings
 
 
 def _column(df, *names, required=False):
@@ -332,7 +333,20 @@ def tdbrain_recordings(raw_dir, meta_tsv):
     of that session (or of the subject when the file lists no session).
     ``label`` is ``normal`` for healthy participants only; patients stay
     unlabelled (no EEG report exists, a psychiatric indication is not an EEG
-    finding)."""
+    finding).
+
+    Without a participants table (``meta_tsv`` None: release 3.1 ships the EEG
+    without one) every file is listed with the placeholder age
+    ``TDBRAIN_PLACEHOLDER_AGE`` and ``age_placeholder: True``, so the signals can
+    be converted and scored before the table arrives; ``--relabel`` then writes
+    the real ages without converting again. Metrics on placeholder ages mean
+    nothing."""
+    if meta_tsv is None:
+        return [{"stem": f"sub-{sub}_ses-{ses}_{task}_tdbrain", "path": os.path.relpath(path, raw_dir),
+                 "corpus": "tdbrain", "subject": sub, "session": ses, "task": task,
+                 "age": TDBRAIN_PLACEHOLDER_AGE, "raw_age": None, "sex": None, "label": None,
+                 "age_placeholder": True, "_file": path}
+                for sub, ses, task, path in tdbrain_eeg_files(raw_dir)]
     table = tdbrain_clinical_table(meta_tsv)
     by_session = {(r.subject, r.session): r for r in table.itertuples()} if table["session"].notna().any() else {}
     by_subject = {}
@@ -351,6 +365,7 @@ def tdbrain_recordings(raw_dir, meta_tsv):
                     "corpus": "tdbrain", "subject": sub, "session": ses, "task": task,
                     "age": float(row.age), "raw_age": row.raw_age, "sex": row.sex,
                     "label": "normal" if row.healthy else None, "age_session_matched": matched,
+                    "age_placeholder": False,
                     **{k: (bool(getattr(row, k)) if isinstance(getattr(row, k), (bool, np.bool_))
                            else getattr(row, k)) for k in keep},
                     "_file": path})
@@ -418,18 +433,35 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dataset", choices=sorted(DATASETS), required=True)
     ap.add_argument("--raw", required=True)
-    ap.add_argument("--meta", required=True)
+    ap.add_argument("--meta", default=None,
+                    help="participants / demographics table (optional for tdbrain: placeholder ages)")
+    ap.add_argument("--relabel", action="store_true",
+                    help="rewrite manifest / age_metadata / age_split of an existing --out from --meta "
+                         "without converting the signals again")
     ap.add_argument("--out", required=True)
     ap.add_argument("--jobs", type=int, default=6)
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
+    if args.meta is None and args.dataset != "tdbrain":
+        ap.error(f"--meta is required for {args.dataset}")
     lister, opener = DATASETS[args.dataset]
     recs = lister(args.raw, args.meta)[:args.limit or None]
     os.makedirs(os.path.join(args.out, "recordings"), exist_ok=True)
     print(f"{args.dataset}: {len(recs)} recordings", flush=True)
     results, errors = {}, []
+    if args.relabel:
+        # keep each converted file's signal fields; only the metadata is rebuilt
+        old = json.load(open(os.path.join(args.out, "manifest.json")))
+        fields = ("stem", "n_windows", "n_samples", "sha256", "bytes", "channel_mask", "dtype", "notch",
+                  "line", "reference", "sfreq_native", "duration_sec", "annotations")
+        results = {r["stem"]: {k: r.get(k) for k in fields} for r in old["recordings"]}
+        errors = old["cohort"]["errors"]
+        missing = [r["stem"] for r in recs if r["stem"] not in results]
+        print(f"relabel: {len(recs) - len(missing)} converted recordings get metadata, "
+              f"{len(missing)} listed but never converted", flush=True)
+        recs = [r for r in recs if r["stem"] in results]
     with cf.ProcessPoolExecutor(args.jobs) as pool:
-        futs = {pool.submit(convert_one, r, opener, args.out): r for r in recs}
+        futs = {} if args.relabel else {pool.submit(convert_one, r, opener, args.out): r for r in recs}
         for i, fut in enumerate(cf.as_completed(futs), 1):
             r = futs[fut]
             try:
@@ -440,7 +472,7 @@ def main():
                 errors.append(res)
             else:
                 results[r["stem"]] = res
-            if i % 20 == 0 or i == len(recs):
+            if i % 100 == 0 or i == len(recs):
                 print(f"  {i}/{len(recs)} done, {len(errors)} errors", flush=True)
     rows = []
     for r in recs:
@@ -459,12 +491,12 @@ def main():
                        "resampled to 200 Hz); missing channels zero-filled, see channel_mask"),
         "n_recordings": len(rows), "n_windows": int(sum(r["n_windows"] for r in rows)),
         "cohort": {"experiment": "external_eval", "corpus": args.dataset, "split": "all test",
-                   "errors": errors},
+                   "errors": errors, "age_placeholder": any(r.get("age_placeholder") for r in rows)},
         "recordings": rows,
     }
     with open(os.path.join(args.out, "manifest.json"), "w") as fh:
         json.dump(manifest, fh)
-    if args.dataset == "tdbrain":
+    if args.dataset == "tdbrain" and args.meta:
         # every participants.tsv column (questionnaires, demographics) + the harmonised clinical flags
         tdbrain_clinical_table(args.meta).to_parquet(os.path.join(args.out, "clinical.parquet"), index=False)
     fields = ("stem", "subject", "session", "token", "age", "sex", "year", "raw_age", "label")

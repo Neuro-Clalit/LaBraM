@@ -133,3 +133,30 @@ def test_clinical_table_reads_csv_and_xlsx(tmp_path):
         t = mx.tdbrain_clinical_table(str(p))
         assert list(t["age"].fillna(-1)) == list(ref["age"].fillna(-1))
         assert list(t["clinical_group"]) == list(ref["clinical_group"])
+
+
+def test_signals_first_then_relabel(tmp_path, monkeypatch):
+    """Release 3.1: convert without a participants table (placeholder ages), then
+    --relabel writes the real ages / flags without touching the signals."""
+    raw = _tdbrain(tmp_path)
+    out = tmp_path / "cohort"
+    base = ["make_external_npy", "--dataset", "tdbrain", "--raw", str(raw), "--out", str(out), "--jobs", "1"]
+    monkeypatch.setattr(sys, "argv", base)
+    mx.main()
+    m = json.load(open(out / "manifest.json"))
+    assert m["n_recordings"] == 10 and m["cohort"]["age_placeholder"]      # every file, ages unknown
+    assert {r["age"] for r in m["recordings"]} == {mx.TDBRAIN_PLACEHOLDER_AGE}
+    sha = {r["stem"]: r["sha256"] for r in m["recordings"]}
+    mtime = os.path.getmtime(out / "recordings" / f"{m['recordings'][0]['stem']}.npy")
+
+    monkeypatch.setattr(sys, "argv", base + ["--meta", str(raw / "participants.tsv"), "--relabel"])
+    mx.main()
+    m = json.load(open(out / "manifest.json"))
+    assert m["n_recordings"] == 8 and not m["cohort"]["age_placeholder"]   # the one without an age drops
+    r = next(r for r in m["recordings"] if r["stem"] == "sub-87974621_ses-2_restEO_tdbrain")
+    assert r["age"] == 36.10 and r["dx_adhd"] and r["sha256"] == sha[r["stem"]]
+    assert os.path.getmtime(out / "recordings" / f"{m['recordings'][0]['stem']}.npy") == mtime
+    ages = json.load(open(out / "age_metadata.json"))["recordings"]
+    split = json.load(open(out / "age_split.json"))
+    assert len(ages) == 8 and len(split["files"]["test"]) == 8 * 12
+    assert (out / "clinical.parquet").exists()

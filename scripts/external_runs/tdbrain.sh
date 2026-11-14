@@ -80,24 +80,42 @@ check_private(boto3.client('s3'), 'eeg-data-public'); print('bucket is private')
 fi
 
 if [[ $step == convert || $step == all ]]; then
+  # without a participants table the signals are converted with a flagged placeholder age;
+  # step "relabel" adds the real ages later without converting again
   BIDS=$(bids_root); META=$(participants)
-  [[ -n $META ]] || { echo "no participants table: put it in $ROOT/meta or set TDBRAIN_META"; exit 1; }
-  echo "BIDS root: $BIDS; participants: $META"
+  echo "BIDS root: $BIDS; participants: ${META:-none (placeholder ages)}"
   $PY -m dataset_maker.make_external_npy --dataset tdbrain \
-    --raw "$BIDS" --meta "$META" --out $COHORT --jobs 6
+    --raw "$BIDS" ${META:+--meta "$META"} --out $COHORT --jobs 7
   aws s3 sync $COHORT "$S3/cohorts/tdbrain_v1" --only-show-errors
 fi
 
-# Every run trained on tuh_heedb_v1: training-age mean / std 53.52 / 19.29 y.
+if [[ $step == relabel ]]; then
+  BIDS=$(bids_root); META=$(participants)
+  [[ -n $META ]] || { echo "no participants table: put it in $ROOT/meta or set TDBRAIN_META"; exit 1; }
+  $PY -m dataset_maker.make_external_npy --dataset tdbrain --raw "$BIDS" --meta "$META" --out $COHORT --relabel
+  aws s3 sync $COHORT "$S3/cohorts/tdbrain_v1" --only-show-errors --exclude 'recordings/*'
+fi
+
+# Every run trained on tuh_heedb_v1: training-age mean / std 53.52 / 19.29 y (checked in each run's log).
+# MODELS="E2L E2Lrob" limits the scoring to those names.
 RUNS=(
-  --run E2=/data/runs/heedb/e2_r2/finetune
   --run E2L=/data/runs/heedb/e2l/finetune_20261104_215141_883
+  --run E2=/data/runs/heedb/e2_r2/finetune
   --run W4=/data/runs/heedb/mil_sagemaker/artifacts/w4/finetune
   --run L1=/data/runs/heedb/mil_local/L1_abmil_20261109_022309_458
   --run W7=/data/runs/heedb/mil_sagemaker/artifacts/w7/finetune
   --run X1=/data/runs/heedb/mil_sagemaker/artifacts/x1/finetune
   --run X3=/data/runs/heedb/mil_sagemaker/artifacts/x3/finetune
+  # device-robust E2L (band 1-45 Hz + per-window amplitude norm; docs/chbp_domain_shift.md §10):
+  # fine-tuned from E2L (+6 epochs) and trained from scratch with the E2L recipe
+  --run E2Lrob=/data/runs/chbp_fix/e2l_band45_amp_cont_20261112_001004_075
+  --run E2LrobF=/data/runs/chbp_fix/e2l_robust_full_20261112_175034_869
 )
+if [[ -n ${MODELS:-} ]]; then          # keep only the --run pairs named in $MODELS
+  sel=(); for ((i = 0; i < ${#RUNS[@]}; i += 2)); do
+    [[ " $MODELS " == *" ${RUNS[i+1]%%=*} "* ]] && sel+=("${RUNS[i]}" "${RUNS[i+1]}")
+  done; RUNS=("${sel[@]}")
+fi
 if [[ $step == score || $step == all ]]; then
   # Each file is 2 min (12 windows): the training trims (60 s at each end) would leave
   # nothing, so every window is scored ("all") and, as a check on edge effects, the
@@ -125,4 +143,16 @@ if [[ $step == metrics || $step == all ]]; then
       "${VAL[@]}" --val-meta /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1/age_metadata.json \
       --out docs/data/external_eval/tdbrain/models_E2L_L1_W4_W7_$tag.csv
   done
+fi
+
+if [[ $step == compare || $step == all ]]; then
+  # zero-shot metrics per cohort, every window, for the E2L family (Table 8.1 of the doc)
+  E=/data/datasets/EEG-public
+  $PY scripts/external_cohort_comparison.py \
+    --set own_test:/data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1:$OUT/own_all_w.json \
+    --set lemon:$E/LEMON/cohorts/lemon_v1:$OUT/lemon_all.json,$OUT/lemon_all_e2lrob.json \
+    --set mipdb:$E/MIPDB/cohorts/mipdb_v1:$OUT/mipdb_all.json,$OUT/mipdb_all_e2lrob.json \
+    --set chbp:$E/CHBP/cohorts/chbp_v1:$OUT/chbp_all.json,$OUT/chbp_all_e2lrob.json \
+    --set tdbrain:$COHORT:$OUT/tdbrain_all.json \
+    --models E2L E2Lrob E2LrobF --adults --out docs/data/external_eval/tdbrain/cohort_comparison_all_windows.csv
 fi
