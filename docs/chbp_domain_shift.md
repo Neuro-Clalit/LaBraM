@@ -948,7 +948,11 @@ bias / r. Full table: `docs/data/external_eval/chbp/adults_compare_all_variants.
 |---|---|---|---|---|---|---|
 | Temple + Harvard val / test | **7.25 / 7.00** | 7.64 / 7.55 | 7.47 / 7.22 | 7.70 / 7.58 | 7.53 / 7.30 | **7.25 / 7.00** |
 | Temple test | **6.40** | 6.69 | 6.70 | 6.88 | 6.46 | **6.40** |
+| Temple test, normal reports (n = 149) | **4.91** / −0.7 / 0.93 | 5.46 / +0.3 / 0.91 | 5.23 / −0.1 / 0.92 | 5.30 / +0.2 / 0.92 | 5.36 / +0.4 / 0.92 | **4.91** |
+| Temple test, abnormal reports (n = 123) | 8.21 / −1.0 / 0.79 | 8.19 / −0.9 / 0.80 | 8.47 / −1.1 / 0.78 | 8.80 / −0.4 / 0.77 | **7.80** / −0.9 / **0.83** | 8.21 |
 | Harvard test | **7.02** | 7.58 | 7.24 | 7.61 | 7.34 | **7.02** |
+| Harvard test, normal reports (n = 1,518) | **7.12** / +0.2 / 0.89 | 7.72 / +1.3 / 0.88 | 7.33 / +0.3 / 0.88 | 7.73 / +0.9 / 0.89 | 7.60 / +1.1 / 0.89 | **7.12** |
+| Harvard test, abnormal reports (n = 2,253) | **7.56** / −0.7 / 0.87 | 8.16 / −0.2 / 0.86 | 7.78 / −1.2 / 0.87 | 8.25 / −0.6 / 0.86 | 7.82 / −0.4 / **0.88** | **7.56** |
 | Harvard 18–29, test | **7.47** | 9.53 | 7.74 | 9.49 | 9.12 | **7.47** |
 | Harvard 60–69, test | 5.71 | **5.19** | 5.49 | 5.57 | **5.19** | 5.71 |
 | LEMON | **5.22** / −1.1 / 0.95 | 6.08 / +1.9 / 0.94 | 5.33 / +0.4 / 0.94 | 6.12 / +1.2 / 0.94 | 6.18 / +0.8 / 0.94 | **5.22** |
@@ -969,6 +973,73 @@ bias / r. Full table: `docs/data/external_eval/chbp/adults_compare_all_variants.
 - **The full robust model is still the best single model for a new device**
   (CHBP 6.19). The per-cohort choice of Table 10.6 gets the best of E2L and it
   together, with no retraining.
+- **By report:** every variant loses 0.3–0.6 years on Temple *normal*
+  recordings.
+  - `augment` is the best on Temple *abnormal* recordings (7.80 vs 8.21, r 0.83
+    vs 0.79) and close to E2L on Harvard abnormal (7.82 vs 7.56).
+  - With 123 Temple abnormal recordings that gain is within noise; it is a hint
+    that training-time gain and filter variation helps on heterogeneous
+    clinical EEG, not a result.
+
+### 10.6 Does the `augment` run over- or underfit?
+
+The run logs three MAEs:
+- the running training MAE of the epoch, on augmented and mixed-up batches;
+- a clean training MAE (`train_eval`: a fixed sample of 500 training
+  recordings per dataset, scored like val with no augmentation, every 4 epochs
+  and the last);
+- the validation MAE.
+
+The generalization gap is
+
+$$ \Delta = \mathrm{MAE}_{\mathrm{val}} - \mathrm{MAE}_{\mathrm{train\_eval}} \tag{10.5} $$
+
+Underfitting shows as a training MAE that is still close to the validation MAE
+and still falling, with validation improving to the end. Overfitting shows as
+a growing gap Δ with validation flat or rising.
+
+### Table 10.10. Training curves, `augment` vs E2L
+
+MAE in years; lr at the end of the epoch (cosine schedule, warm-up 4 epochs).
+"—" means not logged that epoch.
+
+| epoch | lr | augment: train (augmented) | augment: train_eval | augment: val | augment: Δ (10.5) | E2L: train_eval | E2L: val | E2L: Δ |
+|---|---|---|---|---|---|---|---|---|
+| 3 | 2.8e-4 | 8.28 | 7.61 | 8.51 | 0.90 | 7.56 | 8.56 | 1.00 |
+| 7 | 2.1e-4 | 7.41 | 6.35 | 8.11 | 1.76 | 6.06 | 7.99 | 1.93 |
+| 9 | 1.4e-4 | 7.12 | — | 7.56 | — | — | 7.49 | — |
+| 11 (best) | 7.1e-5 | 6.87 | 5.19 | **7.53** | 2.34 | 4.63 | **7.24** | 2.61 |
+| 12–14 | 4e-5 → 6e-6 | 6.78 → 6.65 | — | 7.76 / 7.60 / 7.55 | — | — | 7.32 / 7.41 / 7.30 | — |
+| 15 (last) | 1e-6 | 6.63 | 4.96 | 7.56 | 2.60 | 4.48 | 7.33 | 2.85 |
+
+**What Table 10.10 shows:**
+- **No sign of underfitting.**
+  - The clean training MAE keeps falling to the end (7.61 → 6.35 → 5.19 →
+    4.96) and ends 2.6 years below the validation MAE.
+  - Validation stops improving after epochs 9–11 and stays flat (7.53–7.76)
+    for the last five epochs.
+  - The model can still fit the training data better; that no longer
+    transfers to validation.
+- **Mild overfitting, not extreme.** The gap grows from 0.9 to 2.6 years.
+  E2L, trained the same way without augmentation, has the same shape and a
+  slightly *larger* final gap (2.85).
+  - The augmentation regularizes a little (augment's training error is higher:
+    4.96 vs 4.48).
+  - It also costs a little in-domain accuracy (val 7.53 vs 7.24).
+- **The last epochs barely move the model.** The cosine learning rate is below
+  5e-5 from epoch 12 on and reaches 1e-6 at epoch 15, so epochs 12–15 mainly
+  confirm the plateau.
+- **Adding epochs is therefore unlikely to help.** A longer cosine schedule
+  would spend more steps at a high learning rate, where the gap was already
+  growing. Early stopping (patience 5) found its best epoch at 11, like E2L, and
+  the full robust and band runs stopped early at epoch 14.
+- **The same holds for the other variants:** clean training MAE 4.84–5.16
+  against validation 7.46–7.80 at their best epochs.
+- **What could help instead** is narrowing the gap:
+  - more varied training data, for example more recording devices;
+  - stronger regularization (dropout / stochastic depth, weight decay);
+  - a gain-augmentation range wider than CHBP's ×0.6, so that 0.6 is not at
+    its edge.
 
 ### 10.4 Which fix is best
 
