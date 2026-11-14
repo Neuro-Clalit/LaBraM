@@ -934,6 +934,42 @@ files. In-domain rows: MAE; external rows: MAE / bias / r.
   two scalars cannot rebuild that.
 - **Band-only keeps it, but then also keeps CHBP's gain bias** (Table 10.7).
 
+### Table 10.9. All variants, adults
+
+`augment` is raw input with training-only random gain (0.55–1.8×), low-pass
+(40–75 Hz) and high-pass (0.1–1 Hz) augmentation. SageMaker job
+`labram-e2l-robust-augment-2026-11-14-09-08-59-412`, rerun after the NaN fix
+(commit 6ad5293); best epoch 11, val / test 7.53 / 7.31. "Per-cohort choice"
+is Table 10.6: E2L, except for a cohort outside the training range (here CHBP),
+which goes to the full robust model. In-domain rows: MAE; external rows: MAE /
+bias / r. Full table: `docs/data/external_eval/chbp/adults_compare_all_variants.csv`.
+
+| set | E2L | full robust | band | relamp | augment | per-cohort choice |
+|---|---|---|---|---|---|---|
+| Temple + Harvard val / test | **7.25 / 7.00** | 7.64 / 7.55 | 7.47 / 7.22 | 7.70 / 7.58 | 7.53 / 7.30 | **7.25 / 7.00** |
+| Temple test | **6.40** | 6.69 | 6.70 | 6.88 | 6.46 | **6.40** |
+| Harvard test | **7.02** | 7.58 | 7.24 | 7.61 | 7.34 | **7.02** |
+| Harvard 18–29, test | **7.47** | 9.53 | 7.74 | 9.49 | 9.12 | **7.47** |
+| Harvard 60–69, test | 5.71 | **5.19** | 5.49 | 5.57 | **5.19** | 5.71 |
+| LEMON | **5.22** / −1.1 / 0.95 | 6.08 / +1.9 / 0.94 | 5.33 / +0.4 / 0.94 | 6.12 / +1.2 / 0.94 | 6.18 / +0.8 / 0.94 | **5.22** |
+| CHBP | 9.55 / +7.1 / 0.44 | **6.19** / −0.1 / 0.59 | 7.73 / +5.2 / 0.55 | 6.64 / −0.5 / 0.56 | 6.97 / +3.9 / **0.60** | **6.19** |
+| CHBP 64- / 120-channel cap | 7.58 / 13.10 | **5.92 / 6.67** | — | 6.24 / 7.37 | 6.42 / 7.96 | **5.92 / 6.67** |
+| MIPDB adults | **9.22** / +8.4 / 0.45 | 10.60 / +10.3 / 0.62 | 11.44 / +10.6 / 0.46 | 10.54 / +9.5 / 0.51 | 11.07 / +10.4 / 0.55 | **9.22** |
+
+**What Table 10.9 shows:**
+- **No single retrained model matches E2L in-domain and fixes CHBP.**
+  - Every variant that stops the model from using absolute amplitude (full
+    robust, relamp, augment) loses 1.4–2 years on young Harvard adults.
+  - The one that keeps amplitude (band) keeps CHBP's +5-year bias.
+- **`augment` comes closest to E2L in-domain** among the amplitude-robust models
+  (test 7.30; Temple 6.46 vs 6.40).
+  - It has the best CHBP ranking (r 0.60) but still a +3.9-year bias.
+  - Random gain teaches tolerance, not invariance: CHBP's ×0.6 gain sits at the
+    edge of the 0.55–1.8 range seen in training.
+- **The full robust model is still the best single model for a new device**
+  (CHBP 6.19). The per-cohort choice of Table 10.6 gets the best of E2L and it
+  together, with no retraining.
+
 ### 10.4 Which fix is best
 
 **Ranking on CHBP** (E2L, MAE / r; no CHBP labels anywhere):
@@ -945,6 +981,12 @@ files. In-domain rows: MAE; external rows: MAE / bias / r.
 5. as recorded: 9.55 / 0.44.
 
 The feature models reach ≥ 9.5 / ≤ 0.38.
+
+**Update after Tables 10.6–10.9:** the best overall setup is two models and a
+label-free per-cohort choice (Table 10.6): E2L for cohorts inside the training
+range, the full device-robust model for cohorts outside it. That gives E2L's
+results on Temple, Harvard, LEMON and MIPDB and 6.19 on CHBP. None of the
+single-model variants (band, relamp, augment) reaches both.
 
 **Recommendation:**
 1. **Train age models on device-robust inputs:** band 1–45 Hz and per-window
