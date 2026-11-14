@@ -1721,3 +1721,93 @@ What Tables 13.7–13.9 show:
     ≈1.7e-4 with an added per-window age loss (weight 0.5) on the bag's
     windows and every recording drawn twice per joint epoch (needs
     `mil.window_loss_weight`, `mil.bag_repeats`).
+
+### P3 and P4: shorter window phase, bag-phase LR restart / per-window loss (L1 fold 0; 2026-11-13/14)
+
+Same model (L1), fold 0 of the shared split, held-out test, from
+`labram-base`; launcher jobs `P3_L1` (on-demand g5.4xlarge, job
+`labram-mil-p3-l1-f0-fold-0-2026-11-13-23-46-09-157`) and `P4_L1` (spot
+g5.4xlarge, `labram-mil-p4-l1-f0-fold-0-2026-11-13-23-46-35-439`, interrupted
+twice in epoch 0), both with 24 loader workers (host memory peaked at 80–81 %
+instead of 99 % with 32). New options: `mil.bag_lr` / `mil.bag_warmup_epochs`
+(the window phase follows its own cosine over its epochs and the bag phase
+restarts at `bag_lr`; `labram/train/train_mil.py::phased_lr_schedule`),
+`mil.window_loss_weight` (the per-window age loss added in the trained-encoder
+bag epochs) and `mil.bag_repeats`.
+
+### Table 13.10. Recipes (17 epochs each)
+
+| setting | P3 | P4 |
+|---|---|---|
+| window phase | epochs 0–9, 32 recordings × 8 windows (4 draws), own cosine: peak 2.8e-4, 3 warm-up, ends near 0 | epochs 0–7, same batching, one cosine over all 17 epochs (peak 2.8e-4, 3 warm-up) |
+| attention only (pool) | epoch 10, LR warm-up 0 → 1e-4 (pool ×5) | epoch 8 (LR ≈ 1.9e-4) |
+| joint | epochs 11–16, cosine 1e-4 → 0, retention 0.1 toward the end-of-window encoder | epochs 9–16, the global cosine (≈1.7e-4 → 0), + 0.5 × per-window age loss, every recording drawn 2× per epoch |
+| wall time | 13.5 h | ≈14 h of training (plus two spot restarts) |
+
+### Table 13.11. Per epoch: val / test / LEMON (years)
+
+| epoch | P3 phase | P3 | P4 phase | P4 |
+|---|---|---|---|---|
+| 5 | window | 7.69 / 7.50 / 5.70 | window | 7.92 / 7.73 / 5.89 |
+| 7 | window | 7.55 / 7.34 / 5.83 | window end | 7.69 / 7.49 / 5.79 |
+| 8 | window | 7.54 / 7.32 / 5.90 | attention only | 7.05 / 6.67 / 5.28 |
+| 9 | window end | 7.51 / 7.29 / 5.86 | joint | 6.71 / 6.22 / 5.33 |
+| 10 | attention only | 6.95 / 6.56 / 5.28 | joint | 6.69 / 6.19 / 4.99 |
+| 11 | joint | 6.72 / 6.28 / 4.90 | joint | 6.68 / 6.22 / 4.83 |
+| 12 | joint | 6.66 / 6.16 / 4.91 | joint | 6.65 / 6.12 / 5.10 |
+| 14 | joint | 6.64 / 6.09 / 4.90 | joint | 6.61 / 6.07 / 4.86 |
+| 15 | joint | 6.60 / 6.08 / 4.97 | joint (best val) | **6.59 / 6.06** / 4.87 |
+| 16 | joint (best val) | **6.59 / 6.07** / 4.93 | joint | 6.60 / 6.07 / 4.97 |
+
+### Table 13.12. Final per cohort and LEMON at the best val epoch, vs. all earlier L1 runs
+
+Gap is val − train-eval at the last epoch (Eq. (12.1)); LEMON young / old
+and slope as in Table 13.5.
+
+| | P3 | P4 | P2 | P1 fold 0 | P1 5-fold ens. | two-step L1 |
+|---|---|---|---|---|---|---|
+| val | **6.59** | **6.59** | 6.60 | 6.60 | — | 6.55 |
+| test, all (7,612) | 6.07 | **6.06** | 6.13 | 6.17 | 6.08 | 6.09 |
+| Harvard normal (1,518) | 5.78 | **5.71** | 5.72 | 5.96 | 5.88 | **5.71** |
+| Harvard abnormal (2,253) | 6.64 | 6.62 | 6.80 | 6.57 | **6.51** | 6.79 |
+| Harvard unlabelled (3,567) | 5.84 | 5.82 | 5.86 | 5.99 | 5.87 | **5.80** |
+| TUAB normal (149) | 4.62 | 4.65 | 4.61 | 4.68 | 4.65 | **4.41** |
+| TUAB abnormal (125) | 8.06 | 8.31 | 8.42 | 8.10 | **7.97** | 8.13 |
+| LEMON (214) | 4.93 | 4.87 | 4.85 | 5.02 | 5.00 | **4.68** |
+| LEMON young MAE / bias | 3.87 / +1.14 | 3.90 / +1.48 | 3.92 / +1.89 | 3.94 / +1.35 | 3.88 / +1.23 | **3.75 / +0.32** |
+| LEMON old MAE / bias | 7.11 / −5.55 | 6.85 / −5.79 | 6.77 / −5.77 | 7.22 / −5.63 | 7.32 / −5.78 | **6.61 / −4.44** |
+| LEMON slope | 0.84 | 0.82 | 0.82 | 0.83 | 0.83 | **0.88** |
+| gap at the end | **2.27** | 2.89 | 3.28 | 1.53 | — | 2.84 |
+| wall time | 13.5 h | ≈14 h | 18 h | 11 h | 5 × 11 h | ≈ 16 + 3 h |
+
+What Tables 13.10–13.12 show:
+
+* **P3 and P4 are the first single one-run models to match two-step**: test
+  6.07 / 6.06 vs. 6.09 (and the P1 5-fold ensemble's 6.08), val 6.59 for
+  both. They tie each other within the 0.05 y run-to-run noise.
+* **The joint phase now keeps improving.** P2's joint phase stopped after one
+  epoch at a near-zero LR (6.61 → 6.60 over three epochs). P3's restart at
+  1e-4 takes test from 6.56 to 6.28 in its first joint epoch and on to 6.07
+  over the next five; P4 (global cosine, still ≈1.7e-4 when the joint phase
+  starts) goes 6.67 → 6.22 → 6.06.
+* **The window phase is shorter and quieter.** P3's ten window epochs on
+  their own cosine end at 7.29, flat over epochs 7–9 (7.34 / 7.32 / 7.29),
+  better than P1 / P2 at their window ends (7.48 / 7.45) in six fewer epochs
+  than P2.
+* **Per cohort**, P3 keeps most of P1's abnormal-cohort advantage (Harvard
+  abnormal 6.64 vs. 6.79 two-step; TUAB abnormal 8.06) while staying within
+  0.04–0.07 y of two-step on Harvard normal and unlabelled. P4 matches
+  two-step on Harvard normal (5.71) and is 0.2–0.25 y worse than P3 on TUAB
+  abnormal (125 recordings).
+* **P3 memorises least** of the recipes that reach two-step level (gap 2.27
+  vs. 2.89 for P4, 3.28 for P2 and 2.84 for two-step): the retention term
+  and the decayed window phase both limit it.
+* **LEMON is still 0.2–0.25 y behind two-step** (4.93 / 4.87 vs. 4.68). The
+  old subjects stay under-predicted by about 1 y more than with two steps
+  (bias −5.6 to −5.8 vs. −4.4) and the slope stays at 0.82–0.84. None of the
+  one-run schedules has closed this; the encoder's window phase is the
+  likely place to look (Section 13, LEMON paragraph).
+* **Recommendation for the 5-fold CV: P3.** It ties P4 on val and test, needs
+  no extra loss or repeats, has the lowest memorisation, runs its joint
+  epochs in about 0.3 h instead of P4's 0.5 h, and is safe on on-demand
+  instances. Expected per fold: about 13.5 h on g5.4xlarge (24 workers).
