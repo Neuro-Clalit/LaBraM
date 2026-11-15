@@ -145,6 +145,19 @@ if [[ $step == score_cv || $step == all ]]; then
   done
 fi
 
+if [[ $step == windows || $step == score_cv || $step == all ]]; then
+  # per-window predictions for the label-free 20 % rejection by spread (tdbrain_brain_age.py --windows)
+  R=/data/runs/heedb/mil_phased_cv; W=$OUT/windows/tdbrain_all; mkdir -p $W
+  A=(--data-path $COHORT --splits test --stage-dir none --eval-minutes 0 --trim-start-sec 0 --trim-end-sec 0 --save-windows $W)
+  CV=(); for p in P3 P4; do for k in 0 1 2 3 4; do
+    [[ $p == P4 && $k == 3 ]] || CV+=(--run ${p}_L1_f$k=$R/${p}_L1/fold_$k/cv/fold_$k); done; done
+  $PY scripts/eval_age_by_cohort.py "${A[@]}" --run E2L=/data/runs/heedb/e2l/finetune_20261104_215141_883 \
+    --pred-stats 53.52 19.29 --out $OUT/tdbrain_all_w_e2l.json
+  $PY scripts/eval_age_by_cohort.py "${A[@]}" "${CV[@]}" --pred-stats-from-log --out $OUT/tdbrain_all_w_p34.json
+  $PY scripts/eval_age_by_cohort.py "${A[@]}" --run P4_L1_f3=$R/P4_L1/fold_3/cv/fold_3 --pred-stats 53.55 19.29 \
+    --out $OUT/tdbrain_all_w_p4f3.json
+fi
+
 if [[ $step == ensemble || $step == score_cv || $step == all ]]; then
   # 5-fold ensembles (mean of the fold models' recording predictions) next to the E2L family
   ENS=(--ensemble "P3ens=P3_L1_f*" --ensemble "P4ens=P4_L1_f*" --ensemble "P34ens=P[34]_L1_f*")
@@ -199,6 +212,7 @@ if [[ $step == compare || $step == all ]]; then
   # age bands, EC / EO, within-cohort recalibration, brain-age gap per indication
   $PY scripts/tdbrain_brain_age.py --eval $OUT/tdbrain_all_models.json --cohort $COHORT \
     --models E2L E2Lrob E2LrobF P3ens P4ens P34ens --val E2L=$OUT/own_all_val_E2L.json \
+    --windows $OUT/windows/tdbrain_all --reject 0.2 \
     --val-meta /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1/age_metadata.json \
     --out-dir docs/data/external_eval/tdbrain
 fi
