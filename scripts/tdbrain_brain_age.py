@@ -98,10 +98,14 @@ def recalibrated(d, folds=10, seed=0):
 
 
 def file_spread(windows_dir, members):
-    """Per file: mean over ``members`` of the attention-weighted window spread."""
+    """Per file: mean over ``members`` of the attention-weighted window spread
+    (None when a member has no saved windows)."""
     import sys
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import confidence_thresholds as ct
+    paths = [os.path.join(windows_dir, f"{m}_test.parquet") for m in members]
+    if not all(os.path.exists(p) for p in paths):
+        return None
     out = [ct.recordings(ct.load(os.path.join(windows_dir, f"{m}_test.parquet")), slice(None))["spread"]
            for m in members]
     return pd.concat(out, axis=1).mean(axis=1)
@@ -170,8 +174,10 @@ def main():
             if unit == "session":
                 acc.append({"model": model, "unit": "session, recalibrated (10-fold CV, uses ages)",
                             "subset": "all", **metrics(recalibrated(d))})
-                if args.windows:
-                    spread = file_spread(args.windows, res[model].get("members", [model]))
+                spread = file_spread(args.windows, res[model].get("members", [model])) if args.windows else None
+                if args.windows and spread is None:
+                    print(f"{model}: no saved windows in {args.windows}, rejection skipped")
+                if spread is not None:
                     sp = files.join(spread.rename("spread"), how="inner").groupby(["subject", "session"])["spread"].mean()
                     s = d.set_index(["subject", "session"]).join(sp, how="inner")
                     keep = s[s["spread"] <= s["spread"].quantile(1 - args.reject)].reset_index()
