@@ -32,6 +32,8 @@ from external_eval_report import metrics  # noqa: E402
 def load(cohort_dir, eval_jsons, models):
     man = json.load(open(os.path.join(cohort_dir, "manifest.json")))
     meta = pd.DataFrame(man["recordings"]).set_index("stem")
+    if "age_session_matched" in meta:              # TDBRAIN: drop first-session fallback ages
+        meta = meta[meta["age_session_matched"].fillna(True).astype(bool)]
     if "age" not in meta or meta["age"].isna().all():     # training cohorts keep ages in the sidecar
         ages = json.load(open(os.path.join(cohort_dir, "age_metadata.json")))["recordings"]
         meta["age"] = pd.Series({k: v.get("age") for k, v in ages.items()}, dtype=float)
@@ -67,7 +69,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--set", action="append", required=True, metavar="NAME:COHORT_DIR:EVAL.json[,EVAL2.json]")
     ap.add_argument("--models", nargs="*", default=None)
-    ap.add_argument("--adults", action="store_true", help="also report the recordings aged >= 18")
+    ap.add_argument("--min-age", type=float, default=0.0,
+                    help="only recordings aged >= this (18 = adults only, as for the TDBRAIN analysis)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     rows = []
@@ -79,7 +82,7 @@ def main():
                 rows.append({"cohort": name, "model": model, "subset": "all (ages pending)", **label_free(meta, pred)})
                 continue
             d = meta.join(pred.rename("pred"), how="inner").dropna(subset=["age"])
-            subsets = [("all", d)] + ([("adults >= 18", d[d.age >= 18])] if args.adults else [])
+            subsets = [(f"age >= {args.min_age:g}" if args.min_age else "all", d[d.age >= args.min_age])]
             for sub, s in subsets:
                 if len(s) < 3:
                     continue

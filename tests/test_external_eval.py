@@ -209,3 +209,38 @@ def test_window_descriptors_are_chunked_with_the_same_result(monkeypatch):
     whole = train_mil.window_descriptors(x)
     monkeypatch.setattr(train_mil, "DESCRIPTOR_CHUNK", 3)
     assert torch.allclose(train_mil.window_descriptors(x), whole, atol=1e-5)
+
+
+def test_test_set_options_override_the_window_selection(tmp_path):
+    """``name=path?opts``: a short external cohort keeps its windows despite the
+    run's trims, and an age range applies to that set only."""
+    import pytest
+    from labram.data.test_sets import build_test_sets, parse_test_sets, selection_for, split_options
+    from labram.configs.run_configs import FinetuneRunConfig
+    assert split_options("/c?trim_start_sec=0&age_min=18") == ("/c", {"trim_start_sec": 0.0, "age_min": 18.0})
+    assert parse_test_sets(["x=/c?eval_minutes=0"]) == [("x", "/c")]
+    with pytest.raises(ValueError, match="option"):
+        split_options("/c?window_sec=20")
+    run = WindowSelection(trim_start_sec=60.0, trim_end_sec=60.0, eval_minutes=5.0)
+    sel = selection_for(run, {"trim_start_sec": 0.0, "trim_end_sec": 0.0, "eval_minutes": 0.0, "age_min": 18.0})
+    assert (sel.trim_start_sec, sel.trim_end_sec, sel.eval_minutes, sel.age_range) == (0.0, 0.0, 0.0, (18.0, 200.0))
+    ext = _test_only_cohort(tmp_path)                       # 5 recordings x 20 windows, ages 30-50
+    cfg = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_age.json",
+                                        **{"data.data_format": "npy"})
+    trimmed = WindowSelection(trim_start_sec=100.0, trim_end_sec=100.0)  # 200 s: every window gone
+    assert not build_test_sets([f"ext={ext}"], None, cfg.data, trimmed, None)
+    sets = build_test_sets([f"ext={ext}?trim_start_sec=0&trim_end_sec=0", f"old={ext}?trim_start_sec=0"
+                            "&trim_end_sec=0&age_min=200"], None, cfg.data, trimmed, None)
+    assert list(sets) == ["ext"] and len(sets["ext"]) == 5 * 20          # "old": no recording aged >= 200
+
+
+def test_sagemaker_keeps_test_set_options():
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs.submit_sagemaker import stage_s3_inputs
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": "s3://b/cohort", "finetune_checkpoint.finetune": "s3://b/w.pth"})
+    staged = stage_s3_inputs(cfg, "finetune")                 # the shipped default list
+    assert staged.channels["test_tdbrain"] == "s3://eeg-data-public/TDBRAIN/v1/cohorts/tdbrain_v1"
+    assert ("tdbrain=/opt/ml/input/data/test_tdbrain?trim_start_sec=0&trim_end_sec=0&eval_minutes=0&age_min=18"
+            in cfg.evaluation.test_sets)

@@ -206,6 +206,10 @@ TDBRAIN_INDICATIONS = (("HEALTHY", "healthy"), ("CONTROL", "healthy"), ("REPLICA
                        ("ADHD", "dx_adhd"), ("ADD", "dx_adhd"), ("OCD", "dx_ocd"), ("SMC", "dx_smc"))
 TDBRAIN_DX = ("dx_mdd", "dx_adhd", "dx_ocd", "dx_smc", "dx_other")
 TDBRAIN_PLACEHOLDER_AGE = 50.0          # signals-only conversion, see tdbrain_recordings
+# gender 0 / 1 without a sidecar (release 3.1 table): 0 = female. In that table, adults coded
+# 0 have a median height / weight of 168 cm / 65 kg against 183 cm / 79 kg for 1, and 0 is
+# 47 % of the subjects (the paper: 620 female of 1,274 = 49 %).
+TDBRAIN_GENDER_LEVELS = {"0": "female", "1": "male"}
 
 
 def _column(df, *names, required=False):
@@ -261,7 +265,8 @@ def tdbrain_clinical_table(participants_tsv):
     harmonised ones added: ``subject`` (id without ``sub-``), ``session``
     (str, None if the file has no session column), ``age`` (years, decimal
     comma accepted), ``sex`` (M / F from the ``participants.json`` levels
-    next to the tsv; None when they cannot be decoded), ``indication``,
+    next to the tsv, else ``TDBRAIN_GENDER_LEVELS`` for a 0 / 1 code; None
+    when they cannot be decoded), ``indication``,
     ``formal_status`` (DSM diagnosis vs referral indication), ``disc_rep``
     (DISCOVERY / REPLICATION) and the flags of :func:`tdbrain_indication_flags`.
     TDBRAIN has no EEG report and no ICD / medication record (medication was
@@ -273,7 +278,7 @@ def tdbrain_clinical_table(participants_tsv):
     else:                                 # .tsv, or .csv with , or ; (sniffed)
         df = pd.read_csv(participants_tsv, sep="\t" if ext == ".tsv" else None, engine="python",
                          dtype=str, keep_default_na=False)
-    pid = _column(df, "participants_ID", "participant_id", required=True)
+    pid = _column(df, "participants_ID", "participant_id", "TDBRAIN_ID", required=True)
     age = _column(df, "age", required=True)
     ses = _column(df, "sessID", "session_id", "session", "ses")
     sex = _column(df, "gender", "sex")
@@ -281,6 +286,8 @@ def tdbrain_clinical_table(participants_tsv):
     fstat = _column(df, "formal_status", "formal_dx", "formalstatus")
     drep = _column(df, "DISC/REP", "disc_rep", "discrep")
     levels = {}
+    if sex and set(df[sex].str.strip()) <= {"0", "1", ""}:
+        levels = dict(TDBRAIN_GENDER_LEVELS)       # overridden by a participants.json below
     sidecar = os.path.splitext(participants_tsv)[0] + ".json"
     if sex and os.path.exists(sidecar):
         desc = json.load(open(sidecar, encoding="utf-8", errors="replace")).get(sex, {})
@@ -502,9 +509,12 @@ def main():
     fields = ("stem", "subject", "session", "token", "age", "sex", "year", "raw_age", "label")
     with open(os.path.join(args.out, "age_metadata.json"), "w") as fh:
         json.dump({"version": 1, "recordings": {r["stem"]: {k: r.get(k) for k in fields} for r in rows}}, fh)
-    files = [f"test/{r['stem']}_{k}.pkl" for r in rows for k in range(r["n_windows"])]
+    # a TDBRAIN session without its own participants row carries the subject's first-session
+    # age: kept in the manifest, left out of the scored split
+    scored = [r for r in rows if r.get("age_session_matched", True) is not False]
+    files = [f"test/{r['stem']}_{k}.pkl" for r in scored for k in range(r["n_windows"])]
     with open(os.path.join(args.out, "age_split.json"), "w") as fh:
-        json.dump({"version": 1, "seed": None, "counts": {"train": 0, "val": 0, "test": len(rows)},
+        json.dump({"version": 1, "seed": None, "counts": {"train": 0, "val": 0, "test": len(scored)},
                    "files": {"train": [], "val": [], "test": files}}, fh)
     print(f"{len(rows)} recordings, {manifest['n_windows']} windows -> {args.out}; {len(errors)} errors")
     for e in errors[:10]:

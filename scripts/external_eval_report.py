@@ -50,8 +50,7 @@ def groups(cohort, meta):
         out += [("18-29", (age < 30).to_numpy()), ("30-39", ((age >= 30) & (age < 40)).to_numpy()),
                 ("40-68", (age >= 40).to_numpy())]
     if cohort == "tdbrain":
-        out += [("5-17", (age < 18).to_numpy()), ("adults 18-44", ((age >= 18) & (age < 45)).to_numpy()),
-                ("45-88", (age >= 45).to_numpy())]
+        out += [("18-44", ((age >= 18) & (age < 45)).to_numpy()), ("45-88", (age >= 45).to_numpy())]
         out += [(name, meta[col].fillna(False).astype(bool).to_numpy()) for name, col in
                 (("healthy", "healthy"), ("MDD", "dx_mdd"), ("ADHD", "dx_adhd"), ("OCD", "dx_ocd"),
                  ("SMC", "dx_smc"), ("other dx", "dx_other"), ("blinded (REPLICATION)", "blinded"),
@@ -83,16 +82,20 @@ def metrics(pred, age):
             "r2": 1 - (err ** 2).sum() / ss_tot if ss_tot > 0 else np.nan}
 
 
-def cohort_meta(cohort_dir):
+MIN_AGE = {}                  # cohort -> minimum age analysed (--min-age, e.g. tdbrain=18)
+
+
+def cohort_meta(cohort_dir, name=None):
     m = json.load(open(os.path.join(cohort_dir, "manifest.json")))
-    return pd.DataFrame(m["recordings"]).set_index("stem")
+    meta = pd.DataFrame(m["recordings"]).set_index("stem")
+    return meta[meta["age"] >= MIN_AGE[name]] if name in MIN_AGE else meta
 
 
 def eval_tables(evals, cohorts):
     rows, preds = [], []
     for name, path in evals.items():
         res = json.load(open(path))
-        meta = cohort_meta(cohorts[name])
+        meta = cohort_meta(cohorts[name], name)
         for model, r in res.items():
             p = pd.Series(r["splits"]["test"]["predictions"])
             d = meta.join(p.rename("pred"), how="inner")
@@ -136,7 +139,7 @@ def recording_qc(path, mask, minutes=5.0, trim_windows=6):
 def qc_table(cohorts, n_ref=100, seed=0):
     rows, spectra = [], {}
     for name, cdir in cohorts.items():
-        meta = cohort_meta(cdir)
+        meta = cohort_meta(cdir, name)
         acc = []
         for stem, r in meta.iterrows():
             q, f, psd = recording_qc(os.path.join(cdir, "recordings", f"{stem}.npy"), r["channel_mask"])
@@ -211,9 +214,12 @@ def main():
     ap.add_argument("--cohort", action="append", required=True, metavar="COHORT=DIR")
     ap.add_argument("--plot-models", nargs=2, default=["E2L", "W4"])
     ap.add_argument("--no-qc", action="store_true")
+    ap.add_argument("--min-age", action="append", default=[], metavar="COHORT=YEARS",
+                    help="analyse only recordings aged >= YEARS in COHORT (e.g. tdbrain=18)")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--fig-dir", default=None)
     args = ap.parse_args()
+    MIN_AGE.update({k: float(v) for k, v in (e.split("=", 1) for e in args.min_age)})
     evals = dict(e.split("=", 1) for e in args.eval)
     cohorts = dict(c.split("=", 1) for c in args.cohort)
     os.makedirs(args.out_dir, exist_ok=True)

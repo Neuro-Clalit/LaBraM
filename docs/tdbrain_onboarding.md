@@ -1,8 +1,8 @@
 # TDBRAIN onboarding: external test set for brain age, with clinical labels
 
-Status 2026-11-14: release 3.1 downloaded, QC-checked (Section 7), converted and scored zero-shot
-(Section 8). MAE / R² and the per-diagnosis gap wait for the participants table (age, sex,
-indication), which is not in the EEG zip; `tdbrain.sh relabel` then adds it without reconverting.
+Status 2026-11-15: release 3.1 downloaded, QC-checked (Section 7), converted and scored zero-shot
+(Section 8), relabelled with the participants table `TDBRAIN_participants_V3.1_2.xlsx`; adult results
+in Section 9. TDBRAIN is a standing test set of the age configs (`evaluation.test_sets`, Section 9.4).
 
 TDBRAIN (Two Decades-Brainclinics Research Archive for Insights in Neurophysiology,
 van Dijk et al. 2022, *Sci Data* 9:333, [doi:10.1038/s41597-022-01409-z](https://doi.org/10.1038/s41597-022-01409-z))
@@ -150,8 +150,9 @@ reference at their input. TDBRAIN-specific choices:
 | real tree checked: BDF, tasks, channels, units; reader adapted (BDF, end pad); signal QC on 80 files | done 2026-11-14 (Section 7) |
 | participants table (age, sex, indication): not in the zip | **waiting for the user** (separate download) |
 | `convert` (placeholder ages) + cohort to S3; E2L / robust scoring; cohort comparison; literature | done 2026-11-14 (Section 8) |
-| `relabel` with the participants table, then `compare` / `report` (MAE, R², per-diagnosis gap) | after the participants table |
-| full-cohort QC, per-diagnosis gap, results note | after `relabel` |
+| `relabel` with the participants table, adults-only `compare` + `tdbrain_brain_age.py` (MAE, R², per-indication gap) | done 2026-11-15 (Section 9) |
+| TDBRAIN as a standing test set (data loader + S3 channel) | done 2026-11-15 (Section 9.4) |
+| replication zip `TDBRAIN_MDD_Dx_ReplicationV3_1_Encr.zip` | not downloaded yet (Section 9.5) |
 
 ### Things to verify on the real files
 
@@ -313,3 +314,145 @@ near 0.8 there also relies on the 5–88 y range, children included. REVE, SPERA
 and Brain-OF list TDBRAIN in their pretraining data, so their TDBRAIN numbers are not zero-shot.
 E2L was fine-tuned only on TUH + HEEDB. LaBraM's pretraining list should be checked for
 TDBRAIN before calling our result zero-shot in a paper.
+
+## 9. Zero-shot brain age on TDBRAIN adults (2026-11-15)
+
+### 9.1. Participants table and the analysed set
+
+`TDBRAIN_participants_V3.1_2.xlsx` (separate download; one sheet `TDBRAIN-V3.1`, 1,363 rows ×
+106 columns, kept in `meta/` and on S3) is read by `tdbrain_clinical_table`. It has one row per
+subject and session (`TDBRAIN_ID`, `sessID`), age with two decimals (5.04–87.89 y, one row
+without an age), `gender` 0 / 1, `indication`, `formal_status` (a diagnosis, `HEALTHY` or
+`UNKNOWN`), the treatment-study fields (`Dataset`, `Responder`, `Remitter`, BDI / ADHD-RS /
+Y-BOCS before and after), the oddball and 1-back task scores, NEO-FFI items and the
+day-of-measurement questions. Every row is `DISCOVERY`: the release holds no blinded subjects.
+**Gender 0 = female**: in this table, adults coded 0 have a median height and weight of 168 cm and
+65 kg, against 183 cm and 79 kg for code 1, and 0 is 47 % of the subjects (the paper: 49 %
+female). `TDBRAIN_GENDER_LEVELS` holds this mapping.
+
+1,357 of the 1,391 EEG sessions have their own row. In the other 34 (66 files, mostly second
+sessions), the age falls back to the subject's first row. Those files stay in the manifest but
+not in the scored split (`age_session_matched`). **The analysis covers adults only**
+(`--min-age 18` in every script), because the 5–17-year-olds lie outside the training ages
+(2 TUH recordings under 18, none in HEEDB). That leaves 2,222 files = 1,113 sessions = 1,062
+subjects, 18–88 y, mean 45.3 ± 15.9. The children's recordings stay in the cohort.
+
+### Table 9.1. E2L on TDBRAIN adults (`docs/data/external_eval/tdbrain/tdbrain_accuracy.csv`)
+
+Metrics (3.1)–(3.5) of `docs/chbp_onboarding.md`. MAE with a 95 % interval from 2,000 bootstrap
+resamples of subjects. *Session* = mean of the session's eyes-closed and eyes-open
+predictions, the unit of the published within-TDBRAIN results. *Subject* = the first session.
+
+| unit / subset | n | age, mean ± sd | MAE [95 % CI] | bias | r | R² | predict-the-mean MAE |
+|---|---|---|---|---|---|---|---|
+| file, all | 2,222 | 45.3 ± 15.9 | 5.65 [5.39, 5.93] | −1.5 | 0.889 | 0.778 | 13.35 |
+| file, eyes closed | 1,113 | 45.2 ± 15.9 | 5.60 [5.30, 5.89] | −2.0 | 0.894 | 0.783 | 13.35 |
+| file, eyes open | 1,109 | 45.3 ± 15.9 | 5.71 [5.41, 6.01] | −1.1 | 0.885 | 0.772 | 13.36 |
+| **session, all** | 1,113 | 45.2 ± 15.9 | **5.32 [5.05, 5.60]** | −1.5 | **0.902** | **0.803** | 13.35 |
+| session, 18–29 | 238 | 23.6 ± 3.3 | 3.27 | +1.7 | 0.46 | — | 2.88 |
+| session, 30–44 | 296 | 37.6 ± 4.4 | 5.06 | −0.5 | 0.57 | — | 3.70 |
+| session, 45–64 | 455 | 54.3 ± 5.5 | 5.81 | −2.3 | 0.58 | — | 4.82 |
+| session, 65+ | 124 | 72.0 ± 4.9 | 8.07 | −7.5 | 0.48 | — | 3.98 |
+| session, healthy controls | 179 | 40.3 ± 17.1 | 5.28 [4.55, 6.10] | −1.0 | 0.900 | 0.806 | 14.65 |
+| subject (first session) | 1,062 | 44.8 ± 15.7 | 5.31 [5.04, 5.60] | −1.5 | 0.899 | 0.799 | 13.20 |
+| session, recalibrated (10-fold CV, uses TDBRAIN ages) | 1,113 | 45.2 ± 15.9 | 5.25 | 0.0 | 0.902 | 0.813 | 13.35 |
+
+Within an age band, R² is negative because the band's own age variance is small; MAE and bias
+are the meaningful numbers there.
+
+### Table 9.2. Zero-shot brain age per cohort, adults, every window (`docs/data/external_eval/tdbrain/cohort_comparison_all_windows.csv`)
+
+MAE / bias / r / R², per file, years. In-domain test of `tuh_heedb_v1` for E2L only.
+
+| cohort | n | age, mean ± sd | predict-the-mean MAE | E2L | E2Lrob | E2LrobF |
+|---|---|---|---|---|---|---|
+| in-domain test (TUH + HEEDB) | 7,610 | 53.9 ± 19.8 | 16.89 | 6.12 / −0.5 / 0.92 / 0.84 | — | — |
+| LEMON | 214 | 39.2 ± 20.2 (bins) | 18.60 | **5.20** / −0.8 / 0.95 / 0.88 | 6.33 / +1.8 / 0.94 / 0.85 | 6.07 / +2.2 / 0.94 / 0.85 |
+| **TDBRAIN** | 2,222 | 45.3 ± 15.9 | 13.35 | **5.65** / −1.5 / 0.89 / 0.78 | 6.50 / +3.0 / 0.87 / 0.72 | 6.64 / +3.4 / 0.87 / 0.72 |
+| CHBP | 250 | 31.7 ± 9.3 | 7.28 | 9.35 / +7.0 / 0.45 / −0.64 | 6.14 / +0.2 / 0.58 / 0.25 | **5.90** / −0.5 / 0.61 / 0.33 |
+| MIPDB adults | 31 | 27.5 ± 7.0 | 5.85 | 9.16 / +8.2 / 0.45 / −1.66 | 12.03 / +11.4 / 0.51 / −2.89 | 10.56 / +10.2 / 0.62 / −2.07 |
+
+**What Tables 9.1 and 9.2 show:**
+- **E2L transfers to TDBRAIN almost without loss.** Per session it reaches MAE 5.32 y, r 0.90,
+  R² 0.80 on 1,113 adult sessions, below its own in-domain test MAE (6.12, older and wider ages)
+  and close to LEMON (5.20). Recalibrating on TDBRAIN's own ages (10-fold CV) gains only
+  0.07 y, so the zero-shot predictions are already calibrated for this cohort.
+- **Pooling eyes closed and eyes open helps:** per file 5.60 (EC) / 5.71 (EO), per session 5.32.
+- **The error grows with age, and so does the underestimate:** 3.3 y at 18–29, 8.1 y at 65+
+  with bias −7.5. This is the usual regression to the mean, and it also shows on the
+  in-domain test. The bias correction of `brain_age_bias_correction.md` addresses it.
+- **Healthy controls (5.28) score like the patients.** The psychiatric indication does not
+  degrade the prediction.
+- **The device-robust models are worse here** (6.50 / 6.64, bias +3). TDBRAIN needs no device
+  fix (Section 7), so E2L stays the model for TDBRAIN.
+
+### Table 9.3. Brain-age gap per indication, adults, first session (`docs/data/external_eval/tdbrain/tdbrain_gap_by_indication.csv`)
+
+Gap $g = \hat y - y$ per subject. Zero-shot correction (9.1): the age trend of E2L's own
+validation gap (normal-report recordings of `tuh_heedb_v1`), $\hat y - y = a\,y + b$ with
+$a = -0.254$, $b = 11.90$, is removed: $g_c = g - (a\,y + b)$. Comparison with the healthy
+controls: Cohen's d and Welch t-test on $g_c$, and the coefficient $\beta$ of the group
+indicator in the OLS (9.2), age centred, male = 1. Indications are not exclusive (an
+`MDD/ADHD` row counts in both).
+
+$$ g_c = g - (a\,y + b) \tag{9.1} $$
+
+$$ g_c = \beta_0 + \beta\,\mathbb{1}[\text{group}] + \beta_1\,y + \beta_2\,y^2 + \beta_3\,\mathbb{1}[\text{male}] + \varepsilon \tag{9.2} $$
+
+| indication | n | age, mean | gap, raw | gap, corrected (9.1) | vs healthy, d (Welch p) | β adjusted for age, age², sex (t) (9.2) |
+|---|---|---|---|---|---|---|
+| healthy | 179 | 40.3 | −1.0 | −2.6 | — | — |
+| MDD | 351 | 45.7 | −1.6 | −1.8 | 0.12 (0.21) | +0.06 (0.10) |
+| ADHD | 116 | 35.7 | −0.3 | −3.2 | −0.08 (0.46) | −0.29 (−0.38) |
+| OCD | 54 | 33.9 | −0.6 | −3.9 | −0.19 (0.18) | −0.86 (−0.81) |
+| SMC | 89 | 65.4 | −5.2 | −0.4 | 0.33 (0.009) | +0.87 (0.78) |
+| other indication | 169 | 49.4 | −1.6 | −0.9 | 0.25 (0.02) | +0.80 (1.03) |
+| unknown | 156 | 40.3 | −0.4 | −2.0 | 0.09 (0.42) | +0.49 (0.67) |
+
+**What Table 9.3 shows:** **no indication has a brain-age gap that differs from the healthy
+controls** once age and sex are accounted for. Every adjusted β is under 1 y and every |t| is
+1.03 or less. The two raw Welch differences, SMC (p 0.009) and "other" (p 0.02), come from
+age. SMC subjects are 65 on average, where the trend correction (9.1), fitted on the training
+data, does not fully remove TDBRAIN's age dependence of the gap. With age in the model (9.2)
+they disappear. The robust models agree (|t| ≤ 1.6, `tdbrain_gap_by_indication.csv`). With
+n = 351 MDD against 179 controls, the study can detect an adjusted difference of about 0.26 SD
+(about 1.7 y at 80 % power, two-sided α 0.05), so a large MDD gap is unlikely. A small one
+cannot be excluded.
+
+### 9.3. Against the published TDBRAIN results (Table 8.3)
+
+| | protocol | ages | unit | MAE | R² |
+|---|---|---|---|---|---|
+| **ours, E2L** | **zero-shot** (TUH + HEEDB) | adults 18–88 | session (EC + EO) | **5.32** | **0.80** |
+| ours, E2L, healthy | zero-shot | adults | session | 5.28 | 0.81 |
+| Hajhassani et al. 2026 (preprint) | zero-shot (TUEG) | healthy 20–90 | recording | 8.36 | 0.59 |
+| Bikki & Zeng 2026 (abstract) | zero-shot (TUABX) | unknown | unknown | — | 0.83 |
+| Khayretdinova et al. 2022 | within TDBRAIN, 10-fold CV | 5–88 | session (EO + EC) | 5.96 | 0.81 |
+| Hu et al. 2025 (NEOBA) | "validation in TDBRAIN" | 5–89 | session | 4.95 | — |
+| Bomatter et al. 2024 | within TDBRAIN, 10×10-fold CV | 5–89 | first session | — | ≈ 0.8 |
+
+Zero-shot, E2L is 3 y more accurate than the only verified zero-shot result (8.36 / R² 0.59),
+and it matches the within-TDBRAIN models that were trained on this cohort (5.96 / R² 0.81).
+Their R² comes from a wider range, 5–88 y; adults only, the same model would score a lower
+R² with a similar MAE. Our cohort is release 3.1 (1,300 subjects, 183 healthy), theirs the
+2022 release (1,274, 47 healthy), so the subsets differ.
+
+### 9.4. TDBRAIN as a standing test set
+
+The four age configs (`finetune_tuab_age*.json`) list TDBRAIN in `evaluation.test_sets`:
+
+    tdbrain=/data/datasets/EEG-public/TDBRAIN/cohorts/tdbrain_v1?trim_start_sec=0&trim_end_sec=0&eval_minutes=0&age_min=18
+
+The options after `?` are new (`labram/data/test_sets.py`). They give this set its own window
+selection: no trims (the training 60 s + 60 s would empty a 2-min file), every window, adults
+only. A selection that leaves a set empty skips it with a warning instead of stopping the run.
+With the age config, the set holds 26,291 samples from 2,222 adult recordings. On SageMaker the
+cohort becomes the input channel `test_tdbrain` from `s3://eeg-data-public/TDBRAIN/v1/cohorts/tdbrain_v1`
+(added to `sagemaker.data_s3_uris` in every config, with CHBP), and the options travel with the
+mount.
+
+### 9.5. The replication zip
+
+`TDBRAIN_MDD_Dx_ReplicationV3_1_Encr.zip` (offered next to the dataset) is not downloaded yet.
+By its name it holds the blinded MDD diagnosis-replication set. Its EEG and ages would add
+recordings to the age evaluation; its withheld diagnoses cannot enter Table 9.3.

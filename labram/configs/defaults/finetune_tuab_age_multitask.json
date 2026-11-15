@@ -288,7 +288,8 @@
         "train_eval_recordings": 500,
         "train_eval_every": 4,
         "eval_batch_size": 0,
-        "test_sets": ["temple", "lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1"],
+        "test_sets": ["temple", "lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1",
+                      "tdbrain=/data/datasets/EEG-public/TDBRAIN/cohorts/tdbrain_v1?trim_start_sec=0&trim_end_sec=0&eval_minutes=0&age_min=18"],
         "test_sets_every": 5,
         "test_sets_at_best": true,
         "select_metric": "",
@@ -354,7 +355,9 @@
         "config_channel": "",
         "data_s3_uris": {
             "/data/datasets/EEG-public/LEMON/cohorts/lemon_v1": "s3://eeg-data-public/LEMON/v1/cohorts/lemon_v1",
-            "/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1": "s3://eeg-data-public/MIPDB/v1/cohorts/mipdb_v1"
+            "/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1": "s3://eeg-data-public/MIPDB/v1/cohorts/mipdb_v1",
+            "/data/datasets/EEG-public/CHBP/cohorts/chbp_v1": "s3://eeg-data-public/CHBP/v1/cohorts/chbp_v1",
+            "/data/datasets/EEG-public/TDBRAIN/cohorts/tdbrain_v1": "s3://eeg-data-public/TDBRAIN/v1/cohorts/tdbrain_v1"
         },
         "weight_s3_uris": {
             "./checkpoints/labram-base.pth": "s3://eeg-data-public/models/labram/labram-base.pth",

@@ -131,7 +131,7 @@ fi
 if [[ $step == report || $step == all ]]; then
   mkdir -p docs/data/external_eval/tdbrain docs/figures/tdbrain
   $PY scripts/external_eval_report.py \
-    --eval tdbrain=$OUT/tdbrain_all.json --cohort tdbrain=$COHORT \
+    --eval tdbrain=$OUT/tdbrain_all.json --cohort tdbrain=$COHORT --min-age tdbrain=18 \
     --out-dir docs/data/external_eval/tdbrain --fig-dir docs/figures/tdbrain
 fi
 
@@ -154,5 +154,11 @@ if [[ $step == compare || $step == all ]]; then
     --set mipdb:$E/MIPDB/cohorts/mipdb_v1:$OUT/mipdb_all.json,$OUT/mipdb_all_e2lrob.json \
     --set chbp:$E/CHBP/cohorts/chbp_v1:$OUT/chbp_all.json,$OUT/chbp_all_e2lrob.json \
     --set tdbrain:$COHORT:$OUT/tdbrain_all.json \
-    --models E2L E2Lrob E2LrobF --adults --out docs/data/external_eval/tdbrain/cohort_comparison_all_windows.csv
+    --models E2L E2Lrob E2LrobF --min-age 18 --out docs/data/external_eval/tdbrain/cohort_comparison_all_windows.csv
+  # TDBRAIN in detail, adults only (tdbrain_brain_age.py --min-age, default 18): scoring units,
+  # age bands, EC / EO, within-cohort recalibration, brain-age gap per indication
+  $PY scripts/tdbrain_brain_age.py --eval $OUT/tdbrain_all.json --cohort $COHORT \
+    --models E2L E2Lrob E2LrobF --val E2L=$OUT/own_all_val_E2L.json \
+    --val-meta /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1/age_metadata.json \
+    --out-dir docs/data/external_eval/tdbrain
 fi

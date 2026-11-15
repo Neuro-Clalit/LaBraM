@@ -222,8 +222,11 @@ class EvaluationConfig(ConfigBase):
     # ``test_<name>`` (``labram/data/test_sets.py``): ``<family>`` = the test
     # split's recordings of one source dataset (``temple`` / ``harvard``), or
     # ``<name>=<path>`` = an external test-only npy cohort scored zero-shot
-    # (e.g. ``lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1``). A set
-    # whose data is missing is skipped with a warning.
+    # (e.g. ``lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1``), with
+    # optional per-set window selection after ``?`` (``trim_start_sec``,
+    # ``trim_end_sec``, ``eval_minutes``, ``age_min``, ``age_max``; e.g. TDBRAIN's
+    # 2-min files: ``...tdbrain_v1?trim_start_sec=0&trim_end_sec=0&eval_minutes=0&age_min=18``).
+    # A set whose data is missing is skipped with a warning.
     test_sets: List[str] = field(default_factory=list)
     # Score the test sets every this many epochs and on the last one (not every
     # epoch: an external cohort adds evaluation time to each epoch it runs) ...
