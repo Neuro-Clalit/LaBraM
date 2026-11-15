@@ -2,7 +2,8 @@
 
 Status 2026-11-15: release 3.1 downloaded, QC-checked (Section 7), converted and scored zero-shot
 (Section 8), relabelled with the participants table `TDBRAIN_participants_V3.1_2.xlsx`; adult results
-in Section 9. TDBRAIN is a standing test set of the age configs (`evaluation.test_sets`, Section 9.4).
+in Section 9, data analytics in Section 10, P3 / P4 CV models and their 5-fold ensembles in Section 11 (best:
+P4 ensemble, 4.93 y per adult session). TDBRAIN is a standing test set of the age configs (`evaluation.test_sets`, Section 9.4).
 
 TDBRAIN (Two Decades-Brainclinics Research Archive for Insights in Neurophysiology,
 van Dijk et al. 2022, *Sci Data* 9:333, [doi:10.1038/s41597-022-01409-z](https://doi.org/10.1038/s41597-022-01409-z))
@@ -537,3 +538,89 @@ zero-shot; orange: recalibrated (5-fold CV, uses the cohort's ages).
 - **Within TDBRAIN, the error follows age, not diagnosis.** ADHD and OCD (mean age 35) score
   4.8, MDD (45) 5.7 and SMC (66) 6.9 with bias −5.3, which is the age trend of Table 9.1.
   Section 9.2 shows that adjusting for age removes the group differences.
+
+## 11. P3 / P4 cross-validation models and their 5-fold ensembles (2026-11-15)
+
+P3_L1 and P4_L1 are the phased one-run MIL recipes of `docs/mil_stage1_results.md` §13
+(branch `feat/global-pool`), 5-fold subject-grouped CV over `tuh_heedb_v1` train + val, with
+a held-out test split. Their checkpoints are `/data/runs/heedb/mil_phased_cv/P{3,4}_L1/fold_k/cv/fold_k/checkpoint-best.pth`.
+`tdbrain.sh score_cv` scores all ten fold models with every window (TDBRAIN with no trims,
+LEMON / CHBP / MIPDB after the training trims). Each fold is de-normalised with the target
+stats of its own training subset (`--pred-stats-from-log`, means 53.46–53.57, sd
+19.26–19.30). P4 fold 3 has no `run.log`; it uses the CV split of P3 fold 3 (identical
+`cross_validation` and data sections), hence 53.55 / 19.29. `tdbrain.sh ensemble`
+(`scripts/ensemble_predictions.py`) forms the ensembles of Eq. (13.1) of the MIL doc: the
+mean of the member models' recording predictions, $\hat y_r = \frac{1}{K}\sum_k \hat y_{r,k}$
+(11.1). `P3ens` and `P4ens` have K = 5, `P34ens` has K = 10.
+
+### Table 11.1. TDBRAIN adults per session, E2L vs the CV models (`docs/data/external_eval/tdbrain/tdbrain_accuracy.csv`)
+
+MAE [95 % subject-bootstrap CI] / bias / r / R², 1,113 sessions of 1,062 adults. Fold rows
+are the mean ± SD of the five fold models' session MAE.
+
+| model | MAE | bias | r | R² | 18–29 MAE | 65+ MAE / bias | healthy (179) MAE |
+|---|---|---|---|---|---|---|---|
+| E2L | 5.32 [5.05, 5.60] | −1.5 | 0.902 | 0.803 | 3.27 | 8.07 / −7.5 | 5.28 |
+| P3, 5 folds | 5.26 ± 0.07 | | | | | | |
+| P4, 5 folds | 5.06 ± 0.09 | | | | | | |
+| P3 ensemble | 5.14 [4.89, 5.41] | −1.0 | 0.911 | 0.817 | 2.99 | 6.74 / −4.8 | 5.15 |
+| **P4 ensemble** | **4.93 [4.68, 5.19]** | −0.8 | **0.914** | **0.831** | 2.98 | 6.77 / −5.4 | **4.96** |
+| P3 + P4 ensemble | 5.01 [4.76, 5.28] | −0.9 | 0.913 | 0.826 | 2.95 | 6.75 / −5.1 | 5.03 |
+
+### Table 11.2. Paired differences on the same sessions (subject-cluster bootstrap, 5,000 resamples)
+
+ΔMAE = MAE(A) − MAE(B) on the 1,113 adult sessions; the interval resamples whole subjects.
+
+| A − B | ΔMAE (y) | 95 % CI |
+|---|---|---|
+| P4 ensemble − E2L | **−0.40** | [−0.53, −0.27] |
+| P3 + P4 ensemble − E2L | −0.31 | [−0.45, −0.17] |
+| P3 ensemble − E2L | −0.18 | [−0.34, −0.03] |
+| P4 ensemble − P3 ensemble | −0.22 | [−0.29, −0.14] |
+| P4 ensemble − P3 + P4 ensemble | −0.09 | [−0.13, −0.05] |
+
+### Table 11.3. Zero-shot per cohort, adults, per file / recording, every window (`docs/data/external_eval/tdbrain/cohort_comparison_all_windows.csv`)
+
+MAE / bias. In-domain test (5-min protocol, all ages, from the MIL doc Table 13.15): P3
+ensemble 5.98, P4 ensemble 5.94, E2L 7.00.
+
+| cohort (n) | E2L | E2Lrob | P3 ens. | P4 ens. | P3 + P4 ens. |
+|---|---|---|---|---|---|
+| TDBRAIN (2,222 files) | 5.65 / −1.5 | 6.50 / +3.0 | 5.65 / −1.0 | **5.36 / −0.7** | 5.47 / −0.9 |
+| LEMON (214) | 5.20 / −0.8 | 6.33 / +1.8 | 4.70 / −1.0 | 4.67 / −0.8 | **4.66 / −0.9** |
+| CHBP (250) | 9.35 / +7.0 | **6.14 / +0.2** | 7.37 / +2.7 | 7.95 / +3.8 | 7.60 / +3.2 |
+| MIPDB adults (31) | 9.16 / +8.2 | 12.03 / +11.4 | **6.88 / +5.6** | 7.36 / +6.6 | 7.11 / +6.1 |
+
+### Table 11.4. Brain-age gap per indication with the ensembles (`docs/data/external_eval/tdbrain/tdbrain_gap_by_indication.csv`)
+
+Adults, first session; β and t of the group indicator in OLS (9.2) on the raw gap (the CV
+models have no validation predictions for the trend correction (9.1); age and age² in (9.2)
+take its place).
+
+| indication (n) | P3 ens. β (t) | P4 ens. β (t) | P3 + P4 ens. β (t) | E2L β (t) |
+|---|---|---|---|---|
+| MDD (351) | +0.01 (0.02) | −0.06 (−0.09) | −0.02 (−0.04) | +0.06 (0.10) |
+| ADHD (116) | −0.27 (−0.33) | −0.15 (−0.20) | −0.21 (−0.27) | −0.29 (−0.38) |
+| OCD (54) | −0.84 (−0.75) | −0.82 (−0.77) | −0.83 (−0.76) | −0.86 (−0.81) |
+| SMC (89) | +0.47 (0.39) | +0.57 (0.51) | +0.52 (0.45) | +0.87 (0.78) |
+| other (169) | +0.79 (0.97) | +0.62 (0.80) | +0.71 (0.89) | +0.80 (1.03) |
+
+**What Tables 11.1–11.4 show:**
+- **The P4 5-fold ensemble is the best model on TDBRAIN**: MAE 4.93 y per session (R² 0.83,
+  r 0.91), 0.40 y better than E2L (CI −0.53 to −0.27). It is also 0.22 y better than the P3
+  ensemble and 0.09 y better than pooling both. This follows the in-domain ranking (5.94 vs
+  5.98 vs 7.00 for E2L).
+- **Ensembling helps on top of the recipe.** The P4 ensemble beats its average fold by
+  0.14 y (5.06 ± 0.09 → 4.93), and P3 by 0.12 y.
+- **The CV models compress less toward the mean.** The old-age underestimate shrinks from
+  −7.5 y (E2L) to −4.8 / −5.4 y at 65+, and the bias over all adults from −1.5 to −0.8 y.
+  The young adults gain too (3.27 → 2.98).
+- **Across cohorts the CV ensembles win wherever the recording resembles the training data**
+  (TDBRAIN, LEMON 4.66–4.70). CHBP stays the device-robust model's case (6.14 against
+  7.4–8.0). On MIPDB's 31 adults the ensembles roughly halve E2L's excess error (6.9–7.4 against 9.2).
+- **The indication result does not depend on the model:** every adjusted β is under 1 y and
+  every |t| under 1. No psychiatric indication shows an EEG brain-age gap against the
+  healthy controls in TDBRAIN adults.
+- **Against the literature (Section 9.3)**, the P4 ensemble's zero-shot 4.93 y / R² 0.83 on
+  adults is about 1 y better than the within-TDBRAIN DCNN (5.96 / R² 0.81, all ages 5–88), and
+  3.4 y better than the best verified zero-shot result (8.36 / R² 0.59).

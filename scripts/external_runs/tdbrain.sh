@@ -128,6 +128,34 @@ if [[ $step == score || $step == all ]]; then
     --out $OUT/tdbrain_inner.json 2>&1 | tee $OUT/tdbrain_inner.log
 fi
 
+if [[ $step == score_cv || $step == all ]]; then
+  # phased one-run MIL models P3_L1 / P4_L1, 5-fold CV each (docs/mil_stage1_results.md §13), every
+  # window of TDBRAIN / LEMON / CHBP / MIPDB, each fold de-normalised with its own training stats
+  # (log/run.log); P4 fold 3 has no run.log and shares P3 fold 3's CV split: 53.55 / 19.29
+  R=/data/runs/heedb/mil_phased_cv; E=/data/datasets/EEG-public
+  CV=(); for p in P3 P4; do for k in 0 1 2 3 4; do
+    [[ $p == P4 && $k == 3 ]] || CV+=(--run ${p}_L1_f$k=$R/${p}_L1/fold_$k/cv/fold_$k); done; done
+  for spec in "tdbrain $COHORT --trim-start-sec 0 --trim-end-sec 0" "lemon $E/LEMON/cohorts/lemon_v1" \
+              "chbp $E/CHBP/cohorts/chbp_v1" "mipdb $E/MIPDB/cohorts/mipdb_v1"; do
+    set -- $spec; c=$1; path=$2; shift 2
+    $PY scripts/eval_age_by_cohort.py --data-path $path --splits test --stage-dir none --eval-minutes 0 "$@" \
+      "${CV[@]}" --pred-stats-from-log --out $OUT/${c}_all_p34.json > $OUT/${c}_all_p34.log 2>&1
+    $PY scripts/eval_age_by_cohort.py --data-path $path --splits test --stage-dir none --eval-minutes 0 "$@" \
+      --run P4_L1_f3=$R/P4_L1/fold_3/cv/fold_3 --pred-stats 53.55 19.29 --out $OUT/${c}_all_p4f3.json > $OUT/${c}_all_p4f3.log 2>&1
+  done
+fi
+
+if [[ $step == ensemble || $step == score_cv || $step == all ]]; then
+  # 5-fold ensembles (mean of the fold models' recording predictions) next to the E2L family
+  ENS=(--ensemble "P3ens=P3_L1_f*" --ensemble "P4ens=P4_L1_f*" --ensemble "P34ens=P[34]_L1_f*")
+  $PY scripts/ensemble_predictions.py --eval $OUT/tdbrain_all.json $OUT/tdbrain_all_p34.json \
+    $OUT/tdbrain_all_p4f3.json "${ENS[@]}" --out $OUT/tdbrain_all_models.json
+  for c in lemon chbp mipdb; do
+    $PY scripts/ensemble_predictions.py --eval $OUT/${c}_all.json $OUT/${c}_all_e2lrob.json \
+      $OUT/${c}_all_p34.json $OUT/${c}_all_p4f3.json "${ENS[@]}" --out $OUT/${c}_all_models.json
+  done
+fi
+
 if [[ $step == report || $step == all ]]; then
   # data analytics as for CHBP: metrics per group, predicted vs true age, signal QC and PSD
   # against the TUH / HEEDB references, TDBRAIN (adults) next to CHBP and LEMON (E2L family)
@@ -160,15 +188,17 @@ if [[ $step == compare || $step == all ]]; then
   E=/data/datasets/EEG-public
   $PY scripts/external_cohort_comparison.py \
     --set own_test:/data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1:$OUT/own_all_w.json \
-    --set lemon:$E/LEMON/cohorts/lemon_v1:$OUT/lemon_all.json,$OUT/lemon_all_e2lrob.json \
-    --set mipdb:$E/MIPDB/cohorts/mipdb_v1:$OUT/mipdb_all.json,$OUT/mipdb_all_e2lrob.json \
-    --set chbp:$E/CHBP/cohorts/chbp_v1:$OUT/chbp_all.json,$OUT/chbp_all_e2lrob.json \
-    --set tdbrain:$COHORT:$OUT/tdbrain_all.json \
-    --models E2L E2Lrob E2LrobF --min-age 18 --out docs/data/external_eval/tdbrain/cohort_comparison_all_windows.csv
+    --set lemon:$E/LEMON/cohorts/lemon_v1:$OUT/lemon_all_models.json \
+    --set mipdb:$E/MIPDB/cohorts/mipdb_v1:$OUT/mipdb_all_models.json \
+    --set chbp:$E/CHBP/cohorts/chbp_v1:$OUT/chbp_all_models.json \
+    --set tdbrain:$COHORT:$OUT/tdbrain_all_models.json \
+    --models E2L E2Lrob E2LrobF P3_L1_f0 P3_L1_f1 P3_L1_f2 P3_L1_f3 P3_L1_f4 \
+             P4_L1_f0 P4_L1_f1 P4_L1_f2 P4_L1_f3 P4_L1_f4 P3ens P4ens P34ens \
+    --min-age 18 --out docs/data/external_eval/tdbrain/cohort_comparison_all_windows.csv
   # TDBRAIN in detail, adults only (tdbrain_brain_age.py --min-age, default 18): scoring units,
   # age bands, EC / EO, within-cohort recalibration, brain-age gap per indication
-  $PY scripts/tdbrain_brain_age.py --eval $OUT/tdbrain_all.json --cohort $COHORT \
-    --models E2L E2Lrob E2LrobF --val E2L=$OUT/own_all_val_E2L.json \
+  $PY scripts/tdbrain_brain_age.py --eval $OUT/tdbrain_all_models.json --cohort $COHORT \
+    --models E2L E2Lrob E2LrobF P3ens P4ens P34ens --val E2L=$OUT/own_all_val_E2L.json \
     --val-meta /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1/age_metadata.json \
     --out-dir docs/data/external_eval/tdbrain
 fi
