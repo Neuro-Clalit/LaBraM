@@ -986,6 +986,86 @@ bias / r. Full table: `docs/data/external_eval/chbp/adults_compare_all_variants.
     that training-time gain and filter variation helps on heterogeneous
     clinical EEG, not a result.
 
+### Table 10.12. Every variant by data cohort and report, val and test
+
+The same five models as Table 10.9, now by data cohort and report:
+- every Temple and Harvard row of the validation *and* the test split, each
+  split by report (normal / abnormal / unlabelled, where unlabelled means no
+  report verdict);
+- each external cohort, with CHBP also split by cap.
+
+Ages are all ages. The training cohort `tuh_heedb_v1` is adults except two
+children in the Temple test split (274 here vs 272 in Table 10.9). MIPDB is
+shown for all ages and for adults.
+
+Each cell is MAE / bias / r. MAE is (3.1), bias is (3.2) and r is (3.4), in
+years except r. Bold marks the lowest MAE in the row. "Per-cohort choice" is
+Table 10.6: E2L, and the full robust model for CHBP.
+
+Built by `scripts/cohort_breakdown.py` (all ages and adults:
+`docs/data/external_eval/chbp/cohort_breakdown_all_variants.csv`). Protocol
+for every row: first 5 minutes after a 60 s trim.
+
+| cohort | n | E2L | full robust | band | relamp | augment | per-cohort choice |
+|---|---|---|---|---|---|---|---|
+| **Temple val** | 3,422 | **7.28 / 0.0 / 0.82** | 7.52 / +0.6 / 0.81 | 7.51 / 0.0 / 0.81 | 7.57 / +0.4 / 0.81 | 7.46 / +0.8 / 0.82 | 7.28 |
+| Temple val, normal | 1,388 | **6.47 / +0.1 / 0.85** | 6.83 / +1.0 / 0.84 | 6.71 / +0.4 / 0.84 | 6.82 / +0.8 / 0.84 | 6.72 / +1.1 / 0.85 | 6.47 |
+| Temple val, abnormal | 1,676 | **7.74 / −0.4 / 0.79** | 7.99 / −0.1 / 0.78 | 7.99 / −0.6 / 0.79 | 8.00 / −0.2 / 0.79 | 7.88 / +0.2 / 0.80 | 7.74 |
+| Temple val, unlabelled | 358 | 8.26 / +1.5 / 0.66 | **8.02 / +1.8 / 0.70** | 8.34 / +1.5 / 0.66 | 8.42 / +1.9 / 0.66 | 8.35 / +2.5 / 0.67 | 8.26 |
+| **Harvard val** | 7,192 | **7.23 / −0.9 / 0.89** | 7.70 / 0.0 / 0.89 | 7.45 / −1.0 / 0.89 | 7.77 / −0.3 / 0.89 | 7.57 / −0.2 / 0.89 | 7.23 |
+| Harvard val, normal | 1,493 | **7.02 / 0.0 / 0.90** | 7.51 / +1.2 / 0.89 | 7.16 / +0.3 / 0.89 | 7.55 / +0.9 / 0.90 | 7.47 / +1.0 / 0.90 | 7.02 |
+| Harvard val, abnormal | 2,179 | **7.91 / −0.8 / 0.86** | 8.38 / −0.3 / 0.85 | 8.13 / −1.2 / 0.86 | 8.46 / −0.7 / 0.85 | 8.23 / −0.4 / 0.86 | 7.91 |
+| Harvard val, unlabelled | 3,520 | **6.90 / −1.2 / 0.90** | 7.35 / −0.4 / 0.90 | 7.14 / −1.3 / 0.90 | 7.43 / −0.6 / 0.89 | 7.20 / −0.6 / 0.90 | 6.90 |
+| **Temple test** | 274 | **6.55 / −0.6 / 0.88** | 6.87 / 0.0 / 0.87 | 6.83 / −0.3 / 0.87 | 7.03 / +0.1 / 0.86 | 6.62 / 0.0 / 0.89 | 6.55 |
+| Temple test, normal | 149 | **4.91 / −0.7 / 0.93** | 5.46 / +0.3 / 0.91 | 5.23 / −0.1 / 0.92 | 5.30 / +0.2 / 0.92 | 5.36 / +0.4 / 0.92 | 4.91 |
+| Temple test, abnormal | 125 | 8.50 / −0.5 / 0.78 | 8.55 / −0.4 / 0.79 | 8.75 / −0.6 / 0.77 | 9.09 / 0.0 / 0.76 | **8.11 / −0.5 / 0.81** | 8.50 |
+| **Harvard test** | 7,338 | **7.02 / −0.6 / 0.90** | 7.58 / +0.2 / 0.89 | 7.24 / −0.7 / 0.89 | 7.61 / −0.1 / 0.89 | 7.34 / 0.0 / 0.90 | 7.02 |
+| Harvard test, normal | 1,518 | **7.12 / +0.2 / 0.89** | 7.72 / +1.3 / 0.88 | 7.33 / +0.3 / 0.88 | 7.73 / +0.9 / 0.89 | 7.60 / +1.1 / 0.89 | 7.12 |
+| Harvard test, abnormal | 2,253 | **7.56 / −0.7 / 0.87** | 8.16 / −0.2 / 0.86 | 7.78 / −1.2 / 0.87 | 8.25 / −0.6 / 0.86 | 7.82 / −0.4 / 0.88 | 7.56 |
+| Harvard test, unlabelled | 3,567 | **6.64 / −0.8 / 0.91** | 7.15 / +0.1 / 0.90 | 6.86 / −0.9 / 0.90 | 7.15 / −0.2 / 0.90 | 6.91 / −0.1 / 0.91 | 6.64 |
+| **LEMON** | 214 | **5.22 / −1.1 / 0.95** | 6.08 / +1.9 / 0.94 | 5.33 / +0.4 / 0.94 | 6.12 / +1.2 / 0.94 | 6.18 / +0.8 / 0.94 | 5.22 |
+| **MIPDB, all ages (85 children)** | 116 | **12.66 / +12.4 / 0.59** | 15.18 / +15.1 / 0.56 | 13.63 / +13.4 / 0.62 | 15.34 / +15.1 / 0.48 | 14.57 / +14.4 / 0.60 | 12.66 |
+| **MIPDB, adults** | 31 | **9.22 / +8.4 / 0.45** | 10.60 / +10.3 / 0.62 | 11.44 / +10.6 / 0.46 | 10.54 / +9.5 / 0.51 | 11.07 / +10.4 / 0.55 | 9.22 |
+| **CHBP** | 250 | 9.55 / +7.1 / 0.44 | **6.19 / −0.1 / 0.59** | 7.73 / +5.2 / 0.55 | 6.64 / −0.5 / 0.56 | 6.97 / +3.9 / 0.60 | 6.19 |
+| CHBP, 64-channel cap | 161 | 7.58 / +5.0 / 0.55 | **5.92 / −0.5 / 0.62** | 6.91 / +4.4 / 0.61 | 6.24 / −1.1 / 0.59 | 6.42 / +3.5 / 0.65 | 5.92 |
+| CHBP, 120-channel cap | 89 | 13.10 / +10.8 / 0.27 | **6.67 / +0.6 / 0.53** | 9.22 / +6.6 / 0.47 | 7.37 / +0.5 / 0.50 | 7.96 / +4.6 / 0.52 | 6.67 |
+
+**What Table 10.12 shows:**
+- **E2L has the lowest MAE in 13 of the 15 Temple / Harvard rows.** The
+  variants lose:
+  - 0.1–0.5 years on Temple;
+  - 0.1–0.6 years on Harvard. `band` costs least (0.14–0.24 on Harvard), the
+    amplitude-free models (full robust, `relamp`, `augment`) most
+    (0.26–0.61).
+- **The two exceptions are small groups:**
+  - Temple val unlabelled (n = 358): the full robust model, 8.02 vs 8.26.
+  - Temple test abnormal (n = 125): `augment`, 8.11 vs 8.50.
+- **`augment`'s Temple-abnormal gain does not replicate.** On the 13× larger
+  Temple *val* abnormal split (n = 1,676) it is worse than E2L (7.88 vs 7.74),
+  and it is also worse on Harvard abnormal, val and test. This confirms the
+  reading of Table 10.9: the gain was noise, not a property of the model.
+- **By report verdict:**
+  - On Temple the variants lose most on normal reports: +0.24 to +0.55, vs
+    +0.14 to +0.26 on val abnormal.
+  - On Harvard the loss is about the same for normal, abnormal and unlabelled
+    recordings (+0.14 to +0.61).
+- **Bias moves by about +1 year on normal reports for the amplitude-free
+  models.** On Harvard normal val it goes from 0.0 to +0.9…+1.2. That is the
+  young-adult over-prediction of Table 10.9: amplitude is a youth cue those
+  models no longer see.
+- **MIPDB is bad for every model:**
+  - all ages 12.7–15.3, adults 9.2–11.4, with a +8 to +15 year bias;
+  - 85 of its 116 recordings are children, below the training range;
+  - its adults carry a large offset as well (`docs/external_eval_results.md`);
+  - E2L is still lowest. No CHBP fix helps there: the amplitude-free models
+    make it 1.4–2.7 years worse, and `band` about 1 year (all ages) to 2 years
+    (adults) worse.
+- **CHBP:**
+  - the full robust model is best on both caps (5.92 and 6.67);
+  - the 120-channel cap gains most (E2L 13.10 → 6.67);
+  - `band` keeps a +4.4 / +6.6 year bias on the two caps; this is CHBP's gain,
+    which only amplitude normalization removes.
+
 ### 10.6 Does the `augment` run over- or underfit?
 
 The run logs three MAEs:
