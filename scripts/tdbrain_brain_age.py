@@ -21,6 +21,14 @@ SSE / SST about the group's own mean. The within-cohort recalibration fits
 ``y = c * p + d`` on 9 of 10 subject-grouped folds and applies it to the 10th
 (it uses TDBRAIN ages, so it is not zero-shot).
 
+Confidence rejection (``--windows`` + ``--reject``, label-free, the ``keep80r``
+rule of ``eval_strategies_table.py``): each file's confidence is the
+attention-weighted spread of its window predictions, ``s = sqrt(sum_i a_i
+(p_i - p)^2)`` (``confidence_thresholds.recordings``; uniform weights for E2L);
+an ensemble's spread is the mean of its members' spreads, a session's the mean
+of its files'. The ``--reject`` share of sessions with the largest spread get no
+prediction; the rest are scored.
+
 Brain-age gap ``g = p - y`` per session. The zero-shot correction removes the
 model's age trend fitted on its **own** validation predictions (normal-report
 recordings of the training cohort): ``g_c = g - (a * y + b)`` with
@@ -89,6 +97,16 @@ def recalibrated(d, folds=10, seed=0):
     return d.assign(pred=out)
 
 
+def file_spread(windows_dir, members):
+    """Per file: mean over ``members`` of the attention-weighted window spread."""
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import confidence_thresholds as ct
+    out = [ct.recordings(ct.load(os.path.join(windows_dir, f"{m}_test.parquet")), slice(None))["spread"]
+           for m in members]
+    return pd.concat(out, axis=1).mean(axis=1)
+
+
 def gap_trend(val_json, name, val_meta):
     lab = json.load(open(val_meta))["recordings"]
     p = pd.Series(json.load(open(val_json))[name]["splits"]["val"]["predictions"], dtype=float)
@@ -121,6 +139,10 @@ def main():
     ap.add_argument("--val-meta", default=None)
     ap.add_argument("--min-age", type=float, default=18.0,
                     help="analyse recordings aged >= this (default 18: adults only; 0 = everyone)")
+    ap.add_argument("--windows", default=None,
+                    help="dir of eval_age_by_cohort.py --save-windows parquets (<model>_test.parquet)")
+    ap.add_argument("--reject", type=float, default=0.2,
+                    help="share of sessions set aside by spread (with --windows)")
     ap.add_argument("--out-dir", required=True)
     args = ap.parse_args()
     man = json.load(open(os.path.join(args.cohort, "manifest.json")))
@@ -148,6 +170,16 @@ def main():
             if unit == "session":
                 acc.append({"model": model, "unit": "session, recalibrated (10-fold CV, uses ages)",
                             "subset": "all", **metrics(recalibrated(d))})
+                if args.windows:
+                    spread = file_spread(args.windows, res[model].get("members", [model]))
+                    sp = files.join(spread.rename("spread"), how="inner").groupby(["subject", "session"])["spread"].mean()
+                    s = d.set_index(["subject", "session"]).join(sp, how="inner")
+                    keep = s[s["spread"] <= s["spread"].quantile(1 - args.reject)].reset_index()
+                    acc.append({"model": model, "unit": f"session, reject {args.reject:.0%} by spread (label-free)",
+                                "subset": "all", "kept_share": len(keep) / len(s), **metrics(keep)})
+                    acc.append({"model": model, "unit": f"session, reject {args.reject:.0%} by spread (label-free)",
+                                "subset": "healthy", "kept_share": keep.healthy.sum() / s.healthy.sum(),
+                                **metrics(keep[keep.healthy])})
         # brain-age gap per indication: first session of each subject
         s = u["subject"].copy()
         s["gap"] = s["pred"] - s["age"]

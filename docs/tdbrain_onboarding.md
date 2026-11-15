@@ -624,3 +624,43 @@ take its place).
 - **Against the literature (Section 9.3)**, the P4 ensemble's zero-shot 4.93 y / R² 0.83 on
   adults is about 1 y better than the within-TDBRAIN DCNN (5.96 / R² 0.81, all ages 5–88), and
   3.4 y better than the best verified zero-shot result (8.36 / R² 0.59).
+
+## 12. Summary table: TDBRAIN adults, ours with 20 % confidence rejection, and published results (2026-11-15)
+
+Ours: 1,062 adults, 1,113 sessions, 18–88 y (mean 45.2 ± 15.9). Each session's prediction is
+the mean of its eyes-closed and eyes-open files, zero-shot (trained on TUH + HEEDB only). **Reject
+20 %** is the label-free `keep80r` rule of `scripts/eval_strategies_table.py`: the 20 % of sessions
+with the largest attention-weighted spread of their window predictions get no prediction
+(an ensemble's spread is the mean of its members'). The rule uses no ages
+(`tdbrain_brain_age.py --windows --reject 0.2`). The kept sessions are slightly younger
+(44.1–44.3 y), but their predict-the-mean MAE is higher (13.9–14.1 vs 13.35), so the kept set
+is not easier. MAE with a 95 % subject-bootstrap interval.
+
+### Table 12.1. Brain age on TDBRAIN: ours (adults) and published results
+
+| model / study | protocol | subjects / sessions, ages | MAE (y) | R² | r |
+|---|---|---|---|---|---|
+| **ours, E2L** | zero-shot | 1,062 / 1,113, 18–88 | 5.32 [5.05, 5.60] | 0.80 | 0.90 |
+| ours, E2L, reject 20 % | zero-shot, label-free rejection | 856 / 890 kept | 5.02 [4.72, 5.31] | 0.83 | 0.92 |
+| ours, P3 5-fold ensemble | zero-shot | 1,062 / 1,113 | 5.14 [4.89, 5.41] | 0.82 | 0.91 |
+| ours, P3 ensemble, reject 20 % | zero-shot, label-free rejection | 855 / 890 | 4.83 [4.56, 5.13] | 0.85 | 0.93 |
+| **ours, P4 5-fold ensemble** | zero-shot | 1,062 / 1,113 | **4.93 [4.68, 5.19]** | **0.83** | **0.91** |
+| **ours, P4 ensemble, reject 20 %** | zero-shot, label-free rejection | 854 / 890 | **4.54 [4.27, 4.81]** | **0.86** | **0.93** |
+| ours, P3 + P4 ensemble | zero-shot | 1,062 / 1,113 | 5.01 [4.76, 5.28] | 0.83 | 0.91 |
+| ours, P3 + P4 ensemble, reject 20 % | zero-shot, label-free rejection | 854 / 890 | 4.65 [4.38, 4.94] | 0.86 | 0.93 |
+| ours, P4 ensemble, healthy only | zero-shot | 179 / 179, 18–88 | 4.96 [4.24, 5.79] | 0.82 | 0.91 |
+| ours, P4 ensemble, healthy, reject 20 % | zero-shot, label-free rejection | 143 kept | 4.32 [3.64, 5.14] | 0.87 | 0.93 |
+| Hajhassani et al. 2026, arXiv:2609.31195 (preprint) | zero-shot, trained on TUEG | "healthy" 20–90, n in a figure | 8.36 | 0.59 | — |
+| Bikki & Zeng 2026, BDIMed (abstract only, unverified) | zero-shot, trained on TUABX | unknown | — | 0.83 | — |
+| Tveitstøl et al. 2025, IEEE TBME (mapping from the abstract, unverified) | cross-dataset, leave one dataset out | 1,273, EC, 5–88 | — | −0.01 | 0.63 |
+| Khayretdinova et al. 2022, Front. Aging Neurosci. | **within** TDBRAIN, 10-fold subject CV | 1,335 sessions, **5–88** | 5.96 ± 0.33 | 0.81 | 0.90 |
+| Bikki & Zeng 2026 (abstract only, unverified) | **within** TDBRAIN | unknown | 5.83 ± 0.66 | 0.84 | — |
+| Hu et al. 2025 (NEOBA), Front. Aging Neurosci. | "validation in TDBRAIN", protocol unclear | 1,274, **5–89** | 4.95 | — | — |
+| Bomatter et al. 2024, eBioMedicine | **within** TDBRAIN, 10×10-fold CV | 1,134 first sessions, **5–89** | — | ≈ 0.8 | — |
+
+The published rows use the 2022 release (1,274 subjects, 47 healthy) and, except Hajhassani, include
+children (5–17 y). Including them widens the age range, which raises R² and lowers MAE for the
+same model, because children's ages are compact and well predicted by within-dataset models.
+Our rows are adults only on release 3.1. **Within** = trained and tested on TDBRAIN
+(cross-validated). It is not zero-shot and is an upper reference for a model that never saw
+TDBRAIN. Unverified numbers were read from an abstract or inferred from one; see Section 8.
