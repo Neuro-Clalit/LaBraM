@@ -4,6 +4,10 @@
 label-free 20 % rejection by window-prediction spread. Bars are the models in a
 fixed colour order, whiskers the 95 % subject-bootstrap interval, and the dashed
 line over each cohort its predict-the-cohort-mean MAE (the floor to beat).
+Panel (a) also marks the best published MAE per cohort (``SOTA``) as a line
+across that cohort's bars: solid for a model trained on that cohort
+(within-dataset CV), dotted for a zero-shot one. Temple / Harvard are the in-domain test split
+(our models trained on the rest of those corpora), the others are zero-shot.
 
     python scripts/external_cohort_bars.py \\
         --table docs/data/external_eval/tdbrain/external_cohort_table.csv \\
@@ -18,7 +22,16 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-COHORTS = [("tdbrain", "TDBRAIN"), ("lemon", "LEMON"), ("chbp", "CHBP"), ("mipdb", "MIPDB")]
+COHORTS = [("temple", "Temple (TUH)"), ("harvard", "Harvard (HEEDB)"), ("tdbrain", "TDBRAIN"),
+           ("lemon", "LEMON"), ("chbp", "CHBP"), ("mipdb", "MIPDB")]
+# best published MAE per cohort: (kind, MAE, source); docs/tdbrain_onboarding.md Tables 12.1, 13.1-13.4
+SOTA = {
+    "temple": [("within", 9.45, "Gemein 2024, TUAB eval (normal 6.60 / abnormal 12.85, weighted)")],
+    "tdbrain": [("within", 5.96, "Khayretdinova 2022, ages 5-88"),
+                ("zero-shot", 8.36, "Hajhassani 2026, healthy 20-90")],
+    "lemon": [("within", 7.75, "Engemann 2022"), ("zero-shot", 9.91, "Hajhassani 2026")],
+    "chbp": [("within", 6.48, "Engemann 2022")],
+}
 MODELS = [("E2L", "E2L"), ("P3ens", "P3 ensemble"), ("P4ens", "P4 ensemble")]
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]          # categorical slots 1-3, fixed order
 INK, MUTED, GRID = "#1f1f1e", "#6b6a64", "#e4e3df"
@@ -35,13 +48,15 @@ def main():
     from labram.eval.age_plots import assert_max_columns, panel_labels
     t = pd.read_csv(args.table)
     t = t[t["group"] == "all"]
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.8), sharey=True)
+    present = set(t["cohort"])
+    cohorts = [(c, n) for c, n in COHORTS if c in present]
+    fig, axes = plt.subplots(2, 1, figsize=(13, 9.5), sharey=True)
     width = 0.26
     for ax, (rej, title) in zip(axes, [("none", "every recording / session"),
                                         ("reject 20%", "reject 20 % by prediction spread")]):
-        x = np.arange(len(COHORTS))
+        x = np.arange(len(cohorts))
         for j, ((m, label), color) in enumerate(zip(MODELS, COLORS)):
-            rows = [t[(t.cohort == c) & (t.model == m) & (t.rejection == rej)].iloc[0] for c, _ in COHORTS]
+            rows = [t[(t.cohort == c) & (t.model == m) & (t.rejection == rej)].iloc[0] for c, _ in cohorts]
             mae = np.array([r.mae for r in rows])
             err = np.array([[r.mae - r.mae_lo for r in rows], [r.mae_hi - r.mae for r in rows]])
             xs = x + (j - 1) * width
@@ -50,14 +65,23 @@ def main():
             for xi, v in zip(xs, mae):
                 ax.text(xi, 0.25, f"{v:.1f}", ha="center", va="bottom", fontsize=8, color="white",
                         fontweight="bold", zorder=4)
-        for i, (c, _) in enumerate(COHORTS):
+        for i, (c, _) in enumerate(cohorts):
             r = t[(t.cohort == c) & (t.model == "E2L") & (t.rejection == rej)].iloc[0]
             ax.hlines(r.mae_predict_mean, i - 1.5 * width, i + 1.5 * width, colors=MUTED, linestyles="--",
                       lw=1.4, zorder=5, label="predict the cohort mean" if i == 0 else None)
-        n = {c: t[(t.cohort == c) & (t.model == "E2L") & (t.rejection == rej)].iloc[0] for c, _ in COHORTS}
+        if rej == "none":
+            for i, (c, _) in enumerate(cohorts):
+                for kind, v, _src in SOTA.get(c, []):
+                    ax.hlines(v, i - 1.5 * width, i + 1.5 * width, colors=INK, lw=1.8, zorder=6,
+                              linestyles="-" if kind == "within" else ":")
+                    ax.text(i + 1.5 * width + 0.03, v, f"{v:.2f}", va="center", fontsize=8, color=INK, zorder=6)
+            ax.plot([], [], color=INK, lw=1.8, ls="-", label="best published, trained on the cohort")
+            ax.plot([], [], color=INK, lw=1.8, ls=":", label="best published, zero-shot")
+        n = {c: t[(t.cohort == c) & (t.model == "E2L") & (t.rejection == rej)].iloc[0] for c, _ in cohorts}
         unit = {"tdbrain": "sessions"}
-        ax.set_xticks(x, [f"{name}\nn = {int(n[c].n):,} {unit.get(c, 'rec.')}\nage {n[c].age_mean:.0f} y"
-                          for c, name in COHORTS], fontsize=9, color=INK)
+        domain = {"temple": "in-domain", "harvard": "in-domain"}
+        ax.set_xticks(x, [f"{name}\n{domain.get(c, 'zero-shot')}, n = {int(n[c].n):,} {unit.get(c, 'rec.')}\nage {n[c].age_mean:.0f} y"
+                          for c, name in cohorts], fontsize=9, color=INK)
         ax.set_title(title, fontsize=11, color=INK)
         ax.grid(axis="y", color=GRID, lw=0.8, zorder=0)
         for side in ("top", "right"):
@@ -65,9 +89,10 @@ def main():
         ax.spines["left"].set_color(MUTED)
         ax.spines["bottom"].set_color(MUTED)
         ax.tick_params(colors=MUTED)
-    axes[0].set_ylabel("MAE (years), adults ≥ 18", color=INK)
+    for ax in axes:
+        ax.set_ylabel("MAE (years), adults ≥ 18", color=INK)
     axes[0].set_ylim(0, 20)
-    axes[0].legend(frameon=False, fontsize=9, loc="upper right")
+    axes[0].legend(frameon=False, fontsize=9, loc="upper right", ncol=2)
     fig.tight_layout()
     panel_labels(list(axes))
     assert_max_columns(fig)
