@@ -76,6 +76,14 @@ def metrics(d, n_boot=2000, seed=0):
             "mae_predict_mean": np.abs(y - y.mean()).mean()}
 
 
+def clinical_subsets(d):
+    """healthy, pathological (every non-healthy session: a diagnosis, another
+    indication or an unknown one, which van Dijk et al. say is not healthy) and
+    each indication group (groups overlap: an MDD/ADHD row is in both)."""
+    out = [("healthy", d[d.healthy]), ("pathological", d[~d.healthy])]
+    return out + [(g, d[d[g]]) for g in GROUPS if g != "healthy"]
+
+
 def units(files):
     """file / session / subject tables of (subject, age, pred, ...)."""
     keep = ["subject", "session", "age", "sex", "clinical_group", *GROUPS]
@@ -167,7 +175,7 @@ def main():
             subsets = [("all", d)] + [(f"age {n}", d[(d.age >= lo) & (d.age < hi)]) for n, lo, hi in BANDS]
             if unit == "file":
                 subsets += [(t, d[d.task == t]) for t in ("restEC", "restEO")]
-            subsets += [("healthy", d[d.healthy])]
+            subsets += clinical_subsets(d)
             for name, s in subsets:
                 if len(s) >= 10:
                     acc.append({"model": model, "unit": unit, "subset": name, **metrics(s)})
@@ -181,11 +189,12 @@ def main():
                     sp = files.join(spread.rename("spread"), how="inner").groupby(["subject", "session"])["spread"].mean()
                     s = d.set_index(["subject", "session"]).join(sp, how="inner")
                     keep = s[s["spread"] <= s["spread"].quantile(1 - args.reject)].reset_index()
-                    acc.append({"model": model, "unit": f"session, reject {args.reject:.0%} by spread (label-free)",
-                                "subset": "all", "kept_share": len(keep) / len(s), **metrics(keep)})
-                    acc.append({"model": model, "unit": f"session, reject {args.reject:.0%} by spread (label-free)",
-                                "subset": "healthy", "kept_share": keep.healthy.sum() / s.healthy.sum(),
-                                **metrics(keep[keep.healthy])})
+                    s = s.reset_index()
+                    for name, k in [("all", keep)] + clinical_subsets(keep):
+                        full = dict([("all", s)] + clinical_subsets(s))[name]
+                        if len(k) >= 10:
+                            acc.append({"model": model, "unit": f"session, reject {args.reject:.0%} by spread (label-free)",
+                                        "subset": name, "kept_share": len(k) / len(full), **metrics(k)})
         # brain-age gap per indication: first session of each subject
         s = u["subject"].copy()
         s["gap"] = s["pred"] - s["age"]

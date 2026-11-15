@@ -636,28 +636,63 @@ with the largest attention-weighted spread of their window predictions get no pr
 (44.1–44.3 y), but their predict-the-mean MAE is higher (13.9–14.1 vs 13.35), so the kept set
 is not easier. MAE with a 95 % subject-bootstrap interval.
 
-### Table 12.1. Brain age on TDBRAIN: ours (adults) and published results
+### Table 12.1. Brain age on TDBRAIN: ours (adults) and published results, healthy and pathological
 
-| model / study | protocol | subjects / sessions, ages | MAE (y) | R² | r |
-|---|---|---|---|---|---|
-| **ours, E2L** | zero-shot | 1,062 / 1,113, 18–88 | 5.32 [5.05, 5.60] | 0.80 | 0.90 |
-| ours, E2L, reject 20 % | zero-shot, label-free rejection | 856 / 890 kept | 5.02 [4.72, 5.31] | 0.83 | 0.92 |
-| ours, P3 5-fold ensemble | zero-shot | 1,062 / 1,113 | 5.14 [4.89, 5.41] | 0.82 | 0.91 |
-| ours, P3 ensemble, reject 20 % | zero-shot, label-free rejection | 855 / 890 | 4.83 [4.56, 5.13] | 0.85 | 0.93 |
-| **ours, P4 5-fold ensemble** | zero-shot | 1,062 / 1,113 | **4.93 [4.68, 5.19]** | **0.83** | **0.91** |
-| **ours, P4 ensemble, reject 20 %** | zero-shot, label-free rejection | 854 / 890 | **4.54 [4.27, 4.81]** | **0.86** | **0.93** |
-| ours, P3 + P4 ensemble | zero-shot | 1,062 / 1,113 | 5.01 [4.76, 5.28] | 0.83 | 0.91 |
-| ours, P3 + P4 ensemble, reject 20 % | zero-shot, label-free rejection | 854 / 890 | 4.65 [4.38, 4.94] | 0.86 | 0.93 |
-| ours, P4 ensemble, healthy only | zero-shot | 179 / 179, 18–88 | 4.96 [4.24, 5.79] | 0.82 | 0.91 |
-| ours, P4 ensemble, healthy, reject 20 % | zero-shot, label-free rejection | 143 kept | 4.32 [3.64, 5.14] | 0.87 | 0.93 |
-| Hajhassani et al. 2026, arXiv:2609.31195 (preprint) | zero-shot, trained on TUEG | "healthy" 20–90, n in a figure | 8.36 | 0.59 | — |
-| Bikki & Zeng 2026, BDIMed (abstract only, unverified) | zero-shot, trained on TUABX | unknown | — | 0.83 | — |
-| Tveitstøl et al. 2025, IEEE TBME (mapping from the abstract, unverified) | cross-dataset, leave one dataset out | 1,273, EC, 5–88 | — | −0.01 | 0.63 |
-| Khayretdinova et al. 2022, Front. Aging Neurosci. | **within** TDBRAIN, 10-fold subject CV | 1,335 sessions, **5–88** | 5.96 ± 0.33 | 0.81 | 0.90 |
-| Bikki & Zeng 2026 (abstract only, unverified) | **within** TDBRAIN | unknown | 5.83 ± 0.66 | 0.84 | — |
-| Hu et al. 2025 (NEOBA), Front. Aging Neurosci. | "validation in TDBRAIN", protocol unclear | 1,274, **5–89** | 4.95 | — | — |
-| Bomatter et al. 2024, eBioMedicine | **within** TDBRAIN, 10×10-fold CV | 1,134 first sessions, **5–89** | — | ≈ 0.8 | — |
+MAE in years, with [95 % subject-bootstrap CI] for all sessions. R²/r per column. **Healthy** =
+`indication` HEALTHY (179 adults). **Pathological** = every other adult session (883 subjects /
+934 sessions): a formal or referral diagnosis, another indication, or none recorded
+(van Dijk et al.: "UNKNOWN" is not healthy). Table 12.2 splits it by group. With rejection, the
+20 % threshold is set over all sessions and the kept sessions are then split (kept share ≈ 80 %
+in both groups).
 
+| model / study | method | protocol | n (subjects / sessions) | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy | MAE, pathological | R²/r, pathological |
+|---|---|---|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM encoder fine-tuned on single 10 s windows; recording = mean of the window predictions | zero-shot | 1,062 / 1,113 | 5.32 [5.04, 5.60] | 0.80 / 0.90 | 5.28 | 0.81 / 0.90 | 5.33 | 0.80 / 0.90 |
+| ours, E2L, reject 20 % | E2L; the 20 % of sessions with the widest spread of window predictions get no prediction (label-free) | zero-shot | 856 / 890 kept | 5.02 [4.72, 5.31] | 0.83 / 0.92 | 4.49 | 0.85 / 0.93 | 5.12 | 0.82 / 0.91 |
+| ours, P3 ensemble | LaBraM encoder + ABMIL (attention pooling over windows), one run: window phase → attention-only → joint with LR restart and retention; mean of the 5 CV fold models | zero-shot | 1,062 / 1,113 | 5.14 [4.89, 5.41] | 0.82 / 0.91 | 5.15 | 0.81 / 0.91 | 5.14 | 0.81 / 0.91 |
+| ours, P3 ensemble, reject 20 % | P3 ensemble + the same rejection | zero-shot | 855 / 890 | 4.83 [4.56, 5.12] | 0.85 / 0.93 | 4.65 | 0.85 / 0.92 | 4.87 | 0.84 / 0.93 |
+| **ours, P4 ensemble** | LaBraM encoder + ABMIL, one run: shorter window phase, joint phase with an added per-window age loss; mean of the 5 CV fold models | zero-shot | 1,062 / 1,113 | **4.92 [4.68, 5.19]** | **0.83 / 0.91** | **4.96** | **0.82 / 0.91** | **4.92** | **0.83 / 0.91** |
+| **ours, P4 ensemble, reject 20 %** | P4 ensemble + the same rejection | zero-shot | 854 / 890 | **4.54 [4.27, 4.81]** | **0.86 / 0.93** | **4.32** | **0.87 / 0.93** | **4.58** | **0.86 / 0.93** |
+| Hajhassani et al. 2026 (preprint) | CTNet (CNN + transformer) with GEDAI artifact removal | zero-shot, trained on TUEG | healthy 20–90, n in a figure | — | — | 8.36 | 0.59 / — | — | — |
+| Bikki & Zeng 2026 (abstract only, unverified) | compact CNN (EEGBrainageX) | zero-shot, trained on TUABX | unknown | — | 0.83 / — | — | — | — | — |
+| Tveitstøl et al. 2025 (from the abstract, unverified) | Inception / Deep4Net / ShallowNet CNNs | leave one dataset out | 1,273, EC, 5–88 | — | −0.01 / 0.63 | — | — | — | — |
+| Khayretdinova et al. 2022 | deep CNN on raw 5 s segments | **within** TDBRAIN, 10-fold subject CV | 1,335 sessions, **5–88** | 5.96 ± 0.33 | 0.81 / 0.90 | — | — | — | — |
+| Bikki & Zeng 2026 (abstract only, unverified) | compact CNN | **within** TDBRAIN | unknown | 5.83 ± 0.66 | 0.84 / — | — | — | — | — |
+| Hu et al. 2025 (NEOBA) | oscillation + coupling features → MLP | "validation in TDBRAIN", protocol unclear | 1,274, **5–89** | 4.95 | — | — | — | — | — |
+| Bomatter et al. 2024 | Riemannian / filter-bank covariance + ridge | **within** TDBRAIN, 10×10-fold CV | 1,134 first sessions, **5–89** | — | ≈ 0.8 / — | — | — | — | — |
+
+### Table 12.2. The pathological sessions by indication group (adults, per session)
+
+MAE / R² / r. Groups overlap: an `MDD/ADHD` row counts in both, so the n do not add up to 934.
+**MDD**: major depressive disorder. **ADHD**: attention-deficit/hyperactivity disorder (incl. ADD).
+**OCD**: obsessive-compulsive disorder. **SMC**: subjective memory complaints (older adults
+worried about their memory, mean age 66). **Other**: the remaining indications: tinnitus, insomnia,
+Parkinson's disease, dyslexia, chronic pain, burnout, anxiety, depersonalisation, bipolar disorder,
+whiplash, autism spectrum / PDD-NOS, migraine, TBI and others. **Unknown**: no indication recorded.
+
+| group | n (subjects / sessions) | age, mean | E2L | P3 ensemble | P4 ensemble | P4 ensemble, reject 20 % (kept share) |
+|---|---|---|---|---|---|---|
+| healthy (reference) | 179 / 179 | 40.3 | 5.28 / 0.81 / 0.90 | 5.15 / 0.81 / 0.91 | 4.96 / 0.82 / 0.91 | 4.32 / 0.87 / 0.93 (80 %) |
+| MDD | 351 / 359 | 45.4 | 5.36 / 0.73 / 0.87 | 5.28 / 0.75 / 0.88 | 5.11 / 0.77 / 0.88 | 4.95 / 0.79 / 0.90 (79 %) |
+| ADHD | 116 / 121 | 35.6 | 4.34 / 0.75 / 0.87 | 4.10 / 0.76 / 0.89 | 3.93 / 0.78 / 0.89 | 3.69 / 0.79 / 0.90 (86 %) |
+| OCD | 54 / 56 | 34.3 | 4.54 / 0.73 / 0.87 | 4.24 / 0.75 / 0.89 | 4.15 / 0.76 / 0.88 | 3.30 / 0.86 / 0.94 (88 %) |
+| SMC | 89 / 118 | 65.6 | 6.60 / −0.04 / 0.70 | 6.07 / 0.14 / 0.70 | 5.73 / 0.23 / 0.72 | 5.10 / 0.42 / 0.74 (78 %) |
+| other indication | 170 / 175 | 49.4 | 5.28 / 0.75 / 0.88 | 5.21 / 0.76 / 0.89 | 4.94 / 0.78 / 0.89 | 4.76 / 0.81 / 0.91 (77 %) |
+| unknown | 156 / 157 | 40.3 | 5.05 / 0.78 / 0.89 | 4.81 / 0.80 / 0.90 | 4.62 / 0.81 / 0.91 | 4.21 / 0.86 / 0.93 (80 %) |
+
+**What Tables 12.1 and 12.2 show:**
+- **Healthy and pathological score the same.** With every model the two MAEs differ by
+  ≤ 0.05 y without rejection (P4 ensemble 4.96 vs 4.92), so a psychiatric indication does not
+  make the brain age harder to predict.
+- **The group differences follow age, not diagnosis.** ADHD and OCD (mean age 35) have the
+  lowest MAE (3.9–4.2 with P4), MDD and "other" (45–49) sit near the overall value, and SMC (66)
+  is highest (5.7) with an underestimate (bias −3.4). That is the age trend of Table 9.1. SMC's
+  low R² reflects its narrow age range, not poor ranking (r 0.72). Adjusted for age and sex, no
+  group's gap differs from the healthy controls (Tables 9.3, 11.4).
+- **Rejection helps every group about equally** (≈ 0.4 y with P4) and keeps about 80 % of each.
+  It is not disproportionately dropping one diagnosis. OCD (88 % kept) and ADHD (86 %) are slightly
+  more often confident than SMC (78 %) and "other" (77 %).
+- **The ranking holds in every group:** P4 ensemble < P3 ensemble < E2L.
 The published rows use the 2022 release (1,274 subjects, 47 healthy) and, except Hajhassani, include
 children (5–17 y). Including them widens the age range, which raises R² and lowers MAE for the
 same model, because children's ages are compact and well predicted by within-dataset models.
