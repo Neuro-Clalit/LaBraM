@@ -129,9 +129,19 @@ if [[ $step == score || $step == all ]]; then
 fi
 
 if [[ $step == report || $step == all ]]; then
+  # data analytics as for CHBP: metrics per group, predicted vs true age, signal QC and PSD
+  # against the TUH / HEEDB references, TDBRAIN (adults) next to CHBP and LEMON (E2L family)
   mkdir -p docs/data/external_eval/tdbrain docs/figures/tdbrain
-  $PY scripts/external_eval_report.py \
+  for c in chbp lemon; do
+    $PY -c "import json, sys; o = sys.argv[1]; c = sys.argv[2]; \
+json.dump({'E2L': json.load(open(f'{o}/{c}_all.json'))['E2L'], **json.load(open(f'{o}/{c}_all_e2lrob.json'))}, \
+open(f'{o}/{c}_all_e2l_family.json', 'w'))" $OUT $c
+  done
+  E=/data/datasets/EEG-public
+  $PY scripts/external_eval_report.py --plot-models E2L E2Lrob \
     --eval tdbrain=$OUT/tdbrain_all.json --cohort tdbrain=$COHORT --min-age tdbrain=18 \
+    --eval chbp=$OUT/chbp_all_e2l_family.json --cohort chbp=$E/CHBP/cohorts/chbp_v1 \
+    --eval lemon=$OUT/lemon_all_e2l_family.json --cohort lemon=$E/LEMON/cohorts/lemon_v1 \
     --out-dir docs/data/external_eval/tdbrain --fig-dir docs/figures/tdbrain
 fi
 
