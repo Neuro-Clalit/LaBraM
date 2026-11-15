@@ -11,9 +11,15 @@ eyes-closed and eyes-open) when the manifest has a ``task`` column, else the
 recording. Only recordings aged >= ``--min-age`` (default 18) with an age of
 their own session (``age_session_matched`` where present) are scored.
 
-Healthy: the manifest's ``healthy`` flag (TDBRAIN), else ``dx_status == 0``
-(MIPDB controls), else ``label == "normal"`` (LEMON, CHBP: healthy-volunteer
-corpora). Pathological: every other scored recording.
+Groups. External cohorts: healthy = the manifest's ``healthy`` flag (TDBRAIN),
+else ``dx_status == 0`` (MIPDB controls), else everyone (LEMON, CHBP:
+healthy-volunteer corpora); pathological = every other scored recording. A
+clinical cohort with report labels (the in-domain ``tuh_heedb_v1`` test split):
+healthy = a normal EEG report, pathological = an abnormal report, and a third
+group ``unlabelled`` (no report). A set spec may end in ``:temple`` or
+``:harvard`` to keep one source dataset (manifest ``corpus``: ``heedb`` is
+Harvard, every TUH corpus Temple). Ages missing from the manifest are read
+from the cohort's ``age_metadata.json``.
 
 Metrics and rejection as in ``tdbrain_brain_age.py``: MAE with a 95 %
 subject-bootstrap interval, R^2 about the group's own mean, Pearson r; the
@@ -37,22 +43,27 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tdbrain_brain_age import file_spread, metrics  # noqa: E402
 
 
-def healthy_flag(meta):
+def group_flags(meta):
+    """(healthy, pathological) boolean Series; recordings in neither are 'unlabelled'."""
     if "healthy" in meta and meta["healthy"].notna().any():
-        return meta["healthy"].fillna(False).astype(bool)
+        h = meta["healthy"].fillna(False).astype(bool)
+        return h, ~h
     if "dx_status" in meta and meta["dx_status"].notna().any():
-        return meta["dx_status"] == 0
-    return meta["label"] == "normal"
+        return meta["dx_status"] == 0, meta["dx_status"].notna() & (meta["dx_status"] != 0)
+    if (meta["label"] == "abnormal").any():                 # clinical cohort with report labels
+        return meta["label"] == "normal", meta["label"] == "abnormal"
+    h = pd.Series(True, index=meta.index)
+    return h, ~h
 
 
 def units(meta, pred, spread):
-    d = meta[["subject", "age", "healthy"] + (["session", "task"] if "task" in meta else [])].join(
+    d = meta[["subject", "age", "healthy", "pathological"] + (["session", "task"] if "task" in meta else [])].join(
         pred.rename("pred"), how="inner")
     if spread is not None:
         d = d.join(spread.rename("spread"), how="left")
     if "task" not in meta:
         return d.reset_index(drop=True)
-    agg = {"age": "first", "healthy": "first", "pred": "mean"}
+    agg = {"age": "first", "healthy": "first", "pathological": "first", "pred": "mean"}
     if spread is not None:
         agg["spread"] = "mean"
     return d.groupby(["subject", "session"]).agg(agg).reset_index()
@@ -60,7 +71,7 @@ def units(meta, pred, spread):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--set", action="append", required=True, metavar="NAME:COHORT:EVAL.json:WINDOWS_DIR")
+    ap.add_argument("--set", action="append", required=True, metavar="NAME:COHORT:EVAL.json:WINDOWS_DIR[:FAMILY]")
     ap.add_argument("--models", nargs="+", required=True)
     ap.add_argument("--min-age", type=float, default=18.0)
     ap.add_argument("--reject", type=float, default=0.2)
@@ -68,12 +79,22 @@ def main():
     args = ap.parse_args()
     rows = []
     for spec in args.set:
-        name, cdir, ev, wdir = spec.split(":", 3)
+        name, cdir, ev, wdir, *family = spec.split(":")
         meta = pd.DataFrame(json.load(open(os.path.join(cdir, "manifest.json")))["recordings"]).set_index("stem")
+        side_path = os.path.join(cdir, "age_metadata.json")
+        if os.path.exists(side_path):   # fill what the manifest leaves empty (the TUH rows of tuh_heedb_v1)
+            side = json.load(open(side_path))["recordings"]
+            for col in ("age", "subject", "label"):
+                filled = pd.Series({k: v.get(col) for k, v in side.items()}, dtype=object)
+                meta[col] = meta[col].combine_first(filled) if col in meta else filled
+            meta["age"] = pd.to_numeric(meta["age"], errors="coerce")
+        if family:
+            fam = meta["corpus"].map(lambda c: "harvard" if c == "heedb" else "temple")
+            meta = meta[fam == family[0]]
         if "age_session_matched" in meta:
             meta = meta[meta["age_session_matched"].fillna(True).astype(bool)]
         meta = meta[meta["age"] >= args.min_age].copy()
-        meta["healthy"] = healthy_flag(meta)
+        meta["healthy"], meta["pathological"] = group_flags(meta)
         res = json.load(open(ev))
         for model in args.models:
             pred = pd.Series(res[model]["splits"]["test"]["predictions"], dtype=float)
@@ -83,8 +104,13 @@ def main():
             if spread is not None:
                 variants.append((f"reject {args.reject:.0%}", d[d["spread"] <= d["spread"].quantile(1 - args.reject)]))
             for rej, v in variants:
-                for group, g in (("all", v), ("healthy", v[v.healthy]), ("pathological", v[~v.healthy])):
-                    full = {"all": d, "healthy": d[d.healthy], "pathological": d[~d.healthy]}[group]
+                unl = ~(d.healthy | d.pathological)
+                groups = [("all", v), ("healthy", v[v.healthy]), ("pathological", v[v.pathological])]
+                if unl.any():
+                    groups.append(("unlabelled", v[~(v.healthy | v.pathological)]))
+                for group, g in groups:
+                    full = {"all": d, "healthy": d[d.healthy], "pathological": d[d.pathological],
+                            "unlabelled": d[unl]}[group]
                     row = {"cohort": name, "model": model, "rejection": rej, "group": group, "n": len(g),
                            "n_subjects": g["subject"].nunique(), "kept_share": len(g) / len(full) if len(full) else np.nan}
                     if len(g) >= 10:

@@ -711,13 +711,19 @@ window after the training trims. Healthy = TDBRAIN `healthy`, MIPDB `DX_Status` 
 everyone (healthy-volunteer corpora). Numbers: `docs/data/external_eval/tdbrain/external_cohort_table.csv`.
 HBN adults is left out: its onboarding marks it reference-only, and its adults span only 18–22 y.
 
-### Figure 13.1. Zero-shot MAE per cohort, adults
+### Figure 13.1. Brain-age MAE per cohort, adults: in-domain (Temple, Harvard) and zero-shot
 
 ![MAE per cohort](figures/tdbrain/cohort_mae_bars.png)
 
 (a) every recording (TDBRAIN: session), (b) after rejecting the 20 % of units with the largest
 spread of window predictions. Bars: E2L, P3 ensemble, P4 ensemble; whiskers: 95 % subject-bootstrap
-interval; dashed: the predict-the-cohort-mean MAE. `scripts/external_cohort_bars.py`.
+interval; dashed grey: the predict-the-cohort-mean MAE. In (a), the black line across a cohort is
+the best published MAE: solid for a model trained on that cohort, dotted for a zero-shot model
+(Temple: Gemein et al. 2024 on TUAB, 9.45 = their normal 6.60 and abnormal 12.85 weighted by the
+150 / 126 recordings of the TUAB evaluation set; TDBRAIN: Khayretdinova 2022, ages 5–88, and
+Hajhassani 2026, healthy only; LEMON: Engemann 2022 and Hajhassani 2026; CHBP: Engemann 2022).
+Temple and Harvard are scored with the training protocol (first 5 minutes after a 60 s trim), the
+external cohorts with every window. `scripts/external_cohort_bars.py`.
 
 ### Table 13.1. LEMON, adults (214 subjects, 20–80 y, ages in 5-year bins; all healthy volunteers)
 
@@ -788,3 +794,61 @@ EGI net mapped to 19 positions.
   MIL doc (2.33 vs 2.96 y).
 - **The spread rejection helps where the error is noisy recordings** (TDBRAIN −0.4, LEMON −0.9 y),
   but not where it is a shift shared by every recording (CHBP −0.1 to −0.4 y).
+
+## 14. The same table for the in-domain test cohorts: Temple (TUH) and Harvard (HEEDB) (2026-11-16)
+
+The held-out test split of `tuh_heedb_v1` (7,612 recordings, never used for training or model
+selection by any fold), split by source dataset (manifest `corpus`: `heedb` = Harvard, TUH =
+Temple). The models were trained on the other recordings of the same two corpora, so these
+cohorts are **in-domain**, not zero-shot. They are scored with the training protocol, the first
+5 minutes after a 60 s trim. That is the protocol of every in-domain number in the MIL doc, and
+the per-fold MAE reproduces its Table 13.14 exactly. All 11 models were re-scored with
+`--save-windows` (`/data/runs/heedb/external_eval/windows/own_5min_models`) for the rejection.
+Here **healthy** = a normal EEG report, **pathological** = an abnormal report, **unlabelled** = no
+report verdict (Harvard sessions whose report was not classified). This is the EEG reading, not a
+clinical diagnosis as in TDBRAIN.
+
+### Table 14.1. Temple (TUH), adults (249 subjects, 272 recordings; normal report 149, abnormal 123)
+
+| model / study | method | protocol | MAE, all | R²/r, all | MAE, normal report | R²/r, normal | MAE, abnormal report | R²/r, abnormal |
+|---|---|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | in-domain | 6.40 [5.75, 7.09] | 0.78 / 0.89 | 4.91 | 0.85 / 0.93 | 8.21 | 0.62 / 0.79 |
+| ours, E2L, reject 20 % | E2L + spread reject | in-domain | 5.87 [5.23, 6.54] | 0.83 / 0.92 | 4.88 | 0.85 / 0.93 | 7.25 | 0.70 / 0.84 |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | in-domain | 5.87 [5.24, 6.52] | 0.81 / 0.90 | 4.61 | 0.87 / 0.93 | 7.39 | 0.67 / 0.82 |
+| **ours, P3 ensemble, reject 20 %** | P3 + spread reject | in-domain | **5.44 [4.84, 6.09]** | **0.85 / 0.92** | 4.64 | 0.86 / 0.93 | **6.59** | **0.76 / 0.87** |
+| **ours, P4 ensemble** | LaBraM + ABMIL (+ window loss), 5-fold ens. | in-domain | **5.87 [5.25, 6.54]** | **0.81 / 0.90** | **4.52** | **0.87 / 0.93** | 7.50 | 0.67 / 0.82 |
+| ours, P4 ensemble, reject 20 % | P4 + spread reject | in-domain | 5.69 [5.02, 6.42] | 0.84 / 0.92 | 4.62 | 0.87 / 0.93 | 7.26 | 0.72 / 0.85 |
+| Gemein et al. 2024 | TCN, trained on normal recordings only | within TUAB (train / eval) | 9.45 (weighted) | — | 6.60 | — | 12.85 | — |
+
+Gemein et al. trained on normal recordings only, so their abnormal MAE includes the brain-age gap
+of pathology by design. Their normal MAE (6.60) is the like-for-like comparison: ours is 4.52–4.91.
+The evaluation sets are close but not identical (TUAB eval 150 / 126 recordings; ours 149 / 123
+adults).
+
+### Table 14.2. Harvard (HEEDB), adults (5,884 subjects, 7,338 recordings; normal report 1,518, abnormal 2,253, unlabelled 3,567)
+
+| model | method | protocol | MAE, all | R²/r, all | MAE, normal | R²/r, normal | MAE, abnormal | R²/r, abnormal | MAE, unlabelled | R²/r, unlabelled |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | in-domain | 7.02 [6.88, 7.16] | 0.79 / 0.90 | 7.12 | 0.78 / 0.89 | 7.56 | 0.75 / 0.87 | 6.64 | 0.81 / 0.91 |
+| ours, E2L, reject 20 % | E2L + spread reject | in-domain | 6.76 [6.60, 6.93] | 0.77 / 0.88 | 6.71 | 0.75 / 0.87 | 7.33 | 0.69 / 0.84 | 6.45 | 0.81 / 0.90 |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | in-domain | 5.98 [5.86, 6.12] | 0.84 / 0.91 | 5.73 | 0.84 / 0.92 | 6.52 | 0.80 / 0.89 | 5.74 | 0.85 / 0.92 |
+| ours, P3 ensemble, reject 20 % | P3 + spread reject | in-domain | 5.61 [5.46, 5.75] | 0.86 / 0.93 | 5.27 | 0.87 / 0.93 | 6.13 | 0.83 / 0.91 | 5.42 | 0.87 / 0.94 |
+| **ours, P4 ensemble** | LaBraM + ABMIL (+ window loss), 5-fold ens. | in-domain | **5.94 [5.82, 6.07]** | **0.84 / 0.92** | **5.69** | **0.84 / 0.92** | **6.49** | **0.80 / 0.89** | **5.70** | **0.85 / 0.92** |
+| **ours, P4 ensemble, reject 20 %** | P4 + spread reject | in-domain | **5.56 [5.42, 5.71]** | **0.87 / 0.93** | **5.27** | **0.87 / 0.93** | **6.09** | **0.83 / 0.91** | **5.36** | **0.88 / 0.94** |
+| published | — | — | none known for HEEDB | — | — | — | — | — | — | — |
+
+**What Tables 14.1–14.2 show:**
+- **In-domain, the CV ensembles beat E2L by about 1 y on Harvard** (5.94–5.98 vs 7.02) and 0.5 y on
+  Temple. This is the gain the MIL doc reported (5-fold ensembles 5.94 / 5.98 vs 7.00 on the whole
+  test split).
+- **Here an abnormal report does cost accuracy** (Temple 7.5 vs 4.5, Harvard 6.5 vs 5.7 with P4),
+  unlike TDBRAIN's psychiatric indications (Table 12.1). An abnormal EEG (slowing, epileptiform
+  activity, encephalopathy) changes the signal the age is read from. Part of the gap is age:
+  abnormal-report patients are 9–13 y older (58–60 vs 45–49 y).
+- **Our zero-shot TDBRAIN / LEMON numbers (4.67–4.92) are better than in-domain Harvard (5.94)**.
+  Healthy-volunteer or outpatient recordings are easier than clinical hospital EEG, even for a
+  model trained on the latter.
+- **The spread rejection helps in-domain too** (Harvard −0.38 y with P4, every report group),
+  except E2L on Temple normal (4.91 → 4.88, no change).
+- **Against the published TUAB result**, normal-report Temple MAE is 4.52 (P4) against 6.60
+  (Gemein 2024), and abnormal 7.50 against 12.85.
