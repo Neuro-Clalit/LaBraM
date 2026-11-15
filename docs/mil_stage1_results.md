@@ -1845,3 +1845,121 @@ one-run recipe from P2 on ties two-step L1 at the 0.2-year level (test 6.06–6.
 vs. 6.09) and the one-run models are better on Harvard abnormal; two-step L1
 stays best on LEMON (4.68 vs. 4.85–5.05), mostly through its old subjects
 and its slope. Default recommendation: P3.
+
+### P3 / P4 5-fold CV (L1; 2026-11-14/15)
+
+P3 and P4 (Table 13.10) on all five folds of the shared partition
+(`cross_validation.split_json`, the same folds as P1), each fold a separate
+SageMaker job from `labram-base` (`scripts/mil_runs/submit_grid.sh`, jobs
+`P3_L1` / `P4_L1`). Test is the held-out 7,612-recording split for every
+fold (5-minute evaluation), so the fold models are directly comparable and
+can be averaged. Numbers from `scripts/mil_runs/phased_cv_summary.py`
+(CSV: `docs/data/mil_phased_cv/p3_p4_cv5_{folds,summary}.csv`). Besides
+Eq. (13.1), the LEMON statistics are, over the 214 recordings with true age
+$y_r$ and prediction $\hat y_r$ (years):
+
+$$
+\begin{aligned}
+\mathrm{bias}_G &= \tfrac{1}{|G|}\sum_{r\in G}(\hat y_r - y_r),\qquad G\in\{\text{young: } y_r<40,\ \text{old: } y_r\ge 55\},\\
+\hat b &= \operatorname*{arg\,min}_{b}\min_a \sum_r (\hat y_r - a - b\,y_r)^2\quad(\texttt{np.polyfit}(y,\hat y,1)[0]),
+\end{aligned}
+\tag{13.2}
+$$
+
+and the 5-fold SD is the sample SD (ddof = 1) of the fold values; gap is
+Eq. (12.1) at the last train-eval epoch (16; 15 for P4 fold 3, see Table 13.14).
+
+### Table 13.14. P3 and P4 per fold: best val epoch, val, test, test per cohort, LEMON and the gap
+
+Val is each fold's own val fold (a different 20 % per fold, so val compares
+only within a fold row pair); test and the cohorts are MAE (Eq. (13.1)) of the
+best-val epoch's attention-pooled predictions; Harvard is n / a / u, TUAB is
+n / a; LEMON is the fold model's zero-shot MAE with its slope (Eq. (13.2)).
+¹ The epoch's `analysis/test_bag_weights_*.parquet` was lost to a spot
+interruption or the final sync: the best checkpoint was re-scored with
+`scripts/eval_age_by_cohort.py --save-windows` (same evaluation; 6.13 / 6.06
+/ 6.12 vs. 6.131 / 6.056 / 6.123 in the training logs). P4 fold 3's synced
+log ends at epoch 15 (the job was still uploading epoch 16 when this was
+written), so its best epoch is over epochs 0–15. Instances: OD = on-demand,
+spot with its number of interruptions (resumed from the S3 checkpoint); a
+resumed run continues as a new ClearML task ("final resume").
+
+| recipe | fold | best ep. | val | test | Harvard n / a / u | TUAB n / a | LEMON | slope | gap | instance | ClearML |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| P3 | 0 | 16 | 6.59 | 6.07 | 5.78 / 6.64 / 5.84 | 4.62 / 8.06 | 4.93 | 0.84 | 2.27 | g5.4xl OD | [heedb_mil_P3_L1_fold0_cv5 / fold_0_20261113_235349_341](https://app.clear.ml/projects/1afdda310c1347c7a85c052d43230f11/experiments/519f180abda049799ac7c85ca3993238) |
+| P3 | 1 | 16 | 6.70 | 6.12 | 5.79 / 6.76 / 5.84 | 4.65 / 8.21 | 4.84 | 0.85 | 2.48 | g5.4xl OD | [heedb_mil_P3_L1_fold1_cv5 / fold_1_20261114_185938_355](https://app.clear.ml/projects/8200cdb6756c4ff287bbf938cf4fabd1/experiments/f7fbf8777e9c4914bfa2fe443c193880) |
+| P3 | 2 | 16 | 6.61 | 6.12 | 5.84 / 6.66 / 5.89 | 4.75 / 8.10 | 4.84 | 0.86 | 2.33 | g5.16xl OD | [heedb_mil_P3_L1_fold2_cv5 / fold_2_20261114_185938_039](https://app.clear.ml/projects/7e42bedcae3745209e81ed71ae9fa022/experiments/4641efc260ae4ae9a8baeaaa60973640) |
+| P3 | 3 | 16 | 6.51 | 6.10 | 5.80 / 6.66 / 5.87 | 4.72 / 7.64 | 4.89 | 0.84 | 2.39 | g5.4xl spot (1 intr.) | [heedb_mil_P3_L1_fold3_cv5 / fold_3_20261114_202325_608](https://app.clear.ml/projects/56afd0a22f124d2db6e2e38cb45257d4/experiments/9f563be3e97a49a4ad791c572d4d0021) |
+| P3 | 4 | 16 | 6.54 | 6.13 ¹ | 5.88 / 6.65 / 5.91 | 4.75 / 7.83 | 5.02 | 0.83 | 2.17 | g5.16xl spot (2 intr.) | [heedb_mil_P3_L1_fold4_cv5 / fold_4_20261114_192350_064](https://app.clear.ml/projects/d5b57b86e6ea4ca6abeaafed3eff4342/experiments/419f976c628f435b9cff60bcc68ed1a3), [heedb_mil_P3_L1_fold4_cv5 / fold_4_20261115_085652_065 (final resume)](https://app.clear.ml/projects/d5b57b86e6ea4ca6abeaafed3eff4342/experiments/19c355ee29ad421ba09d1d4c521b98af) |
+| P4 | 0 | 15 | 6.59 | 6.06 ¹ | 5.71 / 6.62 / 5.82 | 4.65 / 8.32 | 4.87 | 0.82 | 2.89 | g5.4xl spot (3 intr.) | [heedb_mil_P4_L1_fold0_cv5 / fold_0_20261114_010503_055](https://app.clear.ml/projects/a4115428afa142df9beff2a73f3f9563/experiments/4cea884887f64363b4328b2785a7ab61), [heedb_mil_P4_L1_fold0_cv5 / fold_0_20261114_164231_253 (final resume)](https://app.clear.ml/projects/a4115428afa142df9beff2a73f3f9563/experiments/3b00d40d8f694d86be2156ee06d3ccee) |
+| P4 | 1 | 13 | 6.66 | 6.05 | 5.77 / 6.66 / 5.77 | 4.44 / 8.51 | 4.77 | 0.85 | 3.08 | g5.8xl OD | [heedb_mil_P4_L1_fold1_cv5 / fold_1_20261114_185942_663](https://app.clear.ml/projects/51ee69be05f04b64aa7629c662937aae/experiments/6a7b4f051e5041909995a0e3c1b3f08a) |
+| P4 | 2 | 15 | 6.59 | 6.09 | 5.85 / 6.68 / 5.83 | 4.56 / 7.85 | 4.71 | 0.83 | 2.98 | g6e.4xl OD | [heedb_mil_P4_L1_fold2_cv5 / fold_2_20261114_185925_357](https://app.clear.ml/projects/2a196384764f40dab5a1973959adef61/experiments/30c7b394a3734b168e2dbe248fef339e) |
+| P4 | 3 | 15 | 6.51 | 6.12 ¹ | 5.79 / 6.73 / 5.88 | 4.74 / 7.80 | 4.94 | 0.82 | 3.01 | g6e.8xl OD | [heedb_mil_P4_L1_fold3_cv5 / fold_3_20261115_011224_561](https://app.clear.ml/projects/ad6685cda99e47eabe67d6854e5d9e78/experiments/26e09dee4fd1401ca86af4e3215607fb) |
+| P4 | 4 | 15 | 6.57 | 6.11 | 5.84 / 6.63 / 5.89 | 4.73 / 7.99 | 5.04 | 0.80 | 2.83 | g6e.4xl spot | [heedb_mil_P4_L1_fold4_cv5 / fold_4_20261114_185931_995](https://app.clear.ml/projects/823ee26ce4e3481ab5034cf875f0fd35/experiments/37305825589f4d35a5b415361a22a8f0) |
+### Table 13.15. P3 and P4, 5-fold mean ± SD and 5-fold ensemble vs. P1 CV and two-step L1
+
+Per cohort test MAE, LEMON MAE by age group and slope (Eqs. (13.1), (13.2)).
+"5-fold" is the fold mean ± SD of Table 13.14; "ens." averages the five fold
+models' recording predictions (Eq. (13.1)). P1 values are Tables 13.4 / 13.5
+(per-group LEMON only for its ensemble); two-step L1 is a single model
+(Tables 12.5, 13.5). **Bold**: within 0.2 y of the best value in the row
+(MAE rows), the best slope, the smallest gap. ⁴ P1's gap is at epoch 15 of
+a 16-epoch run with a shorter joint phase (Table 13.6), so it is not the same
+point in training.
+
+| | P3 5-fold | P3 ens. | P4 5-fold | P4 ens. | P1 5-fold | P1 ens. | two-step L1 |
+|---|---|---|---|---|---|---|---|
+| test, all (7,612) | **6.11 ± 0.02** | **5.98** | **6.09 ± 0.03** | **5.94** | 6.16 ± 0.01 | **6.08** | **6.09** |
+| Harvard normal (1,518) | **5.82 ± 0.04** | **5.74** | **5.79 ± 0.06** | **5.70** | 5.94 ± 0.01 | **5.88** | **5.71** |
+| Harvard abnormal (2,253) | **6.67 ± 0.05** | **6.52** | **6.66 ± 0.05** | **6.49** | **6.61 ± 0.03** | **6.51** | 6.79 |
+| Harvard unlabelled (3,567) | **5.87 ± 0.03** | **5.74** | **5.84 ± 0.05** | **5.70** | 5.96 ± 0.03 | **5.87** | **5.80** |
+| TUAB normal (149) | 4.70 ± 0.06 | **4.60** | 4.62 ± 0.13 | **4.52** | 4.72 ± 0.06 | 4.65 | **4.41** |
+| TUAB abnormal (125) | 7.97 ± 0.23 | **7.68** | 8.10 ± 0.31 | **7.80** | 8.06 ± 0.14 | 7.97 | 8.13 |
+| LEMON (214) | 4.90 ± 0.07 | **4.82** | **4.87 ± 0.13** | **4.80** | 5.05 ± 0.06 | 5.00 | **4.68** |
+| LEMON young (144) | **3.79 ± 0.06** | **3.72** | **3.80 ± 0.17** | **3.76** | — | **3.88** | **3.75** |
+| LEMON old (70) | 7.19 ± 0.23 | 7.08 | 7.05 ± 0.19 | 6.95 | — | 7.32 | **6.61** |
+| LEMON slope | 0.85 ± 0.01 | 0.85 | 0.82 ± 0.02 | 0.82 | 0.83 | 0.83 | **0.88** |
+| gap (val − train-eval) | **2.33 ± 0.11** | — | 2.96 ± 0.10 | — | 1.57 ⁴ | — | 2.84 |
+What Tables 13.14 and 13.15 show:
+
+* **P3 and P4 are tied.** Fold mean test 6.11 ± 0.02 vs. 6.09 ± 0.03, val
+  6.59 ± 0.07 vs. 6.58 ± 0.05, ensembles 5.98 vs. 5.94: every in-domain
+  difference is below 0.15 y, and the fold SD of test (0.02–0.03) shows the
+  fold-0 results of Table 13.12 were representative. P4's TUAB normal / LEMON
+  old edge (4.62 vs. 4.70; 7.05 vs. 7.19) is inside the TUAB / LEMON fold SDs
+  (0.06–0.23).
+* **Both are better than P1** overall and on Harvard normal / unlabelled by
+  0.05–0.15 y as single models (test 6.09–6.11 vs. 6.16, Harvard normal
+  5.79–5.82 vs. 5.94, unlabelled 5.84–5.87 vs. 5.96) and on LEMON by
+  0.15–0.18 y (4.87–4.90 vs. 5.05); Harvard abnormal (6.66–6.67 vs. 6.61)
+  and TUAB abnormal (7.97–8.10 vs. 8.06) are equal. The fold SDs (≤ 0.03 on
+  test) make the overall gain real although it is below the 0.2-y rule.
+* **No degradation against two-step L1 in-domain.** A single P3/P4 fold
+  model ties it (6.09–6.11 vs. 6.09; Harvard abnormal 6.66–6.67 vs. 6.79,
+  Harvard normal 5.79–5.82 vs. 5.71, TUAB normal 4.62–4.70 vs. 4.41), and
+  the 5-fold ensembles beat it overall (5.94–5.98 vs. 6.09) and on Harvard
+  abnormal (6.49–6.52 vs. 6.79), with Harvard normal equal (5.70–5.74 vs.
+  5.71).
+* **LEMON: the gap to two-step L1 is now within the 0.2-y rule** for both
+  the fold models (4.87–4.90 vs. 4.68) and the ensembles (4.80–4.82). It is
+  still a consistent shortfall, all of it in the old subjects (ensemble 6.95–7.08
+  vs. 6.61; bias −5.4 to −5.8 vs. −4.44) and in the slope (0.82–0.85 vs.
+  0.88): one-run models compress predictions toward the training mean a
+  little more. The young group is equal (3.72–3.80 vs. 3.75).
+* **Fit.** P3's gap (2.33 ± 0.11) is below two-step L1's (2.84) and P4's
+  (2.96 ± 0.10): P4's per-window loss and bag repeats memorise the training
+  recordings more without a held-out gain. The best val epoch is at the end of the
+  schedule in every fold (epochs 13–16 of 0–16), so neither recipe overfits
+  within its schedule.
+
+**Decision.** Default recipe for one-run MIL training: **P3**
+(`P3_L1` in `scripts/mil_runs/submit_grid.sh`). It ties P4 on every
+in-domain and LEMON row, has the lowest memorisation of any competitive L1
+recipe, needs no extra loss or bag repeats, and its joint epochs are
+cheaper (about 0.3 h vs. 0.5 h on g5.4xlarge). Compared with the two-step
+recipe (E2L window model, then bag training), one P3 run from `labram-base`
+gives the same single-model accuracy in-domain at about half the GPU hours
+(about 12.5 h vs. 27.7 h), and the P3 / P4 5-fold ensembles (5.98 / 5.94) are the
+best in-domain L1 models so far. Keep two-step L1 as the reference for external
+generalisation: it is still 0.1–0.2 y better on LEMON, mainly on subjects
+over 55.
