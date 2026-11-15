@@ -1898,7 +1898,15 @@ resumed run continues as a new ClearML task ("final resume").
 
 Per cohort test MAE, LEMON MAE by age group and slope (Eqs. (13.1), (13.2)).
 "5-fold" is the fold mean ± SD of Table 13.14; "ens." averages the five fold
-models' recording predictions (Eq. (13.1)). P1 values are Tables 13.4 / 13.5
+models' recording predictions (Eq. (13.1)); its ± is the SD over 1,000
+subject-cluster bootstrap resamples of the test recordings (whole subjects
+drawn with replacement within the row's cohort; LEMON: one recording per
+subject; `phased_cv_summary.py --bootstrap 1000`, P1 in
+`docs/data/mil_phased_cv/p1_cv5_summary.csv`). The two ± measure different
+things: the 5-fold SD is the spread over trained models scored on the same
+recordings, the ensemble SD the uncertainty of the score from the finite
+test set. That uncertainty is shared by every model in the row (same
+recordings), so it largely cancels when two models are compared. P1 values are Tables 13.4 / 13.5
 (per-group LEMON only for its ensemble); two-step L1 is a single model
 (Tables 12.5, 13.5). **Bold**: within 0.2 y of the best value in the row
 (MAE rows), the best slope, the smallest gap. ⁴ P1's gap is at epoch 15 of
@@ -1907,16 +1915,16 @@ point in training.
 
 | | P3 5-fold | P3 ens. | P4 5-fold | P4 ens. | P1 5-fold | P1 ens. | two-step L1 |
 |---|---|---|---|---|---|---|---|
-| test, all (7,612) | **6.11 ± 0.02** | **5.98** | **6.09 ± 0.03** | **5.94** | 6.16 ± 0.01 | **6.08** | **6.09** |
-| Harvard normal (1,518) | **5.82 ± 0.04** | **5.74** | **5.79 ± 0.06** | **5.70** | 5.94 ± 0.01 | **5.88** | **5.71** |
-| Harvard abnormal (2,253) | **6.67 ± 0.05** | **6.52** | **6.66 ± 0.05** | **6.49** | **6.61 ± 0.03** | **6.51** | 6.79 |
-| Harvard unlabelled (3,567) | **5.87 ± 0.03** | **5.74** | **5.84 ± 0.05** | **5.70** | 5.96 ± 0.03 | **5.87** | **5.80** |
-| TUAB normal (149) | 4.70 ± 0.06 | **4.60** | 4.62 ± 0.12 | **4.52** | 4.72 ± 0.06 | 4.65 | **4.41** |
-| TUAB abnormal (125) | 7.97 ± 0.23 | **7.68** | 8.10 ± 0.30 | **7.81** | 8.06 ± 0.14 | 7.97 | 8.13 |
-| LEMON (214) | 4.90 ± 0.07 | **4.82** | **4.87 ± 0.13** | **4.80** | 5.05 ± 0.06 | 5.00 | **4.68** |
-| LEMON young (144) | **3.79 ± 0.06** | **3.72** | **3.82 ± 0.18** | **3.77** | — | **3.88** | **3.75** |
-| LEMON old (70) | 7.19 ± 0.23 | 7.08 | 7.03 ± 0.15 | 6.91 | — | 7.32 | **6.61** |
-| LEMON slope | 0.85 ± 0.01 | 0.85 | 0.82 ± 0.02 | 0.82 | 0.83 | 0.83 | **0.88** |
+| test, all (7,612) | **6.11 ± 0.02** | **5.98 ± 0.07** | **6.09 ± 0.03** | **5.94 ± 0.07** | 6.16 ± 0.01 | **6.08 ± 0.07** | **6.09** |
+| Harvard normal (1,518) | **5.82 ± 0.04** | **5.74 ± 0.14** | **5.79 ± 0.06** | **5.69 ± 0.14** | 5.94 ± 0.01 | **5.88 ± 0.15** | **5.71** |
+| Harvard abnormal (2,253) | **6.67 ± 0.05** | **6.52 ± 0.13** | **6.66 ± 0.05** | **6.49 ± 0.13** | **6.61 ± 0.03** | **6.51 ± 0.13** | 6.79 |
+| Harvard unlabelled (3,567) | **5.87 ± 0.03** | **5.74 ± 0.09** | **5.84 ± 0.05** | **5.70 ± 0.09** | 5.96 ± 0.03 | **5.87 ± 0.10** | **5.80** |
+| TUAB normal (149) | 4.70 ± 0.06 | **4.60 ± 0.32** | 4.62 ± 0.12 | **4.52 ± 0.32** | 4.72 ± 0.06 | 4.65 ± 0.33 | **4.41** |
+| TUAB abnormal (125) | 7.97 ± 0.23 | **7.68 ± 0.64** | 8.10 ± 0.30 | **7.81 ± 0.63** | 8.06 ± 0.14 | 7.97 ± 0.63 | 8.13 |
+| LEMON (214) | 4.90 ± 0.07 | **4.82 ± 0.30** | **4.87 ± 0.13** | **4.80 ± 0.30** | 5.05 ± 0.06 | 5.00 ± 0.31 | **4.68** |
+| LEMON young (144) | **3.79 ± 0.06** | **3.72 ± 0.25** | **3.82 ± 0.18** | **3.77 ± 0.26** | — | **3.88 ± 0.26** | **3.75** |
+| LEMON old (70) | 7.19 ± 0.23 | 7.08 ± 0.69 | 7.03 ± 0.15 | 6.91 ± 0.68 | — | 7.32 ± 0.69 | **6.61** |
+| LEMON slope | 0.85 ± 0.01 | 0.85 ± 0.02 | 0.82 ± 0.02 | 0.82 ± 0.02 | 0.83 | 0.83 ± 0.02 | **0.88** |
 | gap (val − train-eval) | **2.33 ± 0.11** | — | 2.96 ± 0.10 | — | 1.57 ⁴ | — | 2.84 |
 What Tables 13.14 and 13.15 show:
 
@@ -1936,7 +1944,7 @@ What Tables 13.14 and 13.15 show:
   model ties it (6.09–6.11 vs. 6.09; Harvard abnormal 6.66–6.67 vs. 6.79,
   Harvard normal 5.79–5.82 vs. 5.71, TUAB normal 4.62–4.70 vs. 4.41), and
   the 5-fold ensembles beat it overall (5.94–5.98 vs. 6.09) and on Harvard
-  abnormal (6.49–6.52 vs. 6.79), with Harvard normal equal (5.70–5.74 vs.
+  abnormal (6.49–6.52 vs. 6.79), with Harvard normal equal (5.69–5.74 vs.
   5.71).
 * **LEMON: the gap to two-step L1 is now within the 0.2-y rule** for both
   the fold models (4.87–4.90 vs. 4.68) and the ensembles (4.80–4.82). It is
@@ -1961,3 +1969,79 @@ gives the same single-model accuracy in-domain at about half the GPU hours
 best in-domain L1 models so far. Keep two-step L1 as the reference for external
 generalisation: it is still 0.1–0.2 y better on LEMON, mainly on subjects
 over 55.
+
+### P3 / P4 5-fold CV over epochs
+
+Figures 13.2–13.5 follow every evaluated split through training: per epoch
+the recording MAE (Eq. (13.1)) of the 500-per-dataset train-eval sample
+(`evaluation.train_eval_recordings`, epochs 3, 7, 11, 15 and the last), of
+the fold's own val split and of the held-out test split, overall and per
+data cohort (`{split}_{group}_mae` in each fold's `log.txt`), and LEMON
+(`test_lemon_mae`, test only). Each point is the mean over the folds and the
+error bar ± 1 sample SD (ddof = 1) over the folds, i.e. the spread over
+trained models. Grey: window phase; orange: attention-only epoch; white:
+joint training. Temple is TUH: on test it is the TUAB test recordings
+(Temple normal / abnormal = TUAB normal / abnormal of Table 13.15), on val
+and train-eval it also holds TUEG recordings, so Temple val and test are
+different populations. P3 fold 3 lost its epoch-0 log line to a spot
+resume (n = 4 at epoch 0). Plotted values:
+`docs/data/mil_phased_cv/cv_curves.csv` (`scripts/mil_runs/phased_cv_curves.py`).
+
+### Figure 13.2. P3 over epochs: train-eval / val / test MAE per cohort, 5-fold mean ± SD
+
+(a) all recordings, (b)–(d) Harvard normal / abnormal / unlabelled,
+(e)–(g) Temple normal / abnormal / all, (h) LEMON zero-shot. Years; 5 folds.
+
+![P3 CV curves](figures/mil_cv_curves_p3.png)
+
+### Figure 13.3. P4 over epochs: train-eval / val / test MAE per cohort, 5-fold mean ± SD
+
+Panels as in Figure 13.2.
+
+![P4 CV curves](figures/mil_cv_curves_p4.png)
+
+### Figure 13.4. P1 over epochs: train-eval / val / test MAE per cohort, 5-fold mean ± SD
+
+Panels as in Figure 13.2 (P1: 10 window + 2 attention-only + 4 joint
+epochs, 0–15).
+
+![P1 CV curves](figures/mil_cv_curves_p1.png)
+
+### Figure 13.5. P1 vs. P3 vs. P4 over epochs, 5-fold mean ± SD
+
+(a) test, (b) own-fold val, (c) train-eval, all recordings; (d) LEMON.
+Years; the y-axes of (a), (b), (d) are zoomed on the end of training
+(epochs before 3 are off the plot, Figures 13.2–13.4 show them).
+
+![P1 P3 P4 CV curves](figures/mil_cv_curves_compare.png)
+
+What Figures 13.2–13.5 show:
+
+* **The attention epoch is the largest single step.** At the end of the
+  window phase the recording MAE (windows pooled by the still-untrained
+  attention) is 7.28 for P3 (epoch 9), 7.54 for P4 (epoch 7) and 7.68 for
+  P1 (epoch 9); the first attention-only epoch takes test to 6.56 (P3,
+  epoch 10), 6.72 (P4, epoch 8) and 6.92 (P1, epoch 10), and joint training
+  then adds 0.45–0.75 y (to 6.11 / 6.10 / 6.16, Figure 13.5(a)). P4's
+  shorter window phase reaches the bag phase two epochs earlier and leads
+  P3 by 0.1–0.9 y on epochs 8–11, but the two meet from epoch 13 on (6.12
+  vs. 6.18 at 13, 6.10 vs. 6.11 at 16).
+* **No overfitting in any recipe.** Val and test still fall or stay flat to
+  the last epoch in every cohort (Figures 13.2(a)–(g), 13.3), while
+  train-eval keeps falling: the gap widens, most for P4 (train-eval 3.63 vs.
+  4.26 for P3 at the end, Figure 13.5(c)), without a val or test cost.
+  Memorisation is concentrated on Temple (train-eval 3.2–4.0 vs. val 7.5,
+  Figure 13.2(g)).
+* **Folds agree closely by the end.** The test SD over folds falls from
+  0.2–0.5 y in the window phase to 0.01–0.03 y in the last epochs (all
+  recordings) and 0.1–0.3 y on the small TUAB cohorts; val SD stays at
+  0.06–0.07 y because each fold has its own val split.
+* **LEMON is noisier but follows test** (Figure 13.5(d)): 5.8 → 5.2 at the
+  attention epoch for P3, then 4.8–5.0 over the joint epochs with a fold SD
+  of 0.05–0.25 y; none of P1 / P3 / P4 separates from the others after
+  epoch 12 by more than the fold SD.
+* **Per cohort the ranking is stable:** Harvard abnormal is the hardest
+  Harvard cohort on val and test (6.7), Harvard normal / unlabelled the
+  easiest (5.8–6.0); Temple abnormal (TUAB abnormal) stays near 8.0 on test
+  while Temple normal (TUAB normal) reaches 4.6–4.7 (Figures 13.2(e), (f),
+  13.3(e), (f)).
