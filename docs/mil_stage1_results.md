@@ -1867,7 +1867,7 @@ $$
 $$
 
 and the 5-fold SD is the sample SD (ddof = 1) of the fold values; gap is
-Eq. (12.1) at the last train-eval epoch (16; 15 for P4 fold 3, see Table 13.14).
+Eq. (12.1) at the last epoch (16).
 
 ### Table 13.14. P3 and P4 per fold: best val epoch, val, test, test per cohort, LEMON and the gap
 
@@ -1878,9 +1878,7 @@ n / a; LEMON is the fold model's zero-shot MAE with its slope (Eq. (13.2)).
 ¹ The epoch's `analysis/test_bag_weights_*.parquet` was lost to a spot
 interruption or the final sync: the best checkpoint was re-scored with
 `scripts/eval_age_by_cohort.py --save-windows` (same evaluation; 6.13 / 6.06
-/ 6.12 vs. 6.131 / 6.056 / 6.123 in the training logs). P4 fold 3's synced
-log ends at epoch 15 (the job was still uploading epoch 16 when this was
-written), so its best epoch is over epochs 0–15. Instances: OD = on-demand,
+/ 6.12 vs. 6.131 / 6.056 / 6.120 in the training logs). Instances: OD = on-demand,
 spot with its number of interruptions (resumed from the S3 checkpoint); a
 resumed run continues as a new ClearML task ("final resume").
 
@@ -1894,7 +1892,7 @@ resumed run continues as a new ClearML task ("final resume").
 | P4 | 0 | 15 | 6.59 | 6.06 ¹ | 5.71 / 6.62 / 5.82 | 4.65 / 8.32 | 4.87 | 0.82 | 2.89 | g5.4xl spot (3 intr.) | [heedb_mil_P4_L1_fold0_cv5 / fold_0_20261114_010503_055](https://app.clear.ml/projects/a4115428afa142df9beff2a73f3f9563/experiments/4cea884887f64363b4328b2785a7ab61), [heedb_mil_P4_L1_fold0_cv5 / fold_0_20261114_164231_253 (final resume)](https://app.clear.ml/projects/a4115428afa142df9beff2a73f3f9563/experiments/3b00d40d8f694d86be2156ee06d3ccee) |
 | P4 | 1 | 13 | 6.66 | 6.05 | 5.77 / 6.66 / 5.77 | 4.44 / 8.51 | 4.77 | 0.85 | 3.08 | g5.8xl OD | [heedb_mil_P4_L1_fold1_cv5 / fold_1_20261114_185942_663](https://app.clear.ml/projects/51ee69be05f04b64aa7629c662937aae/experiments/6a7b4f051e5041909995a0e3c1b3f08a) |
 | P4 | 2 | 15 | 6.59 | 6.09 | 5.85 / 6.68 / 5.83 | 4.56 / 7.85 | 4.71 | 0.83 | 2.98 | g6e.4xl OD | [heedb_mil_P4_L1_fold2_cv5 / fold_2_20261114_185925_357](https://app.clear.ml/projects/2a196384764f40dab5a1973959adef61/experiments/30c7b394a3734b168e2dbe248fef339e) |
-| P4 | 3 | 15 | 6.51 | 6.12 ¹ | 5.79 / 6.73 / 5.88 | 4.74 / 7.80 | 4.94 | 0.82 | 3.01 | g6e.8xl OD | [heedb_mil_P4_L1_fold3_cv5 / fold_3_20261115_011224_561](https://app.clear.ml/projects/ad6685cda99e47eabe67d6854e5d9e78/experiments/26e09dee4fd1401ca86af4e3215607fb) |
+| P4 | 3 | 16 | 6.50 | 6.12 ¹ | 5.78 / 6.73 / 5.88 | 4.71 / 7.82 | 4.94 | 0.82 | 3.02 | g6e.8xl OD | [heedb_mil_P4_L1_fold3_cv5 / fold_3_20261115_011224_561](https://app.clear.ml/projects/ad6685cda99e47eabe67d6854e5d9e78/experiments/26e09dee4fd1401ca86af4e3215607fb) |
 | P4 | 4 | 15 | 6.57 | 6.11 | 5.84 / 6.63 / 5.89 | 4.73 / 7.99 | 5.04 | 0.80 | 2.83 | g6e.4xl spot | [heedb_mil_P4_L1_fold4_cv5 / fold_4_20261114_185931_995](https://app.clear.ml/projects/823ee26ce4e3481ab5034cf875f0fd35/experiments/37305825589f4d35a5b415361a22a8f0) |
 ### Table 13.15. P3 and P4, 5-fold mean ± SD and 5-fold ensemble vs. P1 CV and two-step L1
 
@@ -1913,11 +1911,11 @@ point in training.
 | Harvard normal (1,518) | **5.82 ± 0.04** | **5.74** | **5.79 ± 0.06** | **5.70** | 5.94 ± 0.01 | **5.88** | **5.71** |
 | Harvard abnormal (2,253) | **6.67 ± 0.05** | **6.52** | **6.66 ± 0.05** | **6.49** | **6.61 ± 0.03** | **6.51** | 6.79 |
 | Harvard unlabelled (3,567) | **5.87 ± 0.03** | **5.74** | **5.84 ± 0.05** | **5.70** | 5.96 ± 0.03 | **5.87** | **5.80** |
-| TUAB normal (149) | 4.70 ± 0.06 | **4.60** | 4.62 ± 0.13 | **4.52** | 4.72 ± 0.06 | 4.65 | **4.41** |
-| TUAB abnormal (125) | 7.97 ± 0.23 | **7.68** | 8.10 ± 0.31 | **7.80** | 8.06 ± 0.14 | 7.97 | 8.13 |
+| TUAB normal (149) | 4.70 ± 0.06 | **4.60** | 4.62 ± 0.12 | **4.52** | 4.72 ± 0.06 | 4.65 | **4.41** |
+| TUAB abnormal (125) | 7.97 ± 0.23 | **7.68** | 8.10 ± 0.30 | **7.81** | 8.06 ± 0.14 | 7.97 | 8.13 |
 | LEMON (214) | 4.90 ± 0.07 | **4.82** | **4.87 ± 0.13** | **4.80** | 5.05 ± 0.06 | 5.00 | **4.68** |
-| LEMON young (144) | **3.79 ± 0.06** | **3.72** | **3.80 ± 0.17** | **3.76** | — | **3.88** | **3.75** |
-| LEMON old (70) | 7.19 ± 0.23 | 7.08 | 7.05 ± 0.19 | 6.95 | — | 7.32 | **6.61** |
+| LEMON young (144) | **3.79 ± 0.06** | **3.72** | **3.82 ± 0.18** | **3.77** | — | **3.88** | **3.75** |
+| LEMON old (70) | 7.19 ± 0.23 | 7.08 | 7.03 ± 0.15 | 6.91 | — | 7.32 | **6.61** |
 | LEMON slope | 0.85 ± 0.01 | 0.85 | 0.82 ± 0.02 | 0.82 | 0.83 | 0.83 | **0.88** |
 | gap (val − train-eval) | **2.33 ± 0.11** | — | 2.96 ± 0.10 | — | 1.57 ⁴ | — | 2.84 |
 What Tables 13.14 and 13.15 show:
@@ -1926,7 +1924,7 @@ What Tables 13.14 and 13.15 show:
   6.59 ± 0.07 vs. 6.58 ± 0.05, ensembles 5.98 vs. 5.94: every in-domain
   difference is below 0.15 y, and the fold SD of test (0.02–0.03) shows the
   fold-0 results of Table 13.12 were representative. P4's TUAB normal / LEMON
-  old edge (4.62 vs. 4.70; 7.05 vs. 7.19) is inside the TUAB / LEMON fold SDs
+  old edge (4.62 vs. 4.70; 7.03 vs. 7.19) is inside the TUAB / LEMON fold SDs
   (0.06–0.23).
 * **Both are better than P1** overall and on Harvard normal / unlabelled by
   0.05–0.15 y as single models (test 6.09–6.11 vs. 6.16, Harvard normal
@@ -1942,8 +1940,8 @@ What Tables 13.14 and 13.15 show:
   5.71).
 * **LEMON: the gap to two-step L1 is now within the 0.2-y rule** for both
   the fold models (4.87–4.90 vs. 4.68) and the ensembles (4.80–4.82). It is
-  still a consistent shortfall, all of it in the old subjects (ensemble 6.95–7.08
-  vs. 6.61; bias −5.4 to −5.8 vs. −4.44) and in the slope (0.82–0.85 vs.
+  still a consistent shortfall, all of it in the old subjects (ensemble 6.91–7.08
+  vs. 6.61; bias −5.4 to −5.7 vs. −4.44) and in the slope (0.82–0.85 vs.
   0.88): one-run models compress predictions toward the training mean a
   little more. The young group is equal (3.72–3.80 vs. 3.75).
 * **Fit.** P3's gap (2.33 ± 0.11) is below two-step L1's (2.84) and P4's
