@@ -456,3 +456,84 @@ mount.
 `TDBRAIN_MDD_Dx_ReplicationV3_1_Encr.zip` (offered next to the dataset) is not downloaded yet.
 By its name it holds the blinded MDD diagnosis-replication set. Its EEG and ages would add
 recordings to the age evaluation; its withheld diagnoses cannot enter Table 9.3.
+
+## 10. Data analytics: TDBRAIN next to CHBP, LEMON and the training data (2026-11-15)
+
+**Preprocessing is the training pipeline.** TDBRAIN goes through
+`make_TUH_npy.preprocess_raw`, the function that prepared the Temple (TUH) and Harvard
+training cohorts and CHBP / LEMON / MIPDB: 0.1–75 Hz band-pass, spectrum-interpolation line
+removal at 50 and 60 Hz, resampling to 200 Hz, µV, float16, the 23 TUH channels in model order
+(missing ones zero and masked), the recorded reference kept and the common average reference
+applied in the model. Only two TDBRAIN-specific steps come before it, both needed for these
+files: cutting the constant end pad (Section 7) and removing each channel's DC offset. There is
+nothing to choose between "like Temple" and "like CHBP": they are the same pipeline.
+
+`tdbrain.sh report` runs `scripts/external_eval_report.py` on TDBRAIN (adults,
+`--min-age tdbrain=18`), CHBP and LEMON with E2L and E2Lrob. TDBRAIN's QC windows are each
+file's windows 1 to n − 2 (`QC_WINDOWS`), and eyes closed and eyes open are summarised
+separately. The other cohorts use the first 5 minutes after the 60 s trim. Band shares are
+relative to 1–45 Hz power after CAR, as in `docs/chbp_onboarding.md` Table 2.1.
+
+### Table 10.1. Signal QC, median over recordings (`docs/data/external_eval/tdbrain/qc_summary.csv`)
+
+| source | n | channel std after CAR (µV) | alpha peak O1/O2 (Hz) | delta | theta | alpha | beta | share > 300 µV |
+|---|---|---|---|---|---|---|---|---|
+| TUH normal (training) | 100 | 9.96 | 9.00 | 0.495 | 0.124 | 0.136 | 0.131 | 0.000 |
+| HEEDB normal (training) | 100 | 13.01 | 9.00 | 0.527 | 0.125 | 0.156 | 0.123 | 0.025 |
+| LEMON | 215 | 8.98 | 9.75 | 0.452 | 0.130 | 0.183 | 0.139 | 0.000 |
+| CHBP | 250 | **5.89** | 10.00 | 0.257 | 0.121 | **0.457** | 0.115 | 0.000 |
+| **TDBRAIN eyes closed** | 1,113 | **9.62** | 9.50 | 0.262 | 0.127 | **0.354** | 0.159 | 0.000 |
+| **TDBRAIN eyes open** | 1,109 | 8.45 | 9.00 | 0.446 | 0.142 | 0.147 | 0.155 | 0.000 |
+
+### Figure 10.1. Median power spectrum per source
+
+![PSD](figures/tdbrain/external_qc_psd.png)
+
+Median PSD (µV²/Hz, log scale) over recordings and channels, 1–45 Hz, CAR. Solid: TDBRAIN
+eyes closed / eyes open, CHBP, LEMON. Dashed: the TUH and HEEDB normal references.
+
+### Table 10.2. E2L per group, adults (`docs/data/external_eval/tdbrain/metrics.csv`)
+
+Per file. MAE / bias / r; "recal." = MAE after a 5-fold subject-grouped linear recalibration
+on the cohort's own ages (not zero-shot).
+
+| cohort / group | n | age, mean | E2L MAE / bias / r | E2L recal. | E2Lrob MAE / bias |
+|---|---|---|---|---|---|
+| TDBRAIN, all adults | 2,222 | 45.3 | 5.65 / −1.5 / 0.89 | 5.60 | 6.48 / +3.1 |
+| **TDBRAIN, healthy 18–68 (CHBP-like)** | 326 | 37.4 | **5.18 / −0.2 / 0.88** | 5.46 | 6.63 / +4.5 |
+| TDBRAIN, healthy, all ages ≥ 18 | 354 | 40.3 | 5.53 / −0.9 / 0.89 | 5.76 | 6.84 / +3.5 |
+| TDBRAIN, MDD | 718 | 45.4 | 5.70 / −1.5 / 0.85 | 5.61 | 6.71 / +3.6 |
+| TDBRAIN, ADHD | 242 | 35.6 | 4.78 / −0.3 / 0.85 | 4.91 | 6.20 / +5.0 |
+| TDBRAIN, OCD | 112 | 34.3 | 4.79 / −0.8 / 0.85 | 4.88 | 6.52 / +5.1 |
+| TDBRAIN, SMC | 236 | 65.6 | 6.89 / −5.3 / 0.68 | 6.46 | 5.55 / −3.6 |
+| TDBRAIN, eyes closed / eyes open | 1,113 / 1,109 | 45.2 | 5.60 / −2.0 · 5.71 / −1.1 | 5.48 · 5.71 | 6.34 · 6.63 |
+| **CHBP (healthy, 18–68)** | 250 | 31.7 | **9.35 / +7.0 / 0.45** | 6.59 | 6.14 / +0.2 |
+| LEMON (healthy, 20–80) | 214 | 39.2 | 5.20 / −0.8 / 0.95 | 4.83 | 6.33 / +1.8 |
+
+### Figure 10.2. Predicted vs true age
+
+![pred vs age](figures/tdbrain/external_pred_vs_age.png)
+
+Per file (TDBRAIN) or recording (CHBP, LEMON): (a, c, e) E2L, (b, d, f) E2Lrob. Blue:
+zero-shot; orange: recalibrated (5-fold CV, uses the cohort's ages).
+
+**What Tables 10.1–10.2 and Figures 10.1–10.2 show:**
+- **TDBRAIN looks like the training data where it matters for the model.** The amplitude after
+  CAR (9.6 / 8.4 µV) lies between TUH (10.0) and LEMON (9.0), not near CHBP (5.9). Above
+  12 Hz the spectra sit on top of the references; eyes open is slightly higher above 30 Hz
+  (muscle tone with the eyes open).
+- **Eyes closed has CHBP's spectral shape, but not CHBP's problem.** TDBRAIN eyes closed is
+  alpha-dominated like CHBP (alpha share 0.35 against 0.46, delta 0.26 against 0.26). Yet E2L
+  scores eyes closed as well as eyes open (5.60 against 5.71).
+- **The healthy 18–68 subgroup answers "like CHBP".** The same population as CHBP (healthy
+  adults of the same age range) gives E2L MAE 5.18, bias −0.2, r 0.88 on TDBRAIN, against
+  9.35, bias +7.0, r 0.45 on CHBP. CHBP's failure is therefore the recording, not the
+  population: its amplitude is 40 % lower and its spectrum falls off above 20 Hz (0.5–50 Hz
+  acquisition filter). The amplitude rescaling and the device-robust model fixed CHBP for the
+  same reason (`docs/chbp_domain_shift.md`).
+- **The device-robust model costs on TDBRAIN** (+3 to +5 y bias in every group except SMC).
+  Its band-limit and amplitude normalisation remove information TDBRAIN does not need removed.
+  For data like TDBRAIN, E2L is the model. E2Lrob is for CHBP-like acquisitions.
+- **Within TDBRAIN, the error follows age, not diagnosis.** ADHD and OCD (mean age 35) score
+  4.8, MDD (45) 5.7 and SMC (66) 6.9 with bias −5.3, which is the age trend of Table 9.1.
+  Section 9.2 shows that adjusting for age removes the group differences.

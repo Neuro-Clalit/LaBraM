@@ -51,6 +51,8 @@ def groups(cohort, meta):
                 ("40-68", (age >= 40).to_numpy())]
     if cohort == "tdbrain":
         out += [("18-44", ((age >= 18) & (age < 45)).to_numpy()), ("45-88", (age >= 45).to_numpy())]
+        healthy = meta["healthy"].fillna(False).astype(bool) if "healthy" in meta else age < 0
+        out += [("healthy 18-68 (CHBP-like)", (healthy & (age >= 18) & (age <= 68)).to_numpy())]
         out += [(name, meta[col].fillna(False).astype(bool).to_numpy()) for name, col in
                 (("healthy", "healthy"), ("MDD", "dx_mdd"), ("ADHD", "dx_adhd"), ("OCD", "dx_ocd"),
                  ("SMC", "dx_smc"), ("other dx", "dx_other"), ("blinded (REPLICATION)", "blinded"),
@@ -88,6 +90,8 @@ MIN_AGE = {}                  # cohort -> minimum age analysed (--min-age, e.g. 
 def cohort_meta(cohort_dir, name=None):
     m = json.load(open(os.path.join(cohort_dir, "manifest.json")))
     meta = pd.DataFrame(m["recordings"]).set_index("stem")
+    if "age_session_matched" in meta:              # TDBRAIN: drop first-session fallback ages
+        meta = meta[meta["age_session_matched"].fillna(True).astype(bool)]
     return meta[meta["age"] >= MIN_AGE[name]] if name in MIN_AGE else meta
 
 
@@ -115,11 +119,21 @@ def eval_tables(evals, cohorts):
 
 
 # ------------------------------------------------------------------ signal QC
-def recording_qc(path, mask, minutes=5.0, trim_windows=6):
+# Cohorts of short recordings (TDBRAIN: 2-min files of 12 windows) take their QC
+# windows as (first, drop_last): every window but the first and the last, instead
+# of the training protocol's 5 minutes after a 60 s trim.
+QC_WINDOWS = {"tdbrain": (1, 1)}
+QC_TASK = {"restEC": "eyes closed", "restEO": "eyes open"}
+
+
+def recording_qc(path, mask, minutes=5.0, trim_windows=6, drop_last=None):
     from scipy.signal import welch
     x = np.load(path, mmap_mode="r")
     n = x.shape[0] // 2000
-    sel = range(min(trim_windows, max(n - 1, 0)), min(n, trim_windows + int(minutes * 6)))
+    if drop_last is not None:
+        sel = range(min(trim_windows, max(n - 1, 0)), max(n - drop_last, trim_windows + 1))
+    else:
+        sel = range(min(trim_windows, max(n - 1, 0)), min(n, trim_windows + int(minutes * 6)))
     cols = [i for i in EEG19 if mask[i]]
     w = np.stack([np.asarray(x[k * 2000:(k + 1) * 2000, cols], dtype=np.float32) for k in sel])
     w = w - w.mean(axis=2, keepdims=True)
@@ -140,12 +154,17 @@ def qc_table(cohorts, n_ref=100, seed=0):
     rows, spectra = [], {}
     for name, cdir in cohorts.items():
         meta = cohort_meta(cdir, name)
-        acc = []
+        first, drop = QC_WINDOWS.get(name, (6, None))
+        acc = {}
         for stem, r in meta.iterrows():
-            q, f, psd = recording_qc(os.path.join(cdir, "recordings", f"{stem}.npy"), r["channel_mask"])
-            rows.append({"source": name, "stem": stem, **q})
-            acc.append(psd)
-        spectra[name] = (f, np.median(acc, axis=0))
+            q, f, psd = recording_qc(os.path.join(cdir, "recordings", f"{stem}.npy"), r["channel_mask"],
+                                     trim_windows=first, drop_last=drop)
+            # eyes closed / open separately where the cohort has one file per condition
+            src = f"{name} {QC_TASK.get(r.get('task'), r.get('task'))}" if isinstance(r.get("task"), str) else name
+            rows.append({"source": src, "stem": stem, **q})
+            acc.setdefault(src, []).append(psd)
+        for src, a in acc.items():
+            spectra[src] = (f, np.median(a, axis=0))
     m = json.load(open(os.path.join(REFERENCE, "manifest.json")))["recordings"]
     lab = json.load(open(os.path.join(REFERENCE, "age_metadata.json")))["recordings"]
     rng = random.Random(seed)
