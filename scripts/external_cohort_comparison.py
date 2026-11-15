@@ -71,6 +71,8 @@ def main():
     ap.add_argument("--models", nargs="*", default=None)
     ap.add_argument("--min-age", type=float, default=0.0,
                     help="only recordings aged >= this (18 = adults only, as for the TDBRAIN analysis)")
+    ap.add_argument("--max-age", type=float, default=None,
+                    help="only recordings aged <= this (with --min-age: one age band across cohorts)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     rows = []
@@ -82,7 +84,10 @@ def main():
                 rows.append({"cohort": name, "model": model, "subset": "all (ages pending)", **label_free(meta, pred)})
                 continue
             d = meta.join(pred.rename("pred"), how="inner").dropna(subset=["age"])
-            subsets = [(f"age >= {args.min_age:g}" if args.min_age else "all", d[d.age >= args.min_age])]
+            band = d[(d.age >= args.min_age) & (d.age <= (np.inf if args.max_age is None else args.max_age))]
+            label = (f"age {args.min_age:g}-{args.max_age:g}" if args.max_age is not None
+                     else f"age >= {args.min_age:g}" if args.min_age else "all")
+            subsets = [(label, band)]
             for sub, s in subsets:
                 if len(s) < 3:
                     continue

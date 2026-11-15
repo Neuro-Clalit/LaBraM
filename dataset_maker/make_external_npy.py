@@ -79,6 +79,16 @@ The four OpenNeuro corpora take the BIDS ``participants.tsv`` as ``--meta``. In 
 corpora the controls are labelled ``normal`` and ``healthy``; patients carry
 ``dx_*`` flags and stay unlabelled.
 
+* ``hbn`` -- HBN-EEG (Healthy Brain Network, Child Mind Institute; Shirazi et
+  al. 2024, OpenNeuro ds005505-ds005516, CC-BY-SA 4.0), BIDS EEGLAB ``.set``,
+  the MIPDB lab's successor study with the same net and resting protocol: EGI
+  HydroCel 128 at 500 Hz, vertex reference (channel ``Cz``, all zero), ~5.8 min
+  resting (eyes open 20 s / closed 40 s, five times). ``--raw`` and ``--meta``
+  are both the folder holding the release folders (``ds0055xx/participants.tsv``);
+  ``--min-age`` selects the participants (5-21 years overall, 74 adults). A
+  help-seeking community sample, mostly with a psychiatric diagnosis, so no
+  recording is labelled ``normal``. See ``docs/hbn_onboarding.md``.
+
 The healthy-volunteer corpora are labelled ``normal`` (MIPDB's ``DX_Status``
 is kept in the manifest); in TDBRAIN only the healthy controls are, the
 patients stay unlabelled. Every recording is placed in the **test** split, so a
@@ -181,17 +191,69 @@ def open_lemon(path):
     return raw, channel_map(raw.ch_names, bids_canonical_channel), None
 
 
-def open_mipdb(path):
-    import mne
-    raw = mne.io.read_raw_egi(path, preload=False, verbose="error")
-    names = set(raw.ch_names)
+def egi_present(ch_names, mapping=None):
+    """TUH name -> raw label for an EGI HydroCel 128 recording; the vertex
+    reference (E129) is also matched under its other labels."""
+    names = set(ch_names)
     present = {}
-    for tuh, egi in EGI_HYDROCEL_1020.items():
-        for label in (egi, "VREF", "Vertex Reference") if egi == "E129" else (egi,):
+    for tuh, egi in (mapping or EGI_HYDROCEL_1020).items():
+        for label in (egi, "VREF", "Vertex Reference", "Cz") if egi == "E129" else (egi,):
             if label in names:
                 present[tuh] = label
                 break
-    return raw, present, "average"
+    return present
+
+
+def open_mipdb(path):
+    import mne
+    raw = mne.io.read_raw_egi(path, preload=False, verbose="error")
+    return raw, egi_present(raw.ch_names), "average"
+
+
+# ------------------------------------------------------------------ HBN-EEG
+# Nearest electrodes by MNE's GSN-HydroCel-129 / standard_1005 templates, an alternative
+# to the published 10-20 equivalents above (``HBN_CHANNEL_MAP=template``; compared in
+# docs/hbn_onboarding.md, not used for the cohort).
+EGI_HYDROCEL_1020_TEMPLATE = {**EGI_HYDROCEL_1020, "FP1": "E25", "FP2": "E8", "FZ": "E5", "C3": "E42",
+                              "C4": "E93", "P3": "E60", "P4": "E85"}
+HBN_SCORES = ("ehq_total", "p_factor", "attention", "internalizing", "externalizing")
+
+
+def hbn_recordings(raw_dir, meta_dir, min_age=0.0):
+    """One recording per participant with a ``RestingState`` file, from every
+    release folder ``ds*/participants.tsv`` under ``meta_dir`` (ages are decimal
+    years). ``resting_flag`` keeps the release's own availability note
+    (``available`` / ``caution``); the psychopathology factor scores and the
+    ``commercial_use`` consent are kept in the manifest."""
+    import pandas as pd
+    out, seen = [], set()
+    for tsv in sorted(glob.glob(os.path.join(meta_dir or raw_dir, "ds*", "participants.tsv"))):
+        ds = os.path.basename(os.path.dirname(tsv))
+        meta = pd.read_csv(tsv, sep="\t", na_values=["n/a"])
+        for m in meta.itertuples():
+            sub = m.participant_id
+            f = os.path.join(raw_dir, ds, sub, "eeg", f"{sub}_task-RestingState_eeg.set")
+            if pd.isna(m.age) or m.age < min_age or sub in seen or not os.path.exists(f):
+                continue
+            seen.add(sub)
+            out.append({"stem": f"{sub}_hbn-rs", "path": os.path.relpath(f, raw_dir), "corpus": "hbn",
+                        "subject": sub, "session": "1", "age": float(m.age), "raw_age": float(m.age),
+                        "sex": m.sex if m.sex in ("M", "F") else None, "label": None,
+                        "release": str(m.release_number), "resting_flag": str(m.RestingState),
+                        "commercial_use": str(m.commercial_use),
+                        **{k: (None if pd.isna(getattr(m, k)) else float(getattr(m, k))) for k in HBN_SCORES},
+                        "_file": f})
+    return out
+
+
+def open_hbn(path):
+    """EEGLAB ``.set`` at 500 Hz, 128 EGI channels + the vertex reference
+    ``Cz`` (all zero): as for MIPDB the 19 mapped channels are re-referenced to
+    their mean."""
+    import mne
+    raw = mne.io.read_raw_eeglab(path, preload=False, verbose="error")
+    mapping = EGI_HYDROCEL_1020_TEMPLATE if os.environ.get("HBN_CHANNEL_MAP") == "template" else None
+    return raw, egi_present(raw.ch_names, mapping), "average"
 
 
 # CHBP protocol events (Spanish in release 1.0, English in 1.1) that end the resting part.
@@ -755,7 +817,8 @@ DATASETS = {"lemon": (lemon_recordings, open_lemon), "mipdb": (mipdb_recordings,
             "chbp": (chbp_recordings, open_chbp), "tdbrain": (tdbrain_recordings, open_tdbrain),
             "dortmund": (dortmund_recordings, open_dortmund), "ahepa": (ahepa_recordings, open_ahepa),
             "iowapd": (iowapd_recordings, open_iowapd), "telavivpd": (telavivpd_recordings, open_telavivpd),
-            "srm": (srm_recordings, open_srm), "nmt": (nmt_recordings, open_nmt)}
+            "srm": (srm_recordings, open_srm), "nmt": (nmt_recordings, open_nmt),
+            "hbn": (hbn_recordings, open_hbn)}
 
 
 # ------------------------------------------------------------------ convert
@@ -795,11 +858,13 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--jobs", type=int, default=6)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--min-age", type=float, default=0.0, help="hbn: youngest participant converted (years)")
     args = ap.parse_args()
     if args.meta is None and args.dataset != "tdbrain":
         ap.error(f"--meta is required for {args.dataset}")
     lister, opener = DATASETS[args.dataset]
-    recs = lister(args.raw, args.meta)[:args.limit or None]
+    recs = lister(args.raw, args.meta, args.min_age) if args.dataset == "hbn" else lister(args.raw, args.meta)
+    recs = recs[:args.limit or None]
     os.makedirs(os.path.join(args.out, "recordings"), exist_ok=True)
     print(f"{args.dataset}: {len(recs)} recordings", flush=True)
     results, errors = {}, []
