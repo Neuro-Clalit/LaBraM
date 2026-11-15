@@ -636,7 +636,7 @@ with the largest attention-weighted spread of their window predictions get no pr
 (44.1–44.3 y), but their predict-the-mean MAE is higher (13.9–14.1 vs 13.35), so the kept set
 is not easier. MAE with a 95 % subject-bootstrap interval.
 
-### Table 12.1. Brain age on TDBRAIN: ours (adults) and published results, healthy and pathological
+### Table 12.1. Brain age on TDBRAIN, adults only (1,062 subjects, 1,113 sessions, 18–88 y; healthy 179 subjects / 179 sessions, pathological 883 / 934): ours and published results
 
 MAE in years, with [95 % subject-bootstrap CI] for all sessions. R²/r per column. Methods: *window mean* = recording age is the mean of the 10 s window predictions; *ABMIL* = attention-based multiple-instance pooling over the windows; *5-fold ens.* = mean of the five cross-validation fold models; *spread reject* = the 20 % of sessions with the widest spread of window predictions get no prediction (label-free). **Healthy** =
 `indication` HEALTHY (179 adults). **Pathological** = every other adult session (883 subjects /
@@ -645,21 +645,21 @@ MAE in years, with [95 % subject-bootstrap CI] for all sessions. R²/r per colum
 20 % threshold is set over all sessions and the kept sessions are then split (kept share ≈ 80 %
 in both groups).
 
-| model / study | method | protocol | n (subjects / sessions) | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy | MAE, pathological | R²/r, pathological |
-|---|---|---|---|---|---|---|---|---|---|
-| ours, E2L | LaBraM, window mean | zero-shot | 1,062 / 1,113 | 5.32 [5.04, 5.60] | 0.80 / 0.90 | 5.28 | 0.81 / 0.90 | 5.33 | 0.80 / 0.90 |
-| ours, E2L, reject 20 % | E2L + spread reject | zero-shot | 856 / 890 kept | 5.02 [4.72, 5.31] | 0.83 / 0.92 | 4.49 | 0.85 / 0.93 | 5.12 | 0.82 / 0.91 |
-| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | zero-shot | 1,062 / 1,113 | 5.14 [4.89, 5.41] | 0.82 / 0.91 | 5.15 | 0.81 / 0.91 | 5.14 | 0.81 / 0.91 |
-| ours, P3 ensemble, reject 20 % | P3 + spread reject | zero-shot | 855 / 890 | 4.83 [4.56, 5.12] | 0.85 / 0.93 | 4.65 | 0.85 / 0.92 | 4.87 | 0.84 / 0.93 |
-| **ours, P4 ensemble** | LaBraM + ABMIL (+ window loss), 5-fold ens. | zero-shot | 1,062 / 1,113 | **4.92 [4.68, 5.19]** | **0.83 / 0.91** | **4.96** | **0.82 / 0.91** | **4.92** | **0.83 / 0.91** |
-| **ours, P4 ensemble, reject 20 %** | P4 + spread reject | zero-shot | 854 / 890 | **4.54 [4.27, 4.81]** | **0.86 / 0.93** | **4.32** | **0.87 / 0.93** | **4.58** | **0.86 / 0.93** |
-| Hajhassani et al. 2026 (preprint) | CNN-transformer | zero-shot, trained on TUEG | healthy 20–90, n in a figure | — | — | 8.36 | 0.59 / — | — | — |
-| Bikki & Zeng 2026 (abstract only, unverified) | CNN | zero-shot, trained on TUABX | unknown | — | 0.83 / — | — | — | — | — |
-| Tveitstøl et al. 2025 (from the abstract, unverified) | CNN | leave one dataset out | 1,273, EC, 5–88 | — | −0.01 / 0.63 | — | — | — | — |
-| Khayretdinova et al. 2022 | CNN | **within** TDBRAIN, 10-fold subject CV | 1,335 sessions, **5–88** | 5.96 ± 0.33 | 0.81 / 0.90 | — | — | — | — |
-| Bikki & Zeng 2026 (abstract only, unverified) | CNN | **within** TDBRAIN | unknown | 5.83 ± 0.66 | 0.84 / — | — | — | — | — |
-| Hu et al. 2025 (NEOBA) | features + MLP | "validation in TDBRAIN", protocol unclear | 1,274, **5–89** | 4.95 | — | — | — | — | — |
-| Bomatter et al. 2024 | Riemannian + ridge | **within** TDBRAIN, 10×10-fold CV | 1,134 first sessions, **5–89** | — | ≈ 0.8 / — | — | — | — | — |
+| model / study | method | protocol | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy | MAE, pathological | R²/r, pathological |
+|---|---|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | zero-shot | 5.32 [5.04, 5.60] | 0.80 / 0.90 | 5.28 | 0.81 / 0.90 | 5.33 | 0.80 / 0.90 |
+| ours, E2L, reject 20 % | E2L + spread reject | zero-shot | 5.02 [4.72, 5.31] | 0.83 / 0.92 | 4.49 | 0.85 / 0.93 | 5.12 | 0.82 / 0.91 |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | zero-shot | 5.14 [4.89, 5.41] | 0.82 / 0.91 | 5.15 | 0.81 / 0.91 | 5.14 | 0.81 / 0.91 |
+| ours, P3 ensemble, reject 20 % | P3 + spread reject | zero-shot | 4.83 [4.56, 5.12] | 0.85 / 0.93 | 4.65 | 0.85 / 0.92 | 4.87 | 0.84 / 0.93 |
+| **ours, P4 ensemble** | LaBraM + ABMIL (+ window loss), 5-fold ens. | zero-shot | **4.92 [4.68, 5.19]** | **0.83 / 0.91** | **4.96** | **0.82 / 0.91** | **4.92** | **0.83 / 0.91** |
+| **ours, P4 ensemble, reject 20 %** | P4 + spread reject | zero-shot | **4.54 [4.27, 4.81]** | **0.86 / 0.93** | **4.32** | **0.87 / 0.93** | **4.58** | **0.86 / 0.93** |
+| Hajhassani et al. 2026 (preprint) | CNN-transformer | zero-shot, trained on TUEG | — | — | 8.36 | 0.59 / — | — | — |
+| Bikki & Zeng 2026 (abstract only, unverified) | CNN | zero-shot, trained on TUABX | — | 0.83 / — | — | — | — | — |
+| Tveitstøl et al. 2025 (from the abstract, unverified) | CNN | leave one dataset out | — | −0.01 / 0.63 | — | — | — | — |
+| Khayretdinova et al. 2022 | CNN | **within** TDBRAIN, 10-fold subject CV | 5.96 ± 0.33 | 0.81 / 0.90 | — | — | — | — |
+| Bikki & Zeng 2026 (abstract only, unverified) | CNN | **within** TDBRAIN | 5.83 ± 0.66 | 0.84 / — | — | — | — | — |
+| Hu et al. 2025 (NEOBA) | features + MLP | "validation in TDBRAIN", protocol unclear | 4.95 | — | — | — | — | — |
+| Bomatter et al. 2024 | Riemannian + ridge | **within** TDBRAIN, 10×10-fold CV | — | ≈ 0.8 / — | — | — | — | — |
 
 ### Table 12.2. The pathological sessions by indication group (adults, per session)
 
@@ -699,3 +699,92 @@ same model, because children's ages are compact and well predicted by within-dat
 Our rows are adults only on release 3.1. **Within** = trained and tested on TDBRAIN
 (cross-validated). It is not zero-shot and is an upper reference for a model that never saw
 TDBRAIN. Unverified numbers were read from an abstract or inferred from one; see Section 8.
+
+## 13. The same table for the other external test cohorts (2026-11-15)
+
+`scripts/external_cohort_table.py` builds Table 12.1's columns for any cohort: MAE [95 %
+subject-bootstrap CI], R²/r, healthy and pathological, with and without the label-free 20 %
+rejection by window-prediction spread. It reads the per-recording predictions with the
+ensembles (`*_all_models.json`) and the `--save-windows` parquets of E2L and the ten P3 / P4
+fold models (`/data/runs/heedb/external_eval/windows/<cohort>_all_models`). Adults only, every
+window after the training trims. Healthy = TDBRAIN `healthy`, MIPDB `DX_Status` 0, LEMON / CHBP
+everyone (healthy-volunteer corpora). Numbers: `docs/data/external_eval/tdbrain/external_cohort_table.csv`.
+HBN adults is left out: its onboarding marks it reference-only, and its adults span only 18–22 y.
+
+### Figure 13.1. Zero-shot MAE per cohort, adults
+
+![MAE per cohort](figures/tdbrain/cohort_mae_bars.png)
+
+(a) every recording (TDBRAIN: session), (b) after rejecting the 20 % of units with the largest
+spread of window predictions. Bars: E2L, P3 ensemble, P4 ensemble; whiskers: 95 % subject-bootstrap
+interval; dashed: the predict-the-cohort-mean MAE. `scripts/external_cohort_bars.py`.
+
+### Table 13.1. LEMON, adults (214 subjects, 20–80 y, ages in 5-year bins; all healthy volunteers)
+
+| model / study | method | protocol | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy | MAE, pathological | R²/r, pathological |
+|---|---|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | zero-shot | 5.20 [4.60, 5.84] | 0.88 / 0.95 | 5.20 | 0.88 / 0.95 | — | — |
+| ours, E2L, reject 20 % | E2L + spread reject | zero-shot | 4.37 [3.81, 4.93] | 0.90 / 0.96 | 4.37 | 0.90 / 0.96 | — | — |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | zero-shot | 4.70 [4.17, 5.29] | 0.90 / 0.95 | 4.70 | 0.90 / 0.95 | — | — |
+| ours, P3 ensemble, reject 20 % | P3 + spread reject | zero-shot | 3.86 [3.34, 4.38] | 0.92 / 0.96 | 3.86 | 0.92 / 0.96 | — | — |
+| **ours, P4 ensemble** | LaBraM + ABMIL (+ window loss), 5-fold ens. | zero-shot | **4.67 [4.11, 5.24]** | **0.90 / 0.95** | **4.67** | **0.90 / 0.95** | — | — |
+| **ours, P4 ensemble, reject 20 %** | P4 + spread reject | zero-shot | **3.79 [3.28, 4.30]** | **0.93 / 0.97** | **3.79** | **0.93 / 0.97** | — | — |
+| Hajhassani et al. 2026 (preprint) | CNN-transformer | zero-shot (TUEG) | 9.91 | 0.63 / — | 9.91 | 0.63 / — | — | — |
+| Mellot et al. 2023 | Riemannian, without / with re-centring | cross (TUAB normal) | — | 0.26 / 0.44 | — | — | — | — |
+| Engemann et al. 2022 | Deep4Net CNN | trained on LEMON, 10-fold CV | 7.75 ± 1.78 | 0.69 / — | 7.75 | 0.69 / — | — | — |
+| Engemann et al. 2022 | ShallowNet / filter-bank + source | trained on LEMON | 8.67 / 8.67 | 0.69 / 0.67 | — | — | — | — |
+
+Engemann et al. had exact ages; our LEMON ages are bin midpoints, which add about 1.25 y of MAE
+(`docs/external_eval_results.md` §4). LEMON's ages fall in two clusters (20–40 and 55–80), and the
+rejection drops mostly old subjects there (kept mean age 36.1 vs 39.2). Part of LEMON's rejection
+gain is therefore the age mix.
+
+### Table 13.2. CHBP, adults (250 subjects, 18–68 y; all healthy volunteers)
+
+| model / study | method | protocol | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy | MAE, pathological | R²/r, pathological |
+|---|---|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | zero-shot | 9.35 [8.45, 10.27] | −0.64 / 0.45 | 9.35 | −0.64 / 0.45 | — | — |
+| ours, E2L, reject 20 % | E2L + spread reject | zero-shot | 9.23 [8.20, 10.30] | −0.87 / 0.42 | 9.23 | −0.87 / 0.42 | — | — |
+| **ours, P3 ensemble** | LaBraM + ABMIL, 5-fold ens. | zero-shot | **7.37 [6.60, 8.28]** | −0.14 / 0.48 | **7.37** | −0.14 / 0.48 | — | — |
+| **ours, P3 ensemble, reject 20 %** | P3 + spread reject | zero-shot | **7.02 [6.13, 7.94]** | −0.17 / 0.47 | **7.02** | −0.17 / 0.47 | — | — |
+| ours, P4 ensemble | LaBraM + ABMIL (+ window loss), 5-fold ens. | zero-shot | 7.95 [7.11, 8.87] | −0.28 / 0.49 | 7.95 | −0.28 / 0.49 | — | — |
+| ours, P4 ensemble, reject 20 % | P4 + spread reject | zero-shot | 7.84 [6.91, 8.83] | −0.42 / 0.48 | 7.84 | −0.42 / 0.48 | — | — |
+| *ours, device-robust E2L (reference)* | LaBraM, 1–45 Hz + amplitude norm | zero-shot | *6.14* | *0.25 / 0.58* | *6.14* | *0.25 / 0.58* | — | — |
+| Engemann et al. 2022 | handcrafted features + random forest | trained on CHBP, 10-fold CV | 6.48 | 0.18 / — | 6.48 | 0.18 / — | — | — |
+| Engemann et al. 2022 | ShallowNet / Deep4Net CNN | trained on CHBP | 6.65 / 6.89 | — | — | — | — | — |
+
+Predict-the-mean MAE on CHBP is 7.28. The narrow age range (31.7 ± 9.3 y) leaves little variance,
+so even the published within-CHBP models reach only R² 0.18. Every model without device
+robustness stays above or near that floor, because CHBP's recording (0.5–50 Hz, 40 % lower
+amplitude) differs from the training data (`docs/chbp_domain_shift.md`). The spread rejection
+does not help here: the error is a device shift common to every recording, not noisy windows.
+
+### Table 13.3. MIPDB, adults (31 subjects, 18–44 y; 30 healthy controls, 1 with a diagnosis)
+
+| model / study | method | protocol | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy | MAE, pathological | R²/r, pathological |
+|---|---|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | zero-shot | 9.16 [6.95, 11.75] | −1.66 / 0.45 | 9.15 | −1.60 / 0.45 | — (n = 1) | — |
+| ours, E2L, reject 20 % | E2L + spread reject | zero-shot | 8.58 [6.10, 11.57] | −1.28 / 0.47 | 8.54 | −1.21 / 0.47 | — (n = 1) | — |
+| **ours, P3 ensemble** | LaBraM + ABMIL, 5-fold ens. | zero-shot | **6.88 [4.96, 9.20]** | −0.71 / 0.59 | **6.93** | −0.69 / 0.59 | — (n = 1) | — |
+| **ours, P3 ensemble, reject 20 %** | P3 + spread reject | zero-shot | **5.88 [3.85, 8.37]** | −0.53 / 0.53 | **5.90** | −0.51 / 0.53 | — (n = 1) | — |
+| ours, P4 ensemble | LaBraM + ABMIL (+ window loss), 5-fold ens. | zero-shot | 7.36 [5.35, 9.59] | −0.84 / 0.61 | 7.33 | −0.80 / 0.61 | — (n = 1) | — |
+| ours, P4 ensemble, reject 20 % | P4 + spread reject | zero-shot | 7.38 [4.98, 9.97] | −1.17 / 0.53 | 7.34 | −1.11 / 0.53 | — (n = 1) | — |
+| published | — | — | none found | — | — | — | — | — |
+
+MIPDB's adults are young (27.5 ± 7.0 y) and few (31), so the intervals are wide (±2–3 y). Every
+model overestimates them (bias +5.6 to +8.2 y), and predict-the-mean (5.85) beats all of them.
+The cohort is mostly children (85 of 116 recordings, not scored here), recorded on a 128-channel
+EGI net mapped to 19 positions.
+
+**What Tables 12.1, 13.1–13.3 and Figure 13.1 show:**
+- **TDBRAIN and LEMON, recorded like the training data, give the best numbers.** P4 ensemble
+  4.92 / 4.67 y, R² 0.83 / 0.90, far below their predict-the-mean floors (13.3 / 18.6). They beat
+  every published result, including models trained on those cohorts.
+- **CHBP and MIPDB are device / population shifts.** There the CV ensembles cut E2L's error by
+  1.5–2.3 y, but stay at or above the predict-the-mean floor (R² ≤ 0). Only the device-robust model
+  gets below the floor on CHBP (6.14).
+- **The P3 ensemble generalises better under shift** (CHBP 7.37, MIPDB 6.88 vs P4 7.95 / 7.36),
+  and P4 is better in-distribution (TDBRAIN, LEMON). This fits P3's smaller train / val gap in the
+  MIL doc (2.33 vs 2.96 y).
+- **The spread rejection helps where the error is noisy recordings** (TDBRAIN −0.4, LEMON −0.9 y),
+  but not where it is a shift shared by every recording (CHBP −0.1 to −0.4 y).
