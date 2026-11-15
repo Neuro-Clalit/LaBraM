@@ -304,7 +304,7 @@ per diagnosis.
 | Khayretdinova et al. 2022, *Front. Aging Neurosci.* 14:1019869 | within TDBRAIN, 10-fold subject-grouped CV ×10 | 1,335 sessions, 5–88 y, EO + EC | DCNN on raw EEG | 5.96 ± 0.33 (EO 6.39, EC 6.33) | 0.81 / 0.90 |
 | Hu et al. 2025 (NEOBA), *Front. Aging Neurosci.* doi:10.3389/fnagi.2025.1559067 | "validation in TDBRAIN", CV protocol not stated for TDBRAIN | 1,274 subjects | oscillatory + coupling features → MLP | 4.95 (EO 5.62, EC 5.24) | not reported |
 | Bomatter et al. 2024, *eBioMedicine* 106:105259 | within TDBRAIN, 10×10-fold CV | first sessions, n = 1,134, 5–89 y | Riemannian / filter-bank + ridge | not reported | ≈ 0.8 (from text; exact values in figures) |
-| Bikki & Zeng 2026, BDIMed (ACM) doi:10.1145/3816325.3843614 (abstract only) | within TDBRAIN; zero-shot TUABX → TDBRAIN | unknown | compact CNN | 5.83 ± 0.66 (within) | 0.84 (within); **0.83 zero-shot** |
+| Bikki & Zeng 2026, BDIMed (ACM) doi:10.1145/3816325.3843614 (abstract only) | within TDBRAIN; zero-shot TUABX → TDBRAIN | unknown | CNN | 5.83 ± 0.66 (within) | 0.84 (within); **0.83 zero-shot** |
 | Tveitstøl et al. 2025, *IEEE TBME* doi:10.1109/TBME.2025.3639477 | cross-dataset, leave one dataset out | EC, n = 1,273 | Inception / Deep4 / Shallow | figures only | abstract suggests r 0.63, R² −0.01 with TDBRAIN as target (unverified mapping) |
 | Hajhassani et al. 2026, arXiv:2609.31195 (preprint) | **zero-shot**, trained on TUEG | "healthy" 20–90 y, n in a figure | GEDAI + CTNet | **8.36** | **0.59** |
 
@@ -638,7 +638,7 @@ is not easier. MAE with a 95 % subject-bootstrap interval.
 
 ### Table 12.1. Brain age on TDBRAIN: ours (adults) and published results, healthy and pathological
 
-MAE in years, with [95 % subject-bootstrap CI] for all sessions. R²/r per column. **Healthy** =
+MAE in years, with [95 % subject-bootstrap CI] for all sessions. R²/r per column. Methods: *window mean* = recording age is the mean of the 10 s window predictions; *ABMIL* = attention-based multiple-instance pooling over the windows; *5-fold ens.* = mean of the five cross-validation fold models; *spread reject* = the 20 % of sessions with the widest spread of window predictions get no prediction (label-free). **Healthy** =
 `indication` HEALTHY (179 adults). **Pathological** = every other adult session (883 subjects /
 934 sessions): a formal or referral diagnosis, another indication, or none recorded
 (van Dijk et al.: "UNKNOWN" is not healthy). Table 12.2 splits it by group. With rejection, the
@@ -647,19 +647,19 @@ in both groups).
 
 | model / study | method | protocol | n (subjects / sessions) | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy | MAE, pathological | R²/r, pathological |
 |---|---|---|---|---|---|---|---|---|---|
-| ours, E2L | LaBraM encoder fine-tuned on single 10 s windows; recording = mean of the window predictions | zero-shot | 1,062 / 1,113 | 5.32 [5.04, 5.60] | 0.80 / 0.90 | 5.28 | 0.81 / 0.90 | 5.33 | 0.80 / 0.90 |
-| ours, E2L, reject 20 % | E2L; the 20 % of sessions with the widest spread of window predictions get no prediction (label-free) | zero-shot | 856 / 890 kept | 5.02 [4.72, 5.31] | 0.83 / 0.92 | 4.49 | 0.85 / 0.93 | 5.12 | 0.82 / 0.91 |
-| ours, P3 ensemble | LaBraM encoder + ABMIL (attention pooling over windows), one run: window phase → attention-only → joint with LR restart and retention; mean of the 5 CV fold models | zero-shot | 1,062 / 1,113 | 5.14 [4.89, 5.41] | 0.82 / 0.91 | 5.15 | 0.81 / 0.91 | 5.14 | 0.81 / 0.91 |
-| ours, P3 ensemble, reject 20 % | P3 ensemble + the same rejection | zero-shot | 855 / 890 | 4.83 [4.56, 5.12] | 0.85 / 0.93 | 4.65 | 0.85 / 0.92 | 4.87 | 0.84 / 0.93 |
-| **ours, P4 ensemble** | LaBraM encoder + ABMIL, one run: shorter window phase, joint phase with an added per-window age loss; mean of the 5 CV fold models | zero-shot | 1,062 / 1,113 | **4.92 [4.68, 5.19]** | **0.83 / 0.91** | **4.96** | **0.82 / 0.91** | **4.92** | **0.83 / 0.91** |
-| **ours, P4 ensemble, reject 20 %** | P4 ensemble + the same rejection | zero-shot | 854 / 890 | **4.54 [4.27, 4.81]** | **0.86 / 0.93** | **4.32** | **0.87 / 0.93** | **4.58** | **0.86 / 0.93** |
-| Hajhassani et al. 2026 (preprint) | CTNet (CNN + transformer) with GEDAI artifact removal | zero-shot, trained on TUEG | healthy 20–90, n in a figure | — | — | 8.36 | 0.59 / — | — | — |
-| Bikki & Zeng 2026 (abstract only, unverified) | compact CNN (EEGBrainageX) | zero-shot, trained on TUABX | unknown | — | 0.83 / — | — | — | — | — |
-| Tveitstøl et al. 2025 (from the abstract, unverified) | Inception / Deep4Net / ShallowNet CNNs | leave one dataset out | 1,273, EC, 5–88 | — | −0.01 / 0.63 | — | — | — | — |
-| Khayretdinova et al. 2022 | deep CNN on raw 5 s segments | **within** TDBRAIN, 10-fold subject CV | 1,335 sessions, **5–88** | 5.96 ± 0.33 | 0.81 / 0.90 | — | — | — | — |
-| Bikki & Zeng 2026 (abstract only, unverified) | compact CNN | **within** TDBRAIN | unknown | 5.83 ± 0.66 | 0.84 / — | — | — | — | — |
-| Hu et al. 2025 (NEOBA) | oscillation + coupling features → MLP | "validation in TDBRAIN", protocol unclear | 1,274, **5–89** | 4.95 | — | — | — | — | — |
-| Bomatter et al. 2024 | Riemannian / filter-bank covariance + ridge | **within** TDBRAIN, 10×10-fold CV | 1,134 first sessions, **5–89** | — | ≈ 0.8 / — | — | — | — | — |
+| ours, E2L | LaBraM, window mean | zero-shot | 1,062 / 1,113 | 5.32 [5.04, 5.60] | 0.80 / 0.90 | 5.28 | 0.81 / 0.90 | 5.33 | 0.80 / 0.90 |
+| ours, E2L, reject 20 % | E2L + spread reject | zero-shot | 856 / 890 kept | 5.02 [4.72, 5.31] | 0.83 / 0.92 | 4.49 | 0.85 / 0.93 | 5.12 | 0.82 / 0.91 |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | zero-shot | 1,062 / 1,113 | 5.14 [4.89, 5.41] | 0.82 / 0.91 | 5.15 | 0.81 / 0.91 | 5.14 | 0.81 / 0.91 |
+| ours, P3 ensemble, reject 20 % | P3 + spread reject | zero-shot | 855 / 890 | 4.83 [4.56, 5.12] | 0.85 / 0.93 | 4.65 | 0.85 / 0.92 | 4.87 | 0.84 / 0.93 |
+| **ours, P4 ensemble** | LaBraM + ABMIL (+ window loss), 5-fold ens. | zero-shot | 1,062 / 1,113 | **4.92 [4.68, 5.19]** | **0.83 / 0.91** | **4.96** | **0.82 / 0.91** | **4.92** | **0.83 / 0.91** |
+| **ours, P4 ensemble, reject 20 %** | P4 + spread reject | zero-shot | 854 / 890 | **4.54 [4.27, 4.81]** | **0.86 / 0.93** | **4.32** | **0.87 / 0.93** | **4.58** | **0.86 / 0.93** |
+| Hajhassani et al. 2026 (preprint) | CNN-transformer | zero-shot, trained on TUEG | healthy 20–90, n in a figure | — | — | 8.36 | 0.59 / — | — | — |
+| Bikki & Zeng 2026 (abstract only, unverified) | CNN | zero-shot, trained on TUABX | unknown | — | 0.83 / — | — | — | — | — |
+| Tveitstøl et al. 2025 (from the abstract, unverified) | CNN | leave one dataset out | 1,273, EC, 5–88 | — | −0.01 / 0.63 | — | — | — | — |
+| Khayretdinova et al. 2022 | CNN | **within** TDBRAIN, 10-fold subject CV | 1,335 sessions, **5–88** | 5.96 ± 0.33 | 0.81 / 0.90 | — | — | — | — |
+| Bikki & Zeng 2026 (abstract only, unverified) | CNN | **within** TDBRAIN | unknown | 5.83 ± 0.66 | 0.84 / — | — | — | — | — |
+| Hu et al. 2025 (NEOBA) | features + MLP | "validation in TDBRAIN", protocol unclear | 1,274, **5–89** | 4.95 | — | — | — | — | — |
+| Bomatter et al. 2024 | Riemannian + ridge | **within** TDBRAIN, 10×10-fold CV | 1,134 first sessions, **5–89** | — | ≈ 0.8 / — | — | — | — | — |
 
 ### Table 12.2. The pathological sessions by indication group (adults, per session)
 
