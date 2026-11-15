@@ -244,3 +244,46 @@ def test_sagemaker_keeps_test_set_options():
     assert staged.channels["test_tdbrain"] == "s3://eeg-data-public/TDBRAIN/v1/cohorts/tdbrain_v1"
     assert ("tdbrain=/opt/ml/input/data/test_tdbrain?trim_start_sec=0&trim_end_sec=0&eval_minutes=0&age_min=18"
             in cfg.evaluation.test_sets)
+
+
+def test_hbn_lister_keeps_adults_with_a_resting_file(tmp_path):
+    """HBN-EEG: one recording per participant aged >= min_age whose RestingState .set
+    exists, from every release folder; the vertex reference 'Cz' maps to CZ."""
+    from dataset_maker.make_external_npy import (EGI_HYDROCEL_1020, EGI_HYDROCEL_1020_TEMPLATE, egi_present,
+                                                 hbn_recordings)
+    head = ("participant_id\trelease_number\tsex\tage\tehq_total\tcommercial_use\tfull_pheno\tp_factor\t"
+            "attention\tinternalizing\texternalizing\tRestingState\n")
+    rows = {"ds005505": [("sub-A", "M", 19.5, "available"), ("sub-B", "F", 9.0, "available")],
+            "ds005516": [("sub-C", "F", 21.0, "caution"), ("sub-D", "M", 20.0, "unavailable")]}
+    for ds, subs in rows.items():
+        (tmp_path / ds).mkdir()
+        (tmp_path / ds / "participants.tsv").write_text(head + "".join(
+            f"{s}\tR1\t{sex}\t{age}\t50\tYes\tYes\tn/a\t0.1\t0.2\t0.3\t{flag}\n" for s, sex, age, flag in subs))
+        for s, _, _, flag in subs:
+            if flag != "unavailable":
+                (tmp_path / ds / s / "eeg").mkdir(parents=True)
+                (tmp_path / ds / s / "eeg" / f"{s}_task-RestingState_eeg.set").write_bytes(b"")
+    recs = hbn_recordings(str(tmp_path), str(tmp_path), min_age=18)
+    assert [r["subject"] for r in recs] == ["sub-A", "sub-C"]
+    assert recs[0]["age"] == 19.5 and recs[0]["label"] is None and recs[0]["p_factor"] is None
+    assert recs[1]["resting_flag"] == "caution" and recs[1]["stem"] == "sub-C_hbn-rs"
+    assert len(hbn_recordings(str(tmp_path), str(tmp_path))) == 3
+
+    names = [f"E{i}" for i in range(1, 129)] + ["Cz"]
+    present = egi_present(names)
+    assert len(present) == 19 and present["CZ"] == "Cz" and present["C3"] == "E36"
+    assert egi_present(names, EGI_HYDROCEL_1020_TEMPLATE)["C3"] == "E42"
+    assert set(EGI_HYDROCEL_1020) == set(EGI_HYDROCEL_1020_TEMPLATE)
+
+
+def test_fold_ensemble_is_the_per_recording_median():
+    import sys
+    sys.path.insert(0, "scripts")
+    import pandas as pd
+    from external_fold_ensemble import ensemble, fold_runs
+    preds = {"P3_L1_f0": pd.Series({"a": 20.0, "b": 30.0}), "P3_L1_f1": pd.Series({"a": 26.0, "b": 40.0}),
+             "P3_L1_f2": pd.Series({"a": 22.0, "b": 31.0, "c": 50.0}), "E2L": pd.Series({"a": 1.0})}
+    folds = fold_runs(preds, "P3_L1")
+    assert sorted(folds) == [0, 1, 2]
+    assert ensemble(folds.values()).to_dict() == {"a": 22.0, "b": 31.0}
+    assert ensemble(folds.values(), "mean")["a"] == 68 / 3
