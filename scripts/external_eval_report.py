@@ -85,6 +85,7 @@ def metrics(pred, age):
 
 
 MIN_AGE = {}                  # cohort -> minimum age analysed (--min-age, e.g. tdbrain=18)
+AGGREGATE_ONLY = {"tdbrain"}  # DUA: no per-subject rows in the repo, aggregates only
 
 
 def cohort_meta(cohort_dir, name=None):
@@ -250,10 +251,11 @@ def main():
         plot_preds(preds, args.plot_models, args.fig_dir)
     if not args.no_qc:
         qc, spectra = qc_table(cohorts)
-        # per recording only for the external cohorts: the TUH / HEEDB reference
-        # rows are aggregated (HEEDB DUA: no per-session data in the repo)
-        qc[~qc.source.str.contains("(ref)", regex=False)].to_csv(
-            os.path.join(args.out_dir, "qc.csv"), index=False)
+        # per recording only for the open external cohorts: the TUH / HEEDB reference
+        # rows and the cohorts under a no-redistribution DUA (AGGREGATE_ONLY) are
+        # written as aggregates only (qc_summary.csv)
+        restricted = qc.source.str.contains("(ref)", regex=False) | qc.source.str.split().str[0].isin(AGGREGATE_ONLY)
+        qc[~restricted].to_csv(os.path.join(args.out_dir, "qc.csv"), index=False)
         cols = [c for c in qc.columns if c not in ("source", "stem")]
         summary = qc.groupby("source")[cols].quantile([0.25, 0.5, 0.75]).unstack().round(3)
         summary.insert(0, "n", qc.groupby("source").size())
