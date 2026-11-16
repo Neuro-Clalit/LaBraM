@@ -717,11 +717,13 @@ HBN adults is left out: its onboarding marks it reference-only, and its adults s
 
 (a) every recording (TDBRAIN: session); (b) and (c) after rejecting the 20 % least certain units,
 by `total` and by `learned` for the ensembles (E2L: `spread`; Section 16). Bars: E2L, P3 ensemble, P4 ensemble; whiskers: 95 % subject-bootstrap
-interval; dashed grey: the predict-the-cohort-mean MAE. In (a), the black line across a cohort is
-the best published MAE: solid for a model trained on that cohort, dotted for a zero-shot model
-(Temple: Gemein et al. 2024 on TUAB, 9.45 = their normal 6.60 and abnormal 12.85 weighted by the
-150 / 126 recordings of the TUAB evaluation set; TDBRAIN: Khayretdinova 2022, ages 5–88, and
-Hajhassani 2026, healthy only; LEMON: Engemann 2022 and Hajhassani 2026; CHBP: Engemann 2022).
+interval; dashed grey: the predict-the-cohort-mean MAE. The two hatched bars are the best published
+MAE per cohort, in their own colours: yellow for a model trained on that cohort, pink for a zero-shot
+model. They are on all recordings of their cohort, also in panels (b) and (c), so the like-for-like
+comparison is panel (a). Sources: Temple, Gemein et al. 2024 on TUAB (9.45 = their normal 6.60 and
+abnormal 12.85 weighted by the 150 / 126 recordings of the TUAB evaluation set); TDBRAIN, Khayretdinova
+2022 (ages 5–88) and Hajhassani 2026 (healthy only); LEMON, Engemann 2022 and Hajhassani 2026; CHBP,
+Engemann 2022; none for Harvard and MIPDB.
 Temple and Harvard are scored with the training protocol (first 5 minutes after a 60 s trim), the
 external cohorts with every window. `scripts/external_cohort_bars.py`.
 
