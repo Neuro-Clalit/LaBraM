@@ -1076,3 +1076,129 @@ Three things do rest on test results, and should be stated when these numbers ar
 - **`rejection_scores.py` (Section 15 tables) sets each score's direction from Temple + Harvard test
   errors.** This matters only for the attention-shape scores (neff, entropy). For spread, total and
   learned, the direction is fixed in code ("high = uncertain") in `external_cohort_table.py`, with no labels.
+
+## 17. All cohorts: results with the three rejection options and published results (2026-11-16)
+
+One table per cohort, from `docs/data/external_eval/tdbrain/external_cohort_table.csv` (`scripts/external_cohort_markdown.py`
+prints the rows of our models). MAE in years with a [95 % subject-bootstrap interval] for all units; R²/r per group.
+Rejection options (Section 16): **spread** (15.1), **total** (15.5), **learned** (16.2, fitted on validation folds only). Each
+sets aside the 20 % least certain units of the whole cohort, which are then split by group. E2L is a single model and has only `spread`.
+These tables supersede Tables 12.1, 13.1–13.3 and 14.1–14.2, whose "reject 20 %" rows are the `spread` rows here.
+
+### Table 17.1. TDBRAIN, adults, zero-shot (1,062 subjects, 1,113 sessions, mean age 45.2; healthy 179 sessions, 40.3 y; pathological 934, 46.2 y)
+
+| model | method | protocol | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy | MAE, pathological | R²/r, pathological |
+|---|---|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | zero-shot | 5.32 [5.04, 5.60] | 0.80 / 0.90 | 5.28 | 0.81 / 0.90 | 5.33 | 0.80 / 0.90 |
+| ours, E2L, reject 20 % (spread) | E2L + spread reject | zero-shot | 5.02 [4.72, 5.31] | 0.83 / 0.92 | 4.49 | 0.85 / 0.93 | 5.12 | 0.82 / 0.91 |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | zero-shot | 5.14 [4.89, 5.41] | 0.82 / 0.91 | 5.15 | 0.81 / 0.91 | 5.14 | 0.81 / 0.91 |
+| ours, P3 ensemble, reject 20 % (spread) | P3 + spread reject | zero-shot | 4.83 [4.56, 5.12] | 0.85 / 0.93 | 4.65 | 0.85 / 0.92 | 4.87 | 0.84 / 0.93 |
+| ours, P3 ensemble, reject 20 % (total) | P3 + total reject | zero-shot | 4.69 [4.43, 4.97] | 0.85 / 0.93 | 4.50 | 0.84 / 0.92 | 4.72 | 0.85 / 0.93 |
+| ours, P3 ensemble, reject 20 % (learned) | P3 + learned reject | zero-shot | 4.74 [4.46, 5.04] | 0.84 / 0.92 | 4.63 | 0.82 / 0.91 | 4.76 | 0.84 / 0.92 |
+| ours, P4 ensemble | LaBraM + ABMIL (+ window loss), 5-fold ens. | zero-shot | 4.92 [4.68, 5.19] | 0.83 / 0.91 | 4.96 | 0.82 / 0.91 | 4.92 | 0.83 / 0.91 |
+| ours, P4 ensemble, reject 20 % (spread) | P4 + spread reject | zero-shot | 4.54 [4.27, 4.81] | 0.86 / 0.93 | 4.32 | 0.87 / 0.93 | 4.58 | 0.86 / 0.93 |
+| ours, P4 ensemble, reject 20 % (total) | P4 + total reject | zero-shot | 4.53 [4.26, 4.81] | 0.86 / 0.93 | 4.24 | 0.86 / 0.93 | 4.58 | 0.86 / 0.93 |
+| ours, P4 ensemble, reject 20 % (learned) | P4 + learned reject | zero-shot | 4.57 [4.30, 4.85] | 0.86 / 0.93 | 4.43 | 0.84 / 0.92 | 4.60 | 0.86 / 0.93 |
+| Hajhassani et al. 2026 (preprint) | CNN-transformer | zero-shot (TUEG), healthy 20–90 | — | — | 8.36 | 0.59 / — | — | — |
+| Bikki & Zeng 2026 (abstract, unverified) | CNN | zero-shot (TUABX) | — | 0.83 / — | — | — | — | — |
+| Tveitstøl et al. 2025 (abstract, unverified) | CNN | leave one dataset out, 5–88 y | — | −0.01 / 0.63 | — | — | — | — |
+| Khayretdinova et al. 2022 | CNN | trained on TDBRAIN, 5–88 y | 5.96 ± 0.33 | 0.81 / 0.90 | — | — | — | — |
+| Bikki & Zeng 2026 (abstract, unverified) | CNN | trained on TDBRAIN | 5.83 ± 0.66 | 0.84 / — | — | — | — | — |
+| Hu et al. 2025 (NEOBA) | features + MLP | protocol unclear, 5–89 y | 4.95 | — | — | — | — | — |
+| Bomatter et al. 2024 | Riemannian + ridge | trained on TDBRAIN, 5–89 y | — | ≈ 0.8 / — | — | — | — | — |
+
+### Table 17.2. LEMON, adults, zero-shot (214 subjects, 20–80 y in 5-year bins, mean age 39.2; all healthy volunteers)
+
+| model | method | protocol | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy |
+|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | zero-shot | 5.20 [4.60, 5.84] | 0.88 / 0.95 | 5.20 | 0.88 / 0.95 |
+| ours, E2L, reject 20 % (spread) | E2L + spread reject | zero-shot | 4.37 [3.81, 4.93] | 0.90 / 0.96 | 4.37 | 0.90 / 0.96 |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | zero-shot | 4.70 [4.17, 5.29] | 0.90 / 0.95 | 4.70 | 0.90 / 0.95 |
+| ours, P3 ensemble, reject 20 % (spread) | P3 + spread reject | zero-shot | 3.86 [3.34, 4.38] | 0.92 / 0.96 | 3.86 | 0.92 / 0.96 |
+| ours, P3 ensemble, reject 20 % (total) | P3 + total reject | zero-shot | 4.02 [3.50, 4.57] | 0.92 / 0.96 | 4.02 | 0.92 / 0.96 |
+| ours, P3 ensemble, reject 20 % (learned) | P3 + learned reject | zero-shot | 3.80 [3.31, 4.32] | 0.92 / 0.96 | 3.80 | 0.92 / 0.96 |
+| ours, P4 ensemble | LaBraM + ABMIL (+ window loss), 5-fold ens. | zero-shot | 4.67 [4.11, 5.24] | 0.90 / 0.95 | 4.67 | 0.90 / 0.95 |
+| ours, P4 ensemble, reject 20 % (spread) | P4 + spread reject | zero-shot | 3.79 [3.28, 4.30] | 0.93 / 0.97 | 3.79 | 0.93 / 0.97 |
+| ours, P4 ensemble, reject 20 % (total) | P4 + total reject | zero-shot | 3.80 [3.32, 4.30] | 0.93 / 0.96 | 3.80 | 0.93 / 0.96 |
+| ours, P4 ensemble, reject 20 % (learned) | P4 + learned reject | zero-shot | 3.81 [3.32, 4.34] | 0.92 / 0.96 | 3.81 | 0.92 / 0.96 |
+| Hajhassani et al. 2026 (preprint) | CNN-transformer | zero-shot (TUEG) | 9.91 | 0.63 / — | 9.91 | 0.63 / — |
+| Mellot et al. 2023 | Riemannian, without / with re-centring | cross (TUAB normal) | — | 0.26 / 0.44 | — | — |
+| Engemann et al. 2022 | Deep4Net CNN | trained on LEMON | 7.75 ± 1.78 | 0.69 / — | 7.75 | 0.69 / — |
+| Engemann et al. 2022 | ShallowNet / filter-bank | trained on LEMON | 8.67 / 8.67 | 0.69 / 0.67 | — | — |
+
+### Table 17.3. CHBP, adults, zero-shot (250 subjects, 18–68 y, mean age 31.7; all healthy volunteers)
+
+| model | method | protocol | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy |
+|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | zero-shot | 9.35 [8.45, 10.27] | −0.64 / 0.45 | 9.35 | −0.64 / 0.45 |
+| ours, E2L, reject 20 % (spread) | E2L + spread reject | zero-shot | 9.23 [8.20, 10.30] | −0.87 / 0.42 | 9.23 | −0.87 / 0.42 |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | zero-shot | 7.37 [6.60, 8.28] | −0.14 / 0.48 | 7.37 | −0.14 / 0.48 |
+| ours, P3 ensemble, reject 20 % (spread) | P3 + spread reject | zero-shot | 7.02 [6.13, 7.94] | −0.17 / 0.47 | 7.02 | −0.17 / 0.47 |
+| ours, P3 ensemble, reject 20 % (total) | P3 + total reject | zero-shot | 6.18 [5.43, 7.03] | 0.00 / 0.49 | 6.18 | 0.00 / 0.49 |
+| ours, P3 ensemble, reject 20 % (learned) | P3 + learned reject | zero-shot | 6.49 [5.67, 7.30] | −0.01 / 0.51 | 6.49 | −0.01 / 0.51 |
+| ours, P4 ensemble | LaBraM + ABMIL (+ window loss), 5-fold ens. | zero-shot | 7.95 [7.11, 8.87] | −0.28 / 0.49 | 7.95 | −0.28 / 0.49 |
+| ours, P4 ensemble, reject 20 % (spread) | P4 + spread reject | zero-shot | 7.84 [6.91, 8.83] | −0.42 / 0.48 | 7.84 | −0.42 / 0.48 |
+| ours, P4 ensemble, reject 20 % (total) | P4 + total reject | zero-shot | 7.03 [6.17, 7.89] | −0.11 / 0.52 | 7.03 | −0.11 / 0.52 |
+| ours, P4 ensemble, reject 20 % (learned) | P4 + learned reject | zero-shot | 7.43 [6.53, 8.37] | −0.29 / 0.47 | 7.43 | −0.29 / 0.47 |
+| ours, device-robust E2L (reference) | LaBraM, 1–45 Hz + amplitude norm | zero-shot | 6.14 | 0.25 / 0.58 | 6.14 | 0.25 / 0.58 |
+| Engemann et al. 2022 | features + random forest | trained on CHBP | 6.48 | 0.18 / — | 6.48 | 0.18 / — |
+| Engemann et al. 2022 | ShallowNet / Deep4Net CNN | trained on CHBP | 6.65 / 6.89 | — | — | — |
+
+### Table 17.4. MIPDB, adults, zero-shot (31 subjects, 18–44 y, mean age 27.5; 30 healthy controls, 1 with a diagnosis)
+
+| model | method | protocol | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy |
+|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | zero-shot | 9.16 [6.95, 11.75] | −1.66 / 0.45 | 9.15 | −1.60 / 0.45 |
+| ours, E2L, reject 20 % (spread) | E2L + spread reject | zero-shot | 8.58 [6.10, 11.57] | −1.28 / 0.47 | 8.54 | −1.21 / 0.47 |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | zero-shot | 6.88 [4.96, 9.20] | −0.71 / 0.59 | 6.93 | −0.69 / 0.59 |
+| ours, P3 ensemble, reject 20 % (spread) | P3 + spread reject | zero-shot | 5.88 [3.85, 8.37] | −0.53 / 0.53 | 5.90 | −0.51 / 0.53 |
+| ours, P3 ensemble, reject 20 % (total) | P3 + total reject | zero-shot | 5.27 [3.77, 6.94] | −0.03 / 0.70 | 5.26 | −0.01 / 0.70 |
+| ours, P3 ensemble, reject 20 % (learned) | P3 + learned reject | zero-shot | 5.52 [3.90, 7.27] | −0.09 / 0.63 | 5.52 | −0.06 / 0.63 |
+| ours, P4 ensemble | LaBraM + ABMIL (+ window loss), 5-fold ens. | zero-shot | 7.36 [5.35, 9.59] | −0.84 / 0.61 | 7.33 | −0.80 / 0.61 |
+| ours, P4 ensemble, reject 20 % (spread) | P4 + spread reject | zero-shot | 7.38 [4.98, 9.97] | −1.17 / 0.53 | 7.34 | −1.11 / 0.53 |
+| ours, P4 ensemble, reject 20 % (total) | P4 + total reject | zero-shot | 6.35 [4.12, 8.79] | −0.46 / 0.57 | 6.35 | −0.46 / 0.57 |
+| ours, P4 ensemble, reject 20 % (learned) | P4 + learned reject | zero-shot | 6.40 [4.19, 8.83] | −0.49 / 0.57 | 6.32 | −0.44 / 0.57 |
+| published | — | — | none found | — | — | — |
+
+### Table 17.5. Temple (TUH), adults, in-domain test (249 subjects, 272 recordings, mean age 50.7; healthy = normal EEG report 149, 44.6 y; pathological = abnormal report 123, 58.0 y)
+
+| model | method | protocol | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy | MAE, pathological | R²/r, pathological |
+|---|---|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | in-domain | 6.40 [5.75, 7.09] | 0.78 / 0.89 | 4.91 | 0.85 / 0.93 | 8.21 | 0.62 / 0.79 |
+| ours, E2L, reject 20 % (spread) | E2L + spread reject | in-domain | 5.87 [5.23, 6.54] | 0.83 / 0.92 | 4.88 | 0.85 / 0.93 | 7.25 | 0.70 / 0.84 |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | in-domain | 5.87 [5.24, 6.52] | 0.81 / 0.90 | 4.61 | 0.87 / 0.93 | 7.39 | 0.67 / 0.82 |
+| ours, P3 ensemble, reject 20 % (spread) | P3 + spread reject | in-domain | 5.44 [4.84, 6.09] | 0.85 / 0.92 | 4.64 | 0.86 / 0.93 | 6.59 | 0.76 / 0.87 |
+| ours, P3 ensemble, reject 20 % (total) | P3 + total reject | in-domain | 5.07 [4.47, 5.69] | 0.86 / 0.93 | 4.44 | 0.88 / 0.94 | 6.20 | 0.75 / 0.87 |
+| ours, P3 ensemble, reject 20 % (learned) | P3 + learned reject | in-domain | 4.97 [4.38, 5.60] | 0.87 / 0.93 | 4.29 | 0.88 / 0.94 | 6.15 | 0.78 / 0.88 |
+| ours, P4 ensemble | LaBraM + ABMIL (+ window loss), 5-fold ens. | in-domain | 5.87 [5.25, 6.54] | 0.81 / 0.90 | 4.52 | 0.87 / 0.93 | 7.50 | 0.67 / 0.82 |
+| ours, P4 ensemble, reject 20 % (spread) | P4 + spread reject | in-domain | 5.69 [5.02, 6.42] | 0.84 / 0.92 | 4.62 | 0.87 / 0.93 | 7.26 | 0.72 / 0.85 |
+| ours, P4 ensemble, reject 20 % (total) | P4 + total reject | in-domain | 5.07 [4.44, 5.69] | 0.87 / 0.93 | 4.40 | 0.87 / 0.94 | 6.32 | 0.78 / 0.89 |
+| ours, P4 ensemble, reject 20 % (learned) | P4 + learned reject | in-domain | 5.11 [4.52, 5.68] | 0.86 / 0.93 | 4.46 | 0.87 / 0.93 | 6.22 | 0.78 / 0.88 |
+| Gemein et al. 2024 | TCN, trained on normal recordings only | within TUAB (train / eval) | 9.45 (weighted) | — | 6.60 | — | 12.85 | — |
+
+### Table 17.6. Harvard (HEEDB), adults, in-domain test (5,884 subjects, 7,338 recordings, mean age 54.1; healthy = normal report 1,518, 48.8 y; pathological = abnormal report 2,253, 58.8 y; unlabelled 3,567, 53.3 y)
+
+| model | method | protocol | MAE, all | R²/r, all | MAE, healthy | R²/r, healthy | MAE, pathological | R²/r, pathological | MAE, unlabelled | R²/r, unlabelled |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ours, E2L | LaBraM, window mean | in-domain | 7.02 [6.88, 7.16] | 0.79 / 0.90 | 7.12 | 0.78 / 0.89 | 7.56 | 0.75 / 0.87 | 6.64 | 0.81 / 0.91 |
+| ours, E2L, reject 20 % (spread) | E2L + spread reject | in-domain | 6.76 [6.60, 6.93] | 0.77 / 0.88 | 6.71 | 0.75 / 0.87 | 7.33 | 0.69 / 0.84 | 6.45 | 0.81 / 0.90 |
+| ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | in-domain | 5.98 [5.86, 6.12] | 0.84 / 0.91 | 5.73 | 0.84 / 0.92 | 6.52 | 0.80 / 0.89 | 5.74 | 0.85 / 0.92 |
+| ours, P3 ensemble, reject 20 % (spread) | P3 + spread reject | in-domain | 5.61 [5.46, 5.75] | 0.86 / 0.93 | 5.27 | 0.87 / 0.93 | 6.13 | 0.83 / 0.91 | 5.42 | 0.87 / 0.94 |
+| ours, P3 ensemble, reject 20 % (total) | P3 + total reject | in-domain | 5.39 [5.25, 5.53] | 0.88 / 0.94 | 5.27 | 0.87 / 0.93 | 5.84 | 0.85 / 0.92 | 5.19 | 0.89 / 0.94 |
+| ours, P3 ensemble, reject 20 % (learned) | P3 + learned reject | in-domain | 5.33 [5.20, 5.46] | 0.88 / 0.94 | 5.13 | 0.88 / 0.94 | 5.82 | 0.86 / 0.93 | 5.12 | 0.89 / 0.95 |
+| ours, P4 ensemble | LaBraM + ABMIL (+ window loss), 5-fold ens. | in-domain | 5.94 [5.82, 6.07] | 0.84 / 0.92 | 5.69 | 0.84 / 0.92 | 6.49 | 0.80 / 0.89 | 5.70 | 0.85 / 0.92 |
+| ours, P4 ensemble, reject 20 % (spread) | P4 + spread reject | in-domain | 5.56 [5.42, 5.71] | 0.87 / 0.93 | 5.27 | 0.87 / 0.93 | 6.09 | 0.83 / 0.91 | 5.36 | 0.88 / 0.94 |
+| ours, P4 ensemble, reject 20 % (total) | P4 + total reject | in-domain | 5.32 [5.19, 5.45] | 0.88 / 0.94 | 5.23 | 0.87 / 0.93 | 5.75 | 0.85 / 0.92 | 5.11 | 0.89 / 0.94 |
+| ours, P4 ensemble, reject 20 % (learned) | P4 + learned reject | in-domain | 5.34 [5.20, 5.47] | 0.88 / 0.94 | 5.18 | 0.88 / 0.94 | 5.77 | 0.86 / 0.93 | 5.15 | 0.89 / 0.94 |
+| published | — | — | none known for HEEDB | — | — | — | — | — | — | — |
+
+**What Tables 17.1–17.6 show:**
+- **Without rejection**, the P4 ensemble is the best model on TDBRAIN (4.92), LEMON (4.67) and Harvard (5.94), and the P3 ensemble on
+  CHBP (7.37) and MIPDB (6.88); they tie on Temple (5.87).
+- **`total` or `learned` beats `spread` wherever the cohorts differ from clean volunteer data**: Temple (5.07 / 4.97 vs 5.44–5.69),
+  Harvard (5.32–5.39 vs 5.56–5.61), CHBP (6.18–7.03 vs 7.02–7.84), MIPDB. On TDBRAIN and LEMON the three options are within
+  0.15 y of each other, except P3 `total` on LEMON (4.02 against 3.80–3.86).
+- **Against the published results**, every zero-shot row of ours on TDBRAIN and LEMON is below the best published MAE, including
+  models trained on those cohorts; on CHBP only the device-robust model (6.14) and the P3 ensemble with `total` rejection (6.18,
+  on 80 % of the recordings) are below Engemann's within-CHBP 6.48. A rejection row covers 80 % of the cohort, the published rows
+  100 %, so the like-for-like comparison is the rows without rejection.
