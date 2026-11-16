@@ -1590,6 +1590,37 @@ signals yet: the recording-chain audit of the `onboard-eeg-dataset` skill comes 
 | Iowa Parkinson's rest (OpenNeuro ds004584) | 149: 100 Parkinson's, 49 controls | 48–86, mean 69.3 | diagnosis, MoCA, UPDRS | 63 channels, reference Pz (so Pz is not recorded), 500 Hz; eyes open, 2–5 min | open, CC0, 3.1 GB | Pz missing; eyes open only; old age only |
 | Tel Aviv Parkinson's (OpenNeuro ds007526) | 144: 116 Parkinson's, 28 controls | 39–84, mean 65.1 | diagnosis, UPDRS, MoCA | 64 channels (EGI), vertex reference, 250 Hz; eyes open, about 4 min | open, CC0, 4.6 GB | Cz is the reference; 28 controls |
 
+### Table 23.2. Age information and earlier use of the candidates (checked 2026-11-16)
+
+Is there a per-subject age, and has the cohort already been used by other groups for age prediction or in an EEG
+foundation model (pre-training, or downstream evaluation)? "none found" means the citation and full-text searches
+returned nothing, not that the search was exhaustive; "(u)" marks what could not be read on a primary source.
+
+| dataset | age information | age prediction by others | EEG foundation models | in LaBraM's pre-training |
+|---|---|---|---|---|
+| Dortmund Vital Study (ds005385) | exact whole years, `participants.tsv` | Azami & Zandbagleh 2025 (Alzheimer's & Dementia, abstract): trained and tested within the dataset, 10-fold CV, spectral features, MAE 2.24 y, R² 0.91 with eyes open + closed (2.92 eyes closed, 4.14 eyes open); subject-level folds not stated. No external or zero-shot test found | pre-training of LEAD (608 subjects); not in REVE, LaBraM++, CBraMod, NeuroLM, BIOT, EEGPT | no |
+| NMT Scalp EEG (2,417) | exact per recording, `Labels.csv` | none found | pre-training of REVE; downstream abnormal-EEG test in Gijsen & Ritter 2025 (AUROC 89.8, linear probe) | no |
+| NMT-4K-EEG | years and months per recording, `recordings.tsv`; range not stated | none found | none found | no |
+| CAUEEG | per recording, `annotation.json` | Gemein, Engemann et al. 2026 (Alzheimer's & Dementia): ridge regression on power spectra **trained** on the controls of TUAB + CAUEEG (1,245 + 459), R² 0.61; **tested** on the clinical groups, mean gap about −6 y (CAUEEG MCI) to −10 y (TUAB abnormal) | pre-training of LEAD (1,379 subjects); downstream dementia classification with REVE, BIOT, CBraMod (Zare 2026, abstract) | no |
+| TUM chronic pain (OSF qgfma) | years per participant (via the eLife paper; file not seen) | none found | none found | no |
+| SRM resting state (ds003775) | exact, `participants.tsv`, 17–71 | Kounios et al. 2024 (Front. Neuroergonomics): subjects of 30+ as supplementary **training** data for a consumer-headset model, r = 0.58 on their own data. Role in Tveitstøl et al. 2026 not confirmed (u) | pre-training of REVE and of LEAD | no |
+| AHEPA (ds004504) | exact, `participants.tsv`, 44–79 | none found (one study regresses MMSE, not age) | downstream only: LEAD (Alzheimer's / FTD), EEG-FM-Bench (BENDR, BIOT, LaBraM, EEGPT, CBraMod, REVE compared) | no |
+| Iowa Parkinson's rest (ds004584) | exact, `participants.tsv`, 48–86 | none found | pre-training of LEAD (149 subjects) | no |
+| Tel Aviv Parkinson's (ds007526) | exact, `participants.tsv`, 39–84 | none found | none found | no |
+
+What it means for us:
+
+- **Every candidate has a per-subject age, exact** (none is binned like LEMON).
+- **None is in LaBraM's pre-training corpus** (Appendix D of the LaBraM paper: 16 sources, TUAR / TUEP / TUSZ / TUSL of
+  TUH, public BCI and emotion sets, Siena, and the authors' own recordings; the one unspecified item is that
+  self-collected set). A model fine-tuned from the LaBraM base checkpoint can therefore be called zero-shot on all of
+  them. This would change with other initial weights: REVE was pre-trained on NMT and SRM, LEAD on Dortmund, CAUEEG,
+  SRM and the Iowa set.
+- **Published age results exist for three.** Dortmund has one within-dataset result (MAE 2.24 y), which is not
+  comparable with a zero-shot score: it is trained on the cohort, over a 20–70 range, with folds that may share
+  subjects' runs. CAUEEG and SRM were used as training data elsewhere. No zero-shot age result was found on any of the
+  nine, so a zero-shot Dortmund score would be the first.
+
 Checked and set aside:
 
 - **BrainLat** (Synapse): 780 participants, but only about 157 with EEG; 128-channel radial BioSemi layout without 10-20
@@ -1604,7 +1635,8 @@ Checked and set aside:
 
 Recommendation:
 
-- **Next external test cohort: Dortmund Vital Study.** It is the only large, open, healthy cohort with exact ages spread
+- **Next external test cohort: Dortmund Vital Study** (onboarded on 2026-11-16: `docs/dortmund_onboarding.md`; P4
+  ensemble 4.53 years per session, predicted age +4.3 years over the 5-year follow-up)**.** It is the only large, open, healthy cohort with exact ages spread
   evenly over 20–70 years, it has a research-grade recording chain with a wide band (unlike CHBP), and its 5-year
   follow-up of 208 people allows a test no current cohort allows: does the predicted age advance by 5 years in the same
   person? It should stay a test set.

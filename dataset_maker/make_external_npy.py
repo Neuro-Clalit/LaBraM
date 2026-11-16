@@ -33,6 +33,15 @@ reader and the channel naming differ per corpus:
   clinical flags from ``participants.tsv``; ``clinical.parquet`` keeps every
   participants.tsv column. See ``docs/tdbrain_onboarding.md``.
 
+* ``dortmund`` -- Dortmund Vital Study (Wascher et al., OpenNeuro ds005385,
+  CC0), BIDS EDF at 1000 Hz, DC-coupled (low-pass 250 Hz), 64 EEG channels
+  (actiCAP, 10-10) referenced to FCz, healthy adults of 20-70 years. Four
+  3-min runs per session (eyes closed and eyes open, before and after a 2-h
+  block of cognitive tasks), each converted as its own recording; 208 of the
+  608 participants have a second session about 5 years later. Whole-year ages
+  from ``participants.tsv`` (the age at session 1; session 2 adds the
+  difference of the recording years). See ``docs/dortmund_onboarding.md``.
+
 The healthy-volunteer corpora are labelled ``normal`` (MIPDB's ``DX_Status``
 is kept in the manifest); in TDBRAIN only the healthy controls are, the
 patients stay unlabelled. Every recording is placed in the **test** split, so a
@@ -379,6 +388,19 @@ def tdbrain_recordings(raw_dir, meta_tsv):
     return out
 
 
+def crop_constant_ends(raw, picks):
+    """Cut leading / trailing samples where none of the ``picks`` channels changes
+    (constant padding up to whole data records), in place."""
+    moving = np.flatnonzero(np.any(np.diff(raw.get_data(picks=picks), axis=1) != 0, axis=0))
+    # moving[i] = j means sample j+1 differs from j: the signal runs from the first change
+    # (sample 0 when nothing leads) to the last sample before the final change into the pad
+    if moving.size:
+        first = moving[0] + 1 if moving[0] > 0 else 0
+        last = moving[-1] if moving[-1] < raw.n_times - 2 else raw.n_times - 1
+        if first > 0 or last < raw.n_times - 1:
+            raw.crop(first / raw.info["sfreq"], last / raw.info["sfreq"])
+
+
 def open_tdbrain(path):
     """BDF (release 3.1) or BrainVision at 500 Hz, DC-coupled (low-pass
     100 Hz), 26 EEG channels (10-10) + EOG / ECG / EMG (+ the BDF ``Status``),
@@ -395,20 +417,104 @@ def open_tdbrain(path):
     # records, ~1 s; against a DC offset of mV that step would ring through the filters
     # into the last windows. Samples where no 10-20 channel changes are cut at both ends.
     present = channel_map(raw.ch_names, bids_canonical_channel)
-    moving = np.flatnonzero(np.any(np.diff(raw.get_data(picks=list(present.values())), axis=1) != 0, axis=0))
-    # moving[i] = j means sample j+1 differs from j: the signal runs from the first change
-    # (sample 0 when nothing leads) to the last sample before the final change into the pad
-    if moving.size:
-        first = moving[0] + 1 if moving[0] > 0 else 0
-        last = moving[-1] if moving[-1] < raw.n_times - 2 else raw.n_times - 1
-        if first > 0 or last < raw.n_times - 1:
-            raw.crop(first / raw.info["sfreq"], last / raw.info["sfreq"])
+    crop_constant_ends(raw, list(present.values()))
+    raw._data -= raw._data.mean(axis=1, keepdims=True)
+    return raw, present, None
+
+
+def dortmund_events(events_tsv):
+    """``(boundaries, n_triggers, usb_note)`` of a run's ``*_events.tsv``: the
+    1-based sample latencies of the ``boundary`` events (the first one, at
+    sample 1, is the start of the file; any further one is a discontinuity of
+    the recording), the number of stimulus triggers (``S  n``: a trigger line
+    that kept firing in some runs, the ``late_ses*`` count of participants.tsv)
+    and whether the recorder noted a lost cap connection."""
+    import pandas as pd
+    if not os.path.exists(events_tsv):
+        return [1], 0, False
+    ev = pd.read_csv(events_tsv, sep="\t")
+    kind = ev["type"].astype(str)
+    bounds = sorted(int(v) for v in ev.loc[kind == "boundary", "onset"])
+    return bounds or [1], int(kind.str.match(r"S\s*\d+").sum()), bool(kind.str.contains("USB").any())
+
+
+def dortmund_recordings(raw_dir, meta_tsv):
+    """One recording per run ``sub-<id>_ses-<n>_task-Eyes{Closed,Open}_acq-{pre,post}_eeg.edf``
+    (stem ``sub-<id>_ses-<n>_<EC|EO>-<pre|post>_dortmund``), scored per run or pooled per session.
+    ``age`` is the participants.tsv age for session 1 and that age plus the difference of the
+    sessions' recording years (``sub-<id>_sessions.tsv``) for session 2, so a follow-up age is
+    known to about +-1 year (``age_basis``). Every participant is healthy by the study's
+    exclusion criteria: ``label`` is ``normal``."""
+    import re
+    import pandas as pd
+    meta = pd.read_csv(meta_tsv, sep="\t").set_index("participant_id")
+    pat = re.compile(r"^(sub-[^_]+)_ses-([^_]+)_task-Eyes(Closed|Open)_acq-(pre|post)_eeg\.edf$")
+    out = []
+    for path in sorted(glob.glob(os.path.join(raw_dir, "sub-*", "ses-*", "eeg", "*_eeg.edf"))):
+        m = pat.match(os.path.basename(path))
+        if not m or m[1] not in meta.index or pd.isna(meta.loc[m[1], "age"]):
+            continue
+        sub, ses, task, acq = m[1], m[2], "EC" if m[3] == "Closed" else "EO", m[4]
+        row = meta.loc[sub]
+        years = {}
+        ses_tsv = os.path.join(raw_dir, sub, f"{sub}_sessions.tsv")
+        if os.path.exists(ses_tsv):
+            t = pd.read_csv(ses_tsv, sep="\t")
+            years = {str(a).replace("ses-", ""): float(b) for a, b in zip(t["session_id"], t["recording_year"])
+                     if not pd.isna(b)}
+        age, basis, matched = float(row["age"]), "participants.tsv (session 1)", True
+        if ses != "1":
+            if ses in years and "1" in years:
+                age, basis = age + years[ses] - years["1"], "session 1 age + difference of recording years"
+            else:                       # no recording year: the follow-up age is unknown
+                basis, matched = "session 1 age (no recording year)", False
+        bounds, n_trig, usb = dortmund_events(path[:-len("_eeg.edf")] + "_events.tsv")
+        late = row.get(f"late_ses{ses}")
+        out.append({"stem": f"{sub}_ses-{ses}_{task}-{acq}_dortmund", "path": os.path.relpath(path, raw_dir),
+                    "corpus": "dortmund", "subject": sub, "session": ses, "task": task, "acq": acq,
+                    "age": age, "raw_age": float(row["age"]), "age_basis": basis, "age_session_matched": matched,
+                    "sex": row["sex"] if row["sex"] in ("M", "F") else None, "label": "normal", "healthy": True,
+                    "handedness": None if pd.isna(row.get("handedness")) else str(row["handedness"]),
+                    "recording_year": years.get(ses), "n_boundaries": len(bounds), "n_triggers": n_trig,
+                    "usb_note": usb, "late_triggers": None if late is None or pd.isna(late) else int(late),
+                    "_file": path})
+    return out
+
+
+def open_dortmund(path):
+    """EDF at 1000 Hz, DC-coupled (hardware low-pass 250 Hz), 64 EEG channels
+    (10-10 names) + ``Status``, FCz reference (kept: the models apply a common
+    average reference over the 19 channels at their input). Three things are
+    done before the shared pipeline:
+
+    * a run with discontinuities (more than one ``boundary`` in its events.tsv)
+      is cut to its longest continuous segment, so no filter runs across a jump;
+    * constant padding at either end is cut;
+    * each channel's mean is removed: the recording is DC-coupled with offsets
+      of millivolts, which the pipeline's 0.1 Hz high-pass would turn into a
+      transient over the first seconds of a 3-min run.
+
+    The EDF physical range differs from file to file (the exporter scales every
+    file to its own range); MNE applies it, and the audit of
+    ``docs/dortmund_onboarding.md`` checks the result on every file."""
+    import mne
+    raw = mne.io.read_raw_edf(path, preload=True, verbose="error")
+    raw.drop_channels([c for c in raw.ch_names if c.lower() == "status"])
+    bounds, _, _ = dortmund_events(path[:-len("_eeg.edf")] + "_events.tsv")
+    if len(bounds) > 1:
+        edges = [b - 1 for b in bounds] + [raw.n_times]          # 0-based segment starts, then the end
+        edges = sorted({min(max(e, 0), raw.n_times) for e in edges})
+        k = int(np.argmax(np.diff(edges)))
+        raw.crop(edges[k] / raw.info["sfreq"], (edges[k + 1] - 1) / raw.info["sfreq"])
+    present = channel_map(raw.ch_names, bids_canonical_channel)
+    crop_constant_ends(raw, list(present.values()))
     raw._data -= raw._data.mean(axis=1, keepdims=True)
     return raw, present, None
 
 
 DATASETS = {"lemon": (lemon_recordings, open_lemon), "mipdb": (mipdb_recordings, open_mipdb),
-            "chbp": (chbp_recordings, open_chbp), "tdbrain": (tdbrain_recordings, open_tdbrain)}
+            "chbp": (chbp_recordings, open_chbp), "tdbrain": (tdbrain_recordings, open_tdbrain),
+            "dortmund": (dortmund_recordings, open_dortmund)}
 
 
 # ------------------------------------------------------------------ convert

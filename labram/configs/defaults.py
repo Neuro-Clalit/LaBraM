@@ -310,6 +310,7 @@ DEFAULT_SAGEMAKER_DATA_S3_URIS: Dict[str, str] = {
     '/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1': 's3://eeg-data-public/MIPDB/v1/cohorts/mipdb_v1',
     '/data/datasets/EEG-public/CHBP/cohorts/chbp_v1': 's3://eeg-data-public/CHBP/v1/cohorts/chbp_v1',
     '/data/datasets/EEG-public/TDBRAIN/cohorts/tdbrain_v1': 's3://eeg-data-public/TDBRAIN/v1/cohorts/tdbrain_v1',
+    '/data/datasets/EEG-public/DORTMUND/cohorts/dortmund_v1': 's3://eeg-data-public/DORTMUND/v1/cohorts/dortmund_v1',
 }
 
 # ---------- Transformer architecture (NeuralTransformerBase) ----------
