@@ -66,15 +66,17 @@ Outputs:
      (Section 9.2).
 6. **Closing the loop (Section 10).** The fixes were tested, still without any
    CHBP labels:
-   - **Best: a device-robust model.** E2L fine-tuned on Temple + Harvard with a
-     1–45 Hz input band and per-window amplitude normalization scores CHBP
-     *as recorded* at MAE 6.38, r 0.55, bias +0.3 (E2L: 9.55, r 0.44). That is
-     level with the best published within-CHBP result (6.48, trained on CHBP).
-     The 120-channel cap goes from 13.10 to 7.01.
+   - **Best: a device-robust model.** The E2L recipe trained on Temple +
+     Harvard with a 1–45 Hz input band and per-window amplitude normalization
+     scores CHBP *as recorded* at MAE 6.19, R² 0.26, r 0.59, bias −0.1 (E2L:
+     9.55, r 0.44). That is level with the best published within-CHBP result,
+     which was trained on CHBP: 6.19 ± 1.10 vs 6.48 ± 0.60 over the same
+     10 folds, within noise (Table 10.11). The 120-channel cap goes from 13.10
+     to 6.67.
    - **It is invariant to the CHBP-like degradation** (Table 10.3).
-   - **It costs some in-domain accuracy:** val 7.86 vs 7.24, LEMON 6.23 vs 5.22,
-     with the ranking unchanged. The cost is a level offset at young ages from
-     discarding amplitude.
+   - **It costs some in-domain accuracy:** val / test 7.64 / 7.55 vs 7.24 /
+     7.00, LEMON 6.08 vs 5.22, MIPDB 15.18 vs 12.66. The ranking is unchanged
+     (r 0.67 vs 0.66).
    - **Best without retraining: spectrum matching per cap** to a label-free
      Temple / Harvard reference: E2L 6.70, all four models improved
      (Table 10.1).
@@ -547,9 +549,12 @@ These models are trained on CHBP. Ours never are:
 - **After label-free spectrum matching:** 7.01 (E2L), and 6.27 on the
   64-channel cap.
 
-For reference only, since they use CHBP ages: on the same kind of 10 subject
-folds, a two-parameter recalibration of the frozen predictions gives 6.44–6.59,
-and a ridge regression on frozen E2 embeddings gives 5.93
+The full side-by-side table, on the benchmark's own folds and including the
+Section 10 fixes, is Table 10.11.
+
+For reference only, since they use CHBP ages: on the same 10 subject folds,
+a two-parameter recalibration of the frozen predictions gives 6.44–6.59, and a
+ridge regression on frozen E2 embeddings gives 5.93
 (`docs/data/external_eval/chbp/cv10_*.csv`). Neither is pursued, because CHBP is
 kept as an external test.
 
@@ -661,22 +666,29 @@ where the median runs over the non-zero channels of the window.
 
 ### Table 10.3. E2L and device-robust E2L
 
-First 5 minutes; MAE / bias (2.2) / r (2.3). CHBP is scored as recorded, with no
-test-time step. "4 ep." is the first fine-tune; "+6 ep." its continuation.
-In-domain val / test is the `tuh_heedb_v1` validation and test split, all
-reports and ages (MAE only). Per-model rows:
-`docs/data/external_eval/chbp/robust_e2l_comparison.csv`.
+First 5 minutes. Cells are MAE / bias (2.2) / r (2.3), or MAE alone where only
+that was logged. CHBP is scored as recorded, with no test-time step.
+- "4 ep." is the first fine-tune from E2L; "+6 ep." its continuation.
+- "full" is the whole E2L recipe from the LaBraM base checkpoint with the
+  robust inputs: 16 epochs at batch 256, early-stopped after epoch 14; best
+  epoch 9 by validation MAE (`scripts/external_runs/e2l_robust_full.sh`).
+- In-domain is the `tuh_heedb_v1` validation / test split, all reports and
+  ages.
 
-| set | n | E2L | robust, 4 ep. | robust, +6 ep. |
-|---|---|---|---|---|
-| in-domain val / test, MAE | — | 7.24 / 7.00 | 8.10 / 8.04 | 7.86 / 7.73 |
-| Temple + Harvard, age-matched | 300 | 7.02 / +5.10 / 0.66 | 8.61 / +7.48 / 0.65 | 8.50 / +7.39 / 0.65 |
-| same, × 0.62 and band 0.5–50 Hz | 300 | 13.71 / +12.59 / 0.37 | 8.48 / +7.30 / 0.65 | **8.23** / +6.99 / **0.65** |
-| LEMON | 214 | 5.22 / −1.11 / 0.95 | 6.52 / +1.05 / 0.94 | 6.23 / +1.49 / 0.94 |
-| **CHBP as recorded** | 250 | 9.55 / +7.05 / 0.44 | 6.39 / +1.34 / 0.55 | **6.38 / +0.28 / 0.55** |
-| CHBP 64-ch cap | 161 | 7.58 / +4.98 / 0.55 | 6.07 / +1.11 / 0.59 | **6.03 / −0.10 / 0.60** |
-| CHBP 120-ch cap | 89 | 13.10 / +10.80 / 0.27 | 6.98 / +1.77 / 0.46 | 7.01 / +0.95 / 0.45 |
-| CHBP, per-cap spectrum matching | 250 | 6.70 / +0.82 / 0.52 | 6.75 / +2.53 / 0.53 | 6.71 / +2.74 / 0.55 |
+| set | n | E2L | robust, 4 ep. | robust, +6 ep. | **robust, full** |
+|---|---|---|---|---|---|
+| in-domain val / test, MAE | 10,614 / 7,612 | 7.24 / 7.00 | 8.10 / 8.04 | 7.86 / 7.73 | **7.64 / 7.55** |
+| Temple val / test, MAE | | 7.32 / 6.59 | — | — | 7.52 / 6.87 |
+| Temple normal reports, val / test | | 6.55 / 4.95 | — | — | 6.83 / 5.46 |
+| Harvard val / test, MAE | | 7.33 / 7.15 | — | — | 7.70 / 7.58 |
+| Harvard normal reports, val / test | | 7.11 / 7.21 | — | — | 7.51 / 7.72 |
+| Temple + Harvard, age-matched | 300 | 7.02 / +5.10 / 0.66 | 8.61 / +7.48 / 0.65 | 8.50 / +7.39 / 0.65 | 7.69 / +6.29 / **0.67** |
+| same, × 0.62 and band 0.5–50 Hz | 300 | 13.71 / +12.59 / 0.37 | 8.48 / +7.30 / 0.65 | 8.23 / +6.99 / 0.65 | **7.33 / +5.67 / 0.67** |
+| LEMON | 214 | 5.22 / −1.11 / 0.95 | 6.52 / +1.05 / 0.94 | 6.23 / +1.49 / 0.94 | 6.08 / +1.89 / 0.94 |
+| **CHBP as recorded** | 250 | 9.55 / +7.05 / 0.44 | 6.39 / +1.34 / 0.55 | 6.38 / +0.28 / 0.55 | **6.19 / −0.09 / 0.59** |
+| CHBP 64-ch cap, MAE / r | 161 | 7.58 / 0.55 | 6.07 / 0.59 | 6.03 / 0.60 | **5.92 / 0.62** |
+| CHBP 120-ch cap, MAE / r | 89 | 13.10 / 0.27 | 6.98 / 0.46 | 7.01 / 0.45 | **6.67 / 0.53** |
+| MIPDB (children and young adults) | 116 | 12.66 / +12.43 / 0.59 | — | — | 15.18 / +15.10 / 0.56 |
 
 ### Figure 10.1. Every CHBP fix, E2L
 
@@ -699,6 +711,15 @@ dashed line is the predict-the-mean MAE, 7.27.
   - In-domain val 8.10 → 7.86 (E2L 7.24).
   - LEMON 6.52 → 6.23 (E2L 5.22).
   - CHBP stays at 6.38–6.39.
+- **The full E2L recipe with the robust inputs is the best robust model.**
+  - CHBP 6.19, R² 0.26, r 0.59, bias −0.1. The 64-channel cap is 5.92 and the
+    120-channel cap 6.67.
+  - It is invariant to the CHBP-like degradation (7.69 → 7.33).
+  - The in-domain cost shrinks to 0.40 / 0.55 years on val / test (7.64 / 7.55
+    vs 7.24 / 7.00); per dataset it is 0.2–0.5 years. The age ranking is as good
+    as E2L's (r 0.67 vs 0.66).
+  - LEMON is 0.86 years worse (6.08 vs 5.22). MIPDB, mostly children outside the
+    training ages, is worse too (15.18 vs 12.66).
 - **The remaining cost is a level offset at young ages, not compression.** On
   the age-matched in-domain sample the bias is +7.4 vs E2L's +5.1, while the
   ranking is equal (r 0.65 vs 0.66). The spread of the predictions matches that
@@ -795,16 +816,333 @@ indistinguishable.
   far more than the spectrum. What decides transfer is whether a model's age
   mapping relies on the properties that differ.
 
+### 10.5 Choosing the model per recording or per cohort (no retraining)
+
+Two models are kept: E2L (A) and the full device-robust E2L (B). A recording,
+or a whole cohort, goes to B when it looks unlike the training data. The test
+uses its amplitude and its 45–70 Hz share of the 1–70 Hz power, against the
+*training split* of `tuh_heedb_v1`. No age and no external cohort enters the
+rule (`scripts/recording_amplitude_features.py`, `scripts/gated_ensemble.py`).
+
+- **Per recording:** inside the training [1 %, 99 %] range → A, else B. The
+  soft version weights $w\,A + (1 - w)\,B$ by the distance to that range.
+- **Per cohort / acquisition group:** a group goes to B when its *median*
+  amplitude or high-frequency share lies more than 1.5× outside the range
+  spanned by the training groups' medians (amplitude 9.1–18.9 µV,
+  high-frequency share 0.006–0.041).
+  - CHBP's two caps fall outside on both (5.5–5.9 µV; 0.0012–0.0017).
+  - LEMON (8.8 µV, 0.035) and MIPDB (18.4 µV, 0.016) fall inside.
+
+### Table 10.6. Model choice, adults, MAE
+
+| set | n | A: E2L | B: robust | mean of A and B | per recording, hard | per recording, soft | per cohort |
+|---|---|---|---|---|---|---|---|
+| Temple + Harvard val | 10,614 | **7.25** | 7.64 | 7.33 | 7.25 | 7.24 | **7.25** (A) |
+| Temple + Harvard test | 7,610 | **7.00** | 7.55 | 7.16 | 7.00 | 6.99 | **7.00** (A) |
+| LEMON | 214 | **5.22** | 6.08 | 5.49 | 5.22 | 5.22 | **5.22** (A) |
+| MIPDB adults | 31 | **9.22** | 10.60 | 9.85 | 9.40 | 9.36 | **9.22** (A) |
+| CHBP | 250 | 9.55 | **6.19** | 6.97 | 9.23 | 8.93 | **6.19** (B) |
+
+**What Table 10.6 shows:**
+- **The per-recording choice fails for CHBP.** It sends only 11 % of CHBP to B.
+  The training data is heterogeneous enough that a single CHBP recording is
+  rarely an outlier; CHBP stands out as a cohort.
+- **The per-cohort choice gives the best of both** with no retraining: E2L's
+  results on Temple, Harvard, LEMON and MIPDB, and the robust result on CHBP.
+- **Caveat:** the 1.5× tolerance was set while knowing where CHBP and LEMON
+  lie, so it needs confirmation on a further external cohort.
+- **Amplitude is U-shaped in age** in the training data: highest at 18–29,
+  lowest at 40–49, higher again from 70. So it is a non-linear age cue (|ρ| ≤ 0.04
+  overall; −0.10 for Harvard normal reports). That is why discarding it costs
+  mainly in young adults.
+
+The training-side alternatives that keep one model are running on SageMaker
+(`scripts/external_runs/submit_device_robust.sh`):
+- `band`: band 1–45 Hz only, amplitude kept, with one cohort-level gain at
+  test time;
+- `relamp`: band + amplitude normalization + the recording's amplitude relative
+  to its acquisition group, r and r², as a head input
+  (`rel_amplitude_v1.npz`);
+- `augment`: raw input, training-only random gain 0.55–1.8× and band-edge
+  augmentation (`augment.gain_prob` / `lowpass_prob` / `highpass_prob`).
+
+### Table 10.7. Band-only model (`band`), adults
+
+The E2L recipe with the 1–45 Hz band only; absolute amplitude kept. SageMaker job
+`labram-e2l-robust-band-2026-11-14-00-26-38-932`: early-stopped after epoch 14,
+best epoch 9, val / test 7.46 / 7.22.
+- In-domain rows: MAE.
+- External rows: MAE / bias / r.
+- "+ gain" multiplies the cohort by its training-median / cohort-median amplitude
+  (12.5 µV training median; CHBP × 2.15, LEMON × 1.43, MIPDB × 0.68). The factor
+  is estimated from signals only.
+
+| set | E2L | full robust | band | band + gain |
+|---|---|---|---|---|
+| Temple + Harvard val / test | 7.25 / 7.00 | 7.64 / 7.55 | 7.47 / 7.22 | — |
+| Temple test / normal reports | 6.40 / 4.91 | 6.69 / 5.46 | 6.70 / 5.23 | — |
+| Harvard test / normal reports | 7.02 / 7.12 | 7.58 / 7.72 | 7.24 / 7.33 | — |
+| Harvard 18–29, test | 7.47 | 9.53 | 7.74 | — |
+| Harvard 30–39, test | 6.34 | 7.75 | 6.66 | — |
+| LEMON | **5.22** / −1.1 / 0.95 | 6.08 / +1.9 / 0.94 | 5.33 / +0.4 / 0.94 | 5.58 / −4.0 / 0.94 |
+| CHBP | 9.55 / +7.1 / 0.44 | **6.19** / −0.1 / **0.59** | 7.73 / +5.2 / 0.55 | 7.40 / −3.5 / 0.53 |
+| MIPDB adults | **9.22** / +8.4 / 0.45 | 10.60 / +10.3 / 0.62 | 11.44 / +10.6 / 0.46 | 16.36 / +16.0 / 0.32 |
+
+**What Table 10.7 shows:**
+- **The band limit restores CHBP's ranking.** r 0.55, as for the full robust
+  model, against E2L's 0.44.
+- **It keeps most of the in-domain accuracy.** Young Harvard adults are back near
+  E2L (7.74 vs 7.47 at 18–29).
+- **LEMON is almost unchanged** (5.33 vs 5.22).
+- **The amplitude still sets CHBP's bias** (+5.2 years).
+- **One cohort-level gain is too blunt a fix.** Matched to the training median it
+  overshoots on CHBP (bias −3.5) and damages LEMON and, badly, MIPDB, whose high
+  amplitude belongs to its children.
+  - The right target amplitude depends on the cohort's age mix, which a
+    label-free gain cannot know.
+- **This confirms the split:** the 1–45 Hz band fixes the ranking; amplitude
+  causes the bias.
+- `relamp` and `augment` were resubmitted on 2026-11-14. The first `relamp` was
+  interrupted as a spot job and its restart hung at the first NCCL all-reduce.
+  `augment` never got an ml.g6e.12xlarge.
+
+### Table 10.8. Relative-amplitude model (`relamp`), adults
+
+Band 1–45 Hz + per-window amplitude normalization + the recording's amplitude
+relative to its acquisition group, r and r², as a head input
+(`rel_amplitude_v1.npz`). SageMaker job
+`labram-e2l-robust-relamp-2026-11-14-07-46-24-584`, ran all 16 epochs; best
+val / test 7.70 / 7.59. External cohorts are scored with their own feature
+files. In-domain rows: MAE; external rows: MAE / bias / r.
+
+| set | E2L | full robust | band | relamp |
+|---|---|---|---|---|
+| Temple + Harvard val / test | **7.25 / 7.00** | 7.64 / 7.55 | 7.47 / 7.22 | 7.70 / 7.58 |
+| Temple test / normal reports | **6.40 / 4.91** | 6.69 / 5.46 | 6.70 / 5.23 | 6.88 / 5.30 |
+| Harvard test / normal reports | **7.02 / 7.12** | 7.58 / 7.72 | 7.24 / 7.33 | 7.61 / 7.73 |
+| Harvard 18–29, test | **7.47** | 9.53 | 7.74 | 9.49 |
+| Harvard 60–69, test | 5.71 | **5.19** | 5.49 | 5.57 |
+| LEMON | **5.22** / −1.1 / 0.95 | 6.08 / +1.9 / 0.94 | 5.33 / +0.4 / 0.94 | 6.12 / +1.2 / 0.94 |
+| CHBP | 9.55 / +7.1 / 0.44 | **6.19** / −0.1 / **0.59** | 7.73 / +5.2 / 0.55 | 6.64 / −0.5 / 0.56 |
+| CHBP 64- / 120-channel cap, MAE | 7.58 / 13.10 | 5.92 / 6.67 | — | 6.24 / 7.37 |
+| MIPDB adults | **9.22** / +8.4 / 0.45 | 10.60 / +10.3 / 0.62 | 11.44 / +10.6 / 0.46 | 10.54 / +9.5 / 0.51 |
+
+**What Table 10.8 shows:**
+- **Giving the amplitude back as a recording-level scalar does not recover the
+  young-adult loss.** Harvard 18–29 is 9.49, against the full robust model's 9.53
+  and E2L's 7.47.
+- **Otherwise `relamp` is a slightly worse full robust model:** CHBP 6.64 vs 6.19,
+  in-domain 7.70 / 7.58 vs 7.64 / 7.55.
+- **So what the per-window normalization removes is not one relative amplitude
+  per recording.** It is probably the amplitude's interplay with the spectrum
+  and topography inside each window, which the encoder used. A linear head on
+  two scalars cannot rebuild that.
+- **Band-only keeps it, but then also keeps CHBP's gain bias** (Table 10.7).
+
+### Table 10.9. All variants, adults
+
+`augment` is raw input with training-only random gain (0.55–1.8×), low-pass
+(40–75 Hz) and high-pass (0.1–1 Hz) augmentation. SageMaker job
+`labram-e2l-robust-augment-2026-11-14-09-08-59-412`, rerun after the NaN fix
+(commit 6ad5293); best epoch 11, val / test 7.53 / 7.31. "Per-cohort choice"
+is Table 10.6: E2L, except for a cohort outside the training range (here CHBP),
+which goes to the full robust model. In-domain rows: MAE; external rows: MAE /
+bias / r. Full table: `docs/data/external_eval/chbp/adults_compare_all_variants.csv`.
+
+| set | E2L | full robust | band | relamp | augment | per-cohort choice |
+|---|---|---|---|---|---|---|
+| Temple + Harvard val / test | **7.25 / 7.00** | 7.64 / 7.55 | 7.47 / 7.22 | 7.70 / 7.58 | 7.53 / 7.30 | **7.25 / 7.00** |
+| Temple test | **6.40** | 6.69 | 6.70 | 6.88 | 6.46 | **6.40** |
+| Temple test, normal reports (n = 149) | **4.91** / −0.7 / 0.93 | 5.46 / +0.3 / 0.91 | 5.23 / −0.1 / 0.92 | 5.30 / +0.2 / 0.92 | 5.36 / +0.4 / 0.92 | **4.91** |
+| Temple test, abnormal reports (n = 123) | 8.21 / −1.0 / 0.79 | 8.19 / −0.9 / 0.80 | 8.47 / −1.1 / 0.78 | 8.80 / −0.4 / 0.77 | **7.80** / −0.9 / **0.83** | 8.21 |
+| Harvard test | **7.02** | 7.58 | 7.24 | 7.61 | 7.34 | **7.02** |
+| Harvard test, normal reports (n = 1,518) | **7.12** / +0.2 / 0.89 | 7.72 / +1.3 / 0.88 | 7.33 / +0.3 / 0.88 | 7.73 / +0.9 / 0.89 | 7.60 / +1.1 / 0.89 | **7.12** |
+| Harvard test, abnormal reports (n = 2,253) | **7.56** / −0.7 / 0.87 | 8.16 / −0.2 / 0.86 | 7.78 / −1.2 / 0.87 | 8.25 / −0.6 / 0.86 | 7.82 / −0.4 / **0.88** | **7.56** |
+| Harvard 18–29, test | **7.47** | 9.53 | 7.74 | 9.49 | 9.12 | **7.47** |
+| Harvard 60–69, test | 5.71 | **5.19** | 5.49 | 5.57 | **5.19** | 5.71 |
+| LEMON | **5.22** / −1.1 / 0.95 | 6.08 / +1.9 / 0.94 | 5.33 / +0.4 / 0.94 | 6.12 / +1.2 / 0.94 | 6.18 / +0.8 / 0.94 | **5.22** |
+| CHBP | 9.55 / +7.1 / 0.44 | **6.19** / −0.1 / 0.59 | 7.73 / +5.2 / 0.55 | 6.64 / −0.5 / 0.56 | 6.97 / +3.9 / **0.60** | **6.19** |
+| CHBP 64- / 120-channel cap | 7.58 / 13.10 | **5.92 / 6.67** | — | 6.24 / 7.37 | 6.42 / 7.96 | **5.92 / 6.67** |
+| MIPDB adults | **9.22** / +8.4 / 0.45 | 10.60 / +10.3 / 0.62 | 11.44 / +10.6 / 0.46 | 10.54 / +9.5 / 0.51 | 11.07 / +10.4 / 0.55 | **9.22** |
+
+**What Table 10.9 shows:**
+- **No single retrained model matches E2L in-domain and fixes CHBP.**
+  - Every variant that stops the model from using absolute amplitude (full
+    robust, relamp, augment) loses 1.4–2 years on young Harvard adults.
+  - The one that keeps amplitude (band) keeps CHBP's +5-year bias.
+- **`augment` comes closest to E2L in-domain** among the amplitude-robust models
+  (test 7.30; Temple 6.46 vs 6.40).
+  - It has the best CHBP ranking (r 0.60) but still a +3.9-year bias.
+  - Random gain teaches tolerance, not invariance: CHBP's ×0.6 gain sits at the
+    edge of the 0.55–1.8 range seen in training.
+- **The full robust model is still the best single model for a new device**
+  (CHBP 6.19). The per-cohort choice of Table 10.6 gets the best of E2L and it
+  together, with no retraining.
+- **By report:** every variant loses 0.3–0.6 years on Temple *normal*
+  recordings.
+  - `augment` is the best on Temple *abnormal* recordings (7.80 vs 8.21, r 0.83
+    vs 0.79) and close to E2L on Harvard abnormal (7.82 vs 7.56).
+  - With 123 Temple abnormal recordings that gain is within noise; it is a hint
+    that training-time gain and filter variation helps on heterogeneous
+    clinical EEG, not a result.
+
+### Table 10.12. Every variant by data cohort and report, val and test
+
+The same five models as Table 10.9, now by data cohort and report:
+- every Temple and Harvard row of the validation *and* the test split, each
+  split by report (normal / abnormal / unlabelled, where unlabelled means no
+  report verdict);
+- each external cohort, with CHBP also split by cap.
+
+Ages are all ages. The training cohort `tuh_heedb_v1` is adults except two
+children in the Temple test split (274 here vs 272 in Table 10.9). MIPDB is
+shown for all ages and for adults.
+
+Each cell is MAE / bias / r. MAE is (3.1), bias is (3.2) and r is (3.4), in
+years except r. Bold marks the lowest MAE in the row. "Per-cohort choice" is
+Table 10.6: E2L, and the full robust model for CHBP.
+
+Built by `scripts/cohort_breakdown.py` (all ages and adults:
+`docs/data/external_eval/chbp/cohort_breakdown_all_variants.csv`). Protocol
+for every row: first 5 minutes after a 60 s trim.
+
+| cohort | n | E2L | full robust | band | relamp | augment | per-cohort choice |
+|---|---|---|---|---|---|---|---|
+| **Temple val** | 3,422 | **7.28 / 0.0 / 0.82** | 7.52 / +0.6 / 0.81 | 7.51 / 0.0 / 0.81 | 7.57 / +0.4 / 0.81 | 7.46 / +0.8 / 0.82 | 7.28 |
+| Temple val, normal | 1,388 | **6.47 / +0.1 / 0.85** | 6.83 / +1.0 / 0.84 | 6.71 / +0.4 / 0.84 | 6.82 / +0.8 / 0.84 | 6.72 / +1.1 / 0.85 | 6.47 |
+| Temple val, abnormal | 1,676 | **7.74 / −0.4 / 0.79** | 7.99 / −0.1 / 0.78 | 7.99 / −0.6 / 0.79 | 8.00 / −0.2 / 0.79 | 7.88 / +0.2 / 0.80 | 7.74 |
+| Temple val, unlabelled | 358 | 8.26 / +1.5 / 0.66 | **8.02 / +1.8 / 0.70** | 8.34 / +1.5 / 0.66 | 8.42 / +1.9 / 0.66 | 8.35 / +2.5 / 0.67 | 8.26 |
+| **Harvard val** | 7,192 | **7.23 / −0.9 / 0.89** | 7.70 / 0.0 / 0.89 | 7.45 / −1.0 / 0.89 | 7.77 / −0.3 / 0.89 | 7.57 / −0.2 / 0.89 | 7.23 |
+| Harvard val, normal | 1,493 | **7.02 / 0.0 / 0.90** | 7.51 / +1.2 / 0.89 | 7.16 / +0.3 / 0.89 | 7.55 / +0.9 / 0.90 | 7.47 / +1.0 / 0.90 | 7.02 |
+| Harvard val, abnormal | 2,179 | **7.91 / −0.8 / 0.86** | 8.38 / −0.3 / 0.85 | 8.13 / −1.2 / 0.86 | 8.46 / −0.7 / 0.85 | 8.23 / −0.4 / 0.86 | 7.91 |
+| Harvard val, unlabelled | 3,520 | **6.90 / −1.2 / 0.90** | 7.35 / −0.4 / 0.90 | 7.14 / −1.3 / 0.90 | 7.43 / −0.6 / 0.89 | 7.20 / −0.6 / 0.90 | 6.90 |
+| **Temple test** | 274 | **6.55 / −0.6 / 0.88** | 6.87 / 0.0 / 0.87 | 6.83 / −0.3 / 0.87 | 7.03 / +0.1 / 0.86 | 6.62 / 0.0 / 0.89 | 6.55 |
+| Temple test, normal | 149 | **4.91 / −0.7 / 0.93** | 5.46 / +0.3 / 0.91 | 5.23 / −0.1 / 0.92 | 5.30 / +0.2 / 0.92 | 5.36 / +0.4 / 0.92 | 4.91 |
+| Temple test, abnormal | 125 | 8.50 / −0.5 / 0.78 | 8.55 / −0.4 / 0.79 | 8.75 / −0.6 / 0.77 | 9.09 / 0.0 / 0.76 | **8.11 / −0.5 / 0.81** | 8.50 |
+| **Harvard test** | 7,338 | **7.02 / −0.6 / 0.90** | 7.58 / +0.2 / 0.89 | 7.24 / −0.7 / 0.89 | 7.61 / −0.1 / 0.89 | 7.34 / 0.0 / 0.90 | 7.02 |
+| Harvard test, normal | 1,518 | **7.12 / +0.2 / 0.89** | 7.72 / +1.3 / 0.88 | 7.33 / +0.3 / 0.88 | 7.73 / +0.9 / 0.89 | 7.60 / +1.1 / 0.89 | 7.12 |
+| Harvard test, abnormal | 2,253 | **7.56 / −0.7 / 0.87** | 8.16 / −0.2 / 0.86 | 7.78 / −1.2 / 0.87 | 8.25 / −0.6 / 0.86 | 7.82 / −0.4 / 0.88 | 7.56 |
+| Harvard test, unlabelled | 3,567 | **6.64 / −0.8 / 0.91** | 7.15 / +0.1 / 0.90 | 6.86 / −0.9 / 0.90 | 7.15 / −0.2 / 0.90 | 6.91 / −0.1 / 0.91 | 6.64 |
+| **LEMON** | 214 | **5.22 / −1.1 / 0.95** | 6.08 / +1.9 / 0.94 | 5.33 / +0.4 / 0.94 | 6.12 / +1.2 / 0.94 | 6.18 / +0.8 / 0.94 | 5.22 |
+| **MIPDB, all ages (85 children)** | 116 | **12.66 / +12.4 / 0.59** | 15.18 / +15.1 / 0.56 | 13.63 / +13.4 / 0.62 | 15.34 / +15.1 / 0.48 | 14.57 / +14.4 / 0.60 | 12.66 |
+| **MIPDB, adults** | 31 | **9.22 / +8.4 / 0.45** | 10.60 / +10.3 / 0.62 | 11.44 / +10.6 / 0.46 | 10.54 / +9.5 / 0.51 | 11.07 / +10.4 / 0.55 | 9.22 |
+| **CHBP** | 250 | 9.55 / +7.1 / 0.44 | **6.19 / −0.1 / 0.59** | 7.73 / +5.2 / 0.55 | 6.64 / −0.5 / 0.56 | 6.97 / +3.9 / 0.60 | 6.19 |
+| CHBP, 64-channel cap | 161 | 7.58 / +5.0 / 0.55 | **5.92 / −0.5 / 0.62** | 6.91 / +4.4 / 0.61 | 6.24 / −1.1 / 0.59 | 6.42 / +3.5 / 0.65 | 5.92 |
+| CHBP, 120-channel cap | 89 | 13.10 / +10.8 / 0.27 | **6.67 / +0.6 / 0.53** | 9.22 / +6.6 / 0.47 | 7.37 / +0.5 / 0.50 | 7.96 / +4.6 / 0.52 | 6.67 |
+
+**What Table 10.12 shows:**
+- **E2L has the lowest MAE in 13 of the 15 Temple / Harvard rows.** The
+  variants lose:
+  - 0.1–0.5 years on Temple;
+  - 0.1–0.6 years on Harvard. `band` costs least (0.14–0.24 on Harvard), the
+    amplitude-free models (full robust, `relamp`, `augment`) most
+    (0.26–0.61).
+- **The two exceptions are small groups:**
+  - Temple val unlabelled (n = 358): the full robust model, 8.02 vs 8.26.
+  - Temple test abnormal (n = 125): `augment`, 8.11 vs 8.50.
+- **`augment`'s Temple-abnormal gain does not replicate.** On the 13× larger
+  Temple *val* abnormal split (n = 1,676) it is worse than E2L (7.88 vs 7.74),
+  and it is also worse on Harvard abnormal, val and test. This confirms the
+  reading of Table 10.9: the gain was noise, not a property of the model.
+- **By report verdict:**
+  - On Temple the variants lose most on normal reports: +0.24 to +0.55, vs
+    +0.14 to +0.26 on val abnormal.
+  - On Harvard the loss is about the same for normal, abnormal and unlabelled
+    recordings (+0.14 to +0.61).
+- **Bias moves by about +1 year on normal reports for the amplitude-free
+  models.** On Harvard normal val it goes from 0.0 to +0.9…+1.2. That is the
+  young-adult over-prediction of Table 10.9: amplitude is a youth cue those
+  models no longer see.
+- **MIPDB is bad for every model:**
+  - all ages 12.7–15.3, adults 9.2–11.4, with a +8 to +15 year bias;
+  - 85 of its 116 recordings are children, below the training range;
+  - its adults carry a large offset as well (`docs/external_eval_results.md`);
+  - E2L is still lowest. No CHBP fix helps there: the amplitude-free models
+    make it 1.4–2.7 years worse, and `band` about 1 year (all ages) to 2 years
+    (adults) worse.
+- **CHBP:**
+  - the full robust model is best on both caps (5.92 and 6.67);
+  - the 120-channel cap gains most (E2L 13.10 → 6.67);
+  - `band` keeps a +4.4 / +6.6 year bias on the two caps; this is CHBP's gain,
+    which only amplitude normalization removes.
+
+### 10.6 Does the `augment` run over- or underfit?
+
+The run logs three MAEs:
+- the running training MAE of the epoch, on augmented and mixed-up batches;
+- a clean training MAE (`train_eval`: a fixed sample of 500 training
+  recordings per dataset, scored like val with no augmentation, every 4 epochs
+  and the last);
+- the validation MAE.
+
+The generalization gap is
+
+$$ \Delta = \mathrm{MAE}_{\mathrm{val}} - \mathrm{MAE}_{\mathrm{train\_eval}} \tag{10.5} $$
+
+Underfitting shows as a training MAE that is still close to the validation MAE
+and still falling, with validation improving to the end. Overfitting shows as
+a growing gap Δ with validation flat or rising.
+
+### Table 10.10. Training curves, `augment` vs E2L
+
+MAE in years; lr at the end of the epoch (cosine schedule, warm-up 4 epochs).
+"—" means not logged that epoch.
+
+| epoch | lr | augment: train (augmented) | augment: train_eval | augment: val | augment: Δ (10.5) | E2L: train_eval | E2L: val | E2L: Δ |
+|---|---|---|---|---|---|---|---|---|
+| 3 | 2.8e-4 | 8.28 | 7.61 | 8.51 | 0.90 | 7.56 | 8.56 | 1.00 |
+| 7 | 2.1e-4 | 7.41 | 6.35 | 8.11 | 1.76 | 6.06 | 7.99 | 1.93 |
+| 9 | 1.4e-4 | 7.12 | — | 7.56 | — | — | 7.49 | — |
+| 11 (best) | 7.1e-5 | 6.87 | 5.19 | **7.53** | 2.34 | 4.63 | **7.24** | 2.61 |
+| 12–14 | 4e-5 → 6e-6 | 6.78 → 6.65 | — | 7.76 / 7.60 / 7.55 | — | — | 7.32 / 7.41 / 7.30 | — |
+| 15 (last) | 1e-6 | 6.63 | 4.96 | 7.56 | 2.60 | 4.48 | 7.33 | 2.85 |
+
+**What Table 10.10 shows:**
+- **No sign of underfitting.**
+  - The clean training MAE keeps falling to the end (7.61 → 6.35 → 5.19 →
+    4.96) and ends 2.6 years below the validation MAE.
+  - Validation stops improving after epochs 9–11 and stays flat (7.53–7.76)
+    for the last five epochs.
+  - The model can still fit the training data better; that no longer
+    transfers to validation.
+- **Mild overfitting, not extreme.** The gap grows from 0.9 to 2.6 years.
+  E2L, trained the same way without augmentation, has the same shape and a
+  slightly *larger* final gap (2.85).
+  - The augmentation regularizes a little (augment's training error is higher:
+    4.96 vs 4.48).
+  - It also costs a little in-domain accuracy (val 7.53 vs 7.24).
+- **The last epochs barely move the model.** The cosine learning rate is below
+  5e-5 from epoch 12 on and reaches 1e-6 at epoch 15, so epochs 12–15 mainly
+  confirm the plateau.
+- **Adding epochs is therefore unlikely to help.** A longer cosine schedule
+  would spend more steps at a high learning rate, where the gap was already
+  growing. Early stopping (patience 5) found its best epoch at 11, like E2L, and
+  the full robust and band runs stopped early at epoch 14.
+- **The same holds for the other variants:** clean training MAE 4.84–5.16
+  against validation 7.46–7.80 at their best epochs.
+- **What could help instead** is narrowing the gap:
+  - more varied training data, for example more recording devices;
+  - stronger regularization (dropout / stochastic depth, weight decay);
+  - a gain-augmentation range wider than CHBP's ×0.6, so that 0.6 is not at
+    its edge.
+
 ### 10.4 Which fix is best
 
 **Ranking on CHBP** (E2L, MAE / r; no CHBP labels anywhere):
-1. **device-robust model, as recorded: 6.38 / 0.55** (6.39 after 4 epochs);
+1. **device-robust model, full E2L recipe, as recorded: 6.19 / 0.59** (short
+   fine-tunes: 6.38–6.39 / 0.55);
 2. per-cap spectrum matching: 6.70 / 0.52;
 3. whole-cohort spectrum matching: 7.00 / 0.50;
 4. gain-only fixes: 7.6–7.9 / 0.43–0.44;
 5. as recorded: 9.55 / 0.44.
 
 The feature models reach ≥ 9.5 / ≤ 0.38.
+
+**Update after Tables 10.6–10.9:** the best overall setup is two models and a
+label-free per-cohort choice (Table 10.6): E2L for cohorts inside the training
+range, the full device-robust model for cohorts outside it. That gives E2L's
+results on Temple, Harvard, LEMON and MIPDB and 6.19 on CHBP. None of the
+single-model variants (band, relamp, augment) reaches both.
 
 **Recommendation:**
 1. **Train age models on device-robust inputs:** band 1–45 Hz and per-window
@@ -818,15 +1156,174 @@ The feature models reach ≥ 9.5 / ≤ 0.38.
 3. **Keep CHBP an external test.** Report it per cap, beside the 7.27
    mean-age baseline.
 
-**Against the published result.** The best published CHBP result is
-within-CHBP 10-fold CV, 6.48 ± 0.60 (R² 0.18; Engemann et al. 2022), trained
-on CHBP. The device-robust model reaches 6.38 (R² 0.18) zero-shot, never having
-seen CHBP. Spectrum matching to a training-set barycenter spectrum is the idea
-behind Convolutional Monge Mapping Normalization (Gnassounou et al. 2023), which
-was used for sleep staging.
+**Against the published result** (Table 10.11). The best published CHBP
+result is within-CHBP 10-fold CV, 6.48 ± 0.60 (R² 0.18 ± 0.17; Engemann et al.
+2022), trained on CHBP. The device-robust model reaches 6.19 ± 1.10 (R²
+0.20 ± 0.37) on the same folds, zero-shot, never having seen CHBP. That is level
+with the benchmark, not better: the difference is well inside the fold SD and
+the bootstrap CI. Spectrum matching to a training-set barycenter spectrum is the
+idea behind Convolutional Monge Mapping Normalization (Gnassounou et al. 2023),
+which was used for sleep staging.
+
+### 10.7 Against the published CHBP benchmark
+
+The only published CHBP age results are those of Engemann et al. (2022). The
+models were trained and tested within CHBP:
+- 10-fold CV, sklearn `KFold(shuffle=True, random_state=42)` over the
+  participants sorted by id;
+- eyes open and closed pooled, 0.1–49 Hz, 10 s epochs after autoreject.
+
+Their per-fold results are public and are copied unchanged, with source and
+licence, to `docs/data/external_eval/chbp/published_engemann2022/`. The paper
+reports, for the $K = 10$ test folds $F_k$ (mean ± SD with ddof 1 over $k$):
+
+$$ \mathrm{MAE}_k = \tfrac{1}{|F_k|}\textstyle\sum_{i \in F_k} \lvert \hat y_i - y_i \rvert \tag{10.6} $$
+
+$$ R^2_k = 1 - \frac{\sum_{i \in F_k} (\hat y_i - y_i)^2}{\sum_{i \in F_k} (y_i - \bar y_{F_k})^2} \tag{10.7} $$
+
+$\bar y_{F_k}$ is the mean age of fold $k$.
+
+`scripts/chbp_sota_table.py` puts our 250 recordings into the same `KFold`
+folds. They are the same folds as the 10-fold split used for the
+recalibration and embedding-probe references in Section 9.3. The script then
+computes (10.6) and (10.7) per fold. A frozen model's predictions do not depend
+on the folds; the folds only make both sides average the same way.
+
+For our rows the table also gives the pooled MAE (3.1) with its 95 % bootstrap
+CI (2,000 resamples), the bias, r, and the pooled R². Rows marked *uses CHBP
+labels* fit $\hat y' = a\,\hat y + b$ on the other nine folds. They are
+references, not zero-shot.
+
+### Table 10.11. CHBP brain age, ours vs the published within-CHBP benchmark
+
+Columns:
+- **fold MAE** is (10.6) and **fold R²** is (10.7), both mean ± SD over the 10
+  folds;
+- **MAE [95 % CI]** is the pooled MAE (3.1) with its bootstrap CI;
+- **bias** is (3.2), **r** is (3.4), and **pooled R²** is (3.3).
+
+Our rows are the first 5 minutes after a 60 s trim (the training protocol)
+unless marked. The published n is the participants with usable EEG of the
+282 listed. Ours is the 250 EEG recordings of release 1.0.
+
+| model | trained on CHBP? | fold MAE | fold R² | MAE [95 % CI] | bias | r | pooled R² |
+|---|---|---|---|---|---|---|---|
+| *published: Engemann et al. 2022, within-CHBP 10-fold CV* | | | | | | | |
+| handcrafted features + random forest | yes | **6.48 ± 0.60** | **0.18 ± 0.17** | — | — | — | — |
+| ShallowNet | yes | 6.65 ± 0.87 | 0.11 ± 0.27 | — | — | — | — |
+| Deep4Net | yes | 6.89 ± 0.99 | 0.01 ± 0.29 | — | — | — | — |
+| filterbank Riemann + ridge | yes | 7.17 ± 0.63 | −0.01 ± 0.13 | — | — | — | — |
+| filterbank source + ridge | yes | 7.76 ± 2.07 | −1.47 ± 4.58 | — | — | — | — |
+| predict the training-fold mean | yes | 7.33 ± 0.83 | −0.04 ± 0.05 | — | — | — | — |
+| *ours, zero-shot, CHBP as recorded* | | | | | | | |
+| E2L | no | 9.55 ± 1.38 | −0.95 ± 1.02 | 9.55 [8.62, 10.50] | +7.05 | 0.44 | −0.71 |
+| W7 | no | 9.10 ± 1.90 | −0.82 ± 1.02 | 9.10 [8.19, 10.10] | +4.83 | 0.46 | −0.60 |
+| W7, every window | no | 8.66 ± 1.67 | −0.69 ± 0.92 | 8.66 [7.76, 9.62] | +4.78 | 0.47 | −0.49 |
+| *ours, zero-shot, label-free test-time normalization (Table 10.1)* | | | | | | | |
+| E2L + per-cap spectrum matching | no | 6.70 ± 1.08 | −0.03 ± 0.57 | 6.70 [5.98, 7.42] | +0.82 | 0.52 | 0.10 |
+| *ours, zero-shot, retrained on Temple + Harvard only (Tables 10.3, 10.9)* | | | | | | | |
+| **device-robust E2L, full recipe** (band 1–45 Hz + window amplitude norm.) | no | **6.19 ± 1.10** | **0.20 ± 0.37** | **6.19 [5.57, 6.85]** | **−0.09** | 0.59 | **0.26** |
+| device-robust E2L, 4 epochs | no | 6.39 ± 0.99 | 0.13 ± 0.36 | 6.39 [5.77, 7.09] | +1.34 | 0.55 | 0.19 |
+| device-robust E2L, 4 + 6 epochs | no | 6.38 ± 1.24 | 0.11 ± 0.43 | 6.38 [5.75, 7.09] | +0.28 | 0.55 | 0.18 |
+| `relamp` | no | 6.64 ± 1.00 | 0.10 ± 0.40 | 6.64 [6.03, 7.29] | −0.53 | 0.56 | 0.19 |
+| `augment` | no | 6.97 ± 1.32 | −0.12 ± 0.63 | 6.97 [6.23, 7.70] | +3.88 | **0.60** | 0.02 |
+| `band` + cohort gain | no | 7.40 ± 1.06 | −0.11 ± 0.41 | 7.40 [6.69, 8.15] | −3.54 | 0.53 | −0.04 |
+| `band` | no | 7.73 ± 1.20 | −0.30 ± 0.63 | 7.73 [6.96, 8.57] | +5.23 | 0.55 | −0.16 |
+| *ours, reference only: uses CHBP labels (fit on the other 9 folds)* | | | | | | | |
+| E2L + recalibration $a\hat y + b$ | 2 parameters | 6.59 ± 0.73 | 0.14 ± 0.19 | 6.59 [5.96, 7.30] | +0.03 | 0.43 | 0.18 |
+| device-robust E2L + recalibration $a\hat y + b$ | 2 parameters | 5.94 ± 0.71 | 0.29 ± 0.21 | 5.94 [5.39, 6.55] | +0.03 | 0.57 | 0.33 |
+| ridge probe on frozen E2 embeddings (Section 9.3) | 200-d ridge | 5.93 ± 0.48 | 0.28 ± 0.14 | 5.93 | — | 0.56 | 0.32 |
+| ridge probe on frozen E2L embeddings | 200-d ridge | 6.08 ± 0.49 | 0.24 ± 0.12 | 6.08 | — | 0.52 | 0.27 |
+
+All rows are in `docs/data/external_eval/chbp/sota_comparison.csv`; the probe
+rows are from `cv10_embedding_probe.csv`.
+
+**How the two reference methods work.** Both are ours. In both, the LaBraM
+network is frozen: trained on Temple + Harvard only, its weights never updated
+on CHBP. Only a small model on top of it is fitted on CHBP ages, by 10-fold
+cross-validation on the benchmark's folds. Each fold is predicted by a model
+fitted on the other nine (about 225 recordings) and never sees its own ages.
+This mirrors the benchmark, which also trained on nine folds and tested on the
+tenth. Neither method is zero-shot.
+
+- **Recalibration** (`scripts/chbp_sota_table.py::recalibrate`,
+  `scripts/external_age_metrics.py::cv_recalibration`):
+  - The input is the frozen model's predicted age $\hat y_i$: one number per
+    recording, the mean over its first-5-minute windows.
+  - On the nine training folds, ordinary least squares fits
+    $y = a\,\hat y + b$, two parameters. The held-out fold gets
+    $\hat y' = a\,\hat y + b$.
+  - This is a linear calibration of brain-age predictions; for the related
+    bias-correction procedures see Beheshti et al. (2019) and de Lange & Cole
+    (2020).
+  - It can fix CHBP's offset and scale. It cannot change the ranking: r is the
+    same as the frozen model's (0.43 for E2L, 0.57 for the device-robust
+    model).
+- **Ridge probe on frozen embeddings** (`scripts/external_embedding_probe.py`):
+  - **Inputs:** for every 10 s window of the first 5 minutes (about 30 per
+    recording), the frozen network outputs the 200-d feature that its
+    age-regression head receives (`model(x, return_features=True)`, cached by
+    `labram/mil/cache.py`).
+  - **Recording vector:** the window features are averaged into one 200-d
+    vector per recording.
+  - **Fit:** on the nine training folds, a `StandardScaler` and ridge
+    regression of age on that vector are fitted. The ridge penalty is chosen
+    among 25 values from $10^{-1}$ to $10^{5}$ by efficient leave-one-out on
+    the training folds only (median $\alpha$ 316 for E2).
+  - **Output:** the held-out fold is predicted by that model.
+  - This is a *linear probe* (Alain & Bengio 2017): deep features learned
+    elsewhere, a linear model trained on the target data. The age head of the
+    network is not used. The probe learns a new read-out, so it can use
+    embedding directions the original head ignored on CHBP. That is why it
+    improves r (0.56 vs 0.46 for E2 zero-shot), which recalibration cannot.
+
+**Compared with the benchmark:**
+- The benchmark's models are trained end to end on CHBP: random forest on
+  handcrafted features, ShallowNet / Deep4Net on raw EEG.
+- Our two references train 2 or 201 parameters on CHBP, on top of a deep
+  network that has never seen CHBP.
+- Our zero-shot rows train nothing on CHBP.
+
+**What Table 10.11 shows:**
+- **As recorded, our models are 2–3 years worse than the benchmark** (8.66–9.55
+  vs 6.48) and worse than its predict-the-mean baseline (7.33). The fold R² is
+  strongly negative, mostly from the +5 to +7 year offset.
+- **Without any CHBP labels, the device-robust E2L is level with the best
+  published result.**
+  - Fold MAE 6.19 ± 1.10 vs 6.48 ± 0.60, and fold R² 0.20 ± 0.37 vs 0.18 ± 0.17.
+  - The 0.29-year difference is far inside the fold SDs, and our bootstrap CI
+    [5.57, 6.85] contains 6.48. Our model is not significantly better.
+  - The published models' per-subject predictions are not public, so no paired
+    test is possible.
+  - Per-cap spectrum matching (6.70), the two short device-robust fine-tunes
+    (6.38–6.39) and `relamp` (6.64) also beat the published deep networks
+    (ShallowNet 6.65, Deep4Net 6.89) or match them, within noise.
+- **Our fold SDs are larger** (1.0–1.4 vs 0.6–1.0). This is probably because a
+  zero-shot model keeps each fold's composition effect, such as more
+  120-channel recordings or older participants. Fold-wise training absorbs part
+  of that.
+- **Our models rank people by age better than the benchmark explains
+  variance.**
+  - The device-robust models reach r 0.55–0.60.
+  - The benchmark's best R² of 0.18 implies r of about 0.42, if its predictions
+    were calibrated.
+  - CHBP's narrow age range (SD 9.3 years) caps R² for everyone.
+- **With CHBP labels, the gap opens further** (5.93–5.94, R² 0.28–0.29). A
+  two-parameter recalibration of the frozen device-robust model, or a ridge
+  probe on frozen embeddings, beats every published within-CHBP model by about
+  0.5 years. Both use CHBP ages, so they are references only. CHBP stays an
+  external test (decision of 2026-11-11).
+- **Caveats:**
+  - The benchmark pools eyes-open and eyes-closed epochs over the whole
+    resting recording, with 53 channels. Our protocol is the first 5 minutes,
+    19 channels.
+  - The subject sets probably differ by a few participants (theirs: those
+    passing their preprocessing).
+  - The comparison is like for like in fold scheme and metric definitions only.
 
 ## 11. References
 
+- Alain G, Bengio Y. 2017. Understanding intermediate layers using linear classifier probes. ICLR workshop, arXiv:1610.01644
 - Beheshti I et al. 2019. Bias-adjustment in neuroimaging-based brain age frameworks. *NeuroImage: Clinical* 24:102063. doi:10.1016/j.nicl.2019.102063
 - Bomatter P et al. 2024. Machine learning of brain-specific biomarkers from EEG. *EBioMedicine* 106:105259. doi:10.1016/j.ebiom.2024.105259
 - Bosch-Bayard J et al. 2020. EEG source-spectra norms… *Front Neurosci* 14:555119. doi:10.3389/fnins.2020.555119
