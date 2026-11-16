@@ -1198,7 +1198,9 @@ These tables supersede Tables 12.1, 13.1–13.3 and 14.1–14.2, whose "reject 2
 - **`total` or `learned` beats `spread` wherever the cohorts differ from clean volunteer data**: Temple (5.07 / 4.97 vs 5.44–5.69),
   Harvard (5.32–5.39 vs 5.56–5.61), CHBP (6.18–7.03 vs 7.02–7.84), MIPDB. On TDBRAIN and LEMON the three options are within
   0.15 y of each other, except P3 `total` on LEMON (4.02 against 3.80–3.86).
-- **Against the published results**, every zero-shot row of ours on TDBRAIN and LEMON is below the best published MAE, including
-  models trained on those cohorts; on CHBP only the device-robust model (6.14) and the P3 ensemble with `total` rejection (6.18,
+- **Against the published results**, every zero-shot row of ours on LEMON is below the best published MAE, including models
+  trained on LEMON (7.75). On TDBRAIN every row is below the verified within-TDBRAIN result (Khayretdinova, 5.96) and the best
+  verified zero-shot one (8.36); Hu et al.'s 4.95 (protocol unclear, children included) is matched without rejection only by the
+  P4 ensemble (4.92). On CHBP only the device-robust model (6.14) and the P3 ensemble with `total` rejection (6.18,
   on 80 % of the recordings) are below Engemann's within-CHBP 6.48. A rejection row covers 80 % of the cohort, the published rows
   100 %, so the like-for-like comparison is the rows without rejection.
