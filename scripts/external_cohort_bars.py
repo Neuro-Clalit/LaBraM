@@ -44,6 +44,7 @@ def main():
     ap.add_argument("--table", required=True)
     ap.add_argument("--reject-score", nargs="*", default=["total", "learned"], choices=["spread", "total", "learned"],
                     help="one panel per rejection score (for the ensembles; E2L always uses spread)")
+    ap.add_argument("--exclude", nargs="*", default=[], help="cohorts of the table to leave out (e.g. very small ones)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     import matplotlib
@@ -53,7 +54,7 @@ def main():
     t = pd.read_csv(args.table)
     t = t[t["group"] == "all"]
     present = set(t["cohort"])
-    cohorts = [(c, n) for c, n in COHORTS if c in present]
+    cohorts = [(c, n) for c, n in COHORTS if c in present and c not in args.exclude]
     panels = [("none", "every recording / session")] + [
         (f"reject 20% ({sc})", f"reject 20 % by confidence (ensembles: {sc}; E2L: spread)") for sc in args.reject_score]
     fig, axes = plt.subplots(len(panels), 1, figsize=(13, 4.75 * len(panels)), sharey=True, squeeze=False)

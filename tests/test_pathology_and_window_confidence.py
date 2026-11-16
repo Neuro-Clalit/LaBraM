@@ -104,3 +104,12 @@ def test_uninformative_attention_gives_no_within_recording_correlation(tmp_path)
     row = wc.summary("x", wc.load_windows(str(tmp_path), members, set(age)), min_windows=8)
     assert abs(row["rho_att_err_within_median"]) < 0.25
     assert abs(row["recording_mae_attention"] - row["recording_mae_plain_mean"]) < 0.2
+
+
+def test_chbp_fix_rows_come_from_the_result_files():
+    import chbp_variant_bars as cv
+    t = cv.collect().set_index("label")
+    assert len(t) == 7 and t["chbp_mae"].between(5, 11).all()
+    assert t["chbp_mae"].idxmin() == "band + amplitude normalisation"             # the device-robust model
+    assert (t.loc[t["kind"] != "train", "in_domain_mae"] == t.loc["E2L, as recorded", "in_domain_mae"]).all()
+    assert (t.loc[t["kind"] == "train", "in_domain_mae"] > t.loc["E2L, as recorded", "in_domain_mae"]).all()

@@ -1619,3 +1619,24 @@ Recommendation:
 One published brain-age result was found on these candidates: on the Dortmund data an MAE of 2.24 years with spectral
 features and 10-fold cross-validation is reported (Alzheimer's & Dementia 2025; read as an abstract only, and it does not
 say whether the folds are split by subject).
+
+## 24. Final-report rules and the CHBP section of the report (2026-11-16)
+
+Two changes to the technical report (`docs/tech_report/`); the tables of this document are unchanged.
+
+- **Test sets too small for a stable estimate are left out of the final report.** At present that is the adult part of
+  MIPDB: 31 recordings, with a 95 % interval of the MAE more than 4 years wide (P4 ensemble 7.36 [5.35, 9.59]). The
+  report now covers five cohorts (Temple, Harvard, TDBRAIN, LEMON, CHBP) and says in one sentence that MIPDB was scored
+  and why it is not shown. Its figures are rebuilt from the five cohorts next to the report
+  (`fig_cohort_mae.png`, `pred_vs_age_models.png`, `pred_vs_age_corrections.png`, `fig_rejection_curves.png`,
+  `window_error_vs_attention.png`, `window_error_vs_spread.png`); the numbers of the five cohorts do not change, since
+  every threshold and correction is per cohort or fitted on validation data. The Temple dementia row of the pathology
+  table (72 recordings) is dropped for the same reason. MIPDB stays in Sections 13–22 here as a reference.
+- **CHBP: where the signals differ and what corrects it** is now Section 6.5 of the report, taken from
+  `docs/chbp_domain_shift.md` (branch `chbp-onboarding`, merged here): the signal comparison with age-matched Temple and
+  Harvard recordings (amplitude 0.5–0.6×, 0.5–50 Hz recording band, two acquisition caps), the causal test on
+  training-domain recordings, and the corrections: one gain, spectrum matching per cap, band-limited training,
+  band + amplitude normalisation (device-robust), relative amplitude as a head input, and the fine-tune with gain and
+  filter augmentation. `scripts/chbp_variant_bars.py` draws the report's Figure 9 from the CHBP result files. The
+  report's device-robust numbers now refer to the full-recipe model (CHBP 6.19 on the first 5 minutes, 5.90 on every
+  window; in-domain test 7.55), not the earlier 6-epoch fine-tune (6.14; 7.73).

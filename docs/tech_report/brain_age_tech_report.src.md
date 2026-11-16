@@ -1,4 +1,4 @@
-# Recording-level brain age from clinical EEG with a LaBraM encoder: attention pooling, cross-validation ensembles and confidence-aware evaluation on six cohorts
+# Recording-level brain age from clinical EEG with a LaBraM encoder: attention pooling, cross-validation ensembles and confidence-aware evaluation on five cohorts
 
 Technical report, working draft of 2026-11-16. It describes what has been built and measured so far, and what is planned, as the basis of a future paper. Every number comes from the project's result files (`docs/data/external_eval/tdbrain/`) or its result notes (`docs/`); published numbers are quoted from the cited papers.
 
@@ -12,9 +12,9 @@ Technical report, working draft of 2026-11-16. It describes what has been built 
 - one phased training run from the pre-trained encoder (window phase, attention-only phase, joint phase);
 - 5-fold subject-grouped cross-validation, with the five fold models used as an ensemble [@lakshminarayanan2017ensembles];
 - a label-free confidence per recording, used for selective prediction [@geifman2017selective];
-- an evaluation on six cohorts: the held-out test recordings of the two training corpora and four external cohorts scored without any adaptation (zero-shot): TDBRAIN [@vandijk2022tdbrain], LEMON [@babayan2019lemon], CHBP [@valdessosa2021chbp] and MIPDB [@langer2017mipdb].
+- an evaluation on five cohorts: the held-out test recordings of the two training corpora and three external cohorts scored without any adaptation (zero-shot): TDBRAIN [@vandijk2022tdbrain], LEMON [@babayan2019lemon] and CHBP [@valdessosa2021chbp].
 
-**Main results (adults).** The best ensemble reaches a mean absolute error (MAE) of 5.9 years on the held-out Temple and Harvard recordings, and zero-shot 4.9 years on TDBRAIN (1,113 sessions, $R^2 = 0.83$) and 4.7 years on LEMON ($R^2 = 0.90$). Both zero-shot results are below the best published results of models trained on those cohorts (5.96 years on TDBRAIN [@khayretdinova2022tdbrain], 7.75 years on LEMON [@engemann2022benchmark]). Rejecting the 20 % least confident recordings lowers the MAE by 0.4 to 0.9 years on these two cohorts. Two cohorts remain hard: CHBP (a recording-chain shift) and the young adults of MIPDB. In TDBRAIN, no psychiatric indication shows a brain-age gap against healthy controls after adjusting for age and sex. In the two hospital cohorts every neurological diagnosis group looks 0.6 to 2.5 years older than patients with a normal EEG and no diagnosis, and this gap goes with an abnormal EEG report, not with the diagnosis itself.
+**Main results (adults).** The best ensemble reaches a mean absolute error (MAE) of 5.9 years on the held-out Temple and Harvard recordings, and zero-shot 4.9 years on TDBRAIN (1,113 sessions, $R^2 = 0.83$) and 4.7 years on LEMON ($R^2 = 0.90$). Both zero-shot results are below the best published results of models trained on those cohorts (5.96 years on TDBRAIN [@khayretdinova2022tdbrain], 7.75 years on LEMON [@engemann2022benchmark]). Rejecting the 20 % least confident recordings lowers the MAE by 0.4 to 0.9 years on these two cohorts. One cohort remains hard: on CHBP, recorded with a narrower band and a lower amplitude, the models are no better than predicting the mean age; a model trained on band-limited, amplitude-normalised input brings CHBP to 5.9 years at an in-domain cost of 0.55 years (Section 6.5). In TDBRAIN, no psychiatric indication shows a brain-age gap against healthy controls after adjusting for age and sex. In the two hospital cohorts every neurological diagnosis group looks 0.6 to 2.5 years older than patients with a normal EEG and no diagnosis, and this gap goes with an abnormal EEG report, not with the diagnosis itself.
 
 ## 2. Background: the classical LaBraM recipe and its limits for brain age
 
@@ -37,13 +37,13 @@ For brain age this recipe has four limits. (i) Age is a property of the recordin
 | schedule | 50 epochs, one phase | 17 epochs in three phases (window, attention only, joint) |
 | prediction | one model, per window | mean of five fold models, per recording |
 | confidence | none | window spread, fold disagreement, learned score |
-| evaluation | TUAB test, window accuracy | six cohorts, MAE per recording with a subject bootstrap |
+| evaluation | TUAB test, window accuracy | five cohorts, MAE per recording with a subject bootstrap |
 
 ## 3. Data
 
 **Training cohort.** `tuh_heedb_v1` joins routine recordings of the Temple University Hospital corpus [@obeid2016tuh] (31,312 recordings) and of the Harvard Electroencephalography Database [@heedb] (71,805 recordings): 103,117 recordings of 71,656 patients, age 53.5 ± 19.2 years. Patients are split once into training, validation and test (84,891 / 10,614 / 7,612 recordings); no patient is in two splits. Every recording goes through one pipeline: 0.1–75 Hz band-pass, line removal by spectrum interpolation at 50 and 60 Hz, resampling to 200 Hz, µV, 10 s windows. Models read the first minutes after a 60 s trim at each end. Age comes from the EDF header (Temple) or the visit record (Harvard). The EEG report verdict (normal, abnormal, or none) is known for a part of the recordings and is used only for analysis.
 
-**Test cohorts.** Table 2 lists the six cohorts. The four external cohorts are converted with the same pipeline and are never used for training, model selection or calibration. Results are for adults (18 years or older): the training data has almost no younger patients.
+**Test cohorts.** Table 2 lists the five cohorts. The three external cohorts are converted with the same pipeline and are never used for training, model selection or calibration. Results are for adults (18 years or older): the training data has almost no younger patients. Test sets that are too small for a stable estimate are left out of this report: the adults of the developmental cohort MIPDB [@langer2017mipdb] were scored as well, but with 31 recordings the 95 % interval of the MAE is more than 4 years wide.
 
 **Table 2.** Test cohorts (adults). Temple and Harvard are the held-out test split of the training cohort; the others are external.
 
@@ -54,7 +54,6 @@ For brain age this recipe has four limits. (i) Age is a property of the recordin
 | TDBRAIN [@vandijk2022tdbrain] | zero-shot | 1,113 sessions (1,062) | 45.2 | psychiatric outpatients (MDD, ADHD, OCD, memory complaints) and 179 healthy controls | 2 min eyes closed + 2 min eyes open |
 | LEMON [@babayan2019lemon] | zero-shot | 214 recordings (214) | 39.2 | healthy volunteers, 20–80 years, ages in 5-year bins | 16 min, eyes closed / open |
 | CHBP [@valdessosa2021chbp] | zero-shot | 250 recordings (250) | 31.7 | healthy volunteers, 18–68 years | about 19 min resting, recorded 0.5–50 Hz |
-| MIPDB [@langer2017mipdb] | zero-shot | 31 recordings (31) | 27.5 | adults of a developmental cohort | about 6 min, 128-channel net |
 
 ## 4. Method
 
@@ -183,7 +182,7 @@ Table 4 collects the steps from the classical recipe to the present models, each
 | one phased run from the pre-trained encoder (P3, P4) instead of two steps | Temple + Harvard test | 6.09 → 6.11 / 6.09 (5-fold mean), at 12.5 vs 27.7 GPU hours |
 | 5-fold ensemble instead of one fold model | Temple + Harvard test | P3 6.11 → 5.98; P4 6.09 → 5.94 |
 | scoring every window instead of the first 5 minutes | Temple + Harvard test | 6.09 → 5.46 (two-step model) |
-| band-limited (1–45 Hz), amplitude-normalised input (device-robust E2L) | CHBP / Temple + Harvard test | 9.35 → 6.14 / 7.00 → 7.73 |
+| band-limited (1–45 Hz), amplitude-normalised input (device-robust E2L, Section 6.5) | CHBP / Temple + Harvard test | 9.35 → 5.90 / 7.00 → 7.55 |
 
 What the ablations show:
 
@@ -191,11 +190,11 @@ What the ablations show:
 - **The small corpus is memorised.** On TUAB alone the training MAE falls from 7.2 to 1.2 years while the validation MAE stays at 7.8. Of 51 changes tested on TUAB, 7 improved, 7 hurt and 37 were within noise.
 - **What did not help:** an L1 loss (+0.41), longer windows of 30 s (+0.44), low-rank adaptation of the encoder (+0.99), classical features as extra tokens (+0.76), other heads, a multi-task normal / abnormal head, window-quality rejection and artifact-aware pooling (all n.s.). Dropout of 0.1 in the encoder made the model collapse. Mixup alone is not significant on TUAB and is kept as a regulariser.
 - **Longer bag training does not help.** 20 joint epochs tie 4; only the retention term lowered the gap between training and validation error.
-- **Robustness to the recording chain costs in-domain accuracy.** The band-limited, amplitude-normalised model fixes CHBP but loses 0.7 years in-domain and 1.1 years on LEMON (5.20 → 6.33), so it is not a free default.
+- **Robustness to the recording chain costs in-domain accuracy.** The band-limited, amplitude-normalised model fixes CHBP but loses 0.55 years in-domain and 0.9 years on LEMON (5.20 → 6.07), so it is not a free default (Section 6.5).
 
 ## 6. Results
 
-### 6.1. Accuracy on six cohorts
+### 6.1. Accuracy on five cohorts
 
 **Table 5.** MAE in years with a 95 % interval, and $R^2$. Adults. Best published values with their protocol are in the last column (Section 7).
 
@@ -206,13 +205,12 @@ What the ablations show:
 | TDBRAIN, zero-shot (1,113) | 5.32 [5.04, 5.60], 0.80 | 5.14 [4.89, 5.41], 0.82 | **4.92 [4.68, 5.19], 0.83** | 5.96 trained on TDBRAIN [@khayretdinova2022tdbrain]; 8.36 zero-shot [@hajhassani2026artifact] |
 | LEMON, zero-shot (214) | 5.20 [4.60, 5.84], 0.88 | 4.70 [4.17, 5.29], 0.90 | **4.67 [4.11, 5.24], 0.90** | 7.75 trained on LEMON [@engemann2022benchmark]; 9.91 zero-shot [@hajhassani2026artifact] |
 | CHBP, zero-shot (250) | 9.35 [8.45, 10.27], −0.64 | **7.37 [6.60, 8.28], −0.14** | 7.95 [7.11, 8.87], −0.28 | 6.48 trained on CHBP [@engemann2022benchmark] |
-| MIPDB adults, zero-shot (31) | 9.16 [6.95, 11.75], −1.66 | **6.88 [4.96, 9.20], −0.71** | 7.36 [5.35, 9.59], −0.84 | none found |
 
 ![**Figure 1.** MAE per cohort for E2L and the two ensembles, with 95 % intervals. Dashed: MAE of predicting the cohort's mean age. Hatched bars: best published MAE, yellow for a model trained on that cohort and pink for a zero-shot model.](fig_cohort_mae.png)
 
-The ensembles improve on the window model on every cohort, by about 1 year on Harvard and 0.4 to 2.3 years on the external cohorts. P4 is the better recipe where the recording resembles the training data (Harvard, TDBRAIN, LEMON) and P3 under shift (CHBP, MIPDB), which fits P3's smaller gap between training and validation error (2.33 against 2.96 years). On CHBP and MIPDB every model is at or above the MAE of predicting the cohort's mean age ($R^2 \le 0$). CHBP was recorded with a 0.5–50 Hz filter and has a 40 % lower amplitude than the training data; a healthy TDBRAIN subgroup of the same age range (18–68 years) is predicted with an MAE of 5.18 years by E2L, so CHBP's error comes from the recording chain, not the population.
+The ensembles improve on the window model on every cohort, by about 1 year on Harvard and 0.4 to 2.0 years on the external cohorts. P4 is the better recipe where the recording resembles the training data (Harvard, TDBRAIN, LEMON) and P3 under shift (CHBP), which fits P3's smaller gap between training and validation error (2.33 against 2.96 years). On CHBP every model is at or above the MAE of predicting the cohort's mean age ($R^2 \le 0$). A healthy TDBRAIN subgroup of the same age range (18–68 years) is predicted with an MAE of 5.18 years by E2L, so CHBP's error comes from the recording chain, not the population; Section 6.5 measures where the signals differ and what corrects it.
 
-![**Figure 2.** Predicted against true age per cohort: mean prediction per 5-year age bin (bins with at least 10 recordings) for the three models. Band: ± 1 standard deviation of the P4 ensemble. Dotted: identity. Points are shown for the open cohorts only.](../figures/tdbrain/pred_vs_age_models.png)
+![**Figure 2.** Predicted against true age per cohort: mean prediction per 5-year age bin (bins with at least 10 recordings) for the three models. Band: ± 1 standard deviation of the P4 ensemble. Dotted: identity. Points are shown for the open cohorts only.](pred_vs_age_models.png)
 
 ### 6.2. Report status and pathology groups
 
@@ -250,7 +248,6 @@ For the diagnosis groups of the two hospital cohorts we use Eq. (17). The refere
 | Temple, bipolar disorder | 261 | 44.9 | 6.43 | +1.7 [0.3, 3.1] | +1.0 [−1.1, 3.0] | +2.1 [0.3, 4.0] |
 | Temple, clinical seizures | 1,762 | 47.6 | 6.68 | +0.2 [−0.6, 1.0] | −0.7 [−1.6, 0.3] | +0.8 [−0.2, 1.9] |
 | Temple, epilepsy | 631 | 49.3 | 7.18 | +0.0 [−1.3, 1.3] | −0.2 [−2.1, 1.8] | +0.2 [−1.5, 1.9] |
-| Temple, dementia | 72 | 74.8 | 10.47 | +0.1 [−4.6, 4.9] | s. | +1.6 [−0.5, 3.7] |
 
 ![**Figure 3.** Adjusted brain-age gap of each diagnosis group against the reference, Eq. (17), with 95 % intervals; out-of-fold predictions of the P3 fold models. Filled markers: false discovery rate below 0.05. Recordings per group in brackets.](../figures/tdbrain/pathology_gap.png)
 
@@ -268,48 +265,127 @@ Published work points the same way with other signals. In sleep EEG, patients wi
 
 **Table 8.** P4 ensemble, MAE in years of the 80 % most confident recordings of each cohort, by rejection score, and the MAE an oracle would reach by rejecting the largest true errors.
 
-| score | Temple | Harvard | TDBRAIN | LEMON | CHBP | MIPDB |
-|---|---|---|---|---|---|---|
-| no rejection | 5.87 | 5.94 | 4.92 | 4.67 | 7.95 | 7.36 |
-| spread, Eq. (8) | 5.69 | 5.56 | 4.54 | **3.79** | 7.84 | 7.38 |
-| total, Eq. (9) | **5.07** | **5.32** | **4.53** | 3.80 | **7.03** | **6.35** |
-| learned | 5.11 | 5.34 | 4.57 | 3.81 | 7.43 | 6.40 |
-| oracle | 3.78 | 3.83 | 3.25 | 2.92 | 5.06 | 5.04 |
+| score | Temple | Harvard | TDBRAIN | LEMON | CHBP |
+|---|---|---|---|---|---|
+| no rejection | 5.87 | 5.94 | 4.92 | 4.67 | 7.95 |
+| spread, Eq. (8) | 5.69 | 5.56 | 4.54 | **3.79** | 7.84 |
+| total, Eq. (9) | **5.07** | **5.32** | **4.53** | 3.80 | **7.03** |
+| learned | 5.11 | 5.34 | 4.57 | 3.81 | 7.43 |
+| oracle | 3.78 | 3.83 | 3.25 | 2.92 | 5.06 |
 
-![**Figure 4.** Risk–coverage curves of the P4 ensemble: MAE of the kept recordings against the share kept, per cohort, for several scores. `neff` is an attention-only score (the effective share of windows attended), `pred_age` rejects the oldest predictions, `random` is no information and `oracle` rejects by the true error.](../figures/tdbrain/rejection_curves.png)
+![**Figure 4.** Risk–coverage curves of the P4 ensemble: MAE of the kept recordings against the share kept, per cohort, for several scores. `neff` is an attention-only score (the effective share of windows attended), `pred_age` rejects the oldest predictions, `random` is no information and `oracle` rejects by the true error.](fig_rejection_curves.png)
 
-Rejection by the combined score lowers the MAE on every cohort. It is never significantly worse than the spread and is significantly better on Temple, Harvard and CHBP (paired bootstrap), because the disagreement of the fold models sees errors that are shared by all windows of a recording. Scores built from the attention weights alone are weak and change sign on CHBP. Two cautions apply. The scores were compared on the test cohorts, so the choice among them is not independent of these data. And part of every score is age: within deciles of the predicted age, the combined score keeps 60 to 80 % of its gain on Temple, Harvard and TDBRAIN, but nothing on LEMON, CHBP and MIPDB. All scores recover only 20 to 30 % of what the oracle would.
+Rejection by the combined score lowers the MAE on every cohort. It is never significantly worse than the spread and is significantly better on Temple, Harvard and CHBP (paired bootstrap), because the disagreement of the fold models sees errors that are shared by all windows of a recording. Scores built from the attention weights alone are weak and change sign on CHBP. Two cautions apply. The scores were compared on the test cohorts, so the choice among them is not independent of these data. And part of every score is age: within deciles of the predicted age, the combined score keeps 60 to 80 % of its gain on Temple, Harvard and TDBRAIN, but nothing on LEMON and CHBP. All scores recover only 20 to 30 % of what the oracle would.
 
 **Inside the recording.** Figures 5 and 6 relate the error of single windows to the quantities of Eqs. (15) and (16) for the P4 ensemble.
 
-![**Figure 5.** Window error against the attention weight, P4 ensemble. (a) Mean window error per decile of the relative attention weight. (b) The same inside the recording: the window's error minus the mean window error of its recording, per decile of the window's attention rank in the recording. Binned means.](../figures/tdbrain/window_error_vs_attention.png)
+![**Figure 5.** Window error against the attention weight, P4 ensemble. (a) Mean window error per decile of the relative attention weight. (b) The same inside the recording: the window's error minus the mean window error of its recording, per decile of the window's attention rank in the recording. Binned means.](window_error_vs_attention.png)
 
-![**Figure 6.** Window error (a) per decile of the window's deviation from the recording's prediction and (b) per decile of the disagreement of the fold models on the window, P4 ensemble. Binned means.](../figures/tdbrain/window_error_vs_spread.png)
+![**Figure 6.** Window error (a) per decile of the window's deviation from the recording's prediction and (b) per decile of the disagreement of the fold models on the window, P4 ensemble. Binned means.](window_error_vs_spread.png)
 
 - **Attention removes bad windows more than it selects good ones.** The windows with the lowest weight are much worse than the rest (Harvard: 16 years at a tenth of the uniform weight against about 7), but above the median weight the error is flat, and in Temple, TDBRAIN and CHBP the highest-weight windows are worse again.
-- **On TDBRAIN and CHBP the weight carries no information about the window.** Inside a recording its rank correlation with the window error has a median of +0.09 there, against −0.08 to −0.51 on the other cohorts, and attention pooling does not beat the plain mean of the window predictions (5.36 against 5.32 years per TDBRAIN file). Where it works it is worth 0.2 years on Temple, 0.7 on Harvard, 0.4 on LEMON and 1.2 on MIPDB.
-- **Deviation from the recording's prediction is the strongest window signal.** Inside a recording its rank correlation with the window error is 0.21 to 0.44, and the error grows from 4 to 7 years for the tenth of the windows closest to the recording's prediction to 12 to 20 years for the most deviant tenth. This is what makes the spread usable, and it favours robust pooling over more attention capacity.
-- **Fold disagreement is a recording-level signal.** Over all windows it follows the error (rank correlation 0.16 to 0.48), but inside a recording it does not (median about 0 on four of the six cohorts): the fold models disagree on whole recordings, which is the part the combined score adds to the spread.
+- **On TDBRAIN and CHBP the weight carries no information about the window.** Inside a recording its rank correlation with the window error has a median of +0.09 there, against −0.08 to −0.27 on the other cohorts, and attention pooling does not beat the plain mean of the window predictions (5.36 against 5.32 years per TDBRAIN file). Where it works it is worth 0.2 years on Temple, 0.7 on Harvard and 0.4 on LEMON.
+- **Deviation from the recording's prediction is the strongest window signal.** Inside a recording its rank correlation with the window error is 0.21 to 0.44, and the error grows from 4 to 7 years for the tenth of the windows closest to the recording's prediction to 12 to 19 years for the most deviant tenth. This is what makes the spread usable, and it favours robust pooling over more attention capacity.
+- **Fold disagreement is a recording-level signal.** Over all windows it follows the error (rank correlation 0.16 to 0.39), but inside a recording it does not (median about 0 on four of the five cohorts, 0.14 on LEMON): the fold models disagree on whole recordings, which is the part the combined score adds to the spread.
 
 ### 6.4. Age bias and its correction
 
 **Table 9.** P4 ensemble under each correction: MAE in years / slope of the prediction on age (1 = no compression). For the two corrections that use the true age the first number is the mean absolute corrected gap.
 
-| correction | Temple | Harvard | TDBRAIN | LEMON | CHBP | MIPDB |
-|---|---|---|---|---|---|---|
-| none | 5.87 / 0.79 | 5.94 / 0.83 | 4.92 / 0.89 | 4.67 / 0.83 | 7.95 / 0.53 | 7.36 / 0.71 |
-| Cole inversion, Eq. (12) | 6.74 / 1.00 | 7.14 / 1.04 | 6.61 / 1.12 | 6.15 / 1.05 | 8.99 / 0.67 | 6.62 / 0.90 |
-| recalibration, Eq. (12) | 5.89 / 0.78 | 5.96 / 0.82 | 4.90 / 0.88 | 4.71 / 0.82 | 7.99 / 0.53 | 7.55 / 0.71 |
-| linear gap, Eq. (13) | 5.34 / 1.00 | 5.66 / 1.03 | 5.24 / 1.09 | 4.87 / 1.04 | 7.13 / 0.74 | 5.25 / 0.92 |
-| quadratic gap, Eq. (13) | 5.15 / 1.02 | 5.57 / 1.05 | 5.14 / 1.07 | 4.58 / 1.02 | 7.26 / 0.65 | 5.52 / 0.79 |
+| correction | Temple | Harvard | TDBRAIN | LEMON | CHBP |
+|---|---|---|---|---|---|
+| none | 5.87 / 0.79 | 5.94 / 0.83 | 4.92 / 0.89 | 4.67 / 0.83 | 7.95 / 0.53 |
+| Cole inversion, Eq. (12) | 6.74 / 1.00 | 7.14 / 1.04 | 6.61 / 1.12 | 6.15 / 1.05 | 8.99 / 0.67 |
+| recalibration, Eq. (12) | 5.89 / 0.78 | 5.96 / 0.82 | 4.90 / 0.88 | 4.71 / 0.82 | 7.99 / 0.53 |
+| linear gap, Eq. (13) | 5.34 / 1.00 | 5.66 / 1.03 | 5.24 / 1.09 | 4.87 / 1.04 | 7.13 / 0.74 |
+| quadratic gap, Eq. (13) | 5.15 / 1.02 | 5.57 / 1.05 | 5.14 / 1.07 | 4.58 / 1.02 | 7.26 / 0.65 |
 
-![**Figure 7.** Predicted against true age per cohort for the P4 ensemble under each correction (means per 5-year age bin). Solid: corrections that need no true age. Dashed: corrections that use it.](../figures/tdbrain/pred_vs_age_corrections.png)
+![**Figure 7.** Predicted against true age per cohort for the P4 ensemble under each correction (means per 5-year age bin). Solid: corrections that need no true age. Dashed: corrections that use it.](pred_vs_age_corrections.png)
 
-The ensembles compress less than the window model: in-domain slopes are 0.79 to 0.84 against 0.70 to 0.72 for E2L. A correction fitted on validation data transfers to the external cohorts that resemble the training data (slope 1.00 to 1.12 after correction) but not to CHBP and MIPDB. Removing the bias without the true age costs accuracy: Cole inversion raises the MAE by 0.9 to 1.7 years, because it scales the prediction noise by $1/a$, and recalibration changes nothing. The raw prediction is therefore the best age estimate, and the corrections serve the analysis of the gap. After correction, recordings with an abnormal report look 1.8 to 4.2 years older than those with a normal report in Temple and Harvard ($p \le 0.002$ with every model); before correction the difference is hidden by the age confound. In TDBRAIN the corrected difference between patients and controls is 0.4 to 1.1 years and not significant.
+The ensembles compress less than the window model: in-domain slopes are 0.79 to 0.84 against 0.70 to 0.72 for E2L. A correction fitted on validation data transfers to the external cohorts that resemble the training data (slope 1.00 to 1.12 after correction) but not to CHBP. Removing the bias without the true age costs accuracy: Cole inversion raises the MAE by 0.9 to 1.7 years, because it scales the prediction noise by $1/a$, and recalibration changes nothing. The raw prediction is therefore the best age estimate, and the corrections serve the analysis of the gap. After correction, recordings with an abnormal report look 1.8 to 4.2 years older than those with a normal report in Temple and Harvard ($p \le 0.002$ with every model); before correction the difference is hidden by the age confound. In TDBRAIN the corrected difference between patients and controls is 0.4 to 1.1 years and not significant.
+
+### 6.5. A recording-chain shift and its correction: CHBP
+
+CHBP is the one cohort on which every model fails. This section locates the difference in the signal, tests it causally on training-domain recordings, and compares corrections. The numbers here are for the window model E2L and its retrained variants on the first 5 minutes of each recording, the training protocol, so E2L on CHBP reads 9.55 years here and 9.35 in Table 5 (every window). No CHBP age is used anywhere.
+
+**Where the signals differ.** Table 10 and Figure 8 compare CHBP with healthy Temple and Harvard recordings weighted to CHBP's age distribution. Two properties of the recording chain stand out. The amplitude is 0.5 to 0.6 times that of the training data. And the band is narrower: CHBP was recorded with a 0.5 Hz high-pass and a 50 Hz low-pass [@valdessosa2021chbp], so its power below 1 Hz is 6 to 12 % and its power at 45–70 Hz 4 to 5 % of the training data's. The alpha rhythm, in contrast, is stronger: CHBP is alert, eyes-closed, artifact-free research EEG, which should read as younger, not older. The age range is not the cause either: at CHBP's ages E2L reaches a correlation of 0.66 with age on its own domain, against 0.44 on CHBP. CHBP also holds two acquisition groups, a 64-channel cap (161 recordings; E2L MAE 7.58, r 0.55) and a 120-channel cap (89 recordings; 13.10, r 0.27) with a different spectrum.
+
+**Table 10.** CHBP against healthy Temple and Harvard recordings of the same ages (150 each, normal EEG report). Medians over recordings; power in µV²/Hz, common average reference.
+
+| signal feature | CHBP | Temple | Harvard |
+|---|---|---|---|
+| channel standard deviation (µV) | 5.8 | 9.9 | 12.8 |
+| share of windows with a channel above 100 µV | 0.00 | 0.03 | 0.20 |
+| power 0.1–1 Hz | 5.0 | 43.2 | 90.5 |
+| power 1–4 Hz (delta) | 1.86 | 3.86 | 4.36 |
+| power 8–13 Hz (alpha) | 1.98 | 1.05 | 0.92 |
+| power 13–30 Hz (beta) | 0.159 | 0.266 | 0.244 |
+| power 30–45 Hz | 0.017 | 0.069 | 0.056 |
+| power 45–70 Hz | 0.001 | 0.036 | 0.028 |
+| relative alpha power | 0.44 | 0.17 | 0.15 |
+| aperiodic exponent | 1.70 | 1.33 | 1.42 |
+
+![**Figure 8.** (a) Median power spectrum of CHBP and of age-matched healthy Temple and Harvard recordings. (b) CHBP's spectrum divided by each reference; dashed: the power response of CHBP's recording filters as specified.](../figures/chbp/chbp_shift_psd.png)
+
+**Causal test.** The two differences are imposed on 300 healthy Temple and Harvard recordings of CHBP's ages, with a gain $k$ and zero-phase Butterworth filters $h$:
+
+$$ x' = k\,x, \qquad x' = h_{LP} * h_{HP} * x \tag{18} $$
+
+**Table 11.** E2L on 300 training-domain recordings made CHBP-like with Eq. (18). The sample is young, so E2L over-predicts it even without a transform.
+
+| transform | MAE | bias | r |
+|---|---|---|---|
+| none | 7.02 | +5.1 | 0.66 |
+| amplitude × 0.62 | 11.34 | +10.9 | 0.66 |
+| high-pass 0.5 Hz | 7.71 | +6.0 | 0.63 |
+| low-pass 50 Hz | 8.04 | +3.8 | 0.40 |
+| amplitude × 0.62 and band 0.5–50 Hz | 13.71 | +12.6 | 0.37 |
+
+The two effects are separate (Table 11). The lower amplitude adds an offset of about 6 years and leaves the ranking intact: the model has learned that low amplitude means old. The 50 Hz low-pass leaves the offset and destroys the ranking: the model uses content above 50 Hz that CHBP does not have. Together they reproduce CHBP's result (13.7 years, r 0.37) on recordings the model otherwise predicts well.
+
+**Corrections.** We compare two that change only the test data and four that change the training. At test time, one gain for the cohort, or spectrum matching: every channel of CHBP is filtered so that the cohort's median spectrum $\bar P$ equals that of a label-free training reference, per cap, an idea used for sleep staging [@gnassounou2023cmmn]:
+
+$$ X'(f) = X(f)\,\operatorname{clip}\Big( \sqrt{ \bar P_{ref}(f) / \bar P_{CHBP}(f) },\ 0.1,\ 10 \Big) \tag{19} $$
+
+In training, the model input is band-limited to 1–45 Hz with order-8 zero-phase Butterworth responses and, optionally, every 10 s window is scaled to a fixed amplitude:
+
+$$ X'(f) = X(f)\,\frac{(f/f_{lo})^{16}}{1 + (f/f_{lo})^{16}}\,\frac{1}{1 + (f/f_{hi})^{16}}, \qquad f_{lo} = 1, \quad f_{hi} = 45 \tag{20} $$
+
+$$ x' = \frac{a}{s}\,x, \qquad s = \operatorname{median}_c\ \operatorname{sd}_t(x_c), \qquad a = 10 \tag{21} $$
+
+with $s$ the median over channels $c$ of the standard deviation over time, in µV. These are applied in training and at test time alike. The alternative keeps the raw input and varies it during training only (augmentation): each window gets, with probability 0.5, a random gain, with probability 0.5 a low-pass and with probability 0.3 a high-pass of the form of Eq. (20), with
+
+$$ \log g \sim \mathcal{U}(\log 0.55,\ \log 1.8), \qquad f_{hi} \sim \mathcal{U}(40,\ 75), \qquad f_{lo} \sim \mathcal{U}(0.1,\ 1) \tag{22} $$
+
+All four training variants use the E2L recipe on Temple and Harvard (up to 16 epochs with early stopping), selected on the in-domain validation error.
+
+**Table 12.** Corrections for CHBP. MAE in years; CHBP: MAE / bias / r, and MAE on the 64- and the 120-channel cap. Predicting CHBP's mean age gives 7.27.
+
+| model | Temple + Harvard test | Harvard test, ages 18–29 | LEMON | CHBP | CHBP by cap |
+|---|---|---|---|---|---|
+| E2L, raw input | 7.00 | 7.47 | 5.22 | 9.55 / +7.1 / 0.44 | 7.58 / 13.10 |
+| E2L, one gain for CHBP (test time) | 7.00 | 7.47 | 5.22 | 7.89 / +0.8 / 0.44 | 6.89 / 9.69 |
+| E2L, spectrum matching per cap, Eq. (19) (test time) | 7.00 | 7.47 | 5.22 | 6.70 / +0.8 / 0.52 | 6.23 / 7.55 |
+| band 1–45 Hz, Eq. (20) | 7.22 | 7.74 | 5.33 | 7.73 / +5.2 / 0.55 | 6.91 / 9.22 |
+| gain and filter augmentation, Eq. (22) | 7.30 | 9.12 | 6.18 | 6.97 / +3.9 / 0.60 | 6.42 / 7.96 |
+| band + amplitude normalisation + relative amplitude as a head input | 7.58 | 9.49 | 6.12 | 6.64 / −0.5 / 0.56 | 6.24 / 7.37 |
+| band + amplitude normalisation, Eqs. (20), (21) (device-robust) | 7.55 | 9.53 | 6.08 | **6.19 / −0.1 / 0.59** | **5.92 / 6.67** |
+
+![**Figure 9.** Corrections for CHBP: (a) MAE on CHBP with the bias in brackets, (b) MAE on the Temple + Harvard test split. Dashed: predicting CHBP's mean age in (a), E2L in (b).](fig_chbp_fixes.png)
+
+What Table 12 and Figure 9 show:
+
+- **The band limit restores the ranking, the amplitude sets the bias.** Band-limited training alone raises the correlation with age on CHBP from 0.44 to 0.55 but keeps an offset of +5 years; only a model that does not see the absolute amplitude removes the offset.
+- **The device-robust model is the best single correction.** It scores CHBP as recorded at 6.19 years (5.90 over every window, $R^2 = 0.33$), level with the best published result of a model trained on CHBP: 6.19 ± 1.10 against 6.48 ± 0.60 over the same ten folds [@engemann2022benchmark]. The 120-channel cap gains most (13.10 → 6.67). The same model is unaffected by the transform of Eq. (18) (7.69 → 7.33 years).
+- **Augmentation teaches tolerance, not invariance.** The augmented model has the best ranking on CHBP (r 0.60) and stays closest to E2L in-domain among the amplitude-robust models (7.30), but it keeps a bias of +3.9 years: CHBP's gain of 0.6 sits at the edge of the range seen in training. Its training curves look like E2L's, with the gap between validation and clean training error growing to 2.6 years (E2L 2.85) and validation flat from epoch 11, so it overfits mildly and more epochs would not help; a wider gain range is the change to try.
+- **Robustness has a price.** Every variant that hides the absolute amplitude loses 1.6 to 2.1 years on young Harvard adults and about 0.9 years on LEMON: amplitude is a cue for young age. Giving it back as one number per recording does not recover the loss. No single retrained model matches E2L in-domain and corrects CHBP.
+- **Without retraining,** spectrum matching per cap takes E2L to 6.70 years, under the predict-the-mean level, at no in-domain cost; it needs a batch of unlabelled recordings of the new device.
+
+The practical rule at present is two models and a label-free choice per cohort: E2L (or the ensembles of Section 4) for recordings inside the training range of amplitude and band, the device-robust model outside it. The attention ensembles were not retrained with these inputs; as recorded they reach 7.37 (P3) and 7.95 years (P4) on CHBP.
 
 ## 7. Comparison with published work
 
-**Table 10.** Published EEG brain-age results on the test cohorts, and ours. "within" = trained and tested on the cohort with cross-validation; "zero-shot" = trained elsewhere and applied unchanged. MAE in years.
+**Table 13.** Published EEG brain-age results on the test cohorts, and ours. "within" = trained and tested on the cohort with cross-validation; "zero-shot" = trained elsewhere and applied unchanged. MAE in years.
 
 | cohort | study | method | protocol | MAE | $R^2$ |
 |---|---|---|---|---|---|
@@ -325,7 +401,7 @@ The ensembles compress less than the window model: in-domain slopes are 0.79 to 
 | LEMON | Hajhassani et al. [@hajhassani2026artifact] | as above | zero-shot | 9.91 | 0.63 |
 | LEMON | ours, P4 ensemble | Section 4 | zero-shot | 4.67 | 0.90 |
 | CHBP | Engemann et al. [@engemann2022benchmark] | handcrafted features, random forest (best of the benchmark) | within | 6.48 | 0.18 |
-| CHBP | ours, P3 ensemble / device-robust E2L | Section 4 / Section 5 | zero-shot | 7.37 / 6.14 | −0.14 / 0.25 |
+| CHBP | ours, P3 ensemble / device-robust E2L | Section 4 / Section 6.5 | zero-shot | 7.37 / 5.90 | −0.14 / 0.33 |
 
 How our approach differs from these studies:
 
@@ -339,8 +415,8 @@ Three cautions for these comparisons. The published studies use other subsets, a
 
 ## 8. Limitations
 
-- **Old age and children.** Predictions are compressed toward the mean: for adults over 65 in TDBRAIN the P4 ensemble under-predicts by 5.4 years. Children are outside the training range and are over-predicted by 10 years or more (MIPDB).
-- **Recording chain.** CHBP shows that a narrower acquisition band and a lower amplitude are enough to bring the models to the predict-the-mean level. The robust variant fixes it at an in-domain cost; no single model does both.
+- **Old age and children.** Predictions are compressed toward the mean: for adults over 65 in TDBRAIN the P4 ensemble under-predicts by 5.4 years. Children are outside the training range and are over-predicted by 10 years or more (measured on a developmental cohort that is not part of this report).
+- **Recording chain.** CHBP shows that a narrower acquisition band and a lower amplitude are enough to bring the models to the predict-the-mean level. The robust variant fixes it at an in-domain cost; no single model does both, and it has been tested on one shifted cohort only. Whether CHBP's low amplitude comes from the amplifier gain, the electrodes or the export cannot be settled from the released data.
 - **Selection on test data.** The three rejection scores were chosen after comparing nine on the test cohorts, and the early ablations of Table 4 were selected on the TUAB test set. The rejection threshold is the cohort's own score quantile, so it needs a batch of unlabelled recordings.
 - **Single runs.** E2L and each fold model are one seed. Differences between recipes below about 0.2 years (P3 against P4 in-domain) are within the fold-to-fold spread.
 - **Labels.** "Normal" and "abnormal" are EEG report verdicts, available for half of the Harvard recordings; TDBRAIN has indications but no EEG reports and no medication record. Harvard diagnoses are ICD-10 codes of the whole patient record and overlap (2.9 groups per diagnosed recording), so the rows of Table 7 are not independent effects, and they come from single fold models, not the ensemble.
@@ -350,7 +426,7 @@ Three cautions for these comparisons. The published studies use other subsets, a
 
 - Fix the protocol before a paper: rejection score and threshold fitted on validation only, a fixed evaluation window for every cohort, three seeds for the final recipe.
 - Reduce the old-age compression in training (age-balanced sampling or loss) instead of after the fact.
-- One model for both recording chains: band and amplitude augmentation during the phased training, checked on CHBP and on a further external cohort.
+- One model for both recording chains: the band limit and a wider gain augmentation (beyond the 0.55 to 1.8 range of Eq. (22)) in the phased ensemble training, checked on CHBP and on a further external cohort.
 - A dedicated abnormal / pathology head trained with the age head, to separate "older-looking" from "abnormal"; Table 7 says that the abnormal EEG, not the diagnosis, carries the gap.
 - Robust pooling of the window predictions (median or trimming by the deviation of Eq. (16)), since attention adds nothing on TDBRAIN and CHBP.
 - Add the TDBRAIN replication subjects and a paediatric cohort, to extend the test to the blinded diagnoses and to children.
