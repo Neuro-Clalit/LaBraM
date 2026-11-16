@@ -56,6 +56,29 @@ def group_flags(meta):
     return h, ~h
 
 
+def load_meta(cdir, family=None, min_age=18.0):
+    """Manifest rows (indexed by stem) of the scored recordings: ages / labels
+    filled from ``age_metadata.json`` where the manifest leaves them empty, one
+    source dataset when ``family`` is given, session-matched ages only, aged >=
+    ``min_age``, with the ``healthy`` / ``pathological`` flags."""
+    meta = pd.DataFrame(json.load(open(os.path.join(cdir, "manifest.json")))["recordings"]).set_index("stem")
+    side_path = os.path.join(cdir, "age_metadata.json")
+    if os.path.exists(side_path):   # fill what the manifest leaves empty (the TUH rows of tuh_heedb_v1)
+        side = json.load(open(side_path))["recordings"]
+        for col in ("age", "subject", "label"):
+            filled = pd.Series({k: v.get(col) for k, v in side.items()}, dtype=object)
+            meta[col] = meta[col].astype(object).combine_first(filled) if col in meta else filled
+        meta["age"] = pd.to_numeric(meta["age"], errors="coerce")
+    if family:
+        fam = meta["corpus"].map(lambda c: "harvard" if c == "heedb" else "temple")
+        meta = meta[fam == family]
+    if "age_session_matched" in meta:
+        meta = meta[meta["age_session_matched"].fillna(True).astype(bool)]
+    meta = meta[meta["age"] >= min_age].copy()
+    meta["healthy"], meta["pathological"] = group_flags(meta)
+    return meta
+
+
 def units(meta, pred, spread):
     d = meta[["subject", "age", "healthy", "pathological"] + (["session", "task"] if "task" in meta else [])].join(
         pred.rename("pred"), how="inner")
@@ -80,21 +103,7 @@ def main():
     rows = []
     for spec in args.set:
         name, cdir, ev, wdir, *family = spec.split(":")
-        meta = pd.DataFrame(json.load(open(os.path.join(cdir, "manifest.json")))["recordings"]).set_index("stem")
-        side_path = os.path.join(cdir, "age_metadata.json")
-        if os.path.exists(side_path):   # fill what the manifest leaves empty (the TUH rows of tuh_heedb_v1)
-            side = json.load(open(side_path))["recordings"]
-            for col in ("age", "subject", "label"):
-                filled = pd.Series({k: v.get(col) for k, v in side.items()}, dtype=object)
-                meta[col] = meta[col].combine_first(filled) if col in meta else filled
-            meta["age"] = pd.to_numeric(meta["age"], errors="coerce")
-        if family:
-            fam = meta["corpus"].map(lambda c: "harvard" if c == "heedb" else "temple")
-            meta = meta[fam == family[0]]
-        if "age_session_matched" in meta:
-            meta = meta[meta["age_session_matched"].fillna(True).astype(bool)]
-        meta = meta[meta["age"] >= args.min_age].copy()
-        meta["healthy"], meta["pathological"] = group_flags(meta)
+        meta = load_meta(cdir, family[0] if family else None, args.min_age)
         res = json.load(open(ev))
         for model in args.models:
             pred = pd.Series(res[model]["splits"]["test"]["predictions"], dtype=float)
