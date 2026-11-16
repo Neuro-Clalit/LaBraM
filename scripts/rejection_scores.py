@@ -30,9 +30,19 @@ Ensemble scores are the fold means of the above, plus
                   the oldest predictions is the confound to beat);
 * ``spread|age``, ``total|age``  the score ranked within deciles of the
                   predicted age (the part not explained by predicted age);
-* ``learned``     a gradient-boosted regressor of ``|error|`` on all the scores
-                  above, fitted on the in-domain cohorts (``--fit-on``,
-                  cross-fitted there by subject) and applied unchanged elsewhere.
+* ``learned_test`` a gradient-boosted regressor of ``|error|`` on all the scores
+                  above, fitted on the in-domain *test* cohorts (``--fit-on``,
+                  cross-fitted there by subject) and applied unchanged elsewhere;
+* ``learned_val`` the same regressor fitted on **validation** data only
+                  (``--val-windows``): for each fold model, the recordings of
+                  its own validation fold (never trained on by that model), with
+                  that model's window scores and predicted age as features and
+                  its own ``|error|`` as target. At test time each fold model's
+                  features give a predicted error and the ensemble score is
+                  their mean. No fold disagreement enters (every validation
+                  recording was trained on by the other four folds);
+* ``learned_val+fold``  the mean of the within-cohort ranks of ``learned_val``
+                  and ``fold_sd``.
 
 A unit (recording; TDBRAIN: session = mean over its files) is rejected when its
 score is among the ``1 - coverage`` most uncertain of its cohort. The uncertain
@@ -70,6 +80,23 @@ from external_cohort_table import load_meta  # noqa: E402
 
 FOLD_SCORES = ["spread", "spread_unw", "sem", "neff", "entropy", "amax", "shift", "low_att_dev"]
 FEATURES = FOLD_SCORES + ["fold_sd", "pred_age"]
+VAL_FEATURES = FOLD_SCORES + ["pred_age"]
+GBM = dict(max_depth=3, max_iter=200, learning_rate=0.05, l2_regularization=1.0, loss="absolute_error", random_state=0)
+
+
+def fit_val_model(val_paths, min_age=18.0):
+    """|error| regressor of single fold models on their own validation folds
+    (``val_bag_weights`` parquets); returns (model, n recordings)."""
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    frames = []
+    for path in val_paths:
+        f = fold_scores(path)
+        f["age"] = pd.read_parquet(path, columns=["recording", "age"]).groupby("recording")["age"].first()
+        f["pred_age"] = f["yhat"]
+        f["abs_err"] = (f["yhat"] - f["age"]).abs()
+        frames.append(f[f["age"] >= min_age])
+    d = pd.concat(frames)
+    return HistGradientBoostingRegressor(**GBM).fit(d[VAL_FEATURES], d["abs_err"]), len(d)
 COVERAGES = np.round(np.arange(0.5, 1.0001, 0.05), 2)
 
 
@@ -104,7 +131,7 @@ def fold_scores(path):
     return out
 
 
-def cohort_units(meta, wdir, members):
+def cohort_units(meta, wdir, members, val_model=None):
     """One row per scoring unit with age, ensemble prediction and every score."""
     per = [fold_scores(os.path.join(wdir, f"{m}_test.parquet")) for m in members]
     idx = per[0].index
@@ -113,6 +140,9 @@ def cohort_units(meta, wdir, members):
     d["pred"] = stack["yhat"].mean(axis=0)
     d["fold_sd"] = stack["yhat"].std(axis=0)
     d["sem2"] = (stack["sem"] ** 2).mean(axis=0)
+    if val_model is not None:
+        d["learned_val"] = np.mean([val_model.predict(f.reindex(idx).assign(pred_age=lambda x: x["yhat"])[VAL_FEATURES])
+                                    for f in per], axis=0)
     cols = ["subject", "age", "healthy", "pathological"] + (["session"] if "task" in meta else [])
     d = meta[cols].join(d, how="inner")
     if "task" in meta:                                   # session = mean over its files
@@ -122,7 +152,9 @@ def cohort_units(meta, wdir, members):
     d["pred_age"] = d["pred"]
     d["total"] = np.sqrt(d["sem2"] + d["fold_sd"] ** 2)
     d["abs_err"] = (d["pred"] - d["age"]).abs()
-    return d.reset_index(drop=True)
+    if "task" in meta:
+        return d.reset_index(drop=True)
+    return d.rename_axis("stem").reset_index()               # recordings keep their stem
 
 
 def add_cohort_scores(d):
@@ -131,6 +163,8 @@ def add_cohort_scores(d):
     dec = pd.qcut(d["pred_age"], 10, labels=False, duplicates="drop")
     d["spread|age"] = d.groupby(dec)["spread"].rank(pct=True)
     d["total|age"] = d.groupby(dec)["total"].rank(pct=True)
+    if "learned_val" in d:
+        d["learned_val+fold"] = (d["learned_val"].rank(pct=True) + d["fold_sd"].rank(pct=True)) / 2
     return d
 
 
@@ -148,33 +182,41 @@ def main():
     ap.add_argument("--set", action="append", required=True, metavar="NAME:COHORT:EVAL.json:WINDOWS_DIR[:FAMILY]")
     ap.add_argument("--models", nargs="+", default=["P4ens"])
     ap.add_argument("--fit-on", nargs="+", default=["temple", "harvard"])
+    ap.add_argument("--val-windows", action="append", default=[], metavar="MODEL=PARQUET[,PARQUET...]",
+                    help="validation-fold window parquets of MODEL's fold models, for learned_val")
     ap.add_argument("--min-age", type=float, default=18.0)
     ap.add_argument("--out", required=True)
     ap.add_argument("--figure", default=None)
     args = ap.parse_args()
     from sklearn.ensemble import HistGradientBoostingRegressor
     rows, curves, grows = [], {}, []
+    val_paths = {k: v.split(",") for k, v in (e.split("=", 1) for e in args.val_windows)}
     for model in args.models:
         data = {}
+        val_model = None
+        if model in val_paths:
+            val_model, n_val = fit_val_model(val_paths[model], args.min_age)
+            print(f"{model}: learned_val fitted on {n_val:,} validation recordings of {len(val_paths[model])} fold(s)")
         for spec in args.set:
             name, cdir, ev, wdir, *family = spec.split(":")
             members = json.load(open(ev))[model]["members"]
             data[name] = add_cohort_scores(cohort_units(load_meta(cdir, family[0] if family else None, args.min_age),
-                                                        wdir, members))
+                                                        wdir, members, val_model))
         fit = pd.concat([data[c].assign(cohort=c) for c in args.fit_on], ignore_index=True)
         # learned score: cross-fitted on the fit cohorts (5 subject-grouped folds), full fit elsewhere
         subs = fit["subject"].astype(str) + "@" + fit["cohort"]
         fold = pd.Series(np.random.default_rng(0).permutation(subs.nunique()) % 5, index=subs.unique())[subs].to_numpy()
-        gbm = dict(max_depth=3, max_iter=200, learning_rate=0.05, l2_regularization=1.0, loss="absolute_error")
         oof = np.empty(len(fit))
         for k in range(5):
-            m = HistGradientBoostingRegressor(**gbm, random_state=0).fit(fit.loc[fold != k, FEATURES], fit.loc[fold != k, "abs_err"])
+            m = HistGradientBoostingRegressor(**GBM).fit(fit.loc[fold != k, FEATURES], fit.loc[fold != k, "abs_err"])
             oof[fold == k] = m.predict(fit.loc[fold == k, FEATURES])
-        full = HistGradientBoostingRegressor(**gbm, random_state=0).fit(fit[FEATURES], fit["abs_err"])
+        full = HistGradientBoostingRegressor(**GBM).fit(fit[FEATURES], fit["abs_err"])
         for c, d in data.items():
-            d["learned"] = oof[(fit["cohort"] == c).to_numpy()] if c in args.fit_on else full.predict(d[FEATURES])
+            d["learned_test"] = oof[(fit["cohort"] == c).to_numpy()] if c in args.fit_on else full.predict(d[FEATURES])
         fit = pd.concat([data[c] for c in args.fit_on], ignore_index=True)
-        scores = FOLD_SCORES + ["fold_sd", "total", "rank_spread_fold", "pred_age", "spread|age", "total|age", "learned"]
+        scores = FOLD_SCORES + ["fold_sd", "total", "rank_spread_fold", "pred_age", "spread|age", "total|age", "learned_test"]
+        if val_model is not None:
+            scores += ["learned_val", "learned_val+fold"]
         sign = {s: (1.0 if stats.spearmanr(fit[s], fit["abs_err"])[0] >= 0 else -1.0) for s in scores}
         for c, d in data.items():
             e, age = d["abs_err"].to_numpy(), d["age"].to_numpy()
@@ -227,7 +269,7 @@ def main():
             print(t.pivot(index="score", columns="cohort", values="spearman_abs_err")[[c.split(":")[0] for c in args.set]].round(2).to_string())
             print("-- kept-80 % MAE minus spread's, 95 % bootstrap interval")
             ci = t.assign(ci=t.d_vs_spread_lo.round(2).astype(str) + " .. " + t.d_vs_spread_hi.round(2).astype(str))
-            print(ci[ci.score.isin(["fold_sd", "total", "learned", "neff", "amax", "total|age"])].pivot(
+            print(ci[ci.score.isin(["fold_sd", "total", "learned_test", "learned_val", "learned_val+fold", "neff", "amax"])].pivot(
                 index="score", columns="cohort", values="ci")[[c.split(":")[0] for c in args.set]].to_string())
             print("-- mean age of the kept 80 %")
             piv = t.pivot(index="score", columns="cohort", values="age_keep80")
@@ -241,7 +283,7 @@ def main():
         model = args.models[0]
         names = [c.split(":")[0] for c in args.set]
         show = [("spread", "#2a78d6", "-"), ("fold_sd", "#eb6834", "-"), ("total", "#1baf7a", "-"),
-                ("learned", "#6250d6", "-"), ("neff", "#eda100", "-"), ("pred_age", "#6b6a64", "--"),
+                ("learned_val+fold" if val_model is not None else "learned_test", "#6250d6", "-"), ("neff", "#eda100", "-"), ("pred_age", "#6b6a64", "--"),
                 ("random", "#b0afa8", ":"), ("oracle", "#1f1f1e", ":")]
         fig, axes = plt.subplots((len(names) + 1) // 2, 2, figsize=(13, 4.2 * ((len(names) + 1) // 2)), squeeze=False)
         for ax, c in zip(axes.flat, names):

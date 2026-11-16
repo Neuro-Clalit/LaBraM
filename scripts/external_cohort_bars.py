@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 """Bar chart of zero-shot brain-age MAE per external cohort (adults), from
 ``external_cohort_table.py``'s CSV: (a) every recording / session, (b) after the
-label-free 20 % rejection by window-prediction spread. Bars are the models in a
+label-free 20 % rejection by confidence (``--reject-score``, default ``total``;
+a single model such as E2L has only ``spread``). Bars are the models in a
 fixed colour order, whiskers the 95 % subject-bootstrap interval, and the dashed
 line over each cohort its predict-the-cohort-mean MAE (the floor to beat).
 Panel (a) also marks the best published MAE per cohort (``SOTA``) as a line
@@ -40,6 +41,8 @@ INK, MUTED, GRID = "#1f1f1e", "#6b6a64", "#e4e3df"
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--table", required=True)
+    ap.add_argument("--reject-score", default="total", choices=["spread", "total", "learned"],
+                    help="rejection rows shown in panel (b) for the ensembles")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     import matplotlib
@@ -52,11 +55,19 @@ def main():
     cohorts = [(c, n) for c, n in COHORTS if c in present]
     fig, axes = plt.subplots(2, 1, figsize=(13, 9.5), sharey=True)
     width = 0.26
+    def pick(c, m, rej):
+        """Row of (cohort, model) under ``rej``; a single model has only the spread rejection."""
+        r = t[(t.cohort == c) & (t.model == m) & (t.rejection == rej)]
+        if r.empty and rej != "none":
+            r = t[(t.cohort == c) & (t.model == m) & (t.rejection == "reject 20% (spread)")]
+        return r.iloc[0]
+
     for ax, (rej, title) in zip(axes, [("none", "every recording / session"),
-                                        ("reject 20%", "reject 20 % by prediction spread")]):
+                                        (f"reject 20% ({args.reject_score})",
+                                         f"reject 20 % by confidence (ensembles: {args.reject_score}; E2L: spread)")]):
         x = np.arange(len(cohorts))
         for j, ((m, label), color) in enumerate(zip(MODELS, COLORS)):
-            rows = [t[(t.cohort == c) & (t.model == m) & (t.rejection == rej)].iloc[0] for c, _ in cohorts]
+            rows = [pick(c, m, rej) for c, _ in cohorts]
             mae = np.array([r.mae for r in rows])
             err = np.array([[r.mae - r.mae_lo for r in rows], [r.mae_hi - r.mae for r in rows]])
             xs = x + (j - 1) * width
@@ -66,7 +77,7 @@ def main():
                 ax.text(xi, 0.25, f"{v:.1f}", ha="center", va="bottom", fontsize=8, color="white",
                         fontweight="bold", zorder=4)
         for i, (c, _) in enumerate(cohorts):
-            r = t[(t.cohort == c) & (t.model == "E2L") & (t.rejection == rej)].iloc[0]
+            r = pick(c, MODELS[-1][0], rej)
             ax.hlines(r.mae_predict_mean, i - 1.5 * width, i + 1.5 * width, colors=MUTED, linestyles="--",
                       lw=1.4, zorder=5, label="predict the cohort mean" if i == 0 else None)
         if rej == "none":
@@ -77,7 +88,7 @@ def main():
                     ax.text(i + 1.5 * width + 0.03, v, f"{v:.2f}", va="center", fontsize=8, color=INK, zorder=6)
             ax.plot([], [], color=INK, lw=1.8, ls="-", label="best published, trained on the cohort")
             ax.plot([], [], color=INK, lw=1.8, ls=":", label="best published, zero-shot")
-        n = {c: t[(t.cohort == c) & (t.model == "E2L") & (t.rejection == rej)].iloc[0] for c, _ in cohorts}
+        n = {c: pick(c, MODELS[-1][0], rej) for c, _ in cohorts}
         unit = {"tdbrain": "sessions"}
         domain = {"temple": "in-domain", "harvard": "in-domain"}
         ax.set_xticks(x, [f"{name}\n{domain.get(c, 'zero-shot')}, n = {int(n[c].n):,} {unit.get(c, 'rec.')}\nage {n[c].age_mean:.0f} y"

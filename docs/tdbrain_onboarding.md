@@ -986,3 +986,65 @@ no fitting and only the fold predictions and windows already saved. The tables o
 `spread`; with `total`, the P4-ensemble rows would read Harvard 5.32, Temple 5.05, TDBRAIN 4.53,
 LEMON 3.80, CHBP 7.03, MIPDB 6.35 (instead of 5.56, 5.69, 4.54, 3.79, 7.84, 7.38). A single
 model such as E2L has no fold disagreement, so it keeps `spread` / `sem`.
+
+## 16. Default rejection options: spread, total, learned (fitted on validation) (2026-11-16)
+
+`scripts/external_cohort_table.py --reject-scores` now writes one set of "reject 20 %" rows per
+confidence score, by default all three (`tdbrain.sh tables`):
+
+- **spread**: the attention-weighted spread (15.1). Every model, including E2L.
+- **total**: (15.5), within-recording standard error plus fold disagreement. Ensembles only.
+- **learned**: a boosted regressor of |error|, rank-averaged with the fold disagreement. Ensembles only.
+
+**Where the learned score is fitted.** The version of Section 15 (`learned_test` in the CSV) was
+fitted on the **test** split of Temple + Harvard, cross-fitted by subject. The default is now fitted
+on **validation only** (`learned_val`). For each fold model it uses the recordings of that model's own
+validation fold at its best epoch (`analysis/val_bag_weights_epoch<best>.parquet`), which that model never
+trained on: P4 folds 1, 2, 4 (57,111 recordings) and P3 folds 0–3 (75,880). The best-epoch file of the
+other folds was lost to spot interruptions. The features are that model's window scores (15.1)–(15.4)
+and its predicted age, and the target is its own |error|. At test time each fold model's features
+give a predicted error; the ensemble's score is their mean (16.1), rank-averaged within the cohort
+with `fold_sd` (16.2). The fold disagreement cannot be a feature of the fit, because every validation
+recording was trained on by the other four folds.
+
+$$ \hat e = \tfrac{1}{K}\textstyle\sum_k g\big(\text{scores}_k, \hat y_k\big) \tag{16.1} $$
+
+$$ \text{learned} = \tfrac12\big(\operatorname{rank}(\hat e) + \operatorname{rank}(\text{fold\_sd})\big) \tag{16.2} $$
+
+No test or external age enters the default learned score, so the in-domain rows need no cross-fitting.
+
+### Table 16.1. Learned score: fitted on test (cross-fitted) vs on validation; P4 ensemble, MAE (y) of the 80 % kept
+
+| score | Harvard | Temple | TDBRAIN | LEMON | CHBP | MIPDB |
+|---|---|---|---|---|---|---|
+| learned, fitted on test (Section 15) | 5.20 | 5.05 | 4.57 | 4.01 | 6.83 | 6.65 |
+| learned, fitted on validation, $\hat e$ alone (16.1) | 5.28 | 5.45 | 4.58 | 3.82 | 7.77 | 7.09 |
+| **learned, fitted on validation + fold disagreement (16.2), the default** | 5.34 | 5.16 | 4.58 | 3.81 | 7.37 | 6.40 |
+| total, for reference | 5.32 | 5.05 | 4.53 | 3.80 | 7.03 | 6.35 |
+
+Fitting on validation costs 0.1 y in-domain (5.34 vs 5.20 on Harvard), changes nothing on TDBRAIN
+and is better on LEMON (3.81 vs 4.01). The test-fitted model's in-domain edge came from having seen
+that distribution's age–error shape. The validation-fitted default is level with `total` everywhere
+except CHBP (7.37 vs 7.03).
+
+### Table 16.2. The three default options, MAE (y) of the 80 % kept, by cohort (`external_cohort_table.csv`)
+
+The 20 % threshold is set over the whole dataset; n and mean age are before rejection.
+
+| | Harvard, all | Harvard, normal | Harvard, abnormal | Harvard, unlabelled | Temple, all | Temple, normal | Temple, abnormal | TDBRAIN, all | TDBRAIN, healthy | TDBRAIN, pathological | LEMON | CHBP | MIPDB |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **n** | 7,338 | 1,518 | 2,253 | 3,567 | 272 | 149 | 123 | 1,113 | 179 | 934 | 214 | 250 | 31 |
+| **mean age (y)** | 54.1 | 48.8 | 58.8 | 53.3 | 50.7 | 44.6 | 58.0 | 45.2 | 40.3 | 46.2 | 39.2 | 31.7 | 27.5 |
+| P4 ens., no rejection | 5.94 | 5.69 | 6.49 | 5.70 | 5.87 | 4.52 | 7.50 | 4.92 | 4.96 | 4.92 | 4.67 | 7.95 | 7.36 |
+| P4 ens., spread | 5.56 | 5.27 | 6.09 | 5.36 | 5.69 | 4.62 | 7.26 | 4.54 | 4.32 | **4.58** | **3.79** | 7.84 | 7.38 |
+| P4 ens., total | **5.32** | 5.23 | **5.75** | **5.11** | **5.07** | **4.40** | 6.32 | **4.53** | **4.24** | **4.58** | 3.80 | **7.03** | **6.35** |
+| P4 ens., learned | 5.34 | **5.18** | 5.77 | 5.15 | 5.11 | 4.46 | **6.22** | 4.57 | 4.43 | 4.60 | 3.81 | 7.43 | 6.40 |
+| P3 ens., no rejection | 5.98 | 5.73 | 6.52 | 5.74 | 5.87 | 4.61 | 7.39 | 5.14 | 5.15 | 5.14 | 4.70 | 7.37 | 6.88 |
+| P3 ens., spread | 5.61 | 5.27 | 6.13 | 5.42 | 5.44 | 4.64 | 6.59 | 4.83 | 4.65 | 4.87 | 3.86 | 7.02 | 5.88 |
+| P3 ens., total | 5.39 | 5.27 | 5.84 | 5.19 | 5.07 | 4.44 | 6.20 | **4.69** | **4.50** | **4.72** | 4.02 | **6.18** | **5.27** |
+| P3 ens., learned | **5.33** | **5.13** | **5.82** | **5.12** | **4.97** | **4.29** | **6.15** | 4.74 | 4.63 | 4.76 | **3.80** | 6.49 | 5.52 |
+
+Bold: the best of the three options per ensemble. The "reject 20 %" rows of Sections 12–14 are
+the **spread** option. Figure 13.1(b) now shows `total` for the ensembles and `spread` for E2L. Small
+differences from Table 15.3 (≤ 0.08 y, Temple) come from this table using the stored ensemble
+predictions and a quantile threshold instead of the window-recomputed ones and a top-k cut.
