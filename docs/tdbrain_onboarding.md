@@ -515,8 +515,9 @@ on the cohort's own ages (not zero-shot).
 
 ![pred vs age](figures/tdbrain/external_pred_vs_age.png)
 
-Per file (TDBRAIN) or recording (CHBP, LEMON): (a, c, e) E2L, (b, d, f) E2Lrob. Blue:
-zero-shot; orange: recalibrated (5-fold CV, uses the cohort's ages).
+(a, c, e) E2L, (b, d, f) E2Lrob. Blue: zero-shot; orange: recalibrated (5-fold CV, uses the cohort's ages).
+CHBP and LEMON: one point per recording. TDBRAIN: mean per 5-year age bin (at least 10 files) with a ±1 SD band
+for the zero-shot prediction; no per-subject points are drawn for this cohort (data use agreement).
 
 **What Tables 10.1–10.2 and Figures 10.1–10.2 show:**
 - **TDBRAIN looks like the training data where it matters for the model.** The amplitude after
@@ -1353,5 +1354,20 @@ absolute corrected gap (dashed).
   MIPDB, because it scales the prediction noise by $1/a$. Recalibration changes nothing (≤ 0.05 y): the models are already calibrated
   in the least-squares sense. For a deployable age estimate the raw prediction is the best; the corrections serve gap analysis.
 - **The corrected gap separates abnormal from normal EEG, not psychiatric indication from healthy.** Raw, the difference is ≈ 0
-  (the age confound). After correction, abnormal-report recordings look 2.2–4.2 y older in Temple and Harvard (p ≤ 0.002 for every
+  (the age confound). After correction, abnormal-report recordings look 1.8–4.2 y older in Temple and Harvard (p ≤ 0.002 for every
   model). In TDBRAIN the corrected difference is +0.4 to +1.1 y and not significant (p ≥ 0.1), in line with Sections 9.2 and 11.
+
+## 20. Technical report (2026-11-16)
+
+`docs/tech_report/` holds a paper-style summary of the whole brain-age work (classical LaBraM against our recipe, the
+ablations, the six-cohort results, selective prediction, bias correction, the comparison with published methods, limits and
+planned work), with every formula numbered and every reference checked against PubMed, Crossref or arXiv:
+
+- `brain_age_tech_report.src.md`: the one source that is edited;
+- `brain_age_tech_report.tex` + `refs.bib`: LaTeX (article, natbib, booktabs), generated;
+- `brain_age_tech_report.md`: the same text with numbered citations and a reference list, generated;
+- `brain_age_tech_report.pdf`: generated from the Markdown by `scripts/md_to_pdf.py`.
+
+`scripts/build_tech_report.py` regenerates the three outputs. The PDF is typeset without TeX (this machine has none: the
+root disk is too full to install it), so its layout differs from what `pdflatex` + `bibtex` will give on the `.tex`; the
+`.tex` has been checked for balanced environments but not compiled.

@@ -42,7 +42,7 @@ INK, MUTED, GRID = "#1f1f1e", "#6b6a64", "#e4e3df"
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--table", required=True)
-    ap.add_argument("--reject-score", nargs="+", default=["total", "learned"], choices=["spread", "total", "learned"],
+    ap.add_argument("--reject-score", nargs="*", default=["total", "learned"], choices=["spread", "total", "learned"],
                     help="one panel per rejection score (for the ensembles; E2L always uses spread)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()

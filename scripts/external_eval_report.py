@@ -192,8 +192,19 @@ def plot_preds(preds, models, fig_dir):
         for j, m in enumerate(models):
             ax = axes[i][j]
             d = preds[(preds.cohort == c) & (preds.model == m)]
-            ax.scatter(d.age, d.pred, s=12, alpha=0.6, label="zero-shot")
-            ax.scatter(d.age, d.pred_recal, s=10, alpha=0.5, marker="x", label="recalibrated (5-fold CV)")
+            if c in AGGREGATE_ONLY:
+                # no per-subject points for cohorts under a no-redistribution DUA: mean +- SD per 5-year age bin
+                bins = (d.age // 5) * 5
+                for col, label, color in (("pred", "zero-shot", "C0"), ("pred_recal", "recalibrated (5-fold CV)", "C1")):
+                    g = d.groupby(bins)[col].agg(["mean", "std", "size"])
+                    g = g[g["size"] >= 10]
+                    ax.plot(g.index + 2.5, g["mean"], marker="o", ms=4, color=color, label=f"{label}, mean per 5-year bin")
+                    if col == "pred":
+                        ax.fill_between(g.index + 2.5, g["mean"] - g["std"], g["mean"] + g["std"], color=color, alpha=0.15,
+                                        linewidth=0)
+            else:
+                ax.scatter(d.age, d.pred, s=12, alpha=0.6, label="zero-shot")
+                ax.scatter(d.age, d.pred_recal, s=10, alpha=0.5, marker="x", label="recalibrated (5-fold CV)")
             lo, hi = 0, max(90, d.age.max() + 5)
             ax.plot([lo, hi], [lo, hi], color="0.5", lw=0.8)
             ax.set_xlim(lo, hi)

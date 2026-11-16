@@ -242,4 +242,8 @@ if [[ $step == tables || $step == all ]]; then
   $PY scripts/bias_correction_cohorts.py "${SETS[@]}" --models E2L P3ens P4ens \
     --val E2L=$OUT/own_all_val_E2L.json --val-windows P4ens=$V4 --val-windows P3ens=$V3 \
     --val-meta $C/age_metadata.json --out $D/bias_correction.csv --fig-dir docs/figures/tdbrain
+  # technical report: one-panel bar chart, then LaTeX + Markdown + PDF from the one source
+  $PY scripts/external_cohort_bars.py --table $D/external_cohort_table.csv --reject-score \
+    --out docs/tech_report/fig_cohort_mae.png
+  $PY scripts/build_tech_report.py
 fi
