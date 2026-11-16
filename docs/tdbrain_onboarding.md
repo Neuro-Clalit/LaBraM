@@ -924,7 +924,8 @@ fold_sd, total, learned, neff. Dashed: pred_age. Dotted: no information (flat) a
 
 **What Tables 15.1–15.2 and Figure 15.1 show:**
 - **The attention weights alone are a weak confidence signal.** neff, entropy and amax (15.3)
-  correlate with |error| at |ρ| ≤ 0.23 and are significantly worse than `spread` on Harvard, TDBRAIN,
+  correlate with |error| at |ρ| of about 0.1–0.25 on the large cohorts. neff is significantly worse
+  than `spread` on Harvard, TDBRAIN, LEMON and CHBP; entropy behaves the same and amax is worse on
   LEMON and CHBP. Their direction is as expected in-domain (attention concentrated on few windows →
   larger error), but it flips on CHBP (ρ +0.16 for neff), so they are not safe under shift. `shift`
   (15.4) is no better.
@@ -941,7 +942,7 @@ fold_sd, total, learned, neff. Dashed: pred_age. Dotted: no information (flat) a
   better on Harvard, Temple and CHBP. The P3 ensemble gives the same ranking (CSV).
 - **The learned score wins in-domain only** (Harvard 5.20, cross-fitted) and transfers no better
   than `total` (TDBRAIN 4.57 vs 4.53, LEMON 4.01 vs 3.80). It is not worth its extra fitting step.
-- **Part of every score is age.** Ranked within predicted-age deciles, `total` keeps about 70 % of
+- **Part of every score is age.** Ranked within predicted-age deciles, `total` keeps 60–70 % of
   its gain on Harvard and Temple and 80 % on TDBRAIN, but nothing on LEMON, CHBP or MIPDB. On
   LEMON (two age clusters) the gain is rejecting the old cluster; on CHBP the best "confidence"
   is the predicted age itself (6.10), because CHBP's error is an over-prediction. The CHBP / MIPDB
