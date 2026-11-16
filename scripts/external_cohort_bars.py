@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Bar chart of zero-shot brain-age MAE per external cohort (adults), from
-``external_cohort_table.py``'s CSV: (a) every recording / session, (b) after the
-label-free 20 % rejection by confidence (``--reject-score``, default ``total``;
-a single model such as E2L has only ``spread``). Bars are the models in a
+``external_cohort_table.py``'s CSV: (a) every recording / session, then one panel per
+label-free 20 % rejection score (``--reject-score``, default ``total`` and
+``learned``; a single model such as E2L has only ``spread``). Bars are the models in a
 fixed colour order, whiskers the 95 % subject-bootstrap interval, and the dashed
 line over each cohort its predict-the-cohort-mean MAE (the floor to beat).
 Panel (a) also marks the best published MAE per cohort (``SOTA``) as a line
@@ -41,8 +41,8 @@ INK, MUTED, GRID = "#1f1f1e", "#6b6a64", "#e4e3df"
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--table", required=True)
-    ap.add_argument("--reject-score", default="total", choices=["spread", "total", "learned"],
-                    help="rejection rows shown in panel (b) for the ensembles")
+    ap.add_argument("--reject-score", nargs="+", default=["total", "learned"], choices=["spread", "total", "learned"],
+                    help="one panel per rejection score (for the ensembles; E2L always uses spread)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     import matplotlib
@@ -53,7 +53,10 @@ def main():
     t = t[t["group"] == "all"]
     present = set(t["cohort"])
     cohorts = [(c, n) for c, n in COHORTS if c in present]
-    fig, axes = plt.subplots(2, 1, figsize=(13, 9.5), sharey=True)
+    panels = [("none", "every recording / session")] + [
+        (f"reject 20% ({sc})", f"reject 20 % by confidence (ensembles: {sc}; E2L: spread)") for sc in args.reject_score]
+    fig, axes = plt.subplots(len(panels), 1, figsize=(13, 4.75 * len(panels)), sharey=True, squeeze=False)
+    axes = axes[:, 0]
     width = 0.26
     def pick(c, m, rej):
         """Row of (cohort, model) under ``rej``; a single model has only the spread rejection."""
@@ -62,9 +65,7 @@ def main():
             r = t[(t.cohort == c) & (t.model == m) & (t.rejection == "reject 20% (spread)")]
         return r.iloc[0]
 
-    for ax, (rej, title) in zip(axes, [("none", "every recording / session"),
-                                        (f"reject 20% ({args.reject_score})",
-                                         f"reject 20 % by confidence (ensembles: {args.reject_score}; E2L: spread)")]):
+    for ax, (rej, title) in zip(axes, panels):
         x = np.arange(len(cohorts))
         for j, ((m, label), color) in enumerate(zip(MODELS, COLORS)):
             rows = [pick(c, m, rej) for c, _ in cohorts]

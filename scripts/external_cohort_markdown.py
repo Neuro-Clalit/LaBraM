@@ -29,6 +29,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--table", required=True)
     ap.add_argument("--protocol", nargs="*", default=["temple=in-domain", "harvard=in-domain"])
+    ap.add_argument("--rows", nargs="*", default=None, metavar="MODEL:REJECTION",
+                    help="only these rows, e.g. E2L:none E2L:spread P3ens:none P3ens:learned (default: all)")
     args = ap.parse_args()
     t = pd.read_csv(args.table)
     protocol = dict(p.split("=") for p in args.protocol)
@@ -43,7 +45,8 @@ def main():
         for m, name, method in MODELS:
             for rej, suffix, extra in REJ:
                 rows = c[(c.model == m) & (c.rejection == rej)].set_index("group")
-                if rows.empty:
+                short = "none" if rej == "none" else rej.split("(")[1].rstrip(")")
+                if rows.empty or (args.rows is not None and f"{m}:{short}" not in args.rows):
                     continue
                 cells = [x for g in groups for x in cell(rows.loc[g] if g in rows.index else None, g == "all")]
                 print(f"| ours, {name}{suffix} | {method if extra is None else name.split()[0] + ' ' + extra} | "
