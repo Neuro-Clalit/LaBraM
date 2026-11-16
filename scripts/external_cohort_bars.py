@@ -5,9 +5,10 @@ label-free 20 % rejection score (``--reject-score``, default ``total`` and
 ``learned``; a single model such as E2L has only ``spread``). Bars are the models in a
 fixed colour order, whiskers the 95 % subject-bootstrap interval, and the dashed
 line over each cohort its predict-the-cohort-mean MAE (the floor to beat).
-Panel (a) also marks the best published MAE per cohort (``SOTA``) as a line
-across that cohort's bars: solid for a model trained on that cohort
-(within-dataset CV), dotted for a zero-shot one. Temple / Harvard are the in-domain test split
+Every panel also shows the best published MAE per cohort (``SOTA``) as two
+hatched bars in their own colours: a model trained on that cohort
+(within-dataset CV) and a zero-shot one. The published values are on all
+recordings of their cohort, also in the rejection panels. Temple / Harvard are the in-domain test split
 (our models trained on the rest of those corpora), the others are zero-shot.
 
     python scripts/external_cohort_bars.py \\
@@ -57,7 +58,8 @@ def main():
         (f"reject 20% ({sc})", f"reject 20 % by confidence (ensembles: {sc}; E2L: spread)") for sc in args.reject_score]
     fig, axes = plt.subplots(len(panels), 1, figsize=(13, 4.75 * len(panels)), sharey=True, squeeze=False)
     axes = axes[:, 0]
-    width = 0.26
+    width = 0.165
+    pub = [("within", "published, trained on the cohort", "#eda100"), ("zero-shot", "published, zero-shot", "#e87ba4")]
     def pick(c, m, rej):
         """Row of (cohort, model) under ``rej``; a single model has only the spread rejection."""
         r = t[(t.cohort == c) & (t.model == m) & (t.rejection == rej)]
@@ -71,24 +73,25 @@ def main():
             rows = [pick(c, m, rej) for c, _ in cohorts]
             mae = np.array([r.mae for r in rows])
             err = np.array([[r.mae - r.mae_lo for r in rows], [r.mae_hi - r.mae for r in rows]])
-            xs = x + (j - 1) * width
+            xs = x + (j - 2) * width
             ax.bar(xs, mae, width - 0.03, color=color, label=label, zorder=2)
             ax.errorbar(xs, mae, yerr=err, fmt="none", ecolor=INK, elinewidth=1, capsize=2.5, zorder=3)
             for xi, v in zip(xs, mae):
-                ax.text(xi, 0.25, f"{v:.1f}", ha="center", va="bottom", fontsize=8, color="white",
+                ax.text(xi, 0.25, f"{v:.1f}", ha="center", va="bottom", fontsize=7.5, color="white",
                         fontweight="bold", zorder=4)
+        # best published MAE per cohort as two more bars (hatched: not ours, and on all recordings)
+        for j, (kind, label, color) in enumerate(pub):
+            pts = [(i, v) for i, (c, _) in enumerate(cohorts) for k, v, _src in SOTA.get(c, []) if k == kind]
+            xs = np.array([i for i, _ in pts]) + (j + 1) * width
+            vals = [v for _, v in pts]
+            ax.bar(xs, vals, width - 0.03, color=color, hatch="///", edgecolor="white", linewidth=0, label=label, zorder=2)
+            for xi, v in zip(xs, vals):
+                ax.text(xi, 0.25, f"{v:.1f}", ha="center", va="bottom", fontsize=7.5, color=INK, fontweight="bold",
+                        zorder=4, bbox=dict(facecolor="white", edgecolor="none", pad=0.6, alpha=0.85))
         for i, (c, _) in enumerate(cohorts):
             r = pick(c, MODELS[-1][0], rej)
-            ax.hlines(r.mae_predict_mean, i - 1.5 * width, i + 1.5 * width, colors=MUTED, linestyles="--",
+            ax.hlines(r.mae_predict_mean, i - 2.5 * width, i + 2.5 * width, colors=MUTED, linestyles="--",
                       lw=1.4, zorder=5, label="predict the cohort mean" if i == 0 else None)
-        if rej == "none":
-            for i, (c, _) in enumerate(cohorts):
-                for kind, v, _src in SOTA.get(c, []):
-                    ax.hlines(v, i - 1.5 * width, i + 1.5 * width, colors=INK, lw=1.8, zorder=6,
-                              linestyles="-" if kind == "within" else ":")
-                    ax.text(i + 1.5 * width + 0.03, v, f"{v:.2f}", va="center", fontsize=8, color=INK, zorder=6)
-            ax.plot([], [], color=INK, lw=1.8, ls="-", label="best published, trained on the cohort")
-            ax.plot([], [], color=INK, lw=1.8, ls=":", label="best published, zero-shot")
         n = {c: pick(c, MODELS[-1][0], rej) for c, _ in cohorts}
         unit = {"tdbrain": "sessions"}
         domain = {"temple": "in-domain", "harvard": "in-domain"}
@@ -103,8 +106,8 @@ def main():
         ax.tick_params(colors=MUTED)
     for ax in axes:
         ax.set_ylabel("MAE (years), adults ≥ 18", color=INK)
-    axes[0].set_ylim(0, 20)
-    axes[0].legend(frameon=False, fontsize=9, loc="upper right", ncol=2)
+    axes[0].set_ylim(0, 24)
+    axes[0].legend(frameon=False, fontsize=9, loc="upper right", ncol=3)
     fig.tight_layout()
     panel_labels(list(axes))
     assert_max_columns(fig)
