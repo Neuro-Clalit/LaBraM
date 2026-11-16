@@ -21,11 +21,18 @@ group ``unlabelled`` (no report). A set spec may end in ``:temple`` or
 Harvard, every TUH corpus Temple). Ages missing from the manifest are read
 from the cohort's ``age_metadata.json``.
 
-Metrics and rejection as in ``tdbrain_brain_age.py``: MAE with a 95 %
-subject-bootstrap interval, R^2 about the group's own mean, Pearson r; the
-rejection sets aside the ``--reject`` share of units with the largest
-attention-weighted spread of window predictions (ensemble: mean of its
-members' spreads), the threshold taken over all units, then split by group.
+Metrics as in ``tdbrain_brain_age.py``: MAE with a 95 % subject-bootstrap
+interval, R^2 about the group's own mean, Pearson r. The rejection sets aside
+the ``--reject`` share of units that are least certain, the threshold taken
+over all units, then split by group, once per confidence score of
+``--reject-scores`` (``scripts/rejection_scores.py``; default all three):
+
+* ``spread``  the attention-weighted spread of the window predictions (fold mean);
+* ``total``   ``sqrt(mean_k sem_k^2 + fold_sd^2)``: within-recording standard
+  error plus the disagreement of the fold models (ensembles only);
+* ``learned`` a boosted regressor of ``|error|`` fitted on each fold model's own
+  **validation** fold (``--val-windows``), rank-averaged with the fold
+  disagreement (ensembles only; no test or external ages are used).
 
     python scripts/external_cohort_table.py \\
         --set lemon:/data/datasets/EEG-public/LEMON/cohorts/lemon_v1:/data/runs/heedb/external_eval/lemon_all_models.json:/data/runs/heedb/external_eval/windows/lemon_all_models \\
@@ -40,7 +47,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from tdbrain_brain_age import file_spread, metrics  # noqa: E402
+from tdbrain_brain_age import metrics  # noqa: E402
 
 
 def group_flags(meta):
@@ -79,17 +86,17 @@ def load_meta(cdir, family=None, min_age=18.0):
     return meta
 
 
-def units(meta, pred, spread):
-    d = meta[["subject", "age", "healthy", "pathological"] + (["session", "task"] if "task" in meta else [])].join(
+def units(meta, pred, spread=None, extra=()):
+    """Scoring units: recordings, or sessions (mean of their files) when the manifest has ``task``."""
+    d = meta[["subject", "age", "healthy", "pathological", *extra] + (["session", "task"] if "task" in meta else [])].join(
         pred.rename("pred"), how="inner")
-    if spread is not None:
-        d = d.join(spread.rename("spread"), how="left")
     if "task" not in meta:
         return d.reset_index(drop=True)
     agg = {"age": "first", "healthy": "first", "pathological": "first", "pred": "mean"}
-    if spread is not None:
-        agg["spread"] = "mean"
     return d.groupby(["subject", "session"]).agg(agg).reset_index()
+
+
+REJECT_LABEL = {"spread": "spread", "total": "total", "learned": "learned_val+fold"}
 
 
 def main():
@@ -98,8 +105,15 @@ def main():
     ap.add_argument("--models", nargs="+", required=True)
     ap.add_argument("--min-age", type=float, default=18.0)
     ap.add_argument("--reject", type=float, default=0.2)
+    ap.add_argument("--reject-scores", nargs="+", default=["spread", "total", "learned"],
+                    choices=sorted(REJECT_LABEL), help="confidence scores to reject by (one set of rows each)")
+    ap.add_argument("--val-windows", action="append", default=[], metavar="MODEL=PARQUET[,PARQUET...]",
+                    help="validation-fold window parquets of MODEL's fold models (needed for 'learned')")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+    import rejection_scores as rs
+    val_models = {k: rs.fit_val_model(v.split(","), args.min_age)[0]
+                  for k, v in (e.split("=", 1) for e in args.val_windows)}
     rows = []
     for spec in args.set:
         name, cdir, ev, wdir, *family = spec.split(":")
@@ -107,11 +121,22 @@ def main():
         res = json.load(open(ev))
         for model in args.models:
             pred = pd.Series(res[model]["splits"]["test"]["predictions"], dtype=float)
-            spread = file_spread(wdir, res[model].get("members", [model]))
-            d = units(meta, pred, spread)
+            members = res[model].get("members", [model])
+            d = units(meta, pred, None)
             variants = [("none", d)]
-            if spread is not None:
-                variants.append((f"reject {args.reject:.0%}", d[d["spread"] <= d["spread"].quantile(1 - args.reject)]))
+            if all(os.path.exists(os.path.join(wdir, f"{m}_test.parquet")) for m in members):
+                sc = rs.add_cohort_scores(rs.cohort_units(meta, wdir, members, val_models.get(model)))
+                key = ["subject", "session"] if "task" in meta else ["stem"]
+                if "task" not in meta:
+                    d = units(meta.assign(stem=meta.index), pred, None, extra=["stem"])
+                    variants = [("none", d)]
+                for want in args.reject_scores:
+                    col = REJECT_LABEL[want]
+                    # fold disagreement needs an ensemble; 'learned' needs its validation fit
+                    if col not in sc or (len(members) == 1 and want != "spread"):
+                        continue
+                    v = d.merge(sc[key + [col]], on=key, how="inner")
+                    variants.append((f"reject {args.reject:.0%} ({want})", v[v[col] <= v[col].quantile(1 - args.reject)]))
             for rej, v in variants:
                 unl = ~(d.healthy | d.pathological)
                 groups = [("all", v), ("healthy", v[v.healthy]), ("pathological", v[v.pathological])]

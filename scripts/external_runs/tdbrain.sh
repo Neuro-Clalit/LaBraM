@@ -216,3 +216,26 @@ if [[ $step == compare || $step == all ]]; then
     --val-meta /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1/age_metadata.json \
     --out-dir docs/data/external_eval/tdbrain
 fi
+
+if [[ $step == tables || $step == all ]]; then
+  # Tables of docs Sections 12-16: per cohort, all / healthy / pathological, without rejection and
+  # with the three default rejection scores (spread, total, learned); score comparison; bar chart.
+  # 'learned' is fitted on validation only: each fold model's own validation fold at its best epoch
+  # (folds whose best-epoch val_bag_weights file exists).
+  R=/data/runs/heedb/mil_phased_cv; E=/data/datasets/EEG-public; C=/data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1
+  V3=$(for k in 0 1 2 3; do printf "%s," $R/P3_L1/fold_$k/cv/fold_$k/analysis/val_bag_weights_epoch16.parquet; done | sed 's/,$//')
+  V4=$R/P4_L1/fold_1/cv/fold_1/analysis/val_bag_weights_epoch13.parquet,$R/P4_L1/fold_2/cv/fold_2/analysis/val_bag_weights_epoch15.parquet,$R/P4_L1/fold_4/cv/fold_4/analysis/val_bag_weights_epoch15.parquet
+  SETS=(--set temple:$C:$OUT/own_5min_models.json:$OUT/windows/own_5min_models:temple
+        --set harvard:$C:$OUT/own_5min_models.json:$OUT/windows/own_5min_models:harvard
+        --set tdbrain:$COHORT:$OUT/tdbrain_all_models.json:$OUT/windows/tdbrain_all
+        --set lemon:$E/LEMON/cohorts/lemon_v1:$OUT/lemon_all_models.json:$OUT/windows/lemon_all_models
+        --set chbp:$E/CHBP/cohorts/chbp_v1:$OUT/chbp_all_models.json:$OUT/windows/chbp_all_models
+        --set mipdb:$E/MIPDB/cohorts/mipdb_v1:$OUT/mipdb_all_models.json:$OUT/windows/mipdb_all_models)
+  D=docs/data/external_eval/tdbrain
+  $PY scripts/external_cohort_table.py "${SETS[@]}" --val-windows P4ens=$V4 --val-windows P3ens=$V3 \
+    --models E2L P3ens P4ens --out $D/external_cohort_table.csv
+  $PY scripts/rejection_scores.py "${SETS[@]}" --val-windows P4ens=$V4 --val-windows P3ens=$V3 \
+    --models P4ens P3ens --fit-on temple harvard --out $D/rejection_scores.csv \
+    --figure docs/figures/tdbrain/rejection_curves.png
+  $PY scripts/external_cohort_bars.py --table $D/external_cohort_table.csv --out docs/figures/tdbrain/cohort_mae_bars.png
+fi
