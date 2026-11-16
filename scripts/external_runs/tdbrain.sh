@@ -238,4 +238,8 @@ if [[ $step == tables || $step == all ]]; then
     --models P4ens P3ens --fit-on temple harvard --out $D/rejection_scores.csv \
     --figure docs/figures/tdbrain/rejection_curves.png
   $PY scripts/external_cohort_bars.py --table $D/external_cohort_table.csv --out docs/figures/tdbrain/cohort_mae_bars.png
+  # age-bias corrections fitted on normal-report validation predictions; predicted-vs-true figures
+  $PY scripts/bias_correction_cohorts.py "${SETS[@]}" --models E2L P3ens P4ens \
+    --val E2L=$OUT/own_all_val_E2L.json --val-windows P4ens=$V4 --val-windows P3ens=$V3 \
+    --val-meta $C/age_metadata.json --out $D/bias_correction.csv --fig-dir docs/figures/tdbrain
 fi

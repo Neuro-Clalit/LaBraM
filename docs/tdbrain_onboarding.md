@@ -1278,3 +1278,80 @@ with the best published results per cohort. Figure 13.1 (`figures/tdbrain/cohort
 | ours, P3 ensemble | LaBraM + ABMIL, 5-fold ens. | in-domain | 5.98 [5.86, 6.12] | 0.84 / 0.91 | 5.73 | 0.84 / 0.92 | 6.52 | 0.80 / 0.89 | 5.74 | 0.85 / 0.92 |
 | ours, P3 ensemble, reject 20 % (learned) | P3 + learned reject | in-domain | 5.33 [5.20, 5.46] | 0.88 / 0.94 | 5.13 | 0.88 / 0.94 | 5.82 | 0.86 / 0.93 | 5.12 | 0.89 / 0.95 |
 | published | — | — | none known for HEEDB | — | — | — | — | — | — | — |
+
+## 19. Age-bias correction on every cohort, and predicted vs true age (2026-11-16)
+
+Every model under-predicts the old and over-predicts the young (regression toward the mean). `scripts/bias_correction_cohorts.py`
+applies the corrections of `docs/brain_age_bias_correction.md` (`labram/eval/age_analysis.py`) to all six cohorts. The correction
+is fitted on **validation recordings with a normal EEG report** of the training cohort, adults, never on the scored cohort: for E2L
+its saved validation predictions (2,881 recordings), for the ensembles each fold model's predictions on its own validation fold
+(P3: 20,030 recordings of 4 folds; P4: 15,157 of 3 folds). With prediction $\hat y$ and age $y$, OLS on the calibration set gives
+
+$$ \hat y \approx a\,y + b, \qquad y \approx c\,\hat y + d, \qquad \hat y - y \approx c_0 + c_1 y + c_2 y^2 \tag{19.1} $$
+
+and the corrected values are
+
+$$ \hat y^{\text{cole}} = \frac{\hat y - b}{a}, \qquad \hat y^{\text{recal}} = c\,\hat y + d \tag{19.2} $$
+
+$$ \hat y^{\text{lin}} = \hat y - \big((a-1)\,y + b\big), \qquad \hat y^{\text{quad}} = \hat y - \big(c_0 + c_1 y + c_2 y^2\big) \tag{19.3} $$
+
+(19.2) needs no true age: Cole inversion (Cole et al. 2018) and OLS recalibration give a new age estimate, so their MAE is an
+accuracy. (19.3) uses the true age (Beheshti et al. 2019; de Lange & Cole 2020; quadratic: Gemein et al. 2024): they give a
+corrected brain-age gap for group comparisons, and their "MAE" is the mean absolute corrected gap. Fitted lines:
+E2L $\hat y = 0.746\,y + 11.90$, P3 $0.813\,y + 8.86$, P4 $0.793\,y + 9.89$.
+
+### Table 19.1. P4 ensemble under each correction, adults (`docs/data/external_eval/tdbrain/bias_correction.csv`)
+
+MAE (y) / slope of $\hat y$ on $y$ (1 = no compression) / Pearson r of the gap with age (0 = no age bias).
+
+| correction | Temple | Harvard | TDBRAIN | LEMON | CHBP | MIPDB |
+|---|---|---|---|---|---|---|
+| none | 5.87 / 0.79 / −0.48 | 5.94 / 0.83 / −0.43 | 4.92 / 0.89 / −0.28 | 4.67 / 0.83 / −0.55 | 7.95 / 0.53 / −0.44 | 7.36 / 0.71 / −0.29 |
+| Cole inversion (19.2) | 6.74 / 1.00 / 0.00 | 7.14 / 1.04 / 0.09 | 6.61 / 1.12 / 0.23 | 6.15 / 1.05 / 0.14 | 8.99 / 0.67 / −0.26 | 6.62 / 0.90 / −0.09 |
+| recalibration (19.2) | 5.89 / 0.78 / −0.49 | 5.96 / 0.82 / −0.45 | 4.90 / 0.88 / −0.30 | 4.71 / 0.82 / −0.57 | 7.99 / 0.53 / −0.45 | 7.55 / 0.71 / −0.30 |
+| linear gap (19.3), uses age | 5.34 / 1.00 / 0.00 | 5.66 / 1.03 / 0.09 | 5.24 / 1.09 / 0.23 | 4.87 / 1.04 / 0.14 | 7.13 / 0.74 / −0.26 | 5.25 / 0.92 / −0.09 |
+| quadratic gap (19.3), uses age | 5.15 / 1.02 / 0.05 | 5.57 / 1.05 / 0.14 | 5.14 / 1.07 / 0.18 | 4.58 / 1.02 / 0.07 | 7.26 / 0.65 / −0.35 | 5.52 / 0.79 / −0.22 |
+
+### Table 19.2. Corrected gap, pathological − healthy (y), with Welch p
+
+Temple / Harvard: abnormal − normal EEG report. TDBRAIN: any indication − healthy controls.
+
+| model, correction | Temple | Harvard | TDBRAIN |
+|---|---|---|---|
+| E2L, none | −0.29 (0.8) | −0.89 (0.005) | −0.66 (0.3) |
+| E2L, Cole | +4.15 (3e-4) | +2.23 (1e-12) | +1.13 (0.1) |
+| E2L, quadratic gap | +3.22 (1e-4) | +1.80 (6e-15) | +0.59 (0.3) |
+| P3 ens., none | +0.56 (0.6) | +0.08 (0.8) | −0.27 (0.6) |
+| P3 ens., Cole | +3.76 (7e-4) | +2.41 (7e-15) | +1.03 (0.2) |
+| P3 ens., quadratic gap | +3.24 (2e-4) | +2.18 (2e-18) | +0.43 (0.5) |
+| P4 ens., none | −0.05 (1) | −0.09 (0.7) | −0.37 (0.5) |
+| P4 ens., Cole | +3.41 (0.002) | +2.50 (6e-16) | +1.08 (0.1) |
+| P4 ens., quadratic gap | +2.89 (7e-4) | +2.20 (7e-20) | +0.43 (0.4) |
+
+### Figure 19.1. Predicted vs true age per cohort, by model
+
+![pred vs age, models](figures/tdbrain/pred_vs_age_models.png)
+
+Mean predicted age per 5-year bin of true age (bins with at least 10 units) for E2L, the P3 and the P4 ensemble; the band is ±1 SD
+of the P4 ensemble's predictions; dotted: identity. Points are drawn only for the open cohorts (LEMON, CHBP, MIPDB).
+
+### Figure 19.2. Predicted vs true age per cohort, P4 ensemble under each correction
+
+![pred vs age, corrections](figures/tdbrain/pred_vs_age_corrections.png)
+
+Same bins. Solid: corrections that need no true age; dashed: corrections that use it. The legend gives the MAE (solid) or the mean
+absolute corrected gap (dashed).
+
+**What Tables 19.1–19.2 and Figures 19.1–19.2 show:**
+- **The ensembles compress less than E2L.** In-domain slopes are 0.79–0.84 against 0.70–0.72, and the gap–age correlation is
+  −0.38 to −0.48 against −0.59 to −0.65 (Figure 19.1(a, b): E2L bends away from the identity at both ends).
+- **The validation-fitted correction transfers.** After Cole inversion or the linear gap correction the slope is 1.00–1.05
+  in-domain and on LEMON, and 1.09–1.12 on TDBRAIN (slightly over-corrected, because TDBRAIN is less compressed to begin with:
+  raw slope 0.89). On CHBP and MIPDB the residual trend remains (slope 0.67–0.92): their error is a shift, not the training
+  cohort's regression to the mean.
+- **Removing the bias without the true age costs accuracy.** Cole inversion raises the MAE by 0.9–1.7 y on every cohort but
+  MIPDB, because it scales the prediction noise by $1/a$. Recalibration changes nothing (≤ 0.05 y): the models are already calibrated
+  in the least-squares sense. For a deployable age estimate the raw prediction is the best; the corrections serve gap analysis.
+- **The corrected gap separates abnormal from normal EEG, not psychiatric indication from healthy.** Raw, the difference is ≈ 0
+  (the age confound). After correction, abnormal-report recordings look 2.2–4.2 y older in Temple and Harvard (p ≤ 0.002 for every
+  model). In TDBRAIN the corrected difference is +0.4 to +1.1 y and not significant (p ≥ 0.1), in line with Sections 9.2 and 11.
