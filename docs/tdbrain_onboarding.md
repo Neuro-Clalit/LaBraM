@@ -852,3 +852,105 @@ adults).
   except E2L on Temple normal (4.91 → 4.88, no change).
 - **Against the published TUAB result**, normal-report Temple MAE is 4.52 (P4) against 6.60
   (Gemein 2024), and abnormal 7.50 against 12.85.
+
+## 15. Which confidence score to reject by? Attention-based scores compared (2026-11-16)
+
+Sections 12–14 reject by the attention-weighted spread of the window predictions. This section
+compares it with other label-free scores computed from the saved windows of the P3 / P4 fold models
+(`scripts/rejection_scores.py`; numbers in `docs/data/external_eval/tdbrain/rejection_scores.csv`).
+For fold model $k$ and a recording with windows $i = 1..n$, window prediction $p_i$ and attention
+weight $a_i$ ($\sum_i a_i = 1$), with $\hat y = \sum_i a_i p_i$:
+
+$$ \text{spread} = \sqrt{\textstyle\sum_i a_i (p_i - \hat y)^2} \tag{15.1} $$
+
+$$ \text{sem} = \text{spread}\cdot\sqrt{\textstyle\sum_i a_i^2} \tag{15.2} $$
+
+$$ \text{neff} = \frac{1}{n \sum_i a_i^2},\qquad \text{entropy} = \frac{-\sum_i a_i \log a_i}{\log n},\qquad \text{amax} = n \max_i a_i \tag{15.3} $$
+
+$$ \text{shift} = \Big\lvert \hat y - \tfrac{1}{n}\textstyle\sum_i p_i \Big\rvert \tag{15.4} $$
+
+$$ \text{fold\_sd} = \operatorname{sd}_k\big(\hat y_k\big),\qquad \text{total} = \sqrt{\operatorname{mean}_k \text{sem}_k^2 + \text{fold\_sd}^2} \tag{15.5} $$
+
+(15.1) is the rule used so far and `spread_unw` is the same with uniform weights. (15.2) is the SD
+of the pooled prediction if windows were independent. (15.3) are **attention-shape** scores that
+ignore the predictions: the effective share of windows used, the entropy of the weights and the
+largest relative weight. (15.4) is how far attention moves the answer away from the plain mean.
+(15.5) are ensemble scores: the disagreement of the five fold models, and its combination with the
+within-recording uncertainty. Scores (15.1)–(15.4) are averaged over the folds. Also compared:
+`pred_age` (reject the oldest predictions, the age confound to beat), `X|age` (score X ranked within
+deciles of the predicted age, i.e. what X knows beyond the predicted age) and `learned` (a
+gradient-boosted regressor of |error| on all scores, fitted on Temple + Harvard, cross-fitted there
+by subject and applied unchanged to the external cohorts). The uncertain direction of each score is
+fixed on Temple + Harvard. On TDBRAIN the unit is the session (mean over its two files).
+
+### Table 15.1. P4 ensemble, MAE (y) of the 80 % kept, adults
+
+| score | Harvard (7,338) | Temple (272) | TDBRAIN (1,113) | LEMON (214) | CHBP (250) | MIPDB (31) |
+|---|---|---|---|---|---|---|
+| no rejection | 5.94 | 5.87 | 4.92 | 4.67 | 7.95 | 7.36 |
+| spread (15.1), used so far | 5.56 | 5.72 | 4.54 | **3.79** | 7.84 | 7.38 |
+| spread, unweighted | 6.02 | 5.59 | 4.58 | 3.90 | 7.88 | 7.64 |
+| sem (15.2) | 5.56 | 5.61 | **4.53** | **3.79** | 7.79 | 6.86 |
+| neff (15.3), low = unsure | 5.76 | 5.46 | 4.66 | 4.74 | 8.32 | 7.16 |
+| entropy (15.3), low = unsure | 5.70 | 5.47 | 4.69 | 4.73 | 8.21 | 7.16 |
+| amax (15.3) | 5.61 | 5.54 | 4.61 | 4.47 | 8.53 | 6.73 |
+| shift (15.4) | 6.08 | 5.30 | 4.60 | 4.71 | 7.97 | 7.16 |
+| fold_sd (15.5) | 5.36 | 5.10 | 4.55 | 3.84 | 7.07 | **6.35** |
+| **total (15.5)** | **5.32** | **5.05** | **4.53** | 3.80 | 7.03 | **6.35** |
+| learned (fitted in-domain) | **5.20** | **5.05** | 4.57 | 4.01 | 6.83 | 6.65 |
+| pred_age (reject the oldest predictions) | 5.97 | 5.52 | 4.74 | 4.76 | **6.10** | 6.51 |
+| spread \| age | 5.67 | 5.62 | 4.61 | 4.51 | 8.21 | 7.60 |
+| total \| age | 5.49 | 5.36 | 4.61 | 4.66 | 7.94 | 7.29 |
+| oracle (reject the largest true errors) | 3.83 | 3.78 | 3.25 | 2.92 | 5.06 | 5.04 |
+
+### Table 15.2. P4 ensemble, kept-80 % MAE minus that of `spread`, with a 95 % bootstrap interval
+
+500 paired resamples of the units; the rejection threshold is re-set in each. Negative = better than `spread`.
+
+| score | Harvard | Temple | TDBRAIN | LEMON | CHBP | MIPDB |
+|---|---|---|---|---|---|---|
+| total | **−0.25 [−0.32, −0.18]** | **−0.67 [−0.97, −0.24]** | −0.01 [−0.12, 0.09] | 0.01 [−0.31, 0.32] | **−0.81 [−1.29, −0.24]** | −1.03 [−2.33, 0.24] |
+| fold_sd | **−0.20 [−0.29, −0.13]** | **−0.62 [−0.97, −0.14]** | 0.01 [−0.13, 0.14] | 0.05 [−0.24, 0.47] | **−0.77 [−1.29, −0.24]** | −1.03 [−2.33, 0.24] |
+| learned | **−0.37 [−0.45, −0.28]** | **−0.67 [−0.93, −0.17]** | 0.03 [−0.08, 0.14] | 0.23 [−0.11, 0.60] | **−1.01 [−1.51, −0.37]** | −0.73 [−2.23, 0.45] |
+| neff | +0.20 [0.07, 0.27] | −0.26 [−0.61, 0.24] | +0.12 [0.01, 0.27] | +0.96 [0.49, 1.32] | +0.48 [0.03, 0.87] | −0.21 [−1.10, 1.08] |
+| amax | 0.04 [−0.03, 0.11] | −0.18 [−0.52, 0.31] | 0.07 [−0.06, 0.20] | +0.68 [0.29, 1.07] | +0.69 [0.23, 1.13] | −0.65 [−1.50, 0.51] |
+
+### Figure 15.1. Risk–coverage curves, P4 ensemble
+
+![risk-coverage](figures/tdbrain/rejection_curves.png)
+
+MAE of the kept units against the share kept (100 % → 50 %), per cohort (a)–(f). Solid: spread,
+fold_sd, total, learned, neff. Dashed: pred_age. Dotted: no information (flat) and the oracle.
+
+**What Tables 15.1–15.2 and Figure 15.1 show:**
+- **The attention weights alone are a weak confidence signal.** neff, entropy and amax (15.3)
+  correlate with |error| at |ρ| ≤ 0.23 and are significantly worse than `spread` on Harvard, TDBRAIN,
+  LEMON and CHBP. Their direction is as expected in-domain (attention concentrated on few windows →
+  larger error), but it flips on CHBP (ρ +0.16 for neff), so they are not safe under shift. `shift`
+  (15.4) is no better.
+- **Attention does help as a weight on the spread.** On Harvard the unweighted spread is useless
+  (6.02, worse than no rejection; ρ 0.03), while the attention-weighted one works (5.56; ρ 0.21):
+  attention down-weights the windows whose outlying predictions say nothing about the recording.
+  On the short, clean external recordings the two are equal.
+- **The disagreement between the fold models is the stronger signal.** `fold_sd` is as good as
+  `spread` where `spread` works (TDBRAIN, LEMON) and significantly better in-domain (−0.20 /
+  −0.62 y) and on CHBP (−0.77 y), where the error is a recording-level shift that the
+  within-recording spread cannot see.
+- **`total` (15.5) is the best label-free rule overall**: best or within 0.01 y of the best
+  non-learned score on five of six cohorts, never significantly worse than `spread`, and significantly
+  better on Harvard, Temple and CHBP. The P3 ensemble gives the same ranking (CSV).
+- **The learned score wins in-domain only** (Harvard 5.20, cross-fitted) and transfers no better
+  than `total` (TDBRAIN 4.57 vs 4.53, LEMON 4.01 vs 3.80). It is not worth its extra fitting step.
+- **Part of every score is age.** Ranked within predicted-age deciles, `total` keeps about 70 % of
+  its gain on Harvard and Temple and 80 % on TDBRAIN, but nothing on LEMON, CHBP or MIPDB. On
+  LEMON (two age clusters) the gain is rejecting the old cluster; on CHBP the best "confidence"
+  is the predicted age itself (6.10), because CHBP's error is an over-prediction. The CHBP / MIPDB
+  rejection gains are therefore not evidence of calibrated confidence.
+- **All scores are far from the oracle** (3.25–3.83 on the large cohorts): at 80 % coverage the best
+  rule recovers 20–30 % of the possible gain.
+
+**Recommendation:** replace `spread` by `total` (15.5) as the ensembles' rejection score. It needs
+no fitting and only the fold predictions and windows already saved. The tables of Sections 12–14 still use
+`spread`; with `total`, the P4-ensemble rows would read Harvard 5.32, Temple 5.05, TDBRAIN 4.53,
+LEMON 3.80, CHBP 7.03, MIPDB 6.35 (instead of 5.56, 5.69, 4.54, 3.79, 7.84, 7.38). A single
+model such as E2L has no fold disagreement, so it keeps `spread` / `sem`.
