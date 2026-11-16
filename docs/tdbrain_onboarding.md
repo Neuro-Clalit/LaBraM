@@ -915,6 +915,37 @@ fixed on Temple + Harvard. On TDBRAIN the unit is the session (mean over its two
 | neff | +0.20 [0.07, 0.27] | −0.26 [−0.61, 0.24] | +0.12 [0.01, 0.27] | +0.96 [0.49, 1.32] | +0.48 [0.03, 0.87] | −0.21 [−1.10, 1.08] |
 | amax | 0.04 [−0.03, 0.11] | −0.18 [−0.52, 0.31] | 0.07 [−0.06, 0.20] | +0.68 [0.29, 1.07] | +0.69 [0.23, 1.13] | −0.65 [−1.50, 0.51] |
 
+### Table 15.3. P4 ensemble, MAE (y) of the 80 % kept, split by cohort (`rejection_scores_by_group.csv`)
+
+The 20 % threshold is set over the whole dataset, then the kept recordings are split. Harvard /
+Temple: normal / abnormal / no EEG report; TDBRAIN: healthy / any indication. LEMON and CHBP are all
+healthy; MIPDB has one adult with a diagnosis. The last two rows give the share of each cohort kept.
+
+| | Harvard, all | Harvard, normal | Harvard, abnormal | Harvard, unlabelled | Temple, all | Temple, normal | Temple, abnormal | TDBRAIN, all | TDBRAIN, healthy | TDBRAIN, pathological | LEMON | CHBP | MIPDB |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **n (recordings; TDBRAIN: sessions)** | 7,338 | 1,518 | 2,253 | 3,567 | 272 | 149 | 123 | 1,113 | 179 | 934 | 214 | 250 | 31 |
+| **mean age (y)** | 54.1 | 48.8 | 58.8 | 53.3 | 50.7 | 44.6 | 58.0 | 45.2 | 40.3 | 46.2 | 39.2 | 31.7 | 27.5 |
+| no rejection | 5.94 | 5.69 | 6.49 | 5.70 | 5.87 | 4.52 | 7.50 | 4.92 | 4.96 | 4.92 | 4.67 | 7.95 | 7.36 |
+| spread (15.1), used so far | 5.56 | 5.27 | 6.09 | 5.36 | 5.72 | 4.62 | 7.31 | 4.54 | 4.32 | **4.58** | **3.79** | 7.84 | 7.38 |
+| spread, unweighted | 6.02 | 5.98 | 6.57 | 5.70 | 5.59 | 4.56 | 7.07 | 4.58 | 4.34 | 4.62 | 3.90 | 7.88 | 7.64 |
+| neff (15.3) | 5.76 | 5.61 | 6.32 | 5.51 | 5.46 | 4.56 | 6.90 | 4.66 | 4.50 | 4.69 | 4.74 | 8.32 | 7.16 |
+| entropy (15.3) | 5.70 | 5.29 | 6.25 | 5.54 | 5.47 | 4.58 | 6.92 | 4.69 | 4.47 | 4.72 | 4.73 | 8.21 | 7.16 |
+| amax (15.3) | 5.61 | 5.27 | 6.18 | 5.41 | 5.54 | 4.52 | 7.20 | 4.61 | 4.44 | 4.64 | 4.47 | 8.53 | 6.73 |
+| fold_sd (15.5) | 5.36 | 5.28 | 5.81 | 5.15 | 5.10 | 4.42 | 6.35 | 4.55 | 4.39 | **4.58** | 3.84 | 7.07 | **6.35** |
+| **total (15.5)** | 5.32 | 5.23 | 5.75 | **5.11** | **5.05** | 4.40 | 6.24 | **4.53** | **4.24** | **4.58** | 3.80 | 7.03 | **6.35** |
+| learned (fitted in-domain) | **5.20** | **4.90** | **5.60** | **5.11** | **5.05** | **4.38** | **6.23** | 4.57 | 4.33 | 4.61 | 4.01 | 6.83 | 6.65 |
+| pred_age | 5.97 | 5.70 | 6.75 | 5.66 | 5.52 | 4.47 | 7.32 | 4.74 | 4.80 | 4.73 | 4.76 | **6.10** | 6.51 |
+| oracle | 3.83 | 3.72 | 4.01 | 3.78 | 3.78 | 3.56 | 4.14 | 3.25 | 3.35 | 3.24 | 2.92 | 5.06 | 5.04 |
+| share kept, spread | 80 % | 78 % | 80 % | 81 % | 80 % | 87 % | 72 % | 80 % | 80 % | 80 % | 80 % | 80 % | 81 % |
+| share kept, total | 80 % | 88 % | 74 % | 81 % | 80 % | 95 % | 63 % | 80 % | 77 % | 81 % | 80 % | 80 % | 81 % |
+
+**What Table 15.3 shows:** `total`'s in-domain advantage over `spread` is largest on the
+abnormal-report recordings (Harvard 5.75 vs 6.09, Temple 6.24 vs 7.31). It also rejects them more
+often: it keeps 74 % of Harvard's and 63 % of Temple's abnormal recordings against 88 % and 95 % of the
+normal ones, where `spread` keeps the groups about evenly. The fold models disagree most on
+pathological EEG. On TDBRAIN, where the "pathology" is a psychiatric indication, both scores keep
+healthy and pathological sessions equally (77–81 %) and give the same MAE.
+
 ### Figure 15.1. Risk–coverage curves, P4 ensemble
 
 ![risk-coverage](figures/tdbrain/rejection_curves.png)

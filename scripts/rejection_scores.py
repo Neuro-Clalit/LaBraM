@@ -45,6 +45,10 @@ with ``random`` (no information: the MAE of all units at every coverage) and
 ``oracle`` (reject by true ``|error|``). ``d_vs_spread`` is the kept-80 % MAE
 minus that of ``spread`` with a 95 % interval from 500 bootstrap resamples of
 the units (the rejection threshold is re-set in every resample).
+``<out>_by_group.csv`` splits the kept 80 % (threshold over the whole cohort)
+by report / clinical group: healthy (normal report), pathological (abnormal
+report or a clinical indication) and unlabelled, with each group's size and
+mean age before rejection and the share of it that is kept.
 
     python scripts/rejection_scores.py --models P4ens P3ens \\
         --set harvard:<cohort>:<eval.json>:<windows>:harvard ... \\
@@ -109,10 +113,12 @@ def cohort_units(meta, wdir, members):
     d["pred"] = stack["yhat"].mean(axis=0)
     d["fold_sd"] = stack["yhat"].std(axis=0)
     d["sem2"] = (stack["sem"] ** 2).mean(axis=0)
-    cols = ["subject", "age"] + (["session"] if "task" in meta else [])
+    cols = ["subject", "age", "healthy", "pathological"] + (["session"] if "task" in meta else [])
     d = meta[cols].join(d, how="inner")
     if "task" in meta:                                   # session = mean over its files
         d = d.groupby(["subject", "session"]).mean(numeric_only=True).reset_index()
+    for flag in ("healthy", "pathological"):
+        d[flag] = d[flag].astype(float) > 0.5
     d["pred_age"] = d["pred"]
     d["total"] = np.sqrt(d["sem2"] + d["fold_sd"] ** 2)
     d["abs_err"] = (d["pred"] - d["age"]).abs()
@@ -147,7 +153,7 @@ def main():
     ap.add_argument("--figure", default=None)
     args = ap.parse_args()
     from sklearn.ensemble import HistGradientBoostingRegressor
-    rows, curves = [], {}
+    rows, curves, grows = [], {}, []
     for model in args.models:
         data = {}
         for spec in args.set:
@@ -188,6 +194,17 @@ def main():
                     mae, kept_age = risk_coverage(signed[s], e, age)
                     rho = np.nan if s in specials else stats.spearmanr(d[s], e)[0]
                     ci = np.percentile(np.array(boot[s]) - np.array(boot["spread"]), [2.5, 97.5])
+                keep = np.ones(len(e), bool)
+                if s != "random":
+                    keep = np.zeros(len(e), bool)
+                    keep[np.argsort(signed[s], kind="stable")[:k80]] = True
+                h, pa = d["healthy"].to_numpy(), d["pathological"].to_numpy()
+                for g, mask in (("all", np.ones(len(e), bool)), ("healthy", h), ("pathological", pa),
+                                ("unlabelled", ~(h | pa))):
+                    if mask.sum() >= 10:
+                        grows.append({"model": model, "cohort": c, "group": g, "score": s, "n": int(mask.sum()),
+                                      "age_mean": age[mask].mean(), "mae_all": e[mask].mean(),
+                                      "mae_keep80": e[mask & keep].mean(), "kept_share": keep[mask].mean()})
                 rows.append({"model": model, "cohort": c, "score": s, "n": len(d),
                              "uncertain_when": "" if s in specials else ("high" if sign[s] > 0 else "low"),
                              "spearman_abs_err": rho, "mae_all": e.mean(),
@@ -198,6 +215,7 @@ def main():
     df = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     df.to_csv(args.out, index=False)
+    pd.DataFrame(grows).to_csv(os.path.splitext(args.out)[0] + "_by_group.csv", index=False)
     for model in args.models:
         t = df[df.model == model]
         with pd.option_context("display.width", 250, "display.max_rows", 500):
