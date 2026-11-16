@@ -1368,7 +1368,8 @@ planned work), with every formula numbered and every reference checked against P
 - `brain_age_tech_report.md`: the same text with numbered citations and a reference list, generated;
 - `brain_age_tech_report.pdf`: generated from the Markdown by `scripts/md_to_pdf.py`.
 
-`scripts/build_tech_report.py` regenerates the three outputs. The PDF is typeset without TeX (this machine has none: the
+`scripts/build_tech_report.py` regenerates the three outputs. Since Sections 21–23 the report also holds the window-level
+figures, the per-pathology table and figure (its Eqs. (15)–(17), Table 7, Figures 3, 5, 6) and the candidate cohorts. The PDF is typeset without TeX (this machine has none: the
 root disk is too full to install it), so its layout differs from what `pdflatex` + `bibtex` will give on the `.tex`; the
 `.tex` has been checked for balanced environments but not compiled.
 
@@ -1565,3 +1566,56 @@ Old-age compression of the predictions limits how much older an old patient can 
 codes anywhere in the patient's record, not the reason for this EEG, and the groups overlap (a recording with a
 diagnosis is in 2.9 groups on average), so the rows are not independent effects. (3) The models were trained on these
 patients' hospitals with age as the only target; nothing here is a diagnostic claim.
+
+## 23. Datasets not used yet: candidates for testing and training (survey of 2026-11-16)
+
+A web survey of public scalp-EEG datasets with a per-subject age that the project has not used (used so far: TUH, HEEDB,
+LEMON, CHBP, MIPDB, TDBRAIN; HBN is paediatric and excluded; MNCS / HarMNqEEG holds cross-spectra only). Requirements:
+raw continuous resting or routine EEG, the 19 channels of the 10-20 system, at least about 128 Hz, at least 1–2 minutes
+of rest, adults. Nothing was downloaded. OpenNeuro facts were read from the dataset's README, `participants.tsv` and one
+sidecar; "(u)" marks a fact that could not be read on a primary source. None of this has been checked against the
+signals yet: the recording-chain audit of the `onboard-eeg-dataset` skill comes first for any of them.
+
+### Table 23.1. Main candidates
+
+| dataset (host) | subjects with raw EEG | age | health and labels | recording | access | main risk |
+|---|---|---|---|---|---|---|
+| Dortmund Vital Study (OpenNeuro ds005385) | 608; 208 with a follow-up after about 5 years | 20–70, mean 44.1, exact years | healthy | 64 channels, reference FCz, 1000 Hz, DC–250 Hz; 3 min eyes closed + 3 min eyes open, before and after a 2 h task block | open, CC0, 79.5 GB | 3-minute runs (no trims, as TDBRAIN); README warns that the EDF physical range may be invalid; post-task runs are another state |
+| NMT Scalp EEG (Zenodo 10.5281/zenodo.21629135) | 2,417 recordings of unique patients | under 1 to 90, mean 24.6, exact | routine clinical EEG, Pakistan; 2,002 normal / 415 abnormal; no diagnoses | 19 channels + A1/A2, released average-referenced, 200 Hz, filters not stated; about 15 min | open, CC BY 4.0, 13.4 GB | young, with children (adult count not stated); already re-referenced; low-cost amplifier |
+| NMT-4K-EEG (Zenodo concept 20757250) | 4,500 recordings of 4,500 subjects, two hospitals | age per recording, range not stated | 3,336 normal / 1,164 abnormal; reports and event annotations | 19 channels, 200 Hz, 12-bit | latest version behind a data usage agreement (an earlier version was open CC BY) | agreement; share of children unknown; overlap with NMT not stated |
+| CAUEEG (github.com/ipis-mjkim/caueeg-dataset) | 1,388 EDF files; 1,155 patients (u) | age per recording; class means about 65 / 74 / 77 (u) | normal / mild cognitive impairment / dementia with subtypes | 19 channels, average-reference labels, 200 Hz (u); routine EEG with photic | request form, local ethics approval, academic use only | access delay and usage limits; mostly impaired patients |
+| TUM chronic pain (OSF qgfma) | 266: 151 chronic pain, 115 healthy | exact years; distribution not read | pain subtypes against healthy | 64 channels, reference FCz, 1000 Hz, 0.016–250 Hz; 5 min eyes closed, most also eyes open | licence and size not verified | licence; patients on analgesics |
+| SRM resting state (OpenNeuro ds003775) | 111 | 17–71, mean 37.6, exact | healthy | 64 channels (BioSemi), released average-referenced, 1024 Hz; 4 min eyes closed | open, CC0, 4.8 GB | small; 4 minutes; already re-referenced |
+| AHEPA (OpenNeuro ds004504) | 88: 36 Alzheimer's, 23 frontotemporal dementia, 29 healthy | 44–79, mean 66.2 | diagnosis + MMSE | 19 channels, 500 Hz, 70 Hz high cut; reference stated as Cz in the README and A1/A2 in the sidecar | open, CC0, 2.8 GB | narrow old age range; 29 controls; reference unclear |
+| Iowa Parkinson's rest (OpenNeuro ds004584) | 149: 100 Parkinson's, 49 controls | 48–86, mean 69.3 | diagnosis, MoCA, UPDRS | 63 channels, reference Pz (so Pz is not recorded), 500 Hz; eyes open, 2–5 min | open, CC0, 3.1 GB | Pz missing; eyes open only; old age only |
+| Tel Aviv Parkinson's (OpenNeuro ds007526) | 144: 116 Parkinson's, 28 controls | 39–84, mean 65.1 | diagnosis, UPDRS, MoCA | 64 channels (EGI), vertex reference, 250 Hz; eyes open, about 4 min | open, CC0, 4.6 GB | Cz is the reference; 28 controls |
+
+Checked and set aside:
+
+- **BrainLat** (Synapse): 780 participants, but only about 157 with EEG; 128-channel radial BioSemi layout without 10-20
+  names, and the shared EEG appears already filtered to 0.5–40 Hz and average-referenced.
+- **PEARL-Neuro** (ds004796): 79 with EEG, ages 50–63 only.
+- **Sapien Labs** (ds007358, 2,000 subjects): 128 Hz consumer headset, frontal channels, age bins only. Unusable.
+- **Small young-adult sets** (ds005305, ds003478, ds004902, ds004148, ds007987): 43–165 subjects each, ages 17–36,
+  so little age signal; useful only pooled, for hardware diversity.
+- **Several Parkinson's sets without an age column** (ds008768, ds008875, ds007020) and other sets without ages.
+- **Controlled access** (weeks to months): EMBARC (NIMH Data Archive, 327 with EEG), CAN-BIND, LIFE-Adult (u), MODMA (u).
+- **Sleep PSG** (NSRR, BDSP sleep data, Sleep-EDF): out of scope for a routine-EEG model.
+
+Recommendation:
+
+- **Next external test cohort: Dortmund Vital Study.** It is the only large, open, healthy cohort with exact ages spread
+  evenly over 20–70 years, it has a research-grade recording chain with a wide band (unlike CHBP), and its 5-year
+  follow-up of 208 people allows a test no current cohort allows: does the predicted age advance by 5 years in the same
+  person? It should stay a test set.
+- **Second: NMT (2,417)**, the only open routine clinical EEG outside the USA with normal / abnormal labels, as a test
+  of Table 22.1 (abnormal reports look older) on another population. Its adults have to be counted first.
+- **Disease-specific gap checks at old age:** AHEPA (dementia) and the two Parkinson's sets, to confirm rows of
+  Table 22.2 with clinical diagnoses instead of record codes. Their control groups are small (28–49).
+- **Training data:** nothing found comes near the 100,000 recordings already used. NMT-4K-EEG (4,500 subjects) and
+  CAUEEG (about 1,150 patients) would add other populations and devices, both behind agreements. NMT and NMT-4K must
+  not be split between testing and training before their subject overlap is known.
+
+One published brain-age result was found on these candidates: on the Dortmund data an MAE of 2.24 years with spectral
+features and 10-fold cross-validation is reported (Alzheimer's & Dementia 2025; read as an abstract only, and it does not
+say whether the folds are split by subject).

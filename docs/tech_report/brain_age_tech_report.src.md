@@ -354,5 +354,6 @@ Three cautions for these comparisons. The published studies use other subsets, a
 - A dedicated abnormal / pathology head trained with the age head, to separate "older-looking" from "abnormal"; Table 7 says that the abnormal EEG, not the diagnosis, carries the gap.
 - Robust pooling of the window predictions (median or trimming by the deviation of Eq. (16)), since attention adds nothing on TDBRAIN and CHBP.
 - Add the TDBRAIN replication subjects and a paediatric cohort, to extend the test to the blinded diagnoses and to children.
+- Further external cohorts, from a survey of public data not used so far: the Dortmund Vital Study (OpenNeuro ds005385; 608 healthy adults of 20 to 70 years with exact ages, 208 of them recorded again after about 5 years, which allows a within-person test of the predicted ageing), the NMT routine clinical EEG from Pakistan (2,417 recordings with normal / abnormal labels), and small open cohorts with clinical dementia and Parkinson's diagnoses to check Table 7. None of them has been audited or scored yet.
 - Verify the pre-training corpus of the LaBraM checkpoint against all test cohorts.
 - Study the brain-age gap against clinical covariates in Harvard (diagnosis codes, medication), with the bias corrections of Section 4.6.
