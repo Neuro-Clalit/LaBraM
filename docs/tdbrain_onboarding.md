@@ -1048,3 +1048,31 @@ Bold: the best of the three options per ensemble. The "reject 20 %" rows of Sect
 the **spread** option. Figure 13.1(b) now shows `total` for the ensembles and `spread` for E2L. Small
 differences from Table 15.3 (≤ 0.08 y, Temple) come from this table using the stored ensemble
 predictions and a quantile threshold instead of the window-recomputed ones and a top-k cut.
+
+### 16.1. Audit: do test ages enter the learned rejection? (2026-11-16)
+
+Checked on the data (P3 and P4 ensembles):
+
+| check | result |
+|---|---|
+| recordings used to fit `learned_val` that are in the `tuh_heedb_v1` test split | 0 of 57,380 (P4) / 76,371 (P3); all are in the train + val pool |
+| subjects shared between those recordings and the test split | 0 (and 0 between the official train + val and test splits) |
+| external-cohort recordings among them | 0 |
+| the test window files hold exactly the official test split | yes (7,612) |
+| CV configuration of the fold runs | `pool: train_val`, `test_set: held_out` |
+| scores and kept 80 % after replacing the scored cohort's ages by permuted, shifted ones (Harvard, Temple, TDBRAIN; spread, total, learned) | identical in every case |
+
+The last check is also a unit test (`tests/test_rejection_scores.py`). So no test or external age
+enters the fold models, the learned regressor, the scores or the rejection decisions. Test ages are
+used only (a) to define the evaluated population (adults ≥ 18; TDBRAIN sessions with their own
+participants row) and (b) to compute the reported MAE / R² / r.
+
+Three things do rest on test results, and should be stated when these numbers are reported:
+- **The choice of the three default scores** (and of adding fold disagreement to the learned score,
+  Eq. (16.2)) was made after comparing nine scores on these same test cohorts (Section 15). No
+  parameter was fitted there, but picking the best of several rules on the test data is a mild selection bias.
+- **The 20 % threshold is the cohort's own score quantile**, so the rule needs the unlabelled test
+  cohort as a batch (no ages). `confidence_thresholds.py` fits fixed thresholds on validation instead.
+- **`rejection_scores.py` (Section 15 tables) sets each score's direction from Temple + Harvard test
+  errors.** This matters only for the attention-shape scores (neff, entropy). For spread, total and
+  learned, the direction is fixed in code ("high = uncertain") in `external_cohort_table.py`, with no labels.
