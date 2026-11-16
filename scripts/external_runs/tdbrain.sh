@@ -242,6 +242,13 @@ if [[ $step == tables || $step == all ]]; then
   $PY scripts/bias_correction_cohorts.py "${SETS[@]}" --models E2L P3ens P4ens \
     --val E2L=$OUT/own_all_val_E2L.json --val-windows P4ens=$V4 --val-windows P3ens=$V3 \
     --val-meta $C/age_metadata.json --out $D/bias_correction.csv --fig-dir docs/figures/tdbrain
+  # window-level confidence (attention weight, deviation, fold disagreement) against window error
+  $PY scripts/window_confidence_figures.py "${SETS[@]}" --model P4ens --out $D/window_confidence.csv \
+    --fig-dir docs/figures/tdbrain
+  $PY scripts/window_confidence_figures.py "${SETS[@]}" --model P3ens --out $D/window_confidence_P3ens.csv
+  # brain age per pathology group and report status (Temple + Harvard): test split and out-of-fold
+  $PY scripts/pathology_brain_age.py --cohort $C --test-eval $OUT/own_5min_models.json --models E2L P3ens P4ens \
+    --oof P3=$V3 --oof P4=$V4 --out $D/pathology_brain_age.csv --figure docs/figures/tdbrain/pathology_gap.png
   # technical report: one-panel bar chart, then LaTeX + Markdown + PDF from the one source
   $PY scripts/external_cohort_bars.py --table $D/external_cohort_table.csv --reject-score \
     --out docs/tech_report/fig_cohort_mae.png

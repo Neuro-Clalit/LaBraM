@@ -1371,3 +1371,197 @@ planned work), with every formula numbered and every reference checked against P
 `scripts/build_tech_report.py` regenerates the three outputs. The PDF is typeset without TeX (this machine has none: the
 root disk is too full to install it), so its layout differs from what `pdflatex` + `bibtex` will give on the `.tex`; the
 `.tex` has been checked for balanced environments but not compiled.
+
+## 21. Window-level confidence against window error (2026-11-16)
+
+Sections 15–17 score a whole recording. `scripts/window_confidence_figures.py` asks the question one level down: inside
+a recording, do the attention weight and the spread tell which **windows** are wrong? For recording $r$ with $n$ scored
+windows and the fold models $k = 1..5$ of the P4 ensemble (window prediction $p_{ik}$, attention weight $\alpha_{ik}$ with
+$\sum_i \alpha_{ik} = 1$):
+
+$$ p_i = \frac{1}{5}\sum_k p_{ik}, \qquad e_i = \lvert p_i - y_r \rvert, \qquad w_i = \frac{n}{5}\sum_k \alpha_{ik} \tag{21.1} $$
+
+$$ \hat y_r = \frac{1}{5}\sum_k \sum_i \alpha_{ik}\,p_{ik}, \qquad d_i = \lvert p_i - \hat y_r \rvert, \qquad s_i = \operatorname{sd}_k(p_{ik}) \tag{21.2} $$
+
+$e_i$ is the window error (the only place the age $y_r$ is used), $w_i$ the relative attention weight (1 = the uniform
+weight), $d_i$ the window's deviation from the recording's answer (its share of the `spread` score) and $s_i$ the
+disagreement of the fold models on the window. Adults; Temple and Harvard are the test split (first 5 minutes), the
+external cohorts every window; TDBRAIN recordings are its 2-minute files (2,222), not sessions.
+
+### Table 21.1. Window-level statistics, P4 ensemble (`docs/data/external_eval/tdbrain/window_confidence.csv`)
+
+"within" = Spearman $\rho$ computed inside each recording, then the median over recordings (share of recordings with
+$\rho < 0$ in brackets).
+
+| | Temple | Harvard | TDBRAIN | LEMON | CHBP | MIPDB |
+|---|---|---|---|---|---|---|
+| windows / recordings | 8,160 / 272 | 220,091 / 7,338 | 26,291 / 2,222 | 19,770 / 214 | 24,803 / 250 | 914 / 31 |
+| window MAE (y) | 7.13 | 8.15 | 6.38 | 6.02 | 8.80 | 9.69 |
+| recording MAE, attention pooling (y) | 5.87 | 5.94 | 5.36 | 4.67 | 7.95 | 7.36 |
+| recording MAE, plain mean of the windows (y) | 6.04 | 6.60 | 5.32 | 5.06 | 7.92 | 8.61 |
+| $\rho(w_i, e_i)$, all windows | −0.08 | −0.20 | −0.01 | −0.22 | −0.04 | −0.35 |
+| $\rho(w_i, e_i)$, within | −0.08 (58 %) | −0.18 (62 %) | +0.09 (44 %) | −0.27 (67 %) | +0.09 (45 %) | −0.51 (84 %) |
+| $\rho(d_i, e_i)$, all windows | 0.27 | 0.40 | 0.31 | 0.41 | 0.23 | 0.43 |
+| $\rho(d_i, e_i)$, within | 0.29 | 0.44 | 0.21 | 0.31 | 0.23 | 0.43 |
+| $\rho(s_i, e_i)$, all windows | 0.24 | 0.16 | 0.24 | 0.39 | 0.30 | 0.48 |
+| $\rho(s_i, e_i)$, within | 0.01 | 0.00 | −0.01 | 0.14 | −0.02 | 0.41 |
+
+### Figure 21.1. Window error against the attention weight
+
+![window error vs attention](figures/tdbrain/window_error_vs_attention.png)
+
+(a) Mean window error per decile of the relative attention weight $w_i$ of the cohort's windows. (b) The same inside the
+recording: the window's error minus the mean window error of its recording, per decile of the window's attention rank
+in the recording. Binned means only.
+
+### Figure 21.2. Window error against the deviation from the recording and against fold disagreement
+
+![window error vs spread](figures/tdbrain/window_error_vs_spread.png)
+
+Mean window error per decile of (a) $d_i$ and (b) $s_i$.
+
+### Figure 21.3. Recording error against the recording-level confidence
+
+![recording error vs confidence](figures/tdbrain/recording_error_vs_confidence.png)
+
+Mean recording error per quantile bin of (a) the spread and (b) the total uncertainty of Section 15 (10 bins from 1,000
+recordings, 5 from 200, else 3; TDBRAIN: sessions).
+
+What the window level shows:
+
+- **The attention pool rejects bad windows more than it selects good ones.** The lowest-weight decile is far worse than
+  the rest (Harvard: 16 y at a tenth of the uniform weight against about 7 y; Figure 21.1(a)), but above the median
+  weight the error is flat, and in Temple, TDBRAIN and CHBP the highest-weight decile is worse again (Figure 21.1(b)).
+- **Attention carries no window-level information on TDBRAIN and CHBP.** Within a recording the weight is not related
+  to the error there (median $\rho$ +0.09, negative in only 44–45 % of recordings), and attention pooling does not beat
+  the plain mean (5.36 against 5.32 y; 7.95 against 7.92 y). Where it works it is worth 0.17 y (Temple), 0.66 y
+  (Harvard), 0.39 y (LEMON) and 1.24 y (MIPDB). The P3 ensemble shows the same pattern
+  (`window_confidence_P3ens.csv`). A likely reason for TDBRAIN: its files are 2 minutes of clean rest, about 12 windows,
+  with little artifact for the pool to remove.
+- **Deviation from the recording's answer is the strongest window signal.** The windows that disagree with the pooled
+  prediction are the wrong ones: $\rho$ 0.21 to 0.44 within the recording, and the error grows from 4–7 y for the tenth
+  of the windows closest to the answer to 12–20 y for the most deviant tenth (Figure 21.2(a)). This is what makes the spread a usable
+  recording score, and it favours robust pooling (median, trimming) over more attention capacity.
+- **Fold disagreement is a recording-level signal.** Over all windows it tracks the error ($\rho$ 0.16 to 0.48), but
+  inside a recording it does not (median $\rho$ about 0, except LEMON and MIPDB): the fold models disagree on whole
+  recordings, not on single windows. That is the part the `total` score adds to the spread.
+- **Recording level.** The error rises with the total uncertainty on every cohort (Figure 21.3(b)); with the spread
+  alone it is flat on CHBP after the first bin (Figure 21.3(a)), as in Table 15.1.
+
+## 22. Brain age per pathology group and report status (2026-11-16)
+
+`scripts/pathology_brain_age.py` scores the training cohort's held-out recordings per EEG-report status and per pathology
+group (`multitask_targets_v2.npz`: the NEDC sheet groups for Temple, ICD-10 groups of the health record for Harvard; a
+patient can be in several groups). Two sources of predictions, both for recordings the scoring model never trained on:
+
+- **test**: the shared test split, P4 ensemble (Temple 272 recordings, Harvard 7,338);
+- **out-of-fold**: each P3 fold model on its own validation fold at its best epoch, 4 of the 5 folds pooled (Temple
+  24,844 adults, Harvard 51,527). One model per recording, no ensemble; the fold picked that model's best epoch and
+  nothing else. The Temple test split is too small for the pathology groups, so they are read from this source.
+
+The **reference** group is a normal EEG report and a health record with none of the pathology groups (Temple 8,335
+recordings, Harvard 2,248 out-of-fold and 331 in the test split). For a group $G$, with the gap $g_r = \hat y_r - y_r$,
+the adjusted difference is $\beta$ of
+
+$$ g_r = \beta\,\mathbb{1}[r \in G] + c_{b(r)} + \gamma_1\,y_r + \gamma_2\,\text{male}_r + \varepsilon_r \tag{22.1} $$
+
+fitted on the group and the reference, with one intercept $c_b$ per 5-year age band (85+ is one band), and standard
+errors clustered by patient. The same model with $\lvert g_r \rvert$ on the left gives the extra absolute error. $q$ is
+the Benjamini-Hochberg adjusted p-value over the pathology groups of one dataset. Cells below 30 recordings or 10
+patients are suppressed.
+
+### Table 22.1. By EEG report (`docs/data/external_eval/tdbrain/pathology_brain_age.csv`)
+
+MAE (y) with a 95 % interval; adjusted gap and extra absolute error (y) against the reference, Eq. (22.1), with 95 % intervals.
+
+| dataset, source, model | group | n | mean age | MAE | adjusted gap | extra abs. error |
+|---|---|---|---|---|---|---|
+| Temple, test, P4 ens. | normal report | 149 | 44.6 | 4.52 [3.90, 5.17] | | |
+| | abnormal report | 123 | 58.0 | 7.50 [6.43, 8.53] | +3.22 [1.11, 5.33] | +2.51 [1.00, 4.03] |
+| Temple, out-of-fold, P3 | normal report | 9,669 | 48.0 | 6.75 [6.55, 6.96] | | |
+| | abnormal report | 13,228 | 55.2 | 7.86 [7.68, 8.05] | +2.11 [1.71, 2.51] | +0.86 [0.58, 1.15] |
+| | no report | 1,947 | 52.2 | 8.50 [7.81, 9.16] | +1.48 [0.59, 2.38] | +1.49 [0.82, 2.17] |
+| Harvard, test, P4 ens. | normal report | 1,518 | 48.8 | 5.69 [5.41, 5.98] | | |
+| | abnormal report | 2,253 | 58.8 | 6.49 [6.24, 6.76] | +1.96 [1.04, 2.89] | +0.95 [0.26, 1.64] |
+| | no report | 3,567 | 53.3 | 5.70 [5.51, 5.88] | +0.42 [−0.43, 1.28] | −0.07 [−0.72, 0.57] |
+| Harvard, out-of-fold, P3 | normal report | 10,361 | 47.9 | 5.74 [5.63, 5.85] | | |
+| | abnormal report | 15,794 | 58.6 | 6.71 [6.61, 6.81] | +1.85 [1.51, 2.20] | +1.04 [0.78, 1.31] |
+| | no report | 25,372 | 53.5 | 6.04 [5.97, 6.11] | +0.67 [0.36, 0.98] | +0.19 [−0.04, 0.42] |
+
+The Temple out-of-fold MAE is higher than the Temple test MAE because the test split is the curated TUAB evaluation set
+and the pool is all of TUEG, and because one fold model is scored, not the ensemble.
+
+### Table 22.2. Harvard, per pathology group
+
+Out-of-fold, P3 fold models: n, mean age, MAE, adjusted gap with 95 % interval (all with $q < 0.001$), and the same gap
+for the group's recordings with a normal and with an abnormal report. Last column: the adjusted gap on the test split
+with the P4 ensemble.
+
+| group | n | mean age | MAE | adjusted gap | with normal report | with abnormal report | test, P4 ens. |
+|---|---|---|---|---|---|---|---|
+| stroke | 5,238 | 65.1 | 6.82 | +2.50 [2.00, 3.01] | +0.69 [0.03, 1.35] | +3.06 [2.47, 3.65] | +2.49 [1.29, 3.69] |
+| dementia | 3,568 | 72.1 | 6.86 | +2.08 [1.46, 2.71] | −0.08 [−0.89, 0.73] | +2.62 [1.90, 3.33] | +2.97 [1.46, 4.47] |
+| multiple sclerosis | 677 | 51.4 | 6.80 | +1.98 [1.19, 2.76] | +0.57 [−0.68, 1.81] | +3.47 [2.16, 4.78] | +2.68 [0.62, 4.74] |
+| movement and cerebellar disorders | 6,801 | 58.7 | 6.58 | +1.77 [1.36, 2.19] | +0.50 [0.00, 1.01] | +2.69 [2.16, 3.21] | +1.86 [0.82, 2.91] |
+| intracranial and spinal tumours | 2,954 | 57.3 | 6.67 | +1.35 [0.86, 1.84] | +0.23 [−0.53, 1.00] | +1.48 [0.89, 2.06] | +1.58 [0.35, 2.80] |
+| depression | 9,318 | 55.4 | 6.28 | +1.34 [0.97, 1.70] | +0.45 [0.01, 0.89] | +2.23 [1.78, 2.68] | +1.46 [0.49, 2.42] |
+| electrographic seizures | 3,749 | 54.1 | 6.56 | +1.05 [0.62, 1.49] | +0.17 [−0.35, 0.70] | +1.57 [1.05, 2.08] | +1.92 [0.79, 3.05] |
+| sleep disorders | 10,395 | 57.5 | 6.28 | +1.05 [0.68, 1.42] | −0.16 [−0.59, 0.27] | +2.30 [1.81, 2.78] | +1.08 [0.11, 2.06] |
+| other diagnosis | 2,326 | 52.6 | 6.06 | +0.85 [0.39, 1.32] | +0.22 [−0.39, 0.83] | +1.16 [0.48, 1.83] | +1.09 [−0.17, 2.34] |
+| headache and migraine | 12,932 | 53.9 | 6.10 | +0.82 [0.48, 1.16] | −0.17 [−0.56, 0.23] | +1.86 [1.44, 2.29] | +1.05 [0.11, 1.99] |
+| epilepsy / clinical seizures | 16,450 | 50.0 | 5.98 | +0.64 [0.32, 0.97] | +0.12 [−0.26, 0.50] | +1.36 [0.98, 1.74] | +0.67 [−0.23, 1.56] |
+| reference | 2,248 | 45.0 | 5.44 | | | | |
+
+Epilepsy and clinical seizures are the same ICD group in Harvard (16,450 and 16,520 recordings) and are shown once.
+
+### Table 22.3. Temple, per pathology group (out-of-fold, P3 fold models)
+
+| group | n | mean age | MAE | adjusted gap | q |
+|---|---|---|---|---|---|
+| substance use | 933 | 46.7 | 8.05 | +3.25 [2.17, 4.33] | < 0.001 |
+| traumatic brain injury | 273 | 45.2 | 8.60 | +2.56 [0.01, 5.10] | 0.16 |
+| stroke | 856 | 62.5 | 8.66 | +1.91 [0.64, 3.18] | 0.02 |
+| bipolar disorder | 261 | 44.9 | 6.43 | +1.68 [0.27, 3.09] | 0.08 |
+| multiple sclerosis | 47 | 46.1 | 9.55 | +1.68 [−5.49, 8.85] | 0.89 |
+| schizophrenia | 67 | 49.0 | 5.75 | +0.39 [−1.51, 2.29] | 0.89 |
+| clinical seizures | 1,762 | 47.6 | 6.68 | +0.22 [−0.55, 0.99] | 0.89 |
+| dementia | 72 | 74.8 | 10.47 | +0.11 [−4.63, 4.86] | 0.98 |
+| epilepsy | 631 | 49.3 | 7.18 | +0.01 [−1.31, 1.34] | 0.98 |
+| depression | 87 | 44.8 | 5.88 | −0.20 [−2.77, 2.36] | 0.98 |
+| electrographic seizures | 311 | 57.7 | 8.80 | −0.57 [−2.63, 1.48] | 0.89 |
+| anxiety | 111 | 42.0 | 6.56 | −1.72 [−5.05, 1.61] | 0.81 |
+| reference | 8,335 | 48.5 | 6.77 | | |
+
+### Figure 22.1. Adjusted brain-age gap per pathology group
+
+![gap per pathology group](figures/tdbrain/pathology_gap.png)
+
+Adjusted gap against the reference with 95 % intervals, out-of-fold P3 predictions; (a) Temple, (b) Harvard. Filled:
+$q < 0.05$. Recordings per group in brackets.
+
+What it shows:
+
+- **Accuracy is close to uniform across diagnoses.** In Harvard the MAE per group is 5.98 to 6.86 y against 5.44 y for
+  the reference, and most of the difference is age: the extra absolute error at the same age and sex is 0.3 to 1.2 y.
+  An abnormal EEG report costs about 1 y of absolute error in both datasets (Table 22.1).
+- **Every Harvard pathology group looks older than the reference**, by 0.6 y (epilepsy) to 2.5 y (stroke), with dementia,
+  multiple sclerosis and movement disorders at about 2 y. The ranking is the same on the test split with the P4
+  ensemble (last column of Table 22.2).
+- **The gap is carried by the abnormal EEG, not by the diagnosis.** A patient with a diagnosis but a normal EEG report
+  has a gap within about 0.7 y of the reference in every group, most intervals covering 0; with an abnormal report the
+  same group looks 1.2 to 3.5 y older. Checked directly on the out-of-fold Harvard recordings: among normal reports,
+  any diagnosis against none gives −0.05 y [−0.38, 0.29]; an abnormal against a normal report gives +1.82 y
+  [1.35, 2.28] without any diagnosis and +1.89 y [1.66, 2.13] with one. Temple agrees (+2.05 and +2.63 y; any
+  diagnosis among normal reports −0.11 y [−0.92, 0.71]).
+- **Temple** has fewer and smaller groups. Substance use (+3.3 y) and stroke (+1.9 y) are significant; seizures and
+  epilepsy are at 0, as their Harvard estimate is the smallest.
+- **TDBRAIN** (psychiatric indications, Section 10): no group differs from the healthy controls after the same kind of
+  adjustment (major depression −0.06 y, ADHD −0.15 y, OCD −0.82 y, memory complaints +0.57 y, all $\lvert t \rvert < 0.8$
+  with the P4 ensemble), and the session MAE is 3.93 to 5.73 y per indication against 4.96 y for the controls.
+
+Cautions. (1) The estimate is an average over the group's ages: restricted to patients of 60 and over, the Harvard
+gaps of stroke, dementia and movement disorders are about half as large (+1.16, +1.16 and +0.77 y, all still above 0).
+Old-age compression of the predictions limits how much older an old patient can look. (2) Harvard diagnoses are ICD
+codes anywhere in the patient's record, not the reason for this EEG, and the groups overlap (a recording with a
+diagnosis is in 2.9 groups on average), so the rows are not independent effects. (3) The models were trained on these
+patients' hospitals with age as the only target; nothing here is a diagnostic claim.

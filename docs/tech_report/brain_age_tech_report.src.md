@@ -14,7 +14,7 @@ Technical report, working draft of 2026-11-16. It describes what has been built 
 - a label-free confidence per recording, used for selective prediction [@geifman2017selective];
 - an evaluation on six cohorts: the held-out test recordings of the two training corpora and four external cohorts scored without any adaptation (zero-shot): TDBRAIN [@vandijk2022tdbrain], LEMON [@babayan2019lemon], CHBP [@valdessosa2021chbp] and MIPDB [@langer2017mipdb].
 
-**Main results (adults).** The best ensemble reaches a mean absolute error (MAE) of 5.9 years on the held-out Temple and Harvard recordings, and zero-shot 4.9 years on TDBRAIN (1,113 sessions, $R^2 = 0.83$) and 4.7 years on LEMON ($R^2 = 0.90$). Both zero-shot results are below the best published results of models trained on those cohorts (5.96 years on TDBRAIN [@khayretdinova2022tdbrain], 7.75 years on LEMON [@engemann2022benchmark]). Rejecting the 20 % least confident recordings lowers the MAE by 0.4 to 0.9 years on these two cohorts. Two cohorts remain hard: CHBP (a recording-chain shift) and the young adults of MIPDB. In TDBRAIN, no psychiatric indication shows a brain-age gap against healthy controls after adjusting for age and sex.
+**Main results (adults).** The best ensemble reaches a mean absolute error (MAE) of 5.9 years on the held-out Temple and Harvard recordings, and zero-shot 4.9 years on TDBRAIN (1,113 sessions, $R^2 = 0.83$) and 4.7 years on LEMON ($R^2 = 0.90$). Both zero-shot results are below the best published results of models trained on those cohorts (5.96 years on TDBRAIN [@khayretdinova2022tdbrain], 7.75 years on LEMON [@engemann2022benchmark]). Rejecting the 20 % least confident recordings lowers the MAE by 0.4 to 0.9 years on these two cohorts. Two cohorts remain hard: CHBP (a recording-chain shift) and the young adults of MIPDB. In TDBRAIN, no psychiatric indication shows a brain-age gap against healthy controls after adjusting for age and sex. In the two hospital cohorts every neurological diagnosis group looks 0.6 to 2.5 years older than patients with a normal EEG and no diagnosis, and this gap goes with an abnormal EEG report, not with the diagnosis itself.
 
 ## 2. Background: the classical LaBraM recipe and its limits for brain age
 
@@ -150,6 +150,22 @@ $$ \mathrm{MAE} = \frac{1}{N} \sum_r \lvert \hat y_r - y_r \rvert, \qquad R^2 = 
 
 with $\bar y$ the group's own mean age, so that $R^2 \le 0$ means no better than predicting that mean. Intervals are 95 % percentile intervals over 2,000 bootstrap resamples of subjects. In-domain cohorts are scored on the first 5 minutes after the trim, the training protocol; external cohorts on every window.
 
+### 4.8. Window-level diagnostics and group comparisons
+
+To see what the confidence measures at the level of a window, we compare, for window $i$ of a recording with $n$ scored windows, its error with three label-free quantities of the ensemble:
+
+$$ p_i = \frac{1}{5}\sum_k p_{ik}, \qquad e_i = \lvert p_i - y_r \rvert, \qquad w_i = \frac{n}{5}\sum_k \alpha_{ik} \tag{15} $$
+
+$$ d_i = \lvert p_i - \hat y_r \rvert, \qquad s_i = \operatorname{sd}_k\big( p_{ik} \big) \tag{16} $$
+
+$e_i$ is the window error, $w_i$ the relative attention weight (1 is the uniform weight), $d_i$ the deviation of the window from the recording's prediction (its share of the spread of Eq. (8)) and $s_i$ the disagreement of the fold models on the window.
+
+A clinical group $G$ is compared with a reference group through the gap $g_r = \hat y_r - y_r$. With $x_r = 1$ for the recordings of $G$ and 0 for the reference, we fit
+
+$$ g_r = \beta\,x_r + c_{b(r)} + \gamma_1\,y_r + \gamma_2\,m_r + \varepsilon_r \tag{17} $$
+
+where $c_b$ is one intercept per 5-year age band, $m_r$ is 1 for men, and the standard error of $\beta$ is clustered by patient. $\beta$ is how much older the group looks at the same age and sex. The age terms take the place of the corrections of Eq. (13), as recommended when the gap is compared between groups [@delange2020commentary]. The same model with $\lvert g_r \rvert$ on the left gives the group's extra absolute error. P-values over several groups are adjusted for the false discovery rate [@benjamini1995fdr].
+
 ## 5. What we learned on the way
 
 Table 4 collects the steps from the classical recipe to the present models, each with its measured effect. Early steps were measured on the TUAB test set (274 recordings), later ones on the test split of `tuh_heedb_v1` (7,612 recordings).
@@ -198,7 +214,7 @@ The ensembles improve on the window model on every cohort, by about 1 year on Ha
 
 ![**Figure 2.** Predicted against true age per cohort: mean prediction per 5-year age bin (bins with at least 10 recordings) for the three models. Band: ± 1 standard deviation of the P4 ensemble. Dotted: identity. Points are shown for the open cohorts only.](../figures/tdbrain/pred_vs_age_models.png)
 
-### 6.2. Healthy and pathological recordings
+### 6.2. Report status and pathology groups
 
 **Table 6.** P4 ensemble, MAE in years. Temple and Harvard: EEG report normal or abnormal. TDBRAIN: healthy controls or any indication.
 
@@ -210,9 +226,47 @@ The ensembles improve on the window model on every cohort, by about 1 year on Ha
 
 An abnormal EEG report costs accuracy (and those patients are about 10 years older), while a psychiatric indication does not. In TDBRAIN the brain-age gap of major depression (n = 351), ADHD (116), OCD (54) and subjective memory complaints (89) does not differ from that of the healthy controls (179) after adjusting for age, age squared and sex: every adjusted difference is below 1 year, $\lvert t \rvert < 1.1$, with all three models. With these group sizes a difference of about 1.7 years would have been detected for depression (80 % power).
 
+For the diagnosis groups of the two hospital cohorts we use Eq. (17). The reference is a normal EEG report and a health record with none of the groups. Temple's groups come from the corpus's clinical sheet and Harvard's from the ICD-10 codes of the patient's record; a patient can be in several. The Temple test split is too small for this (272 recordings), so the table uses out-of-fold predictions: each P3 fold model on its own validation fold, which it did not train on (4 of the 5 folds; 24,844 Temple and 51,527 Harvard recordings of adults; one model per recording, no ensemble).
+
+**Table 7.** Brain age per diagnosis group, out-of-fold predictions of the P3 fold models. MAE in years; adjusted gap $\beta$ of Eq. (17) in years with a 95 % interval, for all recordings of the group and for those with a normal and with an abnormal EEG report. Groups overlap. "s." = fewer than 30 recordings, suppressed.
+
+| cohort, group | recordings | mean age | MAE | adjusted gap | gap, normal report | gap, abnormal report |
+|---|---|---|---|---|---|---|
+| Harvard, reference | 2,248 | 45.0 | 5.44 | | | |
+| Harvard, stroke | 5,238 | 65.1 | 6.82 | +2.5 [2.0, 3.0] | +0.7 [0.0, 1.4] | +3.1 [2.5, 3.7] |
+| Harvard, dementia | 3,568 | 72.1 | 6.86 | +2.1 [1.5, 2.7] | −0.1 [−0.9, 0.7] | +2.6 [1.9, 3.3] |
+| Harvard, multiple sclerosis | 677 | 51.4 | 6.80 | +2.0 [1.2, 2.8] | +0.6 [−0.7, 1.8] | +3.5 [2.2, 4.8] |
+| Harvard, movement disorders | 6,801 | 58.7 | 6.58 | +1.8 [1.4, 2.2] | +0.5 [0.0, 1.0] | +2.7 [2.2, 3.2] |
+| Harvard, CNS tumours | 2,954 | 57.3 | 6.67 | +1.4 [0.9, 1.8] | +0.2 [−0.5, 1.0] | +1.5 [0.9, 2.1] |
+| Harvard, depression | 9,318 | 55.4 | 6.28 | +1.3 [1.0, 1.7] | +0.5 [0.0, 0.9] | +2.2 [1.8, 2.7] |
+| Harvard, electrographic seizures | 3,749 | 54.1 | 6.56 | +1.1 [0.6, 1.5] | +0.2 [−0.4, 0.7] | +1.6 [1.1, 2.1] |
+| Harvard, sleep disorders | 10,395 | 57.5 | 6.28 | +1.1 [0.7, 1.4] | −0.2 [−0.6, 0.3] | +2.3 [1.8, 2.8] |
+| Harvard, headache and migraine | 12,932 | 53.9 | 6.10 | +0.8 [0.5, 1.2] | −0.2 [−0.6, 0.2] | +1.9 [1.4, 2.3] |
+| Harvard, epilepsy | 16,450 | 50.0 | 5.98 | +0.6 [0.3, 1.0] | +0.1 [−0.3, 0.5] | +1.4 [1.0, 1.7] |
+| Temple, reference | 8,335 | 48.5 | 6.77 | | | |
+| Temple, substance use | 933 | 46.7 | 8.05 | +3.3 [2.2, 4.3] | +1.5 [0.2, 2.7] | +3.9 [2.6, 5.3] |
+| Temple, traumatic brain injury | 273 | 45.2 | 8.60 | +2.6 [0.0, 5.1] | +3.8 [−0.2, 7.9] | +2.0 [−1.2, 5.2] |
+| Temple, stroke | 856 | 62.5 | 8.66 | +1.9 [0.6, 3.2] | −0.5 [−3.5, 2.4] | +2.3 [1.0, 3.7] |
+| Temple, bipolar disorder | 261 | 44.9 | 6.43 | +1.7 [0.3, 3.1] | +1.0 [−1.1, 3.0] | +2.1 [0.3, 4.0] |
+| Temple, clinical seizures | 1,762 | 47.6 | 6.68 | +0.2 [−0.6, 1.0] | −0.7 [−1.6, 0.3] | +0.8 [−0.2, 1.9] |
+| Temple, epilepsy | 631 | 49.3 | 7.18 | +0.0 [−1.3, 1.3] | −0.2 [−2.1, 1.8] | +0.2 [−1.5, 1.9] |
+| Temple, dementia | 72 | 74.8 | 10.47 | +0.1 [−4.6, 4.9] | s. | +1.6 [−0.5, 3.7] |
+
+![**Figure 3.** Adjusted brain-age gap of each diagnosis group against the reference, Eq. (17), with 95 % intervals; out-of-fold predictions of the P3 fold models. Filled markers: false discovery rate below 0.05. Recordings per group in brackets.](../figures/tdbrain/pathology_gap.png)
+
+Three results stand out (Table 7, Figure 3).
+
+- **Accuracy is close to uniform across diagnoses.** The MAE per Harvard group is 6.0 to 6.9 years against 5.4 for the reference, and most of that is age: at the same age and sex the extra absolute error is 0.3 to 1.2 years. An abnormal report costs about 1 year of absolute error in both cohorts.
+- **Every Harvard diagnosis group looks older than the reference,** from 0.6 years for epilepsy to 2.5 years for stroke; all are significant after the false-discovery adjustment. The held-out test split with the P4 ensemble gives the same order (stroke +2.5, dementia +3.0, epilepsy +0.7 years). In Temple, substance use (+3.3) and stroke (+1.9) are significant.
+- **The gap goes with the abnormal EEG, not with the diagnosis.** A patient with a diagnosis and a normal EEG report is within about 0.7 years of the reference in every Harvard group of Table 7; with an abnormal report the same group looks 1.4 to 3.5 years older. Among Harvard recordings with a normal report, any diagnosis against none gives −0.05 years [−0.38, 0.29]. An abnormal against a normal report gives +1.8 years [1.4, 2.3] without any diagnosis and +1.9 years [1.7, 2.1] with one; in Temple +2.1 and +2.6 years.
+
+Two cautions. The estimate averages over the ages of a group: among patients of 60 and over, the Harvard gaps of stroke, dementia and movement disorders are about half as large (+1.2, +1.2 and +0.8 years, all above 0), because the compression of the predictions limits how much older an old patient can look. And Harvard's diagnoses are codes anywhere in the patient's record, not the reason for the EEG.
+
+Published work points the same way with other signals. In sleep EEG, patients with neurological or psychiatric disease had a mean excess brain age of 4 years [@sun2019sleep], and structural MRI shows apparent brain ageing in several brain disorders [@kaufmann2019common]. For routine EEG, Gemein et al. [@gemein2024revisited] report a lower gap in pathological than in non-pathological TUAB recordings (the age is under-estimated by 5 against 1 years) with a model trained on normal recordings only. Our raw difference between abnormal and normal reports is between −0.9 and +0.6 years depending on the model and cohort, and it becomes about +2 years once age is adjusted for, so the sign of this comparison depends on how the age bias is treated.
+
 ### 6.3. Selective prediction
 
-**Table 7.** P4 ensemble, MAE in years of the 80 % most confident recordings of each cohort, by rejection score, and the MAE an oracle would reach by rejecting the largest true errors.
+**Table 8.** P4 ensemble, MAE in years of the 80 % most confident recordings of each cohort, by rejection score, and the MAE an oracle would reach by rejecting the largest true errors.
 
 | score | Temple | Harvard | TDBRAIN | LEMON | CHBP | MIPDB |
 |---|---|---|---|---|---|---|
@@ -222,13 +276,24 @@ An abnormal EEG report costs accuracy (and those patients are about 10 years old
 | learned | 5.11 | 5.34 | 4.57 | 3.81 | 7.43 | 6.40 |
 | oracle | 3.78 | 3.83 | 3.25 | 2.92 | 5.06 | 5.04 |
 
-![**Figure 3.** Risk–coverage curves of the P4 ensemble: MAE of the kept recordings against the share kept, per cohort, for several scores. `neff` is an attention-only score (the effective share of windows attended), `pred_age` rejects the oldest predictions, `random` is no information and `oracle` rejects by the true error.](../figures/tdbrain/rejection_curves.png)
+![**Figure 4.** Risk–coverage curves of the P4 ensemble: MAE of the kept recordings against the share kept, per cohort, for several scores. `neff` is an attention-only score (the effective share of windows attended), `pred_age` rejects the oldest predictions, `random` is no information and `oracle` rejects by the true error.](../figures/tdbrain/rejection_curves.png)
 
 Rejection by the combined score lowers the MAE on every cohort. It is never significantly worse than the spread and is significantly better on Temple, Harvard and CHBP (paired bootstrap), because the disagreement of the fold models sees errors that are shared by all windows of a recording. Scores built from the attention weights alone are weak and change sign on CHBP. Two cautions apply. The scores were compared on the test cohorts, so the choice among them is not independent of these data. And part of every score is age: within deciles of the predicted age, the combined score keeps 60 to 80 % of its gain on Temple, Harvard and TDBRAIN, but nothing on LEMON, CHBP and MIPDB. All scores recover only 20 to 30 % of what the oracle would.
 
+**Inside the recording.** Figures 5 and 6 relate the error of single windows to the quantities of Eqs. (15) and (16) for the P4 ensemble.
+
+![**Figure 5.** Window error against the attention weight, P4 ensemble. (a) Mean window error per decile of the relative attention weight. (b) The same inside the recording: the window's error minus the mean window error of its recording, per decile of the window's attention rank in the recording. Binned means.](../figures/tdbrain/window_error_vs_attention.png)
+
+![**Figure 6.** Window error (a) per decile of the window's deviation from the recording's prediction and (b) per decile of the disagreement of the fold models on the window, P4 ensemble. Binned means.](../figures/tdbrain/window_error_vs_spread.png)
+
+- **Attention removes bad windows more than it selects good ones.** The windows with the lowest weight are much worse than the rest (Harvard: 16 years at a tenth of the uniform weight against about 7), but above the median weight the error is flat, and in Temple, TDBRAIN and CHBP the highest-weight windows are worse again.
+- **On TDBRAIN and CHBP the weight carries no information about the window.** Inside a recording its rank correlation with the window error has a median of +0.09 there, against −0.08 to −0.51 on the other cohorts, and attention pooling does not beat the plain mean of the window predictions (5.36 against 5.32 years per TDBRAIN file). Where it works it is worth 0.2 years on Temple, 0.7 on Harvard, 0.4 on LEMON and 1.2 on MIPDB.
+- **Deviation from the recording's prediction is the strongest window signal.** Inside a recording its rank correlation with the window error is 0.21 to 0.44, and the error grows from 4 to 7 years for the tenth of the windows closest to the recording's prediction to 12 to 20 years for the most deviant tenth. This is what makes the spread usable, and it favours robust pooling over more attention capacity.
+- **Fold disagreement is a recording-level signal.** Over all windows it follows the error (rank correlation 0.16 to 0.48), but inside a recording it does not (median about 0 on four of the six cohorts): the fold models disagree on whole recordings, which is the part the combined score adds to the spread.
+
 ### 6.4. Age bias and its correction
 
-**Table 8.** P4 ensemble under each correction: MAE in years / slope of the prediction on age (1 = no compression). For the two corrections that use the true age the first number is the mean absolute corrected gap.
+**Table 9.** P4 ensemble under each correction: MAE in years / slope of the prediction on age (1 = no compression). For the two corrections that use the true age the first number is the mean absolute corrected gap.
 
 | correction | Temple | Harvard | TDBRAIN | LEMON | CHBP | MIPDB |
 |---|---|---|---|---|---|---|
@@ -238,13 +303,13 @@ Rejection by the combined score lowers the MAE on every cohort. It is never sign
 | linear gap, Eq. (13) | 5.34 / 1.00 | 5.66 / 1.03 | 5.24 / 1.09 | 4.87 / 1.04 | 7.13 / 0.74 | 5.25 / 0.92 |
 | quadratic gap, Eq. (13) | 5.15 / 1.02 | 5.57 / 1.05 | 5.14 / 1.07 | 4.58 / 1.02 | 7.26 / 0.65 | 5.52 / 0.79 |
 
-![**Figure 4.** Predicted against true age per cohort for the P4 ensemble under each correction (means per 5-year age bin). Solid: corrections that need no true age. Dashed: corrections that use it.](../figures/tdbrain/pred_vs_age_corrections.png)
+![**Figure 7.** Predicted against true age per cohort for the P4 ensemble under each correction (means per 5-year age bin). Solid: corrections that need no true age. Dashed: corrections that use it.](../figures/tdbrain/pred_vs_age_corrections.png)
 
 The ensembles compress less than the window model: in-domain slopes are 0.79 to 0.84 against 0.70 to 0.72 for E2L. A correction fitted on validation data transfers to the external cohorts that resemble the training data (slope 1.00 to 1.12 after correction) but not to CHBP and MIPDB. Removing the bias without the true age costs accuracy: Cole inversion raises the MAE by 0.9 to 1.7 years, because it scales the prediction noise by $1/a$, and recalibration changes nothing. The raw prediction is therefore the best age estimate, and the corrections serve the analysis of the gap. After correction, recordings with an abnormal report look 1.8 to 4.2 years older than those with a normal report in Temple and Harvard ($p \le 0.002$ with every model); before correction the difference is hidden by the age confound. In TDBRAIN the corrected difference between patients and controls is 0.4 to 1.1 years and not significant.
 
 ## 7. Comparison with published work
 
-**Table 9.** Published EEG brain-age results on the test cohorts, and ours. "within" = trained and tested on the cohort with cross-validation; "zero-shot" = trained elsewhere and applied unchanged. MAE in years.
+**Table 10.** Published EEG brain-age results on the test cohorts, and ours. "within" = trained and tested on the cohort with cross-validation; "zero-shot" = trained elsewhere and applied unchanged. MAE in years.
 
 | cohort | study | method | protocol | MAE | $R^2$ |
 |---|---|---|---|---|---|
@@ -278,7 +343,7 @@ Three cautions for these comparisons. The published studies use other subsets, a
 - **Recording chain.** CHBP shows that a narrower acquisition band and a lower amplitude are enough to bring the models to the predict-the-mean level. The robust variant fixes it at an in-domain cost; no single model does both.
 - **Selection on test data.** The three rejection scores were chosen after comparing nine on the test cohorts, and the early ablations of Table 4 were selected on the TUAB test set. The rejection threshold is the cohort's own score quantile, so it needs a batch of unlabelled recordings.
 - **Single runs.** E2L and each fold model are one seed. Differences between recipes below about 0.2 years (P3 against P4 in-domain) are within the fold-to-fold spread.
-- **Labels.** "Normal" and "abnormal" are EEG report verdicts, available for half of the Harvard recordings; TDBRAIN has indications but no EEG reports and no medication record.
+- **Labels.** "Normal" and "abnormal" are EEG report verdicts, available for half of the Harvard recordings; TDBRAIN has indications but no EEG reports and no medication record. Harvard diagnoses are ICD-10 codes of the whole patient record and overlap (2.9 groups per diagnosed recording), so the rows of Table 7 are not independent effects, and they come from single fold models, not the ensemble.
 - **Data governance.** Harvard and TDBRAIN are under data use agreements without redistribution. Only aggregates are reported.
 
 ## 9. Planned work
@@ -286,7 +351,8 @@ Three cautions for these comparisons. The published studies use other subsets, a
 - Fix the protocol before a paper: rejection score and threshold fitted on validation only, a fixed evaluation window for every cohort, three seeds for the final recipe.
 - Reduce the old-age compression in training (age-balanced sampling or loss) instead of after the fact.
 - One model for both recording chains: band and amplitude augmentation during the phased training, checked on CHBP and on a further external cohort.
-- A dedicated abnormal / pathology head trained with the age head, to separate "older-looking" from "abnormal".
+- A dedicated abnormal / pathology head trained with the age head, to separate "older-looking" from "abnormal"; Table 7 says that the abnormal EEG, not the diagnosis, carries the gap.
+- Robust pooling of the window predictions (median or trimming by the deviation of Eq. (16)), since attention adds nothing on TDBRAIN and CHBP.
 - Add the TDBRAIN replication subjects and a paediatric cohort, to extend the test to the blinded diagnoses and to children.
 - Verify the pre-training corpus of the LaBraM checkpoint against all test cohorts.
 - Study the brain-age gap against clinical covariates in Harvard (diagnosis codes, medication), with the bias corrections of Section 4.6.
