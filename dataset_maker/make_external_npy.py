@@ -42,6 +42,31 @@ reader and the channel naming differ per corpus:
   from ``participants.tsv`` (the age at session 1; session 2 adds the
   difference of the recording years). See ``docs/dortmund_onboarding.md``.
 
+* ``ahepa`` -- AHEPA dementia dataset (Miltiadous et al. 2023, OpenNeuro
+  ds004504, CC0), EEGLAB ``.set`` at 500 Hz from a Nihon Kohden EEG-2100, the
+  19 10-20 channels, eyes closed, 5-21 min; Alzheimer's disease,
+  frontotemporal dementia and healthy controls, with MMSE.
+* ``iowapd`` -- Iowa Parkinson's rest dataset (Singh et al., OpenNeuro
+  ds004584, CC0), EEGLAB ``.set`` at 500 Hz, 63-66 channels (BrainVision,
+  10-10) referenced to Pz, eyes open, 2-6 min; Parkinson's disease and
+  controls, with MoCA and UPDRS. Pz is the reference and so not recorded: it is
+  added as a zero channel and the 19 channels are re-referenced to their mean.
+* ``telavivpd`` -- Tel Aviv PD-EEG (OpenNeuro ds007526, CC0), EEGLAB ``.set``
+  at 250 Hz, 64-channel EGI net with 10-10 labels, the resting run (eyes open,
+  about 4 min; the walking run is not converted); Parkinson's disease and
+  controls. The vertex reference ``VREF`` is Cz (all zero): renamed, and the 19
+  channels are re-referenced to their mean. A run with a break in continuity
+  is cut to its longest continuous piece.
+* ``srm`` -- SRM resting-state EEG (Hatlestad-Hall et al., OpenNeuro ds003775,
+  CC0), EDF at 1024 Hz, 64 channels (BioSemi, 10-10), released average-
+  referenced, 4 min eyes closed; healthy, 17-71 years, a second session for 42
+  of the 111 participants. The EDF headers carry no physical unit (the values
+  are microvolts).
+
+All four take the BIDS ``participants.tsv`` as ``--meta``. In the three clinical
+corpora the controls are labelled ``normal`` and ``healthy``; patients carry
+``dx_*`` flags and stay unlabelled.
+
 The healthy-volunteer corpora are labelled ``normal`` (MIPDB's ``DX_Status``
 is kept in the manifest); in TDBRAIN only the healthy controls are, the
 patients stay unlabelled. Every recording is placed in the **test** split, so a
@@ -512,9 +537,181 @@ def open_dortmund(path):
     return raw, present, None
 
 
+def keep_longest_segment(raw, breaks_sec):
+    """Cut ``raw`` (preloaded) to its longest piece between the discontinuities at ``breaks_sec``."""
+    sf = raw.info["sfreq"]
+    edges = sorted({0, raw.n_times, *(int(round(b * sf)) for b in breaks_sec if 0 < b * sf < raw.n_times)})
+    if len(edges) > 2:
+        k = int(np.argmax(np.diff(edges)))
+        raw.crop(edges[k] / sf, (edges[k + 1] - 1) / sf)
+
+
+def _participants(meta_tsv):
+    """BIDS participants.tsv (with or without a byte-order mark), indexed by participant_id."""
+    import pandas as pd
+    return pd.read_csv(meta_tsv, sep="\t", encoding="utf-8-sig").set_index("participant_id")
+
+
+def _value(row, col):
+    """A participants.tsv cell as a float, or None when it is missing."""
+    import pandas as pd
+    v = pd.to_numeric(row.get(col), errors="coerce")
+    return None if pd.isna(v) else float(v)
+
+
+def _sex(value):
+    v = str(value).strip().upper()[:1]
+    return v if v in ("M", "F") else None
+
+
+def ahepa_recordings(raw_dir, meta_tsv):
+    """One eyes-closed recording per participant; ``Group`` A / F / C = Alzheimer's disease /
+    frontotemporal dementia / healthy control."""
+    meta = _participants(meta_tsv)
+    out = []
+    for path in sorted(glob.glob(os.path.join(raw_dir, "sub-*", "eeg", "*_task-eyesclosed_eeg.set"))):
+        sub = os.path.basename(path).split("_")[0]
+        if sub not in meta.index or _value(meta.loc[sub], "Age") is None:
+            continue
+        m = meta.loc[sub]
+        group = str(m["Group"]).strip().upper()
+        out.append({"stem": f"{sub}_ahepa", "path": os.path.relpath(path, raw_dir), "corpus": "ahepa",
+                    "subject": sub, "session": "1", "age": _value(m, "Age"), "raw_age": _value(m, "Age"),
+                    "sex": _sex(m["Gender"]), "label": "normal" if group == "C" else None,
+                    "healthy": group == "C", "dx_ad": group == "A", "dx_ftd": group == "F",
+                    "clinical_group": {"A": "alzheimer", "F": "ftd", "C": "control"}.get(group, "unknown"),
+                    "mmse": _value(m, "MMSE"), "_file": path})
+    return out
+
+
+def open_ahepa(path):
+    """EEGLAB at 500 Hz, the 19 10-20 channels as exported by the clinical system (time constant
+    0.3 s, 70 Hz high cut); kept in the exported reference."""
+    import mne
+    raw = mne.io.read_raw_eeglab(path, preload=True, verbose="error")
+    raw._data -= raw._data.mean(axis=1, keepdims=True)
+    return raw, channel_map(raw.ch_names, bids_canonical_channel), None
+
+
+def iowapd_recordings(raw_dir, meta_tsv):
+    meta = _participants(meta_tsv)
+    out = []
+    for path in sorted(glob.glob(os.path.join(raw_dir, "sub-*", "eeg", "*_task-Rest_eeg.set"))):
+        sub = os.path.basename(path).split("_")[0]
+        if sub not in meta.index or _value(meta.loc[sub], "AGE") is None:
+            continue
+        m = meta.loc[sub]
+        control = str(m["GROUP"]).strip().lower() == "control"
+        out.append({"stem": f"{sub}_iowapd", "path": os.path.relpath(path, raw_dir), "corpus": "iowapd",
+                    "subject": sub, "session": "1", "age": _value(m, "AGE"), "raw_age": _value(m, "AGE"),
+                    "sex": _sex(m["GENDER"]), "label": "normal" if control else None, "healthy": control,
+                    "dx_pd": not control, "clinical_group": "control" if control else "parkinson",
+                    "moca": _value(m, "MOCA"), "updrs": _value(m, "UPDRS"), "_file": path})
+    return out
+
+
+def open_iowapd(path):
+    """EEGLAB at 500 Hz, 63-66 channels referenced to Pz. Pz itself is not in the file: it is added
+    as the (zero) reference channel, and ``reference="average"`` then re-references the 19 picked
+    channels to their mean, which gives Pz its signal back."""
+    import mne
+    raw = mne.io.read_raw_eeglab(path, preload=True, verbose="error")
+    if "Pz" not in raw.ch_names:
+        raw = mne.add_reference_channels(raw, ["Pz"])
+    keep_longest_segment(raw, [a["onset"] for a in raw.annotations if a["description"] == "boundary"])
+    raw._data -= raw._data.mean(axis=1, keepdims=True)
+    return raw, channel_map(raw.ch_names, bids_canonical_channel), "average"
+
+
+def telavivpd_recordings(raw_dir, meta_tsv):
+    meta = _participants(meta_tsv)
+    out = []
+    for path in sorted(glob.glob(os.path.join(raw_dir, "sub-*", "eeg", "*_task-rest_eeg.set"))):
+        sub = os.path.basename(path).split("_")[0]
+        if sub not in meta.index or _value(meta.loc[sub], "age") is None:
+            continue
+        m = meta.loc[sub]
+        control = str(m["group"]).strip().upper() == "HC"
+        out.append({"stem": f"{sub}_rest_telavivpd", "path": os.path.relpath(path, raw_dir), "corpus": "telavivpd",
+                    "subject": sub, "session": "1", "age": _value(m, "age"), "raw_age": _value(m, "age"),
+                    "sex": _sex(m["sex"]), "label": "normal" if control else None, "healthy": control,
+                    "dx_pd": not control, "clinical_group": "control" if control else "parkinson",
+                    "moca": _value(m, "moca"), "updrs": _value(m, "updrs_total"), "ledd": _value(m, "ledd"),
+                    "disease_duration": _value(m, "disease_duration"), "_file": path})
+    return out
+
+
+def open_telavivpd(path):
+    """EEGLAB at 250 Hz, 60 EEG channels with 10-10 labels + 4 EOG + ``VREF``. ``VREF`` is the
+    vertex reference, i.e. Cz, and all zero: it is renamed and ``reference="average"`` gives it its
+    signal back. The recorder marks breaks in continuity (``break cnt``, ``boundary``): the longest
+    continuous piece is kept. The DC offset (tens of millivolts) is removed."""
+    import mne
+    raw = mne.io.read_raw_eeglab(path, preload=True, verbose="error")
+    if "VREF" in raw.ch_names and "Cz" not in raw.ch_names:
+        raw.rename_channels({"VREF": "Cz"})
+    keep_longest_segment(raw, [a["onset"] for a in raw.annotations if a["description"] in ("break cnt", "boundary")])
+    raw._data -= raw._data.mean(axis=1, keepdims=True)
+    return raw, channel_map(raw.ch_names, bids_canonical_channel), "average"
+
+
+def srm_recordings(raw_dir, meta_tsv):
+    """One recording per session (``t1`` for all 111 participants, ``t2`` for 42). The listed age is
+    that of ``t1``; a ``t2`` age adds the time between the sessions' ``acq_time`` (``*_scans.tsv``)."""
+    import pandas as pd
+    meta = _participants(meta_tsv)
+    out = []
+    when = {}
+    for scans in glob.glob(os.path.join(raw_dir, "sub-*", "ses-*", "*_scans.tsv")):
+        t = pd.read_csv(scans, sep="\t")
+        parts = os.path.normpath(scans).split(os.sep)
+        when[(parts[-3], parts[-2])] = pd.to_datetime(t["acq_time"].iloc[0], errors="coerce")
+    for path in sorted(glob.glob(os.path.join(raw_dir, "sub-*", "ses-*", "eeg", "*_task-resteyesc_eeg.edf"))):
+        sub, ses = os.path.basename(path).split("_")[:2]
+        if sub not in meta.index or _value(meta.loc[sub], "age") is None:
+            continue
+        m = meta.loc[sub]
+        age, matched = _value(m, "age"), True
+        if ses != "ses-t1":
+            t1, t = when.get((sub, "ses-t1")), when.get((sub, ses))
+            if t1 is None or t is None or pd.isna(t1) or pd.isna(t):
+                matched = False
+            else:
+                age += (t - t1).days / 365.25
+        out.append({"stem": f"{sub}_{ses}_srm", "path": os.path.relpath(path, raw_dir), "corpus": "srm",
+                    "subject": sub, "session": ses.replace("ses-", ""), "age": age, "raw_age": _value(m, "age"),
+                    "age_session_matched": matched, "sex": _sex(m["sex"]), "label": "normal", "healthy": True,
+                    "_file": path})
+    return out
+
+
+def _edf_dimensions(path):
+    """The physical-dimension strings of an EDF file's signals."""
+    with open(path, "rb") as fh:
+        ns = int(fh.read(256)[252:256])
+        fh.seek(256 + ns * (16 + 80))
+        return [fh.read(8).decode("latin1").strip() for _ in range(ns)]
+
+
+def open_srm(path):
+    """EDF at 1024 Hz, 64 channels, already re-referenced to the average of the 64 (kept). The
+    headers have an empty physical dimension, which MNE reads as volts; the values are microvolts
+    (the alpha peak is then a few µV²/Hz), so they are scaled. The recording is DC-coupled: each
+    channel's mean is removed."""
+    import mne
+    raw = mne.io.read_raw_edf(path, preload=True, verbose="error")
+    if not any(_edf_dimensions(path)):
+        raw._data *= 1e-6
+    crop_constant_ends(raw, list(channel_map(raw.ch_names, bids_canonical_channel).values()))
+    raw._data -= raw._data.mean(axis=1, keepdims=True)
+    return raw, channel_map(raw.ch_names, bids_canonical_channel), None
+
+
 DATASETS = {"lemon": (lemon_recordings, open_lemon), "mipdb": (mipdb_recordings, open_mipdb),
             "chbp": (chbp_recordings, open_chbp), "tdbrain": (tdbrain_recordings, open_tdbrain),
-            "dortmund": (dortmund_recordings, open_dortmund)}
+            "dortmund": (dortmund_recordings, open_dortmund), "ahepa": (ahepa_recordings, open_ahepa),
+            "iowapd": (iowapd_recordings, open_iowapd), "telavivpd": (telavivpd_recordings, open_telavivpd),
+            "srm": (srm_recordings, open_srm)}
 
 
 # ------------------------------------------------------------------ convert
