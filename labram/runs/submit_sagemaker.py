@@ -257,6 +257,7 @@ def _stage_test_sets(staged: 'StagedInputs', config: RunConfig) -> None:
         if not sep:
             kept.append(entry)
             continue
+        path, _, query = path.partition('?')        # per-set options travel with the mount
         src = path if _is_s3(path) else mirrors.get(_normalize_path(path))
         if src is None:
             logger.warning("evaluation.test_sets: %r is local with no S3 copy in "
@@ -264,7 +265,7 @@ def _stage_test_sets(staged: 'StagedInputs', config: RunConfig) -> None:
             continue
         channel = f"test_{name}"
         staged.channels[channel] = src
-        kept.append(f"{name}={_channel_mount(channel)}")
+        kept.append(f"{name}={_channel_mount(channel)}" + (f"?{query}" if query else ""))
     ev.test_sets = kept
 
 

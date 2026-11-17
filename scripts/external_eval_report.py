@@ -49,6 +49,17 @@ def groups(cohort, meta):
     if cohort == "chbp":
         out += [("18-29", (age < 30).to_numpy()), ("30-39", ((age >= 30) & (age < 40)).to_numpy()),
                 ("40-68", (age >= 40).to_numpy())]
+    if cohort == "tdbrain":
+        out += [("18-44", ((age >= 18) & (age < 45)).to_numpy()), ("45-88", (age >= 45).to_numpy())]
+        healthy = meta["healthy"].fillna(False).astype(bool) if "healthy" in meta else age < 0
+        out += [("healthy 18-68 (CHBP-like)", (healthy & (age >= 18) & (age <= 68)).to_numpy())]
+        out += [(name, meta[col].fillna(False).astype(bool).to_numpy()) for name, col in
+                (("healthy", "healthy"), ("MDD", "dx_mdd"), ("ADHD", "dx_adhd"), ("OCD", "dx_ocd"),
+                 ("SMC", "dx_smc"), ("other dx", "dx_other"), ("blinded (REPLICATION)", "blinded"),
+                 ("indication unknown", "unknown")) if col in meta]
+        if "task" in meta:
+            out += [("eyes closed", (meta["task"] == "restEC").to_numpy()),
+                    ("eyes open", (meta["task"] == "restEO").to_numpy())]
     return out
 
 
@@ -73,16 +84,23 @@ def metrics(pred, age):
             "r2": 1 - (err ** 2).sum() / ss_tot if ss_tot > 0 else np.nan}
 
 
-def cohort_meta(cohort_dir):
+MIN_AGE = {}                  # cohort -> minimum age analysed (--min-age, e.g. tdbrain=18)
+AGGREGATE_ONLY = {"tdbrain"}  # DUA: no per-subject rows in the repo, aggregates only
+
+
+def cohort_meta(cohort_dir, name=None):
     m = json.load(open(os.path.join(cohort_dir, "manifest.json")))
-    return pd.DataFrame(m["recordings"]).set_index("stem")
+    meta = pd.DataFrame(m["recordings"]).set_index("stem")
+    if "age_session_matched" in meta:              # TDBRAIN: drop first-session fallback ages
+        meta = meta[meta["age_session_matched"].fillna(True).astype(bool)]
+    return meta[meta["age"] >= MIN_AGE[name]] if name in MIN_AGE else meta
 
 
 def eval_tables(evals, cohorts):
     rows, preds = [], []
     for name, path in evals.items():
         res = json.load(open(path))
-        meta = cohort_meta(cohorts[name])
+        meta = cohort_meta(cohorts[name], name)
         for model, r in res.items():
             p = pd.Series(r["splits"]["test"]["predictions"])
             d = meta.join(p.rename("pred"), how="inner")
@@ -102,11 +120,21 @@ def eval_tables(evals, cohorts):
 
 
 # ------------------------------------------------------------------ signal QC
-def recording_qc(path, mask, minutes=5.0, trim_windows=6):
+# Cohorts of short recordings (TDBRAIN: 2-min files of 12 windows) take their QC
+# windows as (first, drop_last): every window but the first and the last, instead
+# of the training protocol's 5 minutes after a 60 s trim.
+QC_WINDOWS = {"tdbrain": (1, 1)}
+QC_TASK = {"restEC": "eyes closed", "restEO": "eyes open"}
+
+
+def recording_qc(path, mask, minutes=5.0, trim_windows=6, drop_last=None):
     from scipy.signal import welch
     x = np.load(path, mmap_mode="r")
     n = x.shape[0] // 2000
-    sel = range(min(trim_windows, max(n - 1, 0)), min(n, trim_windows + int(minutes * 6)))
+    if drop_last is not None:
+        sel = range(min(trim_windows, max(n - 1, 0)), max(n - drop_last, trim_windows + 1))
+    else:
+        sel = range(min(trim_windows, max(n - 1, 0)), min(n, trim_windows + int(minutes * 6)))
     cols = [i for i in EEG19 if mask[i]]
     w = np.stack([np.asarray(x[k * 2000:(k + 1) * 2000, cols], dtype=np.float32) for k in sel])
     w = w - w.mean(axis=2, keepdims=True)
@@ -126,13 +154,18 @@ def recording_qc(path, mask, minutes=5.0, trim_windows=6):
 def qc_table(cohorts, n_ref=100, seed=0):
     rows, spectra = [], {}
     for name, cdir in cohorts.items():
-        meta = cohort_meta(cdir)
-        acc = []
+        meta = cohort_meta(cdir, name)
+        first, drop = QC_WINDOWS.get(name, (6, None))
+        acc = {}
         for stem, r in meta.iterrows():
-            q, f, psd = recording_qc(os.path.join(cdir, "recordings", f"{stem}.npy"), r["channel_mask"])
-            rows.append({"source": name, "stem": stem, **q})
-            acc.append(psd)
-        spectra[name] = (f, np.median(acc, axis=0))
+            q, f, psd = recording_qc(os.path.join(cdir, "recordings", f"{stem}.npy"), r["channel_mask"],
+                                     trim_windows=first, drop_last=drop)
+            # eyes closed / open separately where the cohort has one file per condition
+            src = f"{name} {QC_TASK.get(r.get('task'), r.get('task'))}" if isinstance(r.get("task"), str) else name
+            rows.append({"source": src, "stem": stem, **q})
+            acc.setdefault(src, []).append(psd)
+        for src, a in acc.items():
+            spectra[src] = (f, np.median(a, axis=0))
     m = json.load(open(os.path.join(REFERENCE, "manifest.json")))["recordings"]
     lab = json.load(open(os.path.join(REFERENCE, "age_metadata.json")))["recordings"]
     rng = random.Random(seed)
@@ -159,8 +192,19 @@ def plot_preds(preds, models, fig_dir):
         for j, m in enumerate(models):
             ax = axes[i][j]
             d = preds[(preds.cohort == c) & (preds.model == m)]
-            ax.scatter(d.age, d.pred, s=12, alpha=0.6, label="zero-shot")
-            ax.scatter(d.age, d.pred_recal, s=10, alpha=0.5, marker="x", label="recalibrated (5-fold CV)")
+            if c in AGGREGATE_ONLY:
+                # no per-subject points for cohorts under a no-redistribution DUA: mean +- SD per 5-year age bin
+                bins = (d.age // 5) * 5
+                for col, label, color in (("pred", "zero-shot", "C0"), ("pred_recal", "recalibrated (5-fold CV)", "C1")):
+                    g = d.groupby(bins)[col].agg(["mean", "std", "size"])
+                    g = g[g["size"] >= 10]
+                    ax.plot(g.index + 2.5, g["mean"], marker="o", ms=4, color=color, label=f"{label}, mean per 5-year bin")
+                    if col == "pred":
+                        ax.fill_between(g.index + 2.5, g["mean"] - g["std"], g["mean"] + g["std"], color=color, alpha=0.15,
+                                        linewidth=0)
+            else:
+                ax.scatter(d.age, d.pred, s=12, alpha=0.6, label="zero-shot")
+                ax.scatter(d.age, d.pred_recal, s=10, alpha=0.5, marker="x", label="recalibrated (5-fold CV)")
             lo, hi = 0, max(90, d.age.max() + 5)
             ax.plot([lo, hi], [lo, hi], color="0.5", lw=0.8)
             ax.set_xlim(lo, hi)
@@ -201,9 +245,12 @@ def main():
     ap.add_argument("--cohort", action="append", required=True, metavar="COHORT=DIR")
     ap.add_argument("--plot-models", nargs=2, default=["E2L", "W4"])
     ap.add_argument("--no-qc", action="store_true")
+    ap.add_argument("--min-age", action="append", default=[], metavar="COHORT=YEARS",
+                    help="analyse only recordings aged >= YEARS in COHORT (e.g. tdbrain=18)")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--fig-dir", default=None)
     args = ap.parse_args()
+    MIN_AGE.update({k: float(v) for k, v in (e.split("=", 1) for e in args.min_age)})
     evals = dict(e.split("=", 1) for e in args.eval)
     cohorts = dict(c.split("=", 1) for c in args.cohort)
     os.makedirs(args.out_dir, exist_ok=True)
@@ -215,10 +262,11 @@ def main():
         plot_preds(preds, args.plot_models, args.fig_dir)
     if not args.no_qc:
         qc, spectra = qc_table(cohorts)
-        # per recording only for the external cohorts: the TUH / HEEDB reference
-        # rows are aggregated (HEEDB DUA: no per-session data in the repo)
-        qc[~qc.source.str.contains("(ref)", regex=False)].to_csv(
-            os.path.join(args.out_dir, "qc.csv"), index=False)
+        # per recording only for the open external cohorts: the TUH / HEEDB reference
+        # rows and the cohorts under a no-redistribution DUA (AGGREGATE_ONLY) are
+        # written as aggregates only (qc_summary.csv)
+        restricted = qc.source.str.contains("(ref)", regex=False) | qc.source.str.split().str[0].isin(AGGREGATE_ONLY)
+        qc[~restricted].to_csv(os.path.join(args.out_dir, "qc.csv"), index=False)
         cols = [c for c in qc.columns if c not in ("source", "stem")]
         summary = qc.groupby("source")[cols].quantile([0.25, 0.5, 0.75]).unstack().round(3)
         summary.insert(0, "n", qc.groupby("source").size())

@@ -225,6 +225,13 @@ class TestLabels:
         with pytest.raises(ValueError, match="scan"):
             load_label_lookup_for(str(tmp_path))
 
+    def test_a_sidecar_with_only_null_labels_is_all_unlabelled(self, tmp_path):
+        with open(tmp_path / "age_metadata.json", "w") as fh:
+            json.dump({"recordings": {"a_s001_t000": dict(
+                stem="a_s001_t000", subject="a", session="s001", token=None,
+                age=40, sex=None, year=None, raw_age=40, label=None)}}, fh)
+        assert load_label_lookup_for(str(tmp_path)) == {}
+
 
 class TestTimeEmbedding:
     def test_required_patches_never_drop_below_the_pretrained_16(self):

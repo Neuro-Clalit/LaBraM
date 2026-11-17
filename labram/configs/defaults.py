@@ -309,6 +309,13 @@ DEFAULT_SAGEMAKER_DATA_S3_URIS: Dict[str, str] = {
     '/data/datasets/EEG-public/LEMON/cohorts/lemon_v1': 's3://eeg-data-public/LEMON/v1/cohorts/lemon_v1',
     '/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1': 's3://eeg-data-public/MIPDB/v1/cohorts/mipdb_v1',
     '/data/datasets/EEG-public/CHBP/cohorts/chbp_v1': 's3://eeg-data-public/CHBP/v1/cohorts/chbp_v1',
+    '/data/datasets/EEG-public/TDBRAIN/cohorts/tdbrain_v1': 's3://eeg-data-public/TDBRAIN/v1/cohorts/tdbrain_v1',
+    '/data/datasets/EEG-public/DORTMUND/cohorts/dortmund_v1': 's3://eeg-data-public/DORTMUND/v1/cohorts/dortmund_v1',
+    '/data/datasets/EEG-public/AHEPA/cohorts/ahepa_v1': 's3://eeg-data-public/AHEPA/v1/cohorts/ahepa_v1',
+    '/data/datasets/EEG-public/IOWAPD/cohorts/iowapd_v1': 's3://eeg-data-public/IOWAPD/v1/cohorts/iowapd_v1',
+    '/data/datasets/EEG-public/TELAVIVPD/cohorts/telavivpd_v1': 's3://eeg-data-public/TELAVIVPD/v1/cohorts/telavivpd_v1',
+    '/data/datasets/EEG-public/SRM/cohorts/srm_v1': 's3://eeg-data-public/SRM/v1/cohorts/srm_v1',
+    '/data/datasets/EEG-public/NMT/cohorts/nmt_v1': 's3://eeg-data-public/NMT/v1/cohorts/nmt_v1',
 }
 
 # ---------- Transformer architecture (NeuralTransformerBase) ----------

@@ -199,6 +199,9 @@ def main():
     ap.add_argument("--age-range", nargs=2, type=float, default=[18, 68])
     ap.add_argument("--trim", type=float, default=60.0)
     ap.add_argument("--minutes", type=float, default=5.0)
+    ap.add_argument("--ext-trim", type=float, default=None,
+                    help="trim (s) for the external cohorts when it differs from --trim, e.g. 0 for corpora of "
+                         "short runs (TDBRAIN 2 min, Dortmund 3 min) that are scored without a trim")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--jobs", type=int, default=12)
     ap.add_argument("--edf-root", default=None,
@@ -215,18 +218,20 @@ def main():
         name, d = item.split("=", 1)
         meta = json.load(open(os.path.join(d, "age_metadata.json")))["recordings"]
         for s, m in meta.items():
-            recs.append({"stem": s, "set": name, "age": float(m["age"]),
+            recs.append({"stem": s, "set": name, "age": float(m["age"]), "external": True,
                          "path": os.path.join(d, "recordings", s + ".npy")})
         externals.append(name)
     print(f"{len(recs)} recordings: {pd.Series([r['set'] for r in recs]).value_counts().to_dict()}", flush=True)
     feats = {}
     with cf.ProcessPoolExecutor(args.jobs) as pool:
-        for i, (stem, f) in enumerate(pool.map(_one, [(r["stem"], r["path"], args.trim, args.minutes)
-                                                       for r in recs], chunksize=8), 1):
+        ext_trim = args.trim if args.ext_trim is None else args.ext_trim
+        jobs = [(r["stem"], r["path"], ext_trim if r.get("external") else args.trim, args.minutes) for r in recs]
+        for i, (stem, f) in enumerate(pool.map(_one, jobs, chunksize=8), 1):
             feats[stem] = f
             if i % 500 == 0:
                 print(f"  {i}/{len(recs)}", flush=True)
-    df = pd.DataFrame(recs).set_index("stem").join(pd.DataFrame.from_dict(feats, orient="index"))
+    df = pd.DataFrame(recs).drop(columns="external", errors="ignore").set_index("stem").join(
+        pd.DataFrame.from_dict(feats, orient="index"))
     if "error" in df:
         print("errors:", df["error"].notna().sum())
         df = df[df["error"].isna()].drop(columns="error")
