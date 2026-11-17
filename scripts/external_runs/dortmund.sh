@@ -90,4 +90,9 @@ if [[ $step == tables || $step == all ]]; then
   mkdir -p $D docs/figures/dortmund
   $PY scripts/dortmund_brain_age.py --eval $OUT/dortmund_all_models.json --cohort $COHORT \
     --windows $W --models E2L E2LrobF P3ens P4ens --out-dir $D --fig-dir docs/figures/dortmund
+  # which sessions each label-free rejection score sets aside (the learned score is fitted on
+  # validation folds of the training cohort: each P4 fold model's own fold at its best epoch)
+  V4=$R/P4_L1/fold_1/cv/fold_1/analysis/val_bag_weights_epoch13.parquet,$R/P4_L1/fold_2/cv/fold_2/analysis/val_bag_weights_epoch15.parquet,$R/P4_L1/fold_4/cv/fold_4/analysis/val_bag_weights_epoch15.parquet
+  $PY scripts/rejection_scatter.py --set dortmund:$COHORT:$OUT/dortmund_all_models.json:$W --model P4ens \
+    --val-windows $V4 --out $D/rejection_overlap.csv --figure docs/figures/dortmund/dortmund_rejection_scatter.png
 fi

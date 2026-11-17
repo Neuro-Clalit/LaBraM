@@ -231,6 +231,28 @@ Test recordings of the training cohort with a normal EEG report, 20–75 years, 
 
 One point per person (608), with the mean prediction per 5-year age bin; dotted: identity. (a) E2L, (b) P4 ensemble.
 
+### Table 6.5. Which sessions the three rejection scores set aside, P4 ensemble (`rejection_overlap.csv`)
+
+Each score rejects the 163 sessions (20 %) with the highest value; none reads an age.
+
+| score | MAE kept (y) | MAE rejected (y) | mean age kept | mean age rejected |
+|---|---|---|---|---|
+| spread | 4.24 | 5.66 | 44.6 | 52.1 |
+| total uncertainty | 4.32 | 5.34 | 44.8 | 51.4 |
+| learned | 4.32 | 5.36 | 43.9 | 55.1 |
+
+Overlap of the rejected sets: spread and total share 111 sessions (Jaccard index 0.52), spread and learned 115 (0.55),
+total and learned 135 (0.71). 104 sessions are rejected by all three (MAE 5.83), 49 by two (4.82), 79 by one (4.75)
+and 584 by none (4.24).
+
+### Figure 6.2. Predicted against true age, with the sessions each score rejects
+
+![rejected sessions](figures/dortmund/dortmund_rejection_scatter.png)
+
+One point per session (816), P4 ensemble; dotted: identity. (a) to (c): the sessions rejected by the spread, the total
+uncertainty and the learned score, in colour, over the kept ones in grey. (d) The number of scores that reject a
+session (`scripts/rejection_scatter.py`).
+
 **What Section 6 shows:**
 - **No degradation.** Dortmund is predicted as well as healthy Temple recordings of the same ages and better than
   healthy Harvard ones (Table 6.4). It is the third external cohort at this level, after TDBRAIN (4.92) and LEMON
@@ -242,6 +264,15 @@ One point per person (608), with the mean prediction per 5-year age bin; dotted:
 - **More signal helps:** one 3-minute run gives 5.16 years, the four runs of a session 4.53.
 - **Recording flags do not matter:** leaving out the 187 flagged runs changes the MAE by 0.04 years.
 - **Rejection works here too:** 4.24 to 4.32 years for the 80 % kept, with each of the three scores.
+- **The rejected sessions are the older ones, not the outliers.** Their mean age is 51 to 55 years against 44 to 45
+  for the kept ones. Under 35 only 2 to 7 % of the sessions are rejected (4 to 17 of 232), against 27 to 31 % from
+  age 50 (Figure 6.2(a) to (c)).
+  The rejected points lie along the whole band, not at its edges: the scores remove a region where errors are larger
+  on average, they do not pick the single worst predictions. The MAE of the rejected fifth is 5.3 to 5.7 years, only
+  1.0 to 1.4 above the kept ones.
+- **The three scores agree on about two thirds:** 104 of the 163 sessions are rejected by all three, and those have the
+  highest error (5.83 years). The total uncertainty rejects the most young sessions (17 under 35, against 12 for
+  the spread and 4 for the learned score; Figure 6.2(b)), through the disagreement of the fold models.
 - The post-task runs score better than the pre-task ones (4.51 against 5.03). This is the state shift of Section 7
   cancelling part of the negative bias, not a better signal.
 

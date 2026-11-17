@@ -173,3 +173,21 @@ def test_icc_is_low_when_the_two_measurements_are_offset():
     a = np.random.default_rng(0).normal(0, 1, 200)
     assert db.icc_agreement(a, a) > 0.999
     assert db.icc_agreement(a, a + 3.0) < 0.3                                     # perfect correlation, no agreement
+
+
+def test_rejection_scatter_sets_and_overlap():
+    import rejection_scatter as rsc
+    rng = np.random.default_rng(0)
+    n = 200
+    u = pd.DataFrame({"age": rng.uniform(20, 70, n), "spread": rng.random(n)})
+    u["pred"] = u["age"] + 20 * u["spread"] * rng.choice([-1, 1], n)            # the uncertain ones are wrong
+    u["total"] = u["spread"] + 0.05 * rng.random(n)
+    u["learned_val+fold"] = rng.random(n)                                        # unrelated to the other two
+    rej = rsc.rejected_sets(u, ["spread", "total", "learned"], 0.2)
+    assert {k: int(v.sum()) for k, v in rej.items()} == {"spread": 40, "total": 40, "learned": 40}
+    t = rsc.summary(u, rej).set_index("score")
+    assert t.loc["spread", "mae_rejected"] > 2 * t.loc["spread", "mae_kept"]
+    assert t.loc["spread & total", "jaccard"] > 0.7 > t.loc["spread & learned", "jaccard"]
+    counts = t.loc[[f"rejected by {k} of 3 scores" for k in range(4)], "rejected"]
+    assert counts.sum() == n
+    assert "learned" not in rsc.rejected_sets(u.drop(columns="learned_val+fold"), ["spread", "learned"], 0.2)
