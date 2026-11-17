@@ -195,3 +195,20 @@ def test_summary_table_cells():
     assert acs.cell(t, "x", "E2L", "all", "bias") == "+0.0"              # no negative zero
     assert acs.signed(-1.26) == "−1.3" and acs.cell(t, "x", "P4ens", "all", "mae") == ""
     assert len({c["key"] for c in acs.COHORTS}) == len(acs.COHORTS) and all(c["use"] for c in acs.COHORTS)
+
+
+def test_bias_correction_subsets():
+    import bias_correction_cohorts as bc
+    rng = np.random.default_rng(0)
+    n = 300
+    age = rng.uniform(20, 80, n)
+    d = pd.DataFrame({"age": age, "healthy": np.arange(n) < 100, "pathological": (np.arange(n) >= 100) & (np.arange(n) < 180)})
+    pred = 0.8 * age + 10 + rng.standard_normal(n)
+    s = bc.subsets(d)
+    assert {k: int(v.sum()) for k, v in s.items()} == {"all": 300, "normal": 100, "abnormal": 80, "unlabelled": 120}
+    m = bc.describe_subset(d, pred, s["normal"])
+    assert m["n"] == 100 and abs(m["slope"] - 0.8) < 0.03 and m["r_gap_age"] < -0.9
+    corrected = (pred - 10) / 0.8                             # Cole inversion with the true line
+    assert abs(bc.describe_subset(d, corrected, s["abnormal"])["slope"] - 1.0) < 0.04
+    only = bc.subsets(d.assign(healthy=True, pathological=False))
+    assert list(only) == ["all"]                              # a healthy-volunteer cohort has no subsets

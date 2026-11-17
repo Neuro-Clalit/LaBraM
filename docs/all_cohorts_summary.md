@@ -126,3 +126,90 @@ cohort's healthy controls.
 - **The ensembles beat the window model E2L on every cohort where the models work;** P4 and P3 are within 0.3 years of each other there.
 - **The device-robust model is better than E2L only on the cohorts where the raw-input models fail** (CHBP, NMT, AHEPA, Iowa Parkinson's, Tel Aviv Parkinson's), and worse everywhere else, by 0.3 to 3.0 years.
 - **Five cohorts are not age benchmarks for the present models:** NMT (released band-limited), the three elderly disease cohorts (their controls are predicted 7 to 11 years too young) and the MIPDB adults (31 recordings). They serve for contrasts inside a cohort, or not at all.
+
+## 4. Age-bias correction per cohort and subset
+
+The corrections of `docs/tdbrain_onboarding.md` Section 19 (`scripts/bias_correction_cohorts.py --by-group`), fitted
+once per model on validation recordings of the training cohort with a normal EEG report and applied unchanged to
+every cohort and subset; nothing is fitted on a scored cohort. With prediction $\hat y$ and age $y$, and the
+validation fits $\hat y \approx a\,y + b$, $y \approx c\,\hat y + d$ and $\hat y - y \approx c_0 + c_1 y + c_2 y^2$:
+
+$$ \hat y^{cole} = \frac{\hat y - b}{a}, \qquad \hat y^{recal} = c\,\hat y + d, \qquad \hat y^{lin} = \hat y - \big((a-1)\,y + b\big), \qquad \hat y^{quad} = \hat y - \big(c_0 + c_1 y + c_2 y^2\big) \tag{4.1} $$
+
+Cole inversion and recalibration need no true age and give a new age estimate. The two gap corrections use the
+true age: they give a corrected brain-age gap for group comparisons, and their "MAE" is the mean absolute
+corrected gap, not an accuracy. Each cell is MAE in years / slope of the (corrected) prediction on age inside
+the subset (1 = no compression toward the mean age). Subsets with fewer than 20 units are left out; a slope
+inside a subset with a narrow age range (the elderly cohorts, CHBP) is unstable.
+
+### Table 4.1. P4 ensemble: MAE / slope under each correction, by cohort and subset
+
+| cohort | subset | n | none | Cole inversion | recalibration | linear gap (uses age) | quadratic gap (uses age) |
+|---|---|---|---|---|---|---|---|
+| Temple (TUH) | all | 272 | 5.87 / 0.79 | 6.74 / 1.00 | 5.89 / 0.78 | 5.34 / 1.00 | 5.15 / 1.02 |
+|  | normal report | 149 | 4.52 / 0.83 | 5.56 / 1.05 | 4.54 / 0.83 | 4.41 / 1.04 | 4.29 / 1.04 |
+|  | abnormal report | 123 | 7.50 / 0.67 | 8.16 / 0.84 | 7.52 / 0.66 | 6.47 / 0.88 | 6.20 / 0.93 |
+| Harvard (HEEDB) | all | 7,338 | 5.94 / 0.83 | 7.14 / 1.04 | 5.96 / 0.82 | 5.66 / 1.03 | 5.57 / 1.05 |
+|  | normal report | 1,518 | 5.69 / 0.83 | 6.94 / 1.05 | 5.72 / 0.83 | 5.51 / 1.04 | 5.35 / 1.04 |
+|  | abnormal report | 2,253 | 6.49 / 0.78 | 7.68 / 0.99 | 6.51 / 0.77 | 6.09 / 0.99 | 6.04 / 1.01 |
+|  | no report | 3,567 | 5.70 / 0.84 | 6.88 / 1.06 | 5.71 / 0.83 | 5.45 / 1.05 | 5.36 / 1.06 |
+| TDBRAIN | all | 1,113 | 4.92 / 0.89 | 6.61 / 1.12 | 4.90 / 0.88 | 5.24 / 1.09 | 5.14 / 1.07 |
+|  | healthy controls | 179 | 4.96 / 0.88 | 7.10 / 1.11 | 4.95 / 0.87 | 5.63 / 1.09 | 5.37 / 1.06 |
+|  | patients | 934 | 4.92 / 0.89 | 6.52 / 1.12 | 4.89 / 0.88 | 5.17 / 1.09 | 5.09 / 1.07 |
+| LEMON | all | 214 | 4.67 / 0.83 | 6.15 / 1.05 | 4.71 / 0.82 | 4.87 / 1.04 | 4.58 / 1.02 |
+| Dortmund Vital Study | all | 816 | 4.53 / 0.85 | 5.61 / 1.07 | 4.50 / 0.84 | 4.45 / 1.05 | 4.45 / 1.03 |
+| SRM | all | 152 | 4.84 / 0.88 | 7.13 / 1.11 | 4.81 / 0.87 | 5.65 / 1.09 | 5.53 / 1.03 |
+| CHBP | all | 250 | 7.95 / 0.53 | 8.99 / 0.67 | 7.99 / 0.53 | 7.13 / 0.74 | 7.26 / 0.65 |
+| NMT | all | 1,362 | 14.70 / 0.27 | 14.46 / 0.33 | 14.80 / 0.26 | 11.46 / 0.47 | 11.73 / 0.45 |
+|  | normal report | 1,217 | 14.44 / 0.27 | 14.16 / 0.33 | 14.55 / 0.26 | 11.22 / 0.47 | 11.49 / 0.45 |
+|  | abnormal report | 145 | 16.83 / 0.25 | 16.99 / 0.32 | 16.91 / 0.25 | 13.47 / 0.46 | 13.73 / 0.44 |
+| AHEPA | all | 88 | 11.23 / −0.11 | 12.33 / −0.14 | 11.16 / −0.11 | 9.78 / 0.10 | 9.55 / 0.20 |
+|  | healthy controls | 29 | 11.94 / 0.05 | 11.34 / 0.06 | 11.85 / 0.05 | 8.99 / 0.26 | 8.93 / 0.38 |
+|  | patients | 59 | 10.88 / −0.08 | 12.82 / −0.10 | 10.82 / −0.08 | 10.16 / 0.13 | 9.86 / 0.23 |
+| Iowa Parkinson's | all | 149 | 10.91 / 0.51 | 10.82 / 0.65 | 10.84 / 0.51 | 8.58 / 0.72 | 8.33 / 0.85 |
+|  | healthy controls | 49 | 12.74 / 0.46 | 11.95 / 0.58 | 12.66 / 0.46 | 9.47 / 0.67 | 9.07 / 0.81 |
+|  | patients | 100 | 10.01 / 0.58 | 10.27 / 0.73 | 9.95 / 0.57 | 8.14 / 0.78 | 7.97 / 0.91 |
+| Tel Aviv Parkinson's | all | 144 | 8.66 / 0.75 | 8.96 / 0.94 | 8.59 / 0.74 | 7.10 / 0.96 | 7.16 / 1.04 |
+|  | healthy controls | 28 | 9.81 / 0.41 | 9.37 / 0.51 | 9.71 / 0.40 | 7.43 / 0.61 | 7.65 / 0.67 |
+|  | patients | 116 | 8.38 / 0.77 | 8.86 / 0.97 | 8.32 / 0.76 | 7.03 / 0.98 | 7.04 / 1.07 |
+| MIPDB adults | all | 31 | 7.36 / 0.71 | 6.62 / 0.90 | 7.55 / 0.71 | 5.25 / 0.92 | 5.52 / 0.79 |
+|  | healthy controls | 30 | 7.33 / 0.71 | 6.67 / 0.90 | 7.51 / 0.71 | 5.29 / 0.92 | 5.55 / 0.79 |
+
+### Table 4.2. P3 ensemble: MAE / slope under each correction, by cohort and subset
+
+| cohort | subset | n | none | Cole inversion | recalibration | linear gap (uses age) | quadratic gap (uses age) |
+|---|---|---|---|---|---|---|---|
+| Temple (TUH) | all | 272 | 5.87 / 0.82 | 6.75 / 1.01 | 5.90 / 0.79 | 5.48 / 1.01 | 5.36 / 1.03 |
+|  | normal report | 149 | 4.61 / 0.86 | 5.69 / 1.06 | 4.62 / 0.83 | 4.63 / 1.04 | 4.53 / 1.04 |
+|  | abnormal report | 123 | 7.39 / 0.70 | 8.02 / 0.86 | 7.45 / 0.67 | 6.52 / 0.88 | 6.36 / 0.94 |
+| Harvard (HEEDB) | all | 7,338 | 5.98 / 0.84 | 7.19 / 1.04 | 6.02 / 0.82 | 5.84 / 1.03 | 5.78 / 1.05 |
+|  | normal report | 1,518 | 5.73 / 0.85 | 6.95 / 1.04 | 5.78 / 0.82 | 5.64 / 1.03 | 5.50 / 1.03 |
+|  | abnormal report | 2,253 | 6.52 / 0.80 | 7.74 / 0.99 | 6.57 / 0.78 | 6.29 / 0.99 | 6.26 / 1.01 |
+|  | no report | 3,567 | 5.74 / 0.86 | 6.95 / 1.06 | 5.78 / 0.83 | 5.65 / 1.05 | 5.59 / 1.06 |
+| TDBRAIN | all | 1,113 | 5.14 / 0.91 | 6.83 / 1.12 | 5.06 / 0.88 | 5.55 / 1.10 | 5.46 / 1.08 |
+|  | healthy controls | 179 | 5.15 / 0.91 | 7.26 / 1.12 | 5.12 / 0.88 | 5.90 / 1.09 | 5.70 / 1.06 |
+|  | patients | 934 | 5.14 / 0.91 | 6.75 / 1.12 | 5.04 / 0.88 | 5.48 / 1.10 | 5.42 / 1.08 |
+| LEMON | all | 214 | 4.70 / 0.85 | 6.21 / 1.05 | 4.77 / 0.82 | 5.05 / 1.04 | 4.79 / 1.02 |
+| Dortmund Vital Study | all | 816 | 4.72 / 0.88 | 5.94 / 1.08 | 4.64 / 0.85 | 4.83 / 1.07 | 4.85 / 1.05 |
+| SRM | all | 152 | 4.75 / 0.89 | 6.71 / 1.09 | 4.62 / 0.86 | 5.45 / 1.07 | 5.35 / 1.02 |
+| CHBP | all | 250 | 7.37 / 0.49 | 8.32 / 0.60 | 7.42 / 0.47 | 6.76 / 0.68 | 6.94 / 0.59 |
+| NMT | all | 1,362 | 17.69 / 0.22 | 18.30 / 0.28 | 17.71 / 0.22 | 14.87 / 0.41 | 15.01 / 0.39 |
+|  | normal report | 1,217 | 17.60 / 0.23 | 18.20 / 0.28 | 17.63 / 0.22 | 14.79 / 0.41 | 14.93 / 0.39 |
+|  | abnormal report | 145 | 18.42 / 0.20 | 19.13 / 0.25 | 18.42 / 0.19 | 15.54 / 0.39 | 15.68 / 0.37 |
+| AHEPA | all | 88 | 11.54 / −0.10 | 12.49 / −0.12 | 11.42 / −0.10 | 10.15 / 0.09 | 9.92 / 0.19 |
+|  | healthy controls | 29 | 11.93 / 0.08 | 11.42 / 0.10 | 11.96 / 0.07 | 9.28 / 0.26 | 9.20 / 0.39 |
+|  | patients | 59 | 11.34 / −0.08 | 13.02 / −0.10 | 11.16 / −0.08 | 10.58 / 0.10 | 10.27 / 0.20 |
+| Iowa Parkinson's | all | 149 | 10.96 / 0.58 | 11.40 / 0.71 | 10.93 / 0.56 | 9.26 / 0.77 | 9.09 / 0.89 |
+|  | healthy controls | 49 | 12.20 / 0.60 | 11.60 / 0.74 | 12.27 / 0.58 | 9.43 / 0.79 | 9.13 / 0.92 |
+|  | patients | 100 | 10.35 / 0.62 | 11.30 / 0.76 | 10.27 / 0.60 | 9.18 / 0.80 | 9.07 / 0.93 |
+| Tel Aviv Parkinson's | all | 144 | 8.21 / 0.80 | 8.77 / 0.98 | 8.16 / 0.77 | 7.12 / 0.99 | 7.19 / 1.07 |
+|  | healthy controls | 28 | 9.12 / 0.45 | 8.50 / 0.55 | 9.11 / 0.43 | 6.91 / 0.63 | 7.20 / 0.69 |
+|  | patients | 116 | 8.00 / 0.82 | 8.83 / 1.01 | 7.94 / 0.79 | 7.17 / 1.01 | 7.19 / 1.09 |
+| MIPDB adults | all | 31 | 6.88 / 0.74 | 6.73 / 0.91 | 7.25 / 0.72 | 5.47 / 0.93 | 5.44 / 0.80 |
+|  | healthy controls | 30 | 6.93 / 0.74 | 6.88 / 0.91 | 7.29 / 0.72 | 5.59 / 0.93 | 5.55 / 0.80 |
+
+**What the tables show:**
+- **On the cohorts where the models work** (Temple (TUH), Harvard (HEEDB), TDBRAIN, LEMON, Dortmund Vital Study, SRM) the raw slope of the P4 ensemble is 0.79 to 0.89 and the quadratic gap correction brings it to 1.02 to 1.07: a correction fitted on validation data transfers.
+- **Removing the bias without the true age costs accuracy:** Cole inversion raises the MAE by 0.9 to 2.3 years on these cohorts, and recalibration changes it by less than 0.1 years.
+- **An abnormal report stays harder after correction.** The correction is one function of age, so it removes what came from the subsets' different ages and nothing else. With the quadratic gap correction the mean absolute gap is 6.20 years for abnormal against 4.29 for normal reports in Temple, 6.04 against 5.35 in Harvard, and 5.36 for Harvard recordings without a report. In TDBRAIN patients and controls do not differ (5.09 against 5.37).
+- **Where the models fail, no correction repairs them.** After the quadratic gap correction the mean absolute gap is still 5.5 to 11.7 years on CHBP, NMT, the elderly disease cohorts and the MIPDB adults. The slope can come close to 1 there (Tel Aviv) without the error falling: the fault is a cohort-wide offset and a lost ranking, not the trend with age that the correction was fitted for.

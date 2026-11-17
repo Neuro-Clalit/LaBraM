@@ -27,6 +27,12 @@ accuracy. ``age_level`` and ``quadratic_gap`` use the true age: they give a
 corrected brain-age gap for group comparisons, and their "MAE" is the mean
 absolute corrected gap, not a deployable accuracy.
 
+``--by-group OUT.csv`` writes the same metrics per subset of each cohort: ``normal``
+(a normal EEG report, or the cohort's healthy controls), ``abnormal`` (an
+abnormal report, or the cohort's patients) and ``unlabelled`` (no report), next
+to ``all``. The correction is the one fitted on the normal-report validation
+predictions in every subset; subsets below ``--min-group`` units are left out.
+
 Per cohort, model and method: MAE, mean gap (bias), slope of the prediction on
 age (1 = no compression toward the mean), Pearson r of the gap with age (0 = no
 age bias), R^2, and the corrected-gap difference pathological - healthy with a
@@ -96,6 +102,26 @@ def describe(d, corrected):
     return out
 
 
+def describe_subset(d, corrected, mask):
+    """MAE, bias, slope, r of the gap with age and R^2 of the units in ``mask``."""
+    age, c = d["age"].to_numpy(float)[mask], corrected[mask]
+    e = c - age
+    sst = ((age - age.mean()) ** 2).sum()
+    return {"n": int(mask.sum()), "age_mean": age.mean(), "age_sd": age.std(), "mae": np.abs(e).mean(),
+            "bias": e.mean(), "slope": np.polyfit(age, c, 1)[0] if sst > 0 else np.nan,
+            "r_gap_age": np.corrcoef(e, age)[0, 1] if sst > 0 else np.nan,
+            "r2": 1 - (e ** 2).sum() / sst if sst > 0 else np.nan}
+
+
+def subsets(d):
+    """{name: boolean array} of the report / health subsets present in ``d``."""
+    h, p = d["healthy"].to_numpy(bool), d["pathological"].to_numpy(bool)
+    out = {"all": np.ones(len(d), bool)}
+    if p.any() or (~(h | p)).any():
+        out.update({"normal": h, "abnormal": p, "unlabelled": ~(h | p)})
+    return {k: v for k, v in out.items() if v.any()}
+
+
 def binned(age, value, min_bin, width=5.0):
     """Mean and SD of ``value`` per ``width``-year age bin with at least ``min_bin`` units."""
     edges = np.arange(np.floor(age.min() / width) * width, age.max() + width, width)
@@ -136,11 +162,13 @@ def main():
     ap.add_argument("--min-bin", type=int, default=10)
     ap.add_argument("--figure-model", default=None, help="model of the correction figure (default: the last of --models)")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--by-group", default=None, help="also write the metrics per normal / abnormal / unlabelled subset")
+    ap.add_argument("--min-group", type=int, default=20)
     ap.add_argument("--fig-dir", default=None)
     args = ap.parse_args()
     vals = dict(v.split("=", 1) for v in args.val)
     val_windows = {k: v.split(",") for k, v in (e.split("=", 1) for e in args.val_windows)}
-    params, rows, data = {}, [], {}
+    params, rows, data, grouped = {}, [], {}, []
     for model in args.models:
         pred, age, source = calibration(model, vals, val_windows, args.val_meta, args.min_age)
         params[model] = fit_bias_correction(pred, age)
@@ -160,11 +188,18 @@ def main():
                 c = apply_bias_correction(d["pred"].to_numpy(), params[model], method, age=d["age"].to_numpy())
                 rows.append({"cohort": name, "model": model, "method": method, "uses_true_age": method in USES_AGE,
                              **describe(d, c)})
+                for group, mask in subsets(d).items():
+                    if mask.sum() >= args.min_group:
+                        grouped.append({"cohort": name, "model": model, "method": method, "group": group,
+                                        "uses_true_age": method in USES_AGE, **describe_subset(d, c, mask)})
     df = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     df.to_csv(args.out, index=False)
     with pd.option_context("display.width", 250, "display.max_rows", 500):
         print(df.round(3).to_string(index=False))
+    if args.by_group:
+        pd.DataFrame(grouped).to_csv(args.by_group, index=False)
+        print(args.by_group)
     if not args.fig_dir:
         return
     import matplotlib

@@ -10,6 +10,10 @@ R^2 about the cohort's own mean age, for all scored units and for the healthy
 of its runs) where a cohort has several runs per session (TDBRAIN, Dortmund),
 as in ``external_cohort_table.py``.
 
+With ``--bias-by-group`` (the ``--by-group`` CSV of ``bias_correction_cohorts.py``
+run on the same cohorts) the page gets a section with every age-bias correction
+per cohort and subset (normal / abnormal / no report, or controls / patients).
+
 Outputs: ``--out`` (long CSV, one row per cohort, model and group) and
 ``--doc`` (a Markdown page with the cohort details of ``COHORTS`` below, one
 accuracy table per metric and the verdict on each cohort). The cohort details
@@ -126,7 +130,72 @@ def cell(t, cohort, model, group, what):
     return signed(r.bias)
 
 
-def write_doc(t, path):
+REPORT_COHORTS = {"temple", "harvard", "nmt"}                 # subsets are EEG-report verdicts
+SUBSET = {True: {"all": "all", "normal": "normal report", "abnormal": "abnormal report", "unlabelled": "no report"},
+          False: {"all": "all", "normal": "healthy controls", "abnormal": "patients", "unlabelled": "unlabelled"}}
+METHODS = [("none", "none"), ("cole", "Cole inversion"), ("recalibrate", "recalibration"),
+           ("age_level", "linear gap (uses age)"), ("quadratic_gap", "quadratic gap (uses age)")]
+
+
+def bias_section(path):
+    """Markdown lines of the correction-by-subset section."""
+    g = pd.read_csv(path)
+    out = ["## 4. Age-bias correction per cohort and subset", "",
+           "The corrections of `docs/tdbrain_onboarding.md` Section 19 (`scripts/bias_correction_cohorts.py --by-group`), fitted",
+           "once per model on validation recordings of the training cohort with a normal EEG report and applied unchanged to",
+           "every cohort and subset; nothing is fitted on a scored cohort. With prediction $\\hat y$ and age $y$, and the",
+           "validation fits $\\hat y \\approx a\\,y + b$, $y \\approx c\\,\\hat y + d$ and $\\hat y - y \\approx c_0 + c_1 y + c_2 y^2$:", "",
+           "$$ \\hat y^{cole} = \\frac{\\hat y - b}{a}, \\qquad \\hat y^{recal} = c\\,\\hat y + d, \\qquad "
+           "\\hat y^{lin} = \\hat y - \\big((a-1)\\,y + b\\big), \\qquad \\hat y^{quad} = \\hat y - \\big(c_0 + c_1 y + c_2 y^2\\big) \\tag{4.1} $$", "",
+           "Cole inversion and recalibration need no true age and give a new age estimate. The two gap corrections use the",
+           "true age: they give a corrected brain-age gap for group comparisons, and their \"MAE\" is the mean absolute",
+           "corrected gap, not an accuracy. Each cell is MAE in years / slope of the (corrected) prediction on age inside",
+           "the subset (1 = no compression toward the mean age). Subsets with fewer than 20 units are left out; a slope",
+           "inside a subset with a narrow age range (the elderly cohorts, CHBP) is unstable.", ""]
+    for num, (model, name) in enumerate((("P4ens", "P4 ensemble"), ("P3ens", "P3 ensemble")), 1):
+        out += [f"### Table 4.{num}. {name}: MAE / slope under each correction, by cohort and subset", "",
+                "| cohort | subset | n | " + " | ".join(m for _, m in METHODS) + " |", "|---|---|---|" + "---|" * len(METHODS)]
+        for c in COHORTS:
+            x = g[(g.cohort == c["key"]) & (g.model == model)]
+            for group in ("all", "normal", "abnormal", "unlabelled"):
+                r = x[x.group == group].set_index("method")
+                if r.empty:
+                    continue
+                cells = [f"{r.loc[k, 'mae']:.2f} / {r.loc[k, 'slope']:.2f}".replace("-", "−") for k, _ in METHODS]
+                label = SUBSET[c["key"] in REPORT_COHORTS][group]
+                out.append(f"| {c['name'] if group == 'all' else ''} | {label} | {int(r.loc['none', 'n']):,} | "
+                           + " | ".join(cells) + " |")
+        out.append("")
+    p4 = g[(g.model == "P4ens") & (g.group == "all")].pivot(index="cohort", columns="method", values=["mae", "slope"])
+    ok = [c["key"] for c in COHORTS if c["use"] == "yes"]
+    cost = (p4["mae"]["cole"] - p4["mae"]["none"]).loc[ok]
+    sl0, sl1 = p4["slope"]["none"].loc[ok], p4["slope"]["quadratic_gap"].loc[ok]
+    fail = p4["mae"]["quadratic_gap"].loc[[c["key"] for c in COHORTS if c["use"] != "yes"]]
+
+    def q(cohort, group):
+        r = g[(g.model == "P4ens") & (g.cohort == cohort) & (g.group == group) & (g.method == "quadratic_gap")]
+        return float(r["mae"].iloc[0])
+
+    out += ["**What the tables show:**",
+            f"- **On the cohorts where the models work** ({', '.join(c['name'] for c in COHORTS if c['use'] == 'yes')}) "
+            f"the raw slope of the P4 ensemble is {sl0.min():.2f} to {sl0.max():.2f} and the quadratic gap correction "
+            f"brings it to {sl1.min():.2f} to {sl1.max():.2f}: a correction fitted on validation data transfers.",
+            f"- **Removing the bias without the true age costs accuracy:** Cole inversion raises the MAE by "
+            f"{cost.min():.1f} to {cost.max():.1f} years on these cohorts, and recalibration changes it by less than 0.1 years.",
+            "- **An abnormal report stays harder after correction.** The correction is one function of age, so it removes "
+            "what came from the subsets' different ages and nothing else. With the quadratic gap correction the mean "
+            f"absolute gap is {q('temple', 'abnormal'):.2f} years for abnormal against {q('temple', 'normal'):.2f} for normal "
+            f"reports in Temple, {q('harvard', 'abnormal'):.2f} against {q('harvard', 'normal'):.2f} in Harvard, and "
+            f"{q('harvard', 'unlabelled'):.2f} for Harvard recordings without a report. In TDBRAIN patients and controls "
+            f"do not differ ({q('tdbrain', 'abnormal'):.2f} against {q('tdbrain', 'normal'):.2f}).",
+            "- **Where the models fail, no correction repairs them.** After the quadratic gap correction the mean absolute "
+            f"gap is still {fail.min():.1f} to {fail.max():.1f} years on CHBP, NMT, the elderly disease cohorts and the MIPDB "
+            "adults. The slope can come close to 1 there (Tel Aviv) without the error falling: the fault is a "
+            "cohort-wide offset and a lost ranking, not the trend with age that the correction was fitted for.", ""]
+    return out
+
+
+def write_doc(t, path, bias_csv=None):
     best = {c["key"]: t[(t.cohort == c["key"]) & (t.group == "all")].sort_values("mae").iloc[0] for c in COHORTS}
     out = ["# All test cohorts and all models in one place", "",
            "Generated by `scripts/all_cohorts_summary.py` from the saved predictions; regenerate it instead of editing it.",
@@ -197,6 +266,8 @@ def write_doc(t, path):
             "- **Five cohorts are not age benchmarks for the present models:** NMT (released band-limited), the three "
             "elderly disease cohorts (their controls are predicted 7 to 11 years too young) and the MIPDB adults (31 "
             "recordings). They serve for contrasts inside a cohort, or not at all.", ""]
+    if bias_csv:
+        out += bias_section(bias_csv)
     open(path, "w").write("\n".join(out))
 
 
@@ -204,6 +275,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", required=True)
     ap.add_argument("--doc", default="")
+    ap.add_argument("--bias-by-group", default=None, help="bias_correction_cohorts.py --by-group CSV of the same cohorts")
     args = ap.parse_args()
     t = pd.DataFrame([r for c in COHORTS for r in cohort_rows(c)])
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -212,7 +284,7 @@ def main():
         print(t[["cohort", "model", "group", "n", "n_subjects", "age_mean", "mae", "mae_lo", "mae_hi", "bias", "r", "r2",
                  "slope"]].round(2).to_string(index=False))
     if args.doc:
-        write_doc(t, args.doc)
+        write_doc(t, args.doc, args.bias_by_group)
         print(args.doc)
 
 
