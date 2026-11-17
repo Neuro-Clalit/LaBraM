@@ -184,3 +184,14 @@ def test_nmt_lists_labels_and_scales_the_released_values(tmp_path):
     assert reference is None and len(present) == 19
     v = raw.get_data(picks=list(present.values())) * 1e6
     np.testing.assert_allclose(np.median(v.std(axis=1)), np.sqrt(50 + 9), rtol=0.05)   # back at microvolt scale
+
+
+def test_summary_table_cells():
+    import all_cohorts_summary as acs
+    t = pd.DataFrame([{"cohort": "x", "model": "E2L", "group": "all", "mae": 5.004, "mae_lo": 4.5, "mae_hi": 5.5,
+                       "bias": -0.04, "r": 0.9, "r2": -0.14}])
+    assert acs.cell(t, "x", "E2L", "all", "mae") == "5.00 [4.50, 5.50]"
+    assert acs.cell(t, "x", "E2L", "all", "r2") == "−0.14 / 0.90"
+    assert acs.cell(t, "x", "E2L", "all", "bias") == "+0.0"              # no negative zero
+    assert acs.signed(-1.26) == "−1.3" and acs.cell(t, "x", "P4ens", "all", "mae") == ""
+    assert len({c["key"] for c in acs.COHORTS}) == len(acs.COHORTS) and all(c["use"] for c in acs.COHORTS)
