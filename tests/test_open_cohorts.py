@@ -164,3 +164,23 @@ def test_clinical_gap_is_adjusted_for_age():
     r, p, m = cg.partial_r(gap, score, age)
     assert r < -0.9 and p < 1e-6 and m == n
     assert np.isnan(cg.partial_r(gap[:5], score[:5], age[:5])[0])
+
+
+def test_nmt_lists_labels_and_scales_the_released_values(tmp_path):
+    from test_dortmund import _signal, _write_edf
+    root = tmp_path / "NMT-Scalp-EEG"
+    (root / "normal" / "train").mkdir(parents=True)
+    (root / "abnormal" / "eval").mkdir(parents=True)
+    x = _signal(70, 5, offset_uv=0.0) / 100.0                 # stored at a hundredth of the real amplitude
+    _write_edf(str(root / "normal" / "train" / "0000001.edf"), x, phys_max=5.0)
+    _write_edf(str(root / "abnormal" / "eval" / "0000002.edf"), x, phys_max=5.0)
+    (root / "Labels.csv").write_text("recordname,label,age,gender,loc\n0000001.edf,normal,22,not specified,train\n"
+                                     "0000002.edf,abnormal,12,female,eval\n0000003.edf,normal,40,male,train\n")
+    recs = {r["stem"]: r for r in mx.nmt_recordings(str(root), str(root / "Labels.csv"))}
+    assert set(recs) == {"nmt_0000001", "nmt_0000002"}      # the third file is not on disk
+    assert recs["nmt_0000001"]["label"] == "normal" and recs["nmt_0000001"]["sex"] is None
+    assert recs["nmt_0000002"]["label"] == "abnormal" and recs["nmt_0000002"]["sex"] == "F" and recs["nmt_0000002"]["age"] == 12.0
+    raw, present, reference = mx.open_nmt(recs["nmt_0000001"]["_file"])
+    assert reference is None and len(present) == 19
+    v = raw.get_data(picks=list(present.values())) * 1e6
+    np.testing.assert_allclose(np.median(v.std(axis=1)), np.sqrt(50 + 9), rtol=0.05)   # back at microvolt scale

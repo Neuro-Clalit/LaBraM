@@ -315,6 +315,7 @@ DEFAULT_SAGEMAKER_DATA_S3_URIS: Dict[str, str] = {
     '/data/datasets/EEG-public/IOWAPD/cohorts/iowapd_v1': 's3://eeg-data-public/IOWAPD/v1/cohorts/iowapd_v1',
     '/data/datasets/EEG-public/TELAVIVPD/cohorts/telavivpd_v1': 's3://eeg-data-public/TELAVIVPD/v1/cohorts/telavivpd_v1',
     '/data/datasets/EEG-public/SRM/cohorts/srm_v1': 's3://eeg-data-public/SRM/v1/cohorts/srm_v1',
+    '/data/datasets/EEG-public/NMT/cohorts/nmt_v1': 's3://eeg-data-public/NMT/v1/cohorts/nmt_v1',
 }
 
 # ---------- Transformer architecture (NeuralTransformerBase) ----------

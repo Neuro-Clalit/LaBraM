@@ -33,7 +33,7 @@ esac
 ROOT=$E/$DIR
 COHORT=$ROOT/cohorts/${name}_v1
 S3=s3://eeg-data-public/$DIR/v1
-if [[ $SRC == zenodo ]]; then RAW=$ROOT/raw/nmt_scalp_eeg_dataset; META=$RAW/Labels.csv
+if [[ $SRC == zenodo ]]; then RAW=$ROOT/raw/NMT-Scalp-EEG; META=$RAW/Labels.csv
 else RAW=$ROOT/raw/$SRC; META=$RAW/participants.tsv; fi
 D=docs/data/external_eval/$name
 

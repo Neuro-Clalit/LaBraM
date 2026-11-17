@@ -16,7 +16,11 @@ the TUM pain dataset's licence is unverified, so they are not part of this round
    Alzheimer's disease +6.3 years [1.0, 11.6]; frontotemporal dementia +4.8 [−1.2, 10.8]; Parkinson's disease +3.0
    [−0.4, 6.5] in Iowa and +2.6 [−0.6, 5.8] in Tel Aviv, +2.8 [0.5, 5.2] pooled. The gap does not follow MMSE, MoCA or
    UPDRS inside the patient groups.
-4. **NMT** (routine clinical EEG, Pakistan, normal / abnormal): Section 8.
+4. **NMT cannot be scored with our present models.** The released files are band-limited to about 1–35 Hz, and their
+   amplitude scale is undocumented (Section 8). The raw-input models collapse toward the mean age (MAE 15 to 18 years
+   on 1,362 adults, slope 0.2 to 0.3), and the same band limit applied to Temple and Harvard recordings reproduces the
+   collapse (Table 8.3). The amplitude-normalised model reaches 10.6 years (r 0.61). Inside the cohort, recordings
+   with an abnormal report look 3.9 years [2.3, 5.5] older than normal ones.
 
 ## 2. Data, terms and storage
 
@@ -27,12 +31,14 @@ the TUM pain dataset's licence is unverified, so they are not part of this round
 | `srm_v1` | OpenNeuro ds003775, CC0 | 111 (153: 42 have a second session 2–13 months later) | healthy | 17–71, 38.6 ± 13.6 | BioSemi ActiveTwo, 64 channels (10-10), 1024 Hz, unfiltered, released average-referenced | 4 min eyes closed, cut out of an evoked-potential paradigm |
 | `ahepa_v1` | OpenNeuro ds004504, CC0 | 88 (88) | 36 Alzheimer's, 23 frontotemporal dementia, 29 controls; MMSE | 44–79, 66.2 ± 7.4 | Nihon Kohden EEG-2100, the 19 10-20 channels, 500 Hz, time constant 0.3 s, 70 Hz high cut | eyes closed, 5–21 min (median 13.6) |
 | `iowapd_v1` | OpenNeuro ds004584, CC0 | 149 (149) | 100 Parkinson's, 49 controls; MoCA, UPDRS | 48–86, 69.3 ± 8.0 | BrainVision cap, 63–66 channels (10-10), reference Pz, 500 Hz | eyes open, 2–6 min (median 2.4) |
+| `nmt_v1` | Zenodo 10.5281/zenodo.21629135, CC BY 4.0 | 2,417 patients (2,417); 1,374 adults | EEG report: 2,002 normal, 415 abnormal (adults: 1,227 / 147) | under 1 to 96; adults 37.9 ± 16.4 | Contec KT88-2400, 19 channels + A1 / A2, 200 Hz, released average-referenced | routine clinical EEG, median 12 min |
 | `telavivpd_v1` | OpenNeuro ds007526, CC0 | 144 (144 resting runs) | 116 Parkinson's, 28 controls; MoCA, UPDRS, LEDD | 39–84, 65.1 ± 9.3 | EGI Geodesic 400, 60 EEG channels with 10-10 labels + vertex reference, 250 Hz | eyes open, 4 min (a walking run is not converted) |
 
-All four are CC0: no agreement, no login, redistribution allowed. Sources are the public OpenNeuro bucket
+The four OpenNeuro cohorts are CC0 and NMT is CC BY 4.0: no agreement, no login, redistribution allowed (NMT with
+attribution). Sources are Zenodo for NMT (archive checksum verified) and the public OpenNeuro bucket
 (`aws s3 sync --no-sign-request`; the preprocessed `derivatives` of AHEPA are not downloaded). Storage:
-`/data/datasets/EEG-public/{SRM,AHEPA,IOWAPD,TELAVIVPD}/{raw,meta,cohorts}`, mirrored to
-`s3://eeg-data-public/<NAME>/v1/` (bucket checked private before every upload). None of the four is in LaBraM's
+`/data/datasets/EEG-public/{SRM,AHEPA,IOWAPD,TELAVIVPD,NMT}/{raw,meta,cohorts}`, mirrored to
+`s3://eeg-data-public/<NAME>/v1/` (bucket checked private before every upload). None of the five is in LaBraM's
 pre-training corpus (Table 23.2 of `docs/tdbrain_onboarding.md`); SRM and the Iowa set are in the pre-training corpus
 of other foundation models (REVE, LEAD).
 
@@ -64,8 +70,9 @@ with $s$ the potentials against any common point; for $c = q$ the left side is $
 | `ahepa_v1` | 88 of 88 | 7,013 | 80 (30) | no: the usual 60 s at each end |
 | `iowapd_v1` | 149 of 149 | 2,327 | 14 (12) | yes |
 | `telavivpd_v1` | 144 of 144 | 3,456 | 24 (24) | yes |
+| `nmt_v1` | 2,403 of 2,417 (14 are shorter than 60 s); 1,369 adults | 175,060 | 70 (6) | no: the usual 60 s at each end |
 
-No recording failed. All 19 channels are present in every recording.
+No recording of the four OpenNeuro cohorts failed. All 19 channels are present in every recording.
 
 ## 4. Label-free signal check
 
@@ -222,16 +229,89 @@ levodopa). Nothing here is a diagnostic claim.
 
 ## 8. NMT
 
-Routine clinical EEG of the Pak-Emirates Military Hospital, Rawalpindi (Khan et al. 2022; Zenodo
-10.5281/zenodo.21629135, CC BY 4.0): 2,417 recordings of unique patients, 2,002 normal and 415 abnormal, with age and
-sex. The 13.4 GB archive was still downloading from Zenodo when this section was written; conversion and scoring follow
-with `scripts/external_runs/open_cohorts.sh nmt all`, and the results will be added here.
+Routine clinical EEG of the Pak-Emirates Military Hospital, Rawalpindi (Khan et al. 2022): one recording per patient,
+with the neurologists' normal / abnormal verdict, age and sex. 1,374 of the 2,417 patients are adults; the 1,043
+children are converted but not scored (the training data has almost no one under 18).
+
+### 8.1. Two undocumented properties of the released files
+
+The Zenodo page states a linked-ear recording at 200 Hz, re-referenced to the average, and nothing about filtering or
+scaling; the data paper could not be opened. The files themselves show:
+
+- **A band limit of about 1 to 35 Hz.** Against Temple and Harvard recordings the power is cut below 1 Hz and falls by
+  about two orders of magnitude between 34 and 36 Hz (Table 8.1). This is narrower than CHBP's 0.5–50 Hz band, which was
+  already enough to break the age ranking of our raw-input models (`docs/chbp_domain_shift.md`).
+- **An amplitude about a hundredth of real EEG.** The header unit is µV, but the median channel standard deviation is
+  0.11 (5th to 95th percentile over recordings 0.07 to 0.22), the same for normal and abnormal reports and unrelated to
+  age: a constant factor, not a per-file normalisation.
+
+The reader multiplies the stored values by 100, which puts the broadband amplitude (10.9 µV) between Temple's and
+Harvard's. That figure is not reliable: in the band both data sets have, 2–20 Hz, the scaled NMT power is 4.4 times
+that of random adult training recordings, so a gain matched there would be 48, not 100. The scale is therefore
+unknown within a factor of about 2. It does not matter for the amplitude-normalised model, and Table 8.2 shows that it
+does not rescue the others.
+
+### Table 8.1. NMT spectrum against the training data (`docs/data/external_eval/nmt/psd_nmt_vs_training.csv`)
+
+Median power of the NMT adults (values × 100) divided by that of Temple and Harvard recordings of the same ages.
+
+| frequency (Hz) | 0.5 | 1 | 2 | 5 | 10 | 20 | 30 | 34 | 36 | 40 | 50 | 70 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| power ratio | 0.05 | 0.42 | 4.0 | 4.6 | 4.8 | 2.4 | 1.2 | 0.64 | 0.009 | 0.003 | 0.003 | 0.004 |
+
+### Table 8.2. Zero-shot accuracy on the adults (`docs/data/external_eval/nmt/nmt_accuracy.csv`)
+
+1,362 adults with at least one window after the 60 s trims; every window. MAE in years with a 95 % interval / bias / r
+/ slope of the prediction on age. Predicting the cohort's mean age gives 13.3 years. "Gain matched": the cohort
+rescaled by one label-free factor (0.476) that equalises its 2–20 Hz power with random adult training recordings, a
+test-time adaptation.
+
+| model | values × 100 | gain matched |
+|---|---|---|
+| E2L | 17.74 [17.23, 18.28] / +14.1 / 0.46 / 0.21 | 18.36 / +14.4 / 0.46 / 0.12 |
+| P3 ensemble | 17.69 [17.17, 18.23] / +14.3 / 0.46 / 0.22 | 18.63 / +14.9 / 0.43 / 0.14 |
+| P4 ensemble | 14.70 [14.20, 15.18] / +9.9 / 0.51 / 0.27 | 16.69 / +12.4 / 0.48 / 0.18 |
+| device-robust E2L | **10.57 [10.16, 10.97] / +2.4 / 0.61 / 0.36** | 10.57 / +2.4 / 0.61 / 0.36 |
+| device-robust E2L, 80 % kept by spread | 9.70 [9.27, 10.15] / +2.1 / 0.66 | |
+
+### Table 8.3. Forward test: Temple and Harvard recordings made NMT-like (`docs/data/external_eval/nmt/forward_test.csv`)
+
+300 validation recordings with a normal report at the NMT adults' ages (mean 37.2), scored by the frozen models as
+recorded, after a 1–35 Hz band limit (zero-phase Butterworth, as in Eq. (7.2) of `docs/chbp_domain_shift.md`), and
+after matching their median spectrum to NMT's (gain and band together; Eq. (7.5) there). MAE / bias / r / slope.
+
+| transform of the training-domain recordings | E2L | device-robust E2L |
+|---|---|---|
+| none | 5.34 / +2.6 / 0.89 / 0.80 | 6.25 / +4.1 / 0.87 / 0.78 |
+| band 1–35 Hz | 12.55 / +9.5 / 0.66 / 0.33 | 6.96 / −1.8 / 0.78 / 0.53 |
+| spectrum matched to NMT's | 10.21 / +6.2 / 0.69 / 0.43 | 7.61 / −1.0 / 0.73 / 0.46 |
+| NMT itself (Table 8.2) | 17.74 / +14.1 / 0.46 / 0.21 | 10.57 / +2.4 / 0.61 / 0.36 |
+
+**What Section 8 shows:**
+- **The raw-input models do not work on NMT.** Their predictions sit near 50 years whatever the age (slope 0.2 to 0.3;
+  +25 years of bias at 18–29, −18 from 70 on), worse than predicting the cohort's mean.
+- **The band limit is the cause, and the forward test shows it.** The same 1–35 Hz limit takes E2L on its own domain
+  from 5.3 to 12.6 years and its slope from 0.80 to 0.33. A gain does not help: at the matched gain the slopes are
+  0.12 to 0.18.
+- **The amplitude-normalised model keeps part of the ranking** (r 0.61, slope 0.36, MAE 10.6 years) and is, as
+  designed, identical at either scale. It is still well short of its in-domain level, and about 3 years worse than the
+  forward test predicts (7.0 to 7.6), so the band and the gain do not explain everything: the device, the
+  population and the 35–45 Hz part of its input band, which NMT lacks, remain.
+- **Abnormal reports look older here too.** With the device-robust model the gap of the 145 abnormal adults is
+  +3.9 years [2.3, 5.5] above that of the 1,217 normal ones at the same age and sex (age, age squared and sex as
+  covariates, HC3 errors); the P4 ensemble gives +3.1 [1.8, 4.5]. Temple and Harvard gave +2.1 and +1.9
+  (`docs/tdbrain_onboarding.md` Table 22.1). The direction replicates in a third hospital, with a degraded model.
+
+**Consequence.** NMT is not a usable age benchmark for the present models. To use it, a model would have to be trained
+on input limited to the band NMT has (1–30 Hz, with amplitude normalisation), at the in-domain cost measured for the
+1–45 Hz variant, or the original recordings would have to be obtained from the authors. Until then NMT serves as a
+check of the normal / abnormal contrast only.
 
 ## 9. Reproduce
 
 ```bash
-for c in srm ahepa iowapd telavivpd; do
-  scripts/external_runs/open_cohorts.sh $c fetch     # public OpenNeuro bucket
+for c in srm ahepa iowapd telavivpd nmt; do
+  scripts/external_runs/open_cohorts.sh $c fetch     # public OpenNeuro bucket; Zenodo for nmt
   scripts/external_runs/open_cohorts.sh $c mirror    # private S3 copy
   scripts/external_runs/open_cohorts.sh $c all       # convert + score + tables
 done
@@ -239,7 +319,8 @@ done
 
 Table 4.1: `scripts/domain_shift_analysis.py --cohort <name>=<cohort> --ref-cohort <tuh_heedb_v1>` (`--ext-trim 0` for
 the three short cohorts). Table 6.1: the test split of `own_5min_models.json`, normal reports, weighted with
-`domain_shift_analysis.age_weights`.
+`domain_shift_analysis.age_weights`. Tables 8.1 and 8.3: `scripts/make_transformed_cohort.py` (`psd`, `sample`,
+`make --transform bandlimit:1,35` / `psdmatch` / `scale:0.476`), then `scripts/eval_age_by_cohort.py`.
 
 ## 10. References
 

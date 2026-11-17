@@ -361,7 +361,8 @@
             "/data/datasets/EEG-public/AHEPA/cohorts/ahepa_v1": "s3://eeg-data-public/AHEPA/v1/cohorts/ahepa_v1",
             "/data/datasets/EEG-public/IOWAPD/cohorts/iowapd_v1": "s3://eeg-data-public/IOWAPD/v1/cohorts/iowapd_v1",
             "/data/datasets/EEG-public/TELAVIVPD/cohorts/telavivpd_v1": "s3://eeg-data-public/TELAVIVPD/v1/cohorts/telavivpd_v1",
-            "/data/datasets/EEG-public/SRM/cohorts/srm_v1": "s3://eeg-data-public/SRM/v1/cohorts/srm_v1"
+            "/data/datasets/EEG-public/SRM/cohorts/srm_v1": "s3://eeg-data-public/SRM/v1/cohorts/srm_v1",
+            "/data/datasets/EEG-public/NMT/cohorts/nmt_v1": "s3://eeg-data-public/NMT/v1/cohorts/nmt_v1"
         },
         "weight_s3_uris": {
             "./checkpoints/labram-base.pth": "s3://eeg-data-public/models/labram/labram-base.pth",

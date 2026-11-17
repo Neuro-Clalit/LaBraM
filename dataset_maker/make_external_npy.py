@@ -63,7 +63,19 @@ reader and the channel naming differ per corpus:
   of the 111 participants. The EDF headers carry no physical unit (the values
   are microvolts).
 
-All four take the BIDS ``participants.tsv`` as ``--meta``. In the three clinical
+* ``nmt`` -- NMT Scalp EEG (Khan et al. 2022, Zenodo 10.5281/zenodo.21629135,
+  CC BY 4.0), EDF at 200 Hz from a Contec KT88-2400, the 19 10-20 channels +
+  A1 / A2, released average-referenced; routine clinical EEG of 2,417 patients
+  of all ages (1,374 adults) with a normal / abnormal label. Two undocumented
+  properties of the released files, found by the audit
+  (``docs/open_cohorts_onboarding.md``): the signals are band-limited to about
+  1-35 Hz, and the stored values are about a hundredth of real EEG amplitude
+  although the header says µV. They are multiplied by ``NMT_SCALE`` = 100,
+  which puts the cohort's median amplitude between Temple's and Harvard's; this
+  is an assumption, and a cohort-level, label-free one. ``--meta`` is
+  ``Labels.csv``.
+
+The four OpenNeuro corpora take the BIDS ``participants.tsv`` as ``--meta``. In the three clinical
 corpora the controls are labelled ``normal`` and ``healthy``; patients carry
 ``dx_*`` flags and stay unlabelled.
 
@@ -707,11 +719,43 @@ def open_srm(path):
     return raw, channel_map(raw.ch_names, bids_canonical_channel), None
 
 
+NMT_SCALE = 100.0        # released values x this = microvolts (assumption, see the module docstring)
+
+
+def nmt_recordings(raw_dir, meta_csv):
+    """One recording per patient (``Labels.csv``: recordname, label, age, gender, loc), found
+    under ``<label>/<loc>/<recordname>``. ``label`` is the neurologists' normal / abnormal verdict."""
+    import pandas as pd
+    meta = pd.read_csv(meta_csv)
+    out = []
+    for r in meta.itertuples():
+        path = os.path.join(raw_dir, str(r.label), str(r.loc), str(r.recordname))
+        age = pd.to_numeric(r.age, errors="coerce")
+        if not os.path.exists(path) or pd.isna(age):
+            continue
+        rec = os.path.splitext(str(r.recordname))[0]
+        out.append({"stem": f"nmt_{rec}", "path": os.path.relpath(path, raw_dir), "corpus": "nmt",
+                    "subject": f"nmt_{rec}", "session": "1", "age": float(age), "raw_age": float(age),
+                    "sex": _sex(r.gender), "label": str(r.label) if str(r.label) in ("normal", "abnormal") else None,
+                    "source_set": str(r.loc), "amplitude_scale": NMT_SCALE, "_file": path})
+    return out
+
+
+def open_nmt(path):
+    """EDF at 200 Hz, 19 channels + A1 / A2, average-referenced as released; values scaled by
+    ``NMT_SCALE`` to microvolts."""
+    import mne
+    raw = mne.io.read_raw_edf(path, preload=True, verbose="error")
+    raw._data *= NMT_SCALE
+    raw._data -= raw._data.mean(axis=1, keepdims=True)
+    return raw, channel_map(raw.ch_names, bids_canonical_channel), None
+
+
 DATASETS = {"lemon": (lemon_recordings, open_lemon), "mipdb": (mipdb_recordings, open_mipdb),
             "chbp": (chbp_recordings, open_chbp), "tdbrain": (tdbrain_recordings, open_tdbrain),
             "dortmund": (dortmund_recordings, open_dortmund), "ahepa": (ahepa_recordings, open_ahepa),
             "iowapd": (iowapd_recordings, open_iowapd), "telavivpd": (telavivpd_recordings, open_telavivpd),
-            "srm": (srm_recordings, open_srm)}
+            "srm": (srm_recordings, open_srm), "nmt": (nmt_recordings, open_nmt)}
 
 
 # ------------------------------------------------------------------ convert
