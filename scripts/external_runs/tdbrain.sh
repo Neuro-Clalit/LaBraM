@@ -249,20 +249,5 @@ if [[ $step == tables || $step == all ]]; then
   # brain age per pathology group and report status (Temple + Harvard): test split and out-of-fold
   $PY scripts/pathology_brain_age.py --cohort $C --test-eval $OUT/own_5min_models.json --models E2L P3ens P4ens \
     --oof P3=$V3 --oof P4=$V4 --out $D/pathology_brain_age.csv --figure docs/figures/tdbrain/pathology_gap.png
-  # technical report: its figures leave out test sets too small for a stable estimate (MIPDB adults,
-  # 31 recordings), so they are rebuilt from the five other cohorts next to the report; the CSVs of
-  # these runs go to a scratch folder (the six-cohort ones above stay the reference). Then
-  # LaTeX + Markdown + PDF from the one source.
-  T=docs/tech_report; TMP=$(mktemp -d); RSETS=("${SETS[@]:0:10}")
-  $PY scripts/external_cohort_bars.py --table $D/external_cohort_table.csv --reject-score --exclude mipdb \
-    --out $T/fig_cohort_mae.png
-  $PY scripts/bias_correction_cohorts.py "${RSETS[@]}" --models E2L P3ens P4ens \
-    --val E2L=$OUT/own_all_val_E2L.json --val-windows P4ens=$V4 --val-windows P3ens=$V3 \
-    --val-meta $C/age_metadata.json --out $TMP/bias.csv --fig-dir $T
-  $PY scripts/rejection_scores.py "${RSETS[@]}" --val-windows P4ens=$V4 --val-windows P3ens=$V3 \
-    --models P4ens --fit-on temple harvard --out $TMP/rejection.csv --figure $T/fig_rejection_curves.png
-  $PY scripts/window_confidence_figures.py "${RSETS[@]}" --model P4ens --out $TMP/windows.csv --fig-dir $T
-  rm -f $T/recording_error_vs_confidence.png                        # not used in the report
-  $PY scripts/chbp_variant_bars.py --out $T/fig_chbp_fixes.png      # CHBP corrections (docs/chbp_domain_shift.md)
-  $PY scripts/build_tech_report.py
+  # the technical report (seven cohorts, figures next to it) is built by scripts/external_runs/tech_report.sh
 fi

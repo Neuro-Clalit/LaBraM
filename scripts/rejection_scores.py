@@ -100,9 +100,14 @@ def fit_val_model(val_paths, min_age=18.0):
 COVERAGES = np.round(np.arange(0.5, 1.0001, 0.05), 2)
 
 
-def fold_scores(path):
-    """Per recording of one fold model: yhat and the window-level scores."""
-    w = pd.read_parquet(path, columns=["recording", "alpha", "window_pred"])
+def fold_scores(path, max_minute=None):
+    """Per recording of one fold model: yhat and the window-level scores. With
+    ``max_minute``, only the windows that start before that minute of the scored
+    part count; the attention weights are renormalised over them, which is exact
+    for a softmax pool followed by a linear head (``yhat = sum_i a_i p_i``)."""
+    w = pd.read_parquet(path, columns=["recording", "alpha", "window_pred"] + (["slot"] if max_minute else []))
+    if max_minute:                                   # slot = index of the 10 s window in the scored part
+        w = w[w["slot"] < 6 * max_minute].reset_index(drop=True)
     g = w.groupby("recording", sort=False)
     a = w["alpha"] / g["alpha"].transform("sum")
     n = g["alpha"].transform("size")
@@ -131,9 +136,10 @@ def fold_scores(path):
     return out
 
 
-def cohort_units(meta, wdir, members, val_model=None):
-    """One row per scoring unit with age, ensemble prediction and every score."""
-    per = [fold_scores(os.path.join(wdir, f"{m}_test.parquet")) for m in members]
+def cohort_units(meta, wdir, members, val_model=None, max_minute=None):
+    """One row per scoring unit with age, ensemble prediction and every score
+    (``max_minute``: only the windows of the first minutes, as in ``fold_scores``)."""
+    per = [fold_scores(os.path.join(wdir, f"{m}_test.parquet"), max_minute) for m in members]
     idx = per[0].index
     stack = {c: np.stack([f.reindex(idx)[c].to_numpy() for f in per]) for c in ["yhat"] + FOLD_SCORES}
     d = pd.DataFrame({c: stack[c].mean(axis=0) for c in FOLD_SCORES}, index=idx)

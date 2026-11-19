@@ -25,7 +25,7 @@ import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 COHORTS = [("temple", "Temple (TUH)"), ("harvard", "Harvard (HEEDB)"), ("tdbrain", "TDBRAIN"),
-           ("lemon", "LEMON"), ("chbp", "CHBP"), ("mipdb", "MIPDB")]
+           ("lemon", "LEMON"), ("dortmund", "Dortmund"), ("srm", "SRM"), ("chbp", "CHBP"), ("mipdb", "MIPDB")]
 # best published MAE per cohort: (kind, MAE, source); docs/tdbrain_onboarding.md Tables 12.1, 13.1-13.4
 SOTA = {
     "temple": [("within", 9.45, "Gemein 2024, TUAB eval (normal 6.60 / abnormal 12.85, weighted)")],
@@ -33,6 +33,8 @@ SOTA = {
                 ("zero-shot", 8.36, "Hajhassani 2026, healthy 20-90")],
     "lemon": [("within", 7.75, "Engemann 2022"), ("zero-shot", 9.91, "Hajhassani 2026")],
     "chbp": [("within", 6.48, "Engemann 2022")],
+    # conference abstract, 10-fold CV inside the cohort, runs per fold not stated (docs/dortmund_onboarding.md S10)
+    "dortmund": [("within", 2.24, "Azami and Zandbagleh 2025")],
 }
 MODELS = [("E2L", "E2L"), ("P3ens", "P3 ensemble"), ("P4ens", "P4 ensemble")]
 COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]          # categorical slots 1-3, fixed order
@@ -57,7 +59,7 @@ def main():
     cohorts = [(c, n) for c, n in COHORTS if c in present and c not in args.exclude]
     panels = [("none", "every recording / session")] + [
         (f"reject 20% ({sc})", f"reject 20 % by confidence (ensembles: {sc}; E2L: spread)") for sc in args.reject_score]
-    fig, axes = plt.subplots(len(panels), 1, figsize=(13, 4.75 * len(panels)), sharey=True, squeeze=False)
+    fig, axes = plt.subplots(len(panels), 1, figsize=(14, 5.0 * len(panels)), sharey=True, squeeze=False)
     axes = axes[:, 0]
     width = 0.165
     pub = [("within", "published, trained on the cohort", "#eda100"), ("zero-shot", "published, zero-shot", "#e87ba4")]
@@ -94,9 +96,9 @@ def main():
             ax.hlines(r.mae_predict_mean, i - 2.5 * width, i + 2.5 * width, colors=MUTED, linestyles="--",
                       lw=1.4, zorder=5, label="predict the cohort mean" if i == 0 else None)
         n = {c: pick(c, MODELS[-1][0], rej) for c, _ in cohorts}
-        unit = {"tdbrain": "sessions"}
+        unit = {"tdbrain": "sessions", "dortmund": "sessions"}
         domain = {"temple": "in-domain", "harvard": "in-domain"}
-        ax.set_xticks(x, [f"{name}\n{domain.get(c, 'zero-shot')}, n = {int(n[c].n):,} {unit.get(c, 'rec.')}\nage {n[c].age_mean:.0f} y"
+        ax.set_xticks(x, [f"{name}\n{domain.get(c, 'zero-shot')}\nn = {int(n[c].n):,} {unit.get(c, 'rec.')}\nage {n[c].age_mean:.0f} y"
                           for c, name in cohorts], fontsize=9, color=INK)
         ax.set_title(title, fontsize=11, color=INK)
         ax.grid(axis="y", color=GRID, lw=0.8, zorder=0)
@@ -110,7 +112,8 @@ def main():
     axes[0].set_ylim(0, 24)
     axes[0].legend(frameon=False, fontsize=9, loc="upper right", ncol=3)
     fig.tight_layout()
-    panel_labels(list(axes))
+    if len(axes) > 1:                       # a single panel gets no letter
+        panel_labels(list(axes))
     assert_max_columns(fig)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     fig.savefig(args.out, dpi=150)
