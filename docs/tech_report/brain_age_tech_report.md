@@ -292,21 +292,28 @@ What the ablations show:
 
 ### 6.1. Accuracy on seven cohorts
 
-**Table 9.** MAE in years with a 95 % interval, and $R^2$. Adults. Best published values with their protocol are in the last column (Section 7).
+**Table 9.** MAE in years with a 95 % interval, and $R^2$, by cohort and subset. Adults; `n`: recordings (TDBRAIN and Dortmund: sessions); subsets by EEG report (Temple, Harvard) or clinical group (TDBRAIN); the research cohorts hold healthy volunteers only. $R^2$ uses each row's own mean age, so it is low for subsets with a narrow age range. Bold: the best model of the row. Best published values with their protocol in the last column (Section 7).
 
-| cohort | E2L (window model) | P3 ensemble | P4 ensemble | best published |
-|---|---|---|---|---|
-| Temple, in-domain (272) | 6.40 [5.75, 7.09], 0.78 | 5.87 [5.24, 6.52], 0.81 | 5.87 [5.25, 6.54], 0.81 | 6.60 normal / 12.85 abnormal, trained on TUAB [29] |
-| Harvard, in-domain (7,338) | 7.02 [6.88, 7.16], 0.79 | 5.98 [5.86, 6.12], 0.84 | **5.94 [5.82, 6.07], 0.84** | none found |
-| TDBRAIN, zero-shot (1,113) | 5.32 [5.04, 5.60], 0.80 | 5.14 [4.89, 5.41], 0.82 | **4.92 [4.68, 5.19], 0.83** | 5.96 trained on TDBRAIN [12]; 8.36 zero-shot [31] |
-| LEMON, zero-shot (214) | 5.20 [4.60, 5.84], 0.88 | 4.70 [4.17, 5.29], 0.90 | **4.67 [4.11, 5.24], 0.90** | 7.75 trained on LEMON [13]; 9.91 zero-shot [31] |
-| Dortmund, zero-shot (816 sessions) | 5.01 [4.70, 5.36], 0.81 | 4.72 [4.45, 5.01], 0.83 | **4.53 [4.25, 4.82], 0.85** | 2.24 trained on Dortmund, abstract only [32] |
-| SRM, zero-shot (152) | 5.01 [4.37, 5.70], 0.77 | **4.75 [4.13, 5.42], 0.79** | 4.84 [4.23, 5.50], 0.79 | none found |
-| CHBP, zero-shot (250) | 9.35 [8.45, 10.27], −0.64 | **7.37 [6.60, 8.28], −0.14** | 7.95 [7.11, 8.87], −0.28 | 6.48 trained on CHBP [13] |
+| cohort | subset | n | age, mean | E2L (window model) | P3 ensemble | P4 ensemble | best published |
+|---|---|---|---|---|---|---|---|
+| Temple, in-domain | all | 272 | 50.7 | 6.40 [5.75, 7.09], 0.78 | **5.87 [5.24, 6.52], 0.81** | **5.87 [5.25, 6.54], 0.81** |  |
+|  | normal report | 149 | 44.6 | 4.91 [4.30, 5.57], 0.85 | 4.61 [4.02, 5.26], 0.87 | **4.52 [3.92, 5.18], 0.87** | 6.60, trained on TUAB normals [29] |
+|  | abnormal report | 123 | 58.0 | 8.21 [7.07, 9.34], 0.62 | **7.39 [6.30, 8.48], 0.67** | 7.50 [6.46, 8.54], 0.67 | 12.85, model trained on TUAB normals [29] |
+| Harvard, in-domain | all | 7,338 | 54.1 | 7.02 [6.88, 7.16], 0.79 | 5.98 [5.86, 6.12], 0.84 | **5.94 [5.82, 6.07], 0.84** | none found |
+|  | normal report | 1,518 | 48.8 | 7.12 [6.82, 7.43], 0.78 | 5.73 [5.45, 6.02], 0.84 | **5.69 [5.41, 5.98], 0.84** |  |
+|  | abnormal report | 2,253 | 58.8 | 7.56 [7.28, 7.85], 0.75 | 6.52 [6.28, 6.78], 0.80 | **6.49 [6.25, 6.76], 0.80** |  |
+|  | no report | 3,567 | 53.3 | 6.64 [6.45, 6.84], 0.81 | 5.74 [5.56, 5.94], 0.85 | **5.70 [5.51, 5.89], 0.85** |  |
+| TDBRAIN, zero-shot | all | 1,113 | 45.2 | 5.32 [5.04, 5.60], 0.80 | 5.14 [4.89, 5.41], 0.82 | **4.92 [4.68, 5.19], 0.83** | 5.96 trained on TDBRAIN [12]; 8.36 zero-shot [31] |
+|  | healthy controls | 179 | 40.3 | 5.28 [4.55, 6.10], 0.81 | 5.15 [4.44, 5.97], 0.81 | **4.96 [4.24, 5.79], 0.82** |  |
+|  | patients | 934 | 46.2 | 5.33 [5.03, 5.62], 0.80 | 5.14 [4.86, 5.41], 0.81 | **4.92 [4.65, 5.18], 0.83** |  |
+| LEMON, zero-shot | all, healthy | 214 | 39.2 | 5.20 [4.60, 5.84], 0.88 | 4.70 [4.17, 5.29], 0.90 | **4.67 [4.11, 5.24], 0.90** | 7.75 trained on LEMON [13]; 9.91 zero-shot [31] |
+| Dortmund, zero-shot | all, healthy | 816 | 46.1 | 5.01 [4.70, 5.36], 0.81 | 4.72 [4.45, 5.01], 0.83 | **4.53 [4.25, 4.82], 0.85** | 2.24 trained on Dortmund, abstract only [32] |
+| SRM, zero-shot | all, healthy | 152 | 38.8 | 5.01 [4.37, 5.70], 0.77 | **4.75 [4.13, 5.42], 0.79** | 4.84 [4.23, 5.50], 0.79 | none found |
+| CHBP, zero-shot | all, healthy | 250 | 31.7 | 9.35 [8.45, 10.27], −0.64 | **7.37 [6.60, 8.28], −0.14** | 7.95 [7.11, 8.87], −0.28 | 6.48 trained on CHBP [13] |
 
 ![**Figure 4.** MAE per cohort for E2L and the two ensembles, with 95 % intervals. Dashed: MAE of predicting the cohort's mean age. Hatched bars: best published MAE, yellow for a model trained on that cohort and pink for a zero-shot model.](fig_cohort_mae.png)
 
-The ensembles improve on the window model on every cohort, by about 1 year on Harvard and 0.2 to 2.0 years on the external cohorts. P4 is the better recipe where the recording resembles the training data (Harvard, TDBRAIN, LEMON, Dortmund) and P3 under shift (CHBP), which fits P3's smaller gap between training and validation error (2.33 against 2.96 years). On CHBP every model is at or above the MAE of predicting the cohort's mean age ($R^2 \le 0$). A healthy TDBRAIN subgroup of the same age range (18–68 years) is predicted with an MAE of 5.18 years by E2L, so CHBP's error comes from the recording chain, not the population; Section 6.5 measures where the signals differ and what corrects it.
+The subsets of Table 9 are discussed in Section 6.2. The ensembles improve on the window model on every cohort, by about 1 year on Harvard and 0.2 to 2.0 years on the external cohorts. P4 is the better recipe where the recording resembles the training data (Harvard, TDBRAIN, LEMON, Dortmund) and P3 under shift (CHBP), which fits P3's smaller gap between training and validation error (2.33 against 2.96 years). On CHBP every model is at or above the MAE of predicting the cohort's mean age ($R^2 \le 0$). A healthy TDBRAIN subgroup of the same age range (18–68 years) is predicted with an MAE of 5.18 years by E2L, so CHBP's error comes from the recording chain, not the population; Section 6.5 measures where the signals differ and what corrects it.
 
 Dortmund and SRM, two research cohorts of healthy volunteers with exact ages, land at the level of TDBRAIN and LEMON. Dortmund is the strongest test of the five: 608 people spread evenly over 20 to 70 years, recorded on a research amplifier. It is predicted as well as healthy Temple recordings of the same ages (P4 ensemble 4.53 against 4.54 years) and better than healthy Harvard ones (5.54), with recordings of the training domain weighted to Dortmund's age distribution (`docs/dortmund_onboarding.md` Table 10.4). On SRM, the smallest cohort, the three models are within their intervals of each other. The only published age result on Dortmund (2.24 years) is a conference abstract that trains and tests inside the cohort, without saying whether a person's runs stay in one fold; it is not comparable with a zero-shot score.
 
