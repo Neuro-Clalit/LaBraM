@@ -292,28 +292,28 @@ What the ablations show:
 
 ### 6.1. Accuracy on seven cohorts
 
-**Table 9.** MAE in years with a 95 % interval, and $R^2$, by cohort and subset. Adults; `n`: recordings (TDBRAIN and Dortmund: sessions); subsets by EEG report (Temple, Harvard) or clinical group (TDBRAIN); the research cohorts hold healthy volunteers only. $R^2$ uses each row's own mean age, so it is low for subsets with a narrow age range. Bold: the best model of the row. Best published values with their protocol in the last column (Section 7).
+**Table 9.** MAE in years and, in brackets, $R^2$, by cohort and subset. Adults; `n`: recordings (TDBRAIN and Dortmund: sessions); subsets by EEG report (Temple, Harvard) or clinical group (TDBRAIN); the research cohorts hold healthy volunteers only. $R^2$ uses each row's own mean age, so it is low for subsets with a narrow age range. Models: the window model E2L; two attention models trained in two steps from E2L's checkpoint (4 bag epochs, `docs/mil_stage1_results.md`), L1 with the attention pool of Eq. (5) and W4 with a gated attention pool [@ilse2018abmil]; and the one-run attention ensembles P3 and P4 (Section 4). Bold: the best model of the row (ties bold). 95 % intervals are in Tables 26 to 32; best published values with their protocol in the last column (Section 7).
 
-| cohort | subset | n | age, mean | E2L (window model) | P3 ensemble | P4 ensemble | best published |
-|---|---|---|---|---|---|---|---|
-| Temple, in-domain | all | 272 | 50.7 | 6.40 [5.75, 7.09], 0.78 | **5.87 [5.24, 6.52], 0.81** | **5.87 [5.25, 6.54], 0.81** |  |
-|  | normal report | 149 | 44.6 | 4.91 [4.30, 5.57], 0.85 | 4.61 [4.02, 5.26], 0.87 | **4.52 [3.92, 5.18], 0.87** | 6.60, trained on TUAB normals [@gemein2024revisited] |
-|  | abnormal report | 123 | 58.0 | 8.21 [7.07, 9.34], 0.62 | **7.39 [6.30, 8.48], 0.67** | 7.50 [6.46, 8.54], 0.67 | 12.85, model trained on TUAB normals [@gemein2024revisited] |
-| Harvard, in-domain | all | 7,338 | 54.1 | 7.02 [6.88, 7.16], 0.79 | 5.98 [5.86, 6.12], 0.84 | **5.94 [5.82, 6.07], 0.84** | none found |
-|  | normal report | 1,518 | 48.8 | 7.12 [6.82, 7.43], 0.78 | 5.73 [5.45, 6.02], 0.84 | **5.69 [5.41, 5.98], 0.84** |  |
-|  | abnormal report | 2,253 | 58.8 | 7.56 [7.28, 7.85], 0.75 | 6.52 [6.28, 6.78], 0.80 | **6.49 [6.25, 6.76], 0.80** |  |
-|  | no report | 3,567 | 53.3 | 6.64 [6.45, 6.84], 0.81 | 5.74 [5.56, 5.94], 0.85 | **5.70 [5.51, 5.89], 0.85** |  |
-| TDBRAIN, zero-shot | all | 1,113 | 45.2 | 5.32 [5.04, 5.60], 0.80 | 5.14 [4.89, 5.41], 0.82 | **4.92 [4.68, 5.19], 0.83** | 5.96 trained on TDBRAIN [@khayretdinova2022tdbrain]; 8.36 zero-shot [@hajhassani2026artifact] |
-|  | healthy controls | 179 | 40.3 | 5.28 [4.55, 6.10], 0.81 | 5.15 [4.44, 5.97], 0.81 | **4.96 [4.24, 5.79], 0.82** |  |
-|  | patients | 934 | 46.2 | 5.33 [5.03, 5.62], 0.80 | 5.14 [4.86, 5.41], 0.81 | **4.92 [4.65, 5.18], 0.83** |  |
-| LEMON, zero-shot | all, healthy | 214 | 39.2 | 5.20 [4.60, 5.84], 0.88 | 4.70 [4.17, 5.29], 0.90 | **4.67 [4.11, 5.24], 0.90** | 7.75 trained on LEMON [@engemann2022benchmark]; 9.91 zero-shot [@hajhassani2026artifact] |
-| Dortmund, zero-shot | all, healthy | 816 | 46.1 | 5.01 [4.70, 5.36], 0.81 | 4.72 [4.45, 5.01], 0.83 | **4.53 [4.25, 4.82], 0.85** | 2.24 trained on Dortmund, abstract only [@azami2025dortmund] |
-| SRM, zero-shot | all, healthy | 152 | 38.8 | 5.01 [4.37, 5.70], 0.77 | **4.75 [4.13, 5.42], 0.79** | 4.84 [4.23, 5.50], 0.79 | none found |
-| CHBP, zero-shot | all, healthy | 250 | 31.7 | 9.35 [8.45, 10.27], −0.64 | **7.37 [6.60, 8.28], −0.14** | 7.95 [7.11, 8.87], −0.28 | 6.48 trained on CHBP [@engemann2022benchmark] |
+| cohort | subset | n | E2L | L1 | W4 | P3 ens. | P4 ens. | best published |
+|---|---|---|---|---|---|---|---|---|
+| Temple, in-domain | all | 272 | 6.40 (0.78) | 6.01 (0.79) | 6.05 (0.79) | **5.87** (0.81) | **5.87** (0.81) |  |
+|  | normal report | 149 | 4.91 (0.85) | **4.41** (0.88) | 4.45 (0.88) | 4.61 (0.87) | 4.52 (0.87) | 6.60, trained on TUAB normals [@gemein2024revisited] |
+|  | abnormal report | 123 | 8.21 (0.62) | 7.94 (0.62) | 7.98 (0.61) | **7.39** (0.67) | 7.50 (0.67) | 12.85, model trained on TUAB normals [@gemein2024revisited] |
+| Harvard, in-domain | all | 7,338 | 7.02 (0.79) | 6.09 (0.83) | 6.10 (0.83) | 5.98 (0.84) | **5.94** (0.84) | none found |
+|  | normal report | 1,518 | 7.12 (0.78) | 5.71 (0.83) | 5.72 (0.83) | 5.73 (0.84) | **5.69** (0.84) |  |
+|  | abnormal report | 2,253 | 7.56 (0.75) | 6.79 (0.78) | 6.77 (0.78) | 6.52 (0.80) | **6.49** (0.80) |  |
+|  | no report | 3,567 | 6.64 (0.81) | 5.80 (0.84) | 5.83 (0.84) | 5.74 (0.85) | **5.70** (0.85) |  |
+| TDBRAIN, zero-shot | all | 1,113 | 5.32 (0.80) | 5.35 (0.80) | 5.34 (0.80) | 5.14 (0.82) | **4.92** (0.83) | 5.96 trained on TDBRAIN [@khayretdinova2022tdbrain]; 8.36 zero-shot [@hajhassani2026artifact] |
+|  | healthy controls | 179 | 5.28 (0.81) | 5.40 (0.78) | 5.57 (0.76) | 5.15 (0.81) | **4.96** (0.82) |  |
+|  | patients | 934 | 5.33 (0.80) | 5.34 (0.80) | 5.29 (0.80) | 5.14 (0.81) | **4.92** (0.83) |  |
+| LEMON, zero-shot | all, healthy | 214 | 5.20 (0.88) | 4.56 (0.91) | **4.51** (0.91) | 4.70 (0.90) | 4.67 (0.90) | 7.75 trained on LEMON [@engemann2022benchmark]; 9.91 zero-shot [@hajhassani2026artifact] |
+| Dortmund, zero-shot | all, healthy | 816 | 5.01 (0.81) | 4.87 (0.82) | 4.92 (0.82) | 4.72 (0.83) | **4.53** (0.85) | 2.24 trained on Dortmund, abstract only [@azami2025dortmund] |
+| SRM, zero-shot | all, healthy | 152 | 5.01 (0.77) | 5.23 (0.74) | 5.23 (0.74) | **4.75** (0.79) | 4.84 (0.79) | none found |
+| CHBP, zero-shot | all, healthy | 250 | 9.35 (−0.64) | 9.11 (−0.60) | 8.92 (−0.52) | **7.37** (−0.14) | 7.95 (−0.28) | 6.48 trained on CHBP [@engemann2022benchmark] |
 
 ![**Figure 4.** MAE per cohort for E2L and the two ensembles, with 95 % intervals. Dashed: MAE of predicting the cohort's mean age. Hatched bars: best published MAE, yellow for a model trained on that cohort and pink for a zero-shot model.](fig_cohort_mae.png)
 
-The subsets of Table 9 are discussed in Section 6.2. The ensembles improve on the window model on every cohort, by about 1 year on Harvard and 0.2 to 2.0 years on the external cohorts. P4 is the better recipe where the recording resembles the training data (Harvard, TDBRAIN, LEMON, Dortmund) and P3 under shift (CHBP), which fits P3's smaller gap between training and validation error (2.33 against 2.96 years). On CHBP every model is at or above the MAE of predicting the cohort's mean age ($R^2 \le 0$). A healthy TDBRAIN subgroup of the same age range (18–68 years) is predicted with an MAE of 5.18 years by E2L, so CHBP's error comes from the recording chain, not the population; Section 6.5 measures where the signals differ and what corrects it.
+The subsets of Table 9 are discussed in Section 6.2. The two-step attention models L1 and W4 are close to the ensembles in-domain and best on LEMON (4.51 years for W4) and on Temple's normal recordings (4.41 for L1), but on TDBRAIN, SRM and CHBP they are no better than the window model, while the ensembles stay ahead there: training in one run with five fold models is what makes the attention models robust outside the training data. The ensembles improve on the window model on every cohort, by about 1 year on Harvard and 0.2 to 2.0 years on the external cohorts. P4 is the better recipe where the recording resembles the training data (Harvard, TDBRAIN, LEMON, Dortmund) and P3 under shift (CHBP), which fits P3's smaller gap between training and validation error (2.33 against 2.96 years). On CHBP every model is at or above the MAE of predicting the cohort's mean age ($R^2 \le 0$). A healthy TDBRAIN subgroup of the same age range (18–68 years) is predicted with an MAE of 5.18 years by E2L, so CHBP's error comes from the recording chain, not the population; Section 6.5 measures where the signals differ and what corrects it.
 
 Dortmund and SRM, two research cohorts of healthy volunteers with exact ages, land at the level of TDBRAIN and LEMON. Dortmund is the strongest test of the five: 608 people spread evenly over 20 to 70 years, recorded on a research amplifier. It is predicted as well as healthy Temple recordings of the same ages (P4 ensemble 4.53 against 4.54 years) and better than healthy Harvard ones (5.54), with recordings of the training domain weighted to Dortmund's age distribution (`docs/dortmund_onboarding.md` Table 10.4). On SRM, the smallest cohort, the three models are within their intervals of each other. The only published age result on Dortmund (2.24 years) is a conference abstract that trains and tests inside the cohort, without saying whether a person's runs stay in one fold; it is not comparable with a zero-shot score.
 
@@ -399,27 +399,95 @@ Rejection by the combined score lowers the MAE on every cohort, by 0.2 to 0.9 ye
 
 ### 6.4. Age bias and its correction
 
-**Table 13.** P4 ensemble under each correction: MAE in years / slope of the prediction on age (1 = no compression). For the two corrections that use the true age the first number is the mean absolute corrected gap.
+**Table 13.** P4 ensemble under each correction, by cohort and subset: MAE in years / slope of the prediction on age (1 = no compression). Every correction is fitted once on normal-report validation recordings (Section 10.1) and applied unchanged to every subset. For the two corrections that use the true age the first number is the mean absolute corrected gap, not an accuracy.
 
-| correction | Temple | Harvard | TDBRAIN | LEMON | Dortmund | SRM | CHBP |
+| cohort | subset | n | none | Cole inversion, Eq. (12) | recalibration, Eq. (12) | linear gap, Eq. (13) | quadratic gap, Eq. (13) |
 |---|---|---|---|---|---|---|---|
-| none | 5.87 / 0.79 | 5.94 / 0.83 | 4.92 / 0.89 | 4.67 / 0.83 | 4.53 / 0.85 | 4.84 / 0.88 | 7.95 / 0.53 |
-| Cole inversion, Eq. (12) | 6.74 / 1.00 | 7.14 / 1.04 | 6.61 / 1.12 | 6.15 / 1.05 | 5.61 / 1.07 | 7.13 / 1.11 | 8.99 / 0.67 |
-| recalibration, Eq. (12) | 5.89 / 0.78 | 5.96 / 0.82 | 4.90 / 0.88 | 4.71 / 0.82 | 4.50 / 0.84 | 4.81 / 0.87 | 7.99 / 0.53 |
-| linear gap, Eq. (13) | 5.34 / 1.00 | 5.66 / 1.03 | 5.24 / 1.09 | 4.87 / 1.04 | 4.45 / 1.05 | 5.65 / 1.09 | 7.13 / 0.74 |
-| quadratic gap, Eq. (13) | 5.15 / 1.02 | 5.57 / 1.05 | 5.14 / 1.07 | 4.58 / 1.02 | 4.45 / 1.03 | 5.53 / 1.03 | 7.26 / 0.65 |
+| Temple | all | 272 | 5.87 / 0.79 | 6.74 / 1.00 | 5.89 / 0.78 | 5.34 / 1.00 | 5.15 / 1.02 |
+|  | normal report | 149 | 4.52 / 0.83 | 5.56 / 1.05 | 4.54 / 0.83 | 4.41 / 1.04 | 4.29 / 1.04 |
+|  | abnormal report | 123 | 7.50 / 0.67 | 8.16 / 0.84 | 7.52 / 0.66 | 6.47 / 0.88 | 6.20 / 0.93 |
+| Harvard | all | 7,338 | 5.94 / 0.83 | 7.14 / 1.04 | 5.96 / 0.82 | 5.66 / 1.03 | 5.57 / 1.05 |
+|  | normal report | 1,518 | 5.69 / 0.83 | 6.94 / 1.05 | 5.72 / 0.83 | 5.51 / 1.04 | 5.35 / 1.04 |
+|  | abnormal report | 2,253 | 6.49 / 0.78 | 7.68 / 0.99 | 6.51 / 0.77 | 6.09 / 0.99 | 6.04 / 1.01 |
+|  | no report | 3,567 | 5.70 / 0.84 | 6.88 / 1.06 | 5.71 / 0.83 | 5.45 / 1.05 | 5.36 / 1.06 |
+| TDBRAIN | all | 1,113 | 4.92 / 0.89 | 6.61 / 1.12 | 4.90 / 0.88 | 5.24 / 1.09 | 5.14 / 1.07 |
+|  | healthy controls | 179 | 4.96 / 0.88 | 7.10 / 1.11 | 4.95 / 0.87 | 5.63 / 1.09 | 5.37 / 1.06 |
+|  | patients | 934 | 4.92 / 0.89 | 6.52 / 1.12 | 4.89 / 0.88 | 5.17 / 1.09 | 5.09 / 1.07 |
+| LEMON | all, healthy | 214 | 4.67 / 0.83 | 6.15 / 1.05 | 4.71 / 0.82 | 4.87 / 1.04 | 4.58 / 1.02 |
+| Dortmund | all, healthy | 816 | 4.53 / 0.85 | 5.61 / 1.07 | 4.50 / 0.84 | 4.45 / 1.05 | 4.45 / 1.03 |
+| SRM | all, healthy | 152 | 4.84 / 0.88 | 7.13 / 1.11 | 4.81 / 0.87 | 5.65 / 1.09 | 5.53 / 1.03 |
+| CHBP | all, healthy | 250 | 7.95 / 0.53 | 8.99 / 0.67 | 7.99 / 0.53 | 7.13 / 0.74 | 7.26 / 0.65 |
+
+**Table 14.** MAE in years and, in brackets, the mean gap (bias) by age group and model, raw predictions. In-domain: the Temple and Harvard test recordings; external: the four zero-shot cohorts of volunteers and outpatients pooled (TDBRAIN and Dortmund as sessions). Models as in Table 9. Bold: the best model of the row. Per-cohort values: `docs/data/external_eval/tech_report/age_groups.csv`.
+
+| set | age | n | E2L | L1 | W4 | P3 ens. | P4 ens. |
+|---|---|---|---|---|---|---|---|
+| Temple + Harvard | 18–29 | 1,246 | 7.43 (+7.2) | 4.39 (+3.2) | 4.42 (+3.4) | **4.25** (+3.2) | 4.32 (+3.5) |
+|  | 30–39 | 846 | 6.24 (+4.7) | 6.03 (+2.6) | **5.95** (+2.6) | 5.98 (+2.5) | 5.98 (+2.8) |
+|  | 40–49 | 899 | **6.35** (+2.8) | 6.64 (+2.2) | 6.67 (+2.2) | 6.64 (+2.2) | 6.57 (+2.5) |
+|  | 50–59 | 1,212 | **5.54** (+0.7) | 6.12 (+1.5) | 6.15 (+1.5) | 6.07 (+1.7) | 5.91 (+1.7) |
+|  | 60–69 | 1,456 | 5.73 (−2.6) | 6.04 (−0.6) | 6.06 (−0.6) | 5.93 (−0.4) | **5.64** (−0.6) |
+|  | 70+ | 1,951 | 9.20 (−8.8) | 6.94 (−5.3) | 6.96 (−5.3) | **6.75** (−5.2) | 6.90 (−5.8) |
+|  | all | 7,610 | 7.00 (−0.6) | 6.08 (−0.1) | 6.10 (−0.1) | 5.98 (−0.1) | **5.94** (−0.1) |
+| TDBRAIN, LEMON, Dortmund, SRM | 18–29 | 554 | 3.39 (+2.0) | 3.19 (+0.4) | 3.10 (+0.6) | **3.02** (+0.7) | 3.09 (+1.5) |
+|  | 30–39 | 413 | **4.47** (−0.0) | 5.20 (−0.3) | 4.97 (−0.7) | 4.71 (−0.5) | 4.57 (+0.2) |
+|  | 40–49 | 403 | 5.58 (−0.9) | 5.92 (−0.2) | 5.98 (−0.8) | 5.68 (−0.6) | **5.42** (−0.2) |
+|  | 50–59 | 459 | 5.61 (−3.3) | 5.48 (−1.6) | 5.72 (−2.3) | 5.38 (−2.0) | **5.03** (−1.9) |
+|  | 60–69 | 331 | 6.61 (−5.1) | 6.05 (−2.6) | 6.05 (−3.1) | 6.08 (−3.5) | **5.71** (−3.7) |
+|  | 70+ | 135 | 8.50 (−8.0) | **6.53** (−4.7) | 6.70 (−5.0) | 6.73 (−5.3) | 6.86 (−6.0) |
+|  | all | 2,295 | 5.18 (−1.6) | 5.10 (−1.0) | 5.10 (−1.3) | 4.92 (−1.2) | **4.75** (−0.9) |
+
+**Table 15.** P4 ensemble by age group: MAE in years and, in brackets, the mean gap, without correction, with the corrections of Eqs. (12) and (13) fitted on validation, and after rejecting the 20 % least confident units of each cohort by the total score of Eq. (9) (threshold over the whole cohort; in brackets the share of the age group that is kept). Quadratic gap: mean absolute corrected gap, uses the true age. Sets as in Table 14.
+
+| set | age | n | none | Cole inversion | recalibration | quadratic gap | 20 % rejected: MAE (kept) |
+|---|---|---|---|---|---|---|---|
+| Temple + Harvard, all | 18–29 | 1,246 | 4.32 (+3.5) | 5.88 (−2.0) | 4.51 (+3.9) | 4.04 (−0.4) | 3.33 (91 %) |
+|  | 30–39 | 846 | 5.98 (+2.8) | 7.62 (+0.1) | 5.98 (+3.1) | 6.08 (−0.3) | 5.25 (83 %) |
+|  | 40–49 | 899 | 6.57 (+2.5) | 8.14 (+2.4) | 6.56 (+2.7) | 6.34 (+0.8) | 6.07 (75 %) |
+|  | 50–59 | 1,212 | 5.91 (+1.7) | 7.98 (+4.0) | 5.88 (+1.8) | 6.02 (+2.1) | 5.69 (72 %) |
+|  | 60–69 | 1,456 | 5.64 (−0.6) | 7.82 (+3.7) | 5.60 (−0.6) | 6.08 (+2.5) | 5.24 (74 %) |
+|  | 70+ | 1,951 | 6.90 (−5.8) | 6.19 (+0.6) | 6.90 (−5.8) | 5.25 (+2.1) | 6.23 (84 %) |
+|  | all | 7,610 | 5.94 (−0.1) | 7.12 (+1.4) | 5.96 (−0.0) | 5.55 (+1.4) | 5.31 (80 %) |
+| Temple + Harvard, normal report | 18–29 | 389 | 4.43 (+3.6) | 6.22 (−2.0) | 4.62 (+3.9) | 4.25 (−0.3) | 3.72 (95 %) |
+|  | 30–39 | 248 | 5.05 (+1.8) | 6.65 (−1.1) | 5.04 (+2.1) | 5.35 (−1.3) | 4.66 (89 %) |
+|  | 40–49 | 203 | 5.99 (+0.8) | 7.49 (+0.3) | 5.96 (+1.0) | 5.99 (−0.9) | 5.63 (86 %) |
+|  | 50–59 | 282 | 5.62 (+0.8) | 7.53 (+2.9) | 5.58 (+1.0) | 5.75 (+1.2) | 5.44 (84 %) |
+|  | 60–69 | 261 | 5.73 (−1.7) | 7.18 (+2.1) | 5.68 (−1.6) | 5.58 (+1.3) | 5.40 (82 %) |
+|  | 70+ | 284 | 7.20 (−6.3) | 6.27 (−0.3) | 7.20 (−6.3) | 5.21 (+1.3) | 6.82 (90 %) |
+|  | all | 1,667 | 5.59 (−0.0) | 6.82 (+0.2) | 5.61 (+0.2) | 5.25 (+0.3) | 5.15 (88 %) |
+| Temple + Harvard, abnormal report | 18–29 | 283 | 5.58 (+4.9) | 6.54 (−0.2) | 5.78 (+5.2) | 4.81 (+1.0) | 3.77 (82 %) |
+|  | 30–39 | 177 | 7.53 (+5.1) | 8.65 (+3.0) | 7.59 (+5.4) | 6.77 (+2.0) | 7.12 (68 %) |
+|  | 40–49 | 230 | 8.04 (+5.2) | 9.89 (+5.8) | 8.06 (+5.3) | 7.44 (+3.5) | 6.92 (58 %) |
+|  | 50–59 | 345 | 6.37 (+2.5) | 8.69 (+5.1) | 6.36 (+2.6) | 6.50 (+3.0) | 6.16 (61 %) |
+|  | 60–69 | 519 | 5.77 (−0.2) | 8.23 (+4.2) | 5.73 (−0.2) | 6.40 (+3.0) | 5.28 (69 %) |
+|  | 70+ | 822 | 6.81 (−5.4) | 6.55 (+1.0) | 6.81 (−5.4) | 5.53 (+2.5) | 6.13 (83 %) |
+|  | all | 2,376 | 6.54 (−0.1) | 7.70 (+2.8) | 6.56 (+0.0) | 6.05 (+2.6) | 5.77 (73 %) |
+| TDBRAIN, LEMON, Dortmund, SRM | 18–29 | 554 | 3.09 (+1.5) | 5.69 (−4.3) | 3.18 (+1.8) | 3.83 (−2.4) | 2.69 (92 %) |
+|  | 30–39 | 413 | 4.57 (+0.2) | 6.68 (−3.2) | 4.52 (+0.5) | 5.43 (−2.9) | 4.34 (86 %) |
+|  | 40–49 | 403 | 5.42 (−0.2) | 6.92 (−0.9) | 5.37 (−0.0) | 5.67 (−1.8) | 5.67 (74 %) |
+|  | 50–59 | 459 | 5.03 (−1.9) | 6.11 (−0.5) | 4.96 (−1.8) | 4.94 (−1.5) | 4.79 (70 %) |
+|  | 60–69 | 331 | 5.71 (−3.7) | 6.14 (−0.3) | 5.65 (−3.6) | 4.86 (−0.7) | 5.14 (73 %) |
+|  | 70+ | 135 | 6.86 (−6.0) | 5.94 (−0.7) | 6.84 (−6.0) | 4.78 (+0.3) | 6.29 (79 %) |
+|  | all | 2,295 | 4.75 (−0.9) | 6.25 (−2.0) | 4.73 (−0.7) | 4.87 (−1.8) | 4.39 (80 %) |
 
 ![**Figure 10.** Predicted against true age per cohort for the P4 ensemble under each correction (means per 5-year age bin). Solid: corrections that need no true age. Dashed: corrections that use it.](pred_vs_age_corrections.png)
 
 The ensembles compress less than the window model: in-domain slopes are 0.79 to 0.84 against 0.70 to 0.72 for E2L. A correction fitted on validation data transfers to the external cohorts that resemble the training data (slope 1.00 to 1.12 after correction) but not to CHBP. Removing the bias without the true age costs accuracy: Cole inversion raises the MAE by 0.9 to 2.3 years, because it scales the prediction noise by $1/a$, and recalibration changes nothing. The raw prediction is therefore the best age estimate, and the corrections serve the analysis of the gap. After correction, recordings with an abnormal report look 1.8 to 4.2 years older than those with a normal report in Temple and Harvard ($p \le 0.002$ with every model); before correction the difference is hidden by the age confound. In TDBRAIN the corrected difference between patients and controls is 0.4 to 1.1 years and not significant.
 
+What Tables 13 to 15 add:
+
+- **Normal against abnormal (Table 13).** The abnormal subsets are compressed more than the normal ones (slope 0.67 against 0.83 in Temple, 0.78 against 0.83 in Harvard). A correction fitted on normal-report validation recordings brings the normal subsets to a slope of 1.04 to 1.05 and leaves Temple's abnormal subset under-corrected (0.84 to 0.93). The gap corrections lower the mean absolute corrected gap most in the abnormal subsets (Temple 7.50 to 6.20 years with the quadratic form), because those patients are older and so carry more of the age trend. In TDBRAIN, controls and patients behave alike under every correction.
+- **Age groups (Table 14).** Every model over-predicts the young and under-predicts the old. The window model E2L does so most: +7.2 years at 18–29 and −8.8 years from 70 in-domain. The attention models halve the young offset (+3.2 to +3.5 years) and reduce the old one to −5.2 to −5.8 years, which is where most of their gain over E2L comes from. Near the middle of the training age distribution, 40–59 years, E2L is as good as or better than the attention models in-domain, because the error of a compressed model is smallest near the mean. The two-step attention models L1 and W4 are within 0.1 years of each other in every age group; the P4 ensemble is best in most groups from 40 years on in the external cohorts.
+- **Corrections by age (Table 15).** Cole inversion removes the age trend of the bias (from 70: −5.8 to +0.6 years in-domain) but raises the MAE by 1.5 to 2.5 years in every age group below 70; it helps only the oldest group. Recalibration changes neither MAE nor bias. The quadratic gap correction flattens the bias at every age but, being a residual, is not an accuracy.
+- **Rejection by age (Table 15).** The 20 % that are set aside are not spread evenly over age: 91 to 92 % of the 18–29-year-olds are kept, against 70 to 75 % of the 40–69-year-olds, in-domain and externally. Among abnormal-report recordings only 58 to 69 % of the 30–69-year-olds are kept. The kept MAE falls in every age group, most for the young (in-domain 4.32 to 3.33 years at 18–29). Rejection therefore improves the error at every age, but it also changes the age and report mix of the kept recordings, which a group comparison must account for.
+
 ### 6.5. A recording-chain shift and its correction: CHBP
 
 CHBP is the one cohort on which every model fails. This section locates the difference in the signal, tests it causally on training-domain recordings, and compares corrections. The numbers here are for the window model E2L and its retrained variants on the first 5 minutes of each recording, the training protocol, so E2L on CHBP reads 9.55 years here and 9.35 in Table 9 (every window). No CHBP age is used anywhere.
 
-**Where the signals differ.** Table 14 and Figure 11 compare CHBP with healthy Temple and Harvard recordings weighted to CHBP's age distribution. Two properties of the recording chain stand out. The amplitude is 0.5 to 0.6 times that of the training data. And the band is narrower: CHBP was recorded with a 0.5 Hz high-pass and a 50 Hz low-pass [@valdessosa2021chbp], so its power below 1 Hz is 6 to 12 % and its power at 45–70 Hz 4 to 5 % of the training data's. The alpha rhythm, in contrast, is stronger: CHBP is alert, eyes-closed, artifact-free research EEG, which should read as younger, not older. The age range is not the cause either: at CHBP's ages E2L reaches a correlation of 0.66 with age on its own domain, against 0.44 on CHBP. CHBP also holds two acquisition groups, a 64-channel cap (161 recordings; E2L MAE 7.58, r 0.55) and a 120-channel cap (89 recordings; 13.10, r 0.27) with a different spectrum.
+**Where the signals differ.** Table 16 and Figure 11 compare CHBP with healthy Temple and Harvard recordings weighted to CHBP's age distribution. Two properties of the recording chain stand out. The amplitude is 0.5 to 0.6 times that of the training data. And the band is narrower: CHBP was recorded with a 0.5 Hz high-pass and a 50 Hz low-pass [@valdessosa2021chbp], so its power below 1 Hz is 6 to 12 % and its power at 45–70 Hz 4 to 5 % of the training data's. The alpha rhythm, in contrast, is stronger: CHBP is alert, eyes-closed, artifact-free research EEG, which should read as younger, not older. The age range is not the cause either: at CHBP's ages E2L reaches a correlation of 0.66 with age on its own domain, against 0.44 on CHBP. CHBP also holds two acquisition groups, a 64-channel cap (161 recordings; E2L MAE 7.58, r 0.55) and a 120-channel cap (89 recordings; 13.10, r 0.27) with a different spectrum.
 
-**Table 14.** CHBP against healthy Temple and Harvard recordings of the same ages (150 each, normal EEG report). Medians over recordings; power in µV²/Hz, common average reference.
+**Table 16.** CHBP against healthy Temple and Harvard recordings of the same ages (150 each, normal EEG report). Medians over recordings; power in µV²/Hz, common average reference.
 
 | signal feature | CHBP | Temple | Harvard |
 |---|---|---|---|
@@ -440,7 +508,7 @@ CHBP is the one cohort on which every model fails. This section locates the diff
 
 $$ x' = k\,x, \qquad x' = h_{LP} * h_{HP} * x \tag{18} $$
 
-**Table 15.** E2L on 300 training-domain recordings made CHBP-like with Eq. (18). The sample is young, so E2L over-predicts it even without a transform.
+**Table 17.** E2L on 300 training-domain recordings made CHBP-like with Eq. (18). The sample is young, so E2L over-predicts it even without a transform.
 
 | transform | MAE | bias | r |
 |---|---|---|---|
@@ -450,7 +518,7 @@ $$ x' = k\,x, \qquad x' = h_{LP} * h_{HP} * x \tag{18} $$
 | low-pass 50 Hz | 8.04 | +3.8 | 0.40 |
 | amplitude × 0.62 and band 0.5–50 Hz | 13.71 | +12.6 | 0.37 |
 
-The two effects are separate (Table 15). The lower amplitude adds an offset of about 6 years and leaves the ranking intact: the model has learned that low amplitude means old. The 50 Hz low-pass leaves the offset and destroys the ranking: the model uses content above 50 Hz that CHBP does not have. Together they reproduce CHBP's result (13.7 years, r 0.37) on recordings the model otherwise predicts well.
+The two effects are separate (Table 17). The lower amplitude adds an offset of about 6 years and leaves the ranking intact: the model has learned that low amplitude means old. The 50 Hz low-pass leaves the offset and destroys the ranking: the model uses content above 50 Hz that CHBP does not have. Together they reproduce CHBP's result (13.7 years, r 0.37) on recordings the model otherwise predicts well.
 
 **Corrections.** We compare two that change only the test data and four that change the training. At test time, one gain for the cohort, or spectrum matching: every channel of CHBP is filtered so that the cohort's median spectrum $\bar P$ equals that of a label-free training reference, per cap, an idea used for sleep staging [@gnassounou2023cmmn]:
 
@@ -468,7 +536,7 @@ $$ \log g \sim \mathcal{U}(\log 0.55,\ \log 1.8), \qquad f_{hi} \sim \mathcal{U}
 
 All four training variants use the E2L recipe on Temple and Harvard (up to 16 epochs with early stopping), selected on the in-domain validation error.
 
-**Table 16.** Corrections for CHBP. MAE in years; CHBP: MAE / bias / r, and MAE on the 64- and the 120-channel cap. Predicting CHBP's mean age gives 7.27.
+**Table 18.** Corrections for CHBP. MAE in years; CHBP: MAE / bias / r, and MAE on the 64- and the 120-channel cap. Predicting CHBP's mean age gives 7.27.
 
 | model | Temple + Harvard test | Harvard test, ages 18–29 | LEMON | CHBP | CHBP by cap |
 |---|---|---|---|---|---|
@@ -482,7 +550,7 @@ All four training variants use the E2L recipe on Temple and Harvard (up to 16 ep
 
 ![**Figure 12.** Corrections for CHBP: (a) MAE on CHBP with the bias in brackets, (b) MAE on the Temple + Harvard test split. Dashed: predicting CHBP's mean age in (a), E2L in (b).](fig_chbp_fixes.png)
 
-What Table 16 and Figure 12 show:
+What Table 18 and Figure 12 show:
 
 - **The band limit restores the ranking, the amplitude sets the bias.** Band-limited training alone raises the correlation with age on CHBP from 0.44 to 0.55 but keeps an offset of +5 years; only a model that does not see the absolute amplitude removes the offset.
 - **The device-robust model is the best single correction.** It scores CHBP as recorded at 6.19 years (5.90 over every window, $R^2 = 0.33$), level with the best published result of a model trained on CHBP: 6.19 ± 1.10 against 6.48 ± 0.60 over the same ten folds [@engemann2022benchmark]. The 120-channel cap gains most (13.10 → 6.67). The same model is unaffected by the transform of Eq. (18) (7.69 → 7.33 years).
@@ -494,9 +562,9 @@ The practical rule at present is two models and a label-free choice per cohort: 
 
 ### 6.6. Patients against controls inside a clinic cohort
 
-Three open clinic cohorts hold patients and healthy controls recorded in the same place: AHEPA [@miltiadous2023ahepa] (36 Alzheimer's disease, 23 frontotemporal dementia, 29 controls; eyes closed, clinical Nihon Kohden system), Iowa [@singh2023iowapd] (100 Parkinson's disease, 49 controls; eyes open, 2 to 6 minutes) and Tel Aviv [@katzir2026telavivpd] (116 Parkinson's disease, 28 controls; eyes open, about 4 minutes). They fail as age benchmarks (Table 23): their controls, 61 to 71 years old on average, are predicted 7 to 11 years too young. Recordings of the training domain at the same ages are under-predicted by 1 to 6 years (the compression of Section 6.4), so 4 to 7 years remain unexplained; a gain or a band limit, the two causes found for CHBP, are not visible in their spectra (`docs/open_cohorts_onboarding.md` Section 6). Inside one cohort, patients and controls share the recording chain, the protocol and the recruitment, so a difference between them removes a shift common to both groups. We fit Eq. (17) with one linear age term in place of the age bands and heteroscedasticity-robust (HC3) standard errors, one recording per person (`scripts/clinical_cohort_gap.py`); the pooled Parkinson's estimate is the inverse-variance weighted mean of the two cohorts.
+Three open clinic cohorts hold patients and healthy controls recorded in the same place: AHEPA [@miltiadous2023ahepa] (36 Alzheimer's disease, 23 frontotemporal dementia, 29 controls; eyes closed, clinical Nihon Kohden system), Iowa [@singh2023iowapd] (100 Parkinson's disease, 49 controls; eyes open, 2 to 6 minutes) and Tel Aviv [@katzir2026telavivpd] (116 Parkinson's disease, 28 controls; eyes open, about 4 minutes). They fail as age benchmarks (Table 25): their controls, 61 to 71 years old on average, are predicted 7 to 11 years too young. Recordings of the training domain at the same ages are under-predicted by 1 to 6 years (the compression of Section 6.4), so 4 to 7 years remain unexplained; a gain or a band limit, the two causes found for CHBP, are not visible in their spectra (`docs/open_cohorts_onboarding.md` Section 6). Inside one cohort, patients and controls share the recording chain, the protocol and the recruitment, so a difference between them removes a shift common to both groups. We fit Eq. (17) with one linear age term in place of the age bands and heteroscedasticity-robust (HC3) standard errors, one recording per person (`scripts/clinical_cohort_gap.py`); the pooled Parkinson's estimate is the inverse-variance weighted mean of the two cohorts.
 
-**Table 17.** Adjusted gap of each patient group against the controls of its own cohort: $\beta$ of Eq. (17) in years with a 95 % interval, and p.
+**Table 19.** Adjusted gap of each patient group against the controls of its own cohort: $\beta$ of Eq. (17) in years with a 95 % interval, and p.
 
 | cohort, group | patients / controls | E2L | device-robust E2L | P3 ensemble | P4 ensemble |
 |---|---|---|---|---|---|
@@ -507,13 +575,13 @@ Three open clinic cohorts hold patients and healthy controls recorded in the sam
 | Tel Aviv, Parkinson's disease | 116 / 28 | +2.8 [−0.3, 5.9], 0.08 | +2.2 [−0.8, 5.2], 0.15 | +3.0 [−0.3, 6.3], 0.07 | +2.6 [−0.6, 5.8], 0.11 |
 | Parkinson's disease, both cohorts pooled | 216 / 77 | +3.2 [0.8, 5.6] | +2.0 [−0.1, 4.1] | +3.1 [0.6, 5.6] | +2.8 [0.5, 5.2] |
 
-What Table 17 shows:
+What Table 19 shows:
 
 - **Dementia patients look about 5 to 6 years older than the controls of the same clinic,** Alzheimer's disease 6.3 years with the P4 ensemble (p = 0.02); the direction and size are the same with all four models, and the interval is wide (1 to 12 years).
 - **Parkinson's disease: about 3 years, the same in two independent cohorts.** Neither cohort alone is significant; pooled, the interval excludes 0 for the raw-input models (+2.8 years [0.5, 5.2] for the P4 ensemble).
 - **The direction agrees with the hospital records of Table 11** (Harvard dementia +2.1 and movement disorders +1.8 years). The clinic estimates are larger, as expected for diagnosed, symptomatic patients (mean MMSE 18 and 22) against a diagnosis code anywhere in a hospital record.
 - **The gap does not track severity inside a group:** its partial correlation, given age, with MMSE, MoCA or UPDRS is between −0.14 and +0.13 (P4 ensemble; all p > 0.1).
-- **An abnormal EEG looks older in a third hospital too.** NMT [@khan2022nmt], routine clinical EEG released band-limited, is no age benchmark either (Table 23), but inside it the 145 adults with an abnormal report have a gap 3.1 years [1.8, 4.5] above that of the 1,217 with a normal report at the same age and sex (P4 ensemble; device-robust E2L +3.9 [2.3, 5.5]), against +1.8 to +2.6 in Temple and Harvard (Section 6.2).
+- **An abnormal EEG looks older in a third hospital too.** NMT [@khan2022nmt], routine clinical EEG released band-limited, is no age benchmark either (Table 25), but inside it the 145 adults with an abnormal report have a gap 3.1 years [1.8, 4.5] above that of the 1,217 with a normal report at the same age and sex (P4 ensemble; device-robust E2L +3.9 [2.3, 5.5]), against +1.8 to +2.6 in Temple and Harvard (Section 6.2).
 
 Cautions. The groups are small, each estimate rests on one cohort's 28 to 49 controls, and the models are outside their reliable range on these cohorts: a contrast inside a cohort removes a shift common to both groups, not one that interacts with the disease. Medication is not controlled (the Parkinson's patients take levodopa). Nothing here is a diagnostic claim.
 
@@ -521,7 +589,7 @@ Cautions. The groups are small, each estimate rests on one cohort's 28 to 49 con
 
 208 of the Dortmund participants were recorded again about 5 years later with the same setup, and every session holds four runs of the same person: eyes closed and eyes open, before and after a 2-hour block of cognitive tasks. With session predictions $\hat y_1, \hat y_2$ and ages $y_1, y_2$, the change of the prediction is $\Delta \hat y = \hat y_2 - \hat y_1$ against the elapsed time $\Delta y = y_2 - y_1$; for two run types of one session the paired difference of their predictions is defined the same way. The stability of the gap $g_j = \hat y_j - y_j$ is its Pearson correlation between the sessions and the intraclass correlation ICC(2,1) for absolute agreement.
 
-**Table 18.** Paired differences of the predicted age in years, mean with a 95 % bootstrap interval over people. Follow-up: 208 people, mean elapsed time 5.17 years; within a session: 815 sessions.
+**Table 20.** Paired differences of the predicted age in years, mean with a 95 % bootstrap interval over people. Follow-up: 208 people, mean elapsed time 5.17 years; within a session: 815 sessions.
 
 | contrast | E2L | P3 ensemble | P4 ensemble |
 |---|---|---|---|
@@ -534,18 +602,18 @@ Cautions. The groups are small, each estimate rests on one cohort's 28 to 49 con
 
 ![**Figure 13.** Dortmund, P4 ensemble, 208 people with two sessions. (a) Predicted age at session 2 against session 1; dotted: identity. (b) Distribution of the change of the predicted age, with its mean (+4.3 years) and the mean elapsed time (5.2 years).](../figures/dortmund/dortmund_longitudinal.png)
 
-What Table 18 and Figure 13 show:
+What Table 20 and Figure 13 show:
 
 - **The models see people age.** The predicted age rises by 4.3 years over 5.2 years, and 89 % of the participants are predicted older at the second session. The shortfall is the compression: the cross-sectional slope of the P4 prediction on age is 0.85 in Dortmund (Table 13), which predicts $0.85 \times 5.17 = 4.4$ years, so the change over time agrees with the cross-sectional relation.
 - **The gap is a property of the person.** Whoever looks older than their age at the first session still does 5 years later (P4 ensemble r = 0.77, ICC 0.77; E2L 0.79 and 0.78), almost as much as two parts of one visit 2 hours apart (r = 0.81). Gemein et al. [@gemein2024revisited] found the same for repeated clinical recordings and read it as a trait.
 - **A single person's change is noisy.** The standard deviation of $\Delta \hat y$ is 3.9 years: the cohort ages visibly, but one person's 5-year change is within the noise of two 12-minute sessions.
 - **The state of the session moves the prediction.** After the 2-hour task block people look 1.5 to 1.7 years older with the P4 ensemble; with the amplitude-normalised model of Section 6.5 the shift is about half (0.8 to 1.2 years), so part of it goes with the larger post-task amplitude. Eyes open or closed does not shift the predicted age (within ±0.5 years), although the two conditions differ strongly in alpha power, which supports pooling them as done for TDBRAIN.
 
-The state shift is as large as many of the clinical effects of Tables 11 and 17, so a group comparison must fix the point of the session at which the EEG is recorded. Two cautions: the elapsed time is a difference of calendar years, known to ±1 year per person, and a drift of the hardware over the 5 years would add to $\Delta \hat y$ and cannot be told apart from ageing here.
+The state shift is as large as many of the clinical effects of Tables 11 and 19, so a group comparison must fix the point of the session at which the EEG is recorded. Two cautions: the elapsed time is a difference of calendar years, known to ±1 year per person, and a drift of the hardware over the 5 years would add to $\Delta \hat y$ and cannot be told apart from ageing here.
 
 ## 7. Comparison with published work
 
-**Table 19.** Published EEG brain-age results on the test cohorts, and ours. "within" = trained and tested on the cohort with cross-validation; "zero-shot" = trained elsewhere and applied unchanged. MAE in years.
+**Table 21.** Published EEG brain-age results on the test cohorts, and ours. "within" = trained and tested on the cohort with cross-validation; "zero-shot" = trained elsewhere and applied unchanged. MAE in years.
 
 | cohort | study | method | protocol | MAE | $R^2$ |
 |---|---|---|---|---|---|
@@ -627,7 +695,7 @@ $$ \delta_r^{quad} = \delta_r - \big( c_0 + c_1 y_r + c_2 y_r^2 \big), \qquad \h
 
 These are Eq. (13) written for the gap. The corrected gap is a residual: how much older or younger the recording looks than a normal-report recording of the same age. Its mean over the reference set is 0 by construction.
 
-**Table 20.** Fitted coefficients of Eq. (24) per model. $n$: reference recordings; $y^{*}$ of Eq. (23) in years.
+**Table 22.** Fitted coefficients of Eq. (24) per model. $n$: reference recordings; $y^{*}$ of Eq. (23) in years.
 
 | model | n | a | b | $y^{*}$ | $c_0$ | $c_1$ | $c_2$ |
 |---|---|---|---|---|---|---|---|
@@ -635,7 +703,7 @@ These are Eq. (13) written for the gap. The corrected gap is a residual: how muc
 | P3 ensemble | 20,030 | 0.813 | 8.86 | 47.3 | 2.02 | 0.135 | −0.00327 |
 | P4 ensemble | 15,157 | 0.793 | 9.89 | 47.7 | 2.75 | 0.129 | −0.00339 |
 
-**Table 21.** Expected gap of a normal-report recording at four ages, in years, from the coefficients of Table 20: the amount that Eqs. (25) and (26) subtract.
+**Table 23.** Expected gap of a normal-report recording at four ages, in years, from the coefficients of Table 22: the amount that Eqs. (25) and (26) subtract.
 
 | model | form | age 20 | age 40 | age 60 | age 80 |
 |---|---|---|---|---|---|
@@ -646,7 +714,7 @@ These are Eq. (13) written for the gap. The corrected gap is a residual: how muc
 | P4 ensemble | linear | +5.7 | +1.6 | −2.5 | −6.7 |
 |  | quadratic | +4.0 | +2.5 | −1.7 | −8.7 |
 
-Table 21 shows the size of the effect: a normal 80-year-old is predicted 6 to 10 years too young and a normal 20-year-old 3 to 7 years too old, by a model whose overall bias is below 1 year. The quadratic term is negative for every model: the under-prediction grows faster in old age than a line allows, which is why the quadratic form leaves the smaller residual on the hospital cohorts.
+Table 23 shows the size of the effect: a normal 80-year-old is predicted 6 to 10 years too young and a normal 20-year-old 3 to 7 years too old, by a model whose overall bias is below 1 year. The quadratic term is negative for every model: the under-prediction grows faster in old age than a line allows, which is why the quadratic form leaves the smaller residual on the hospital cohorts.
 
 **Why these two corrections need the true age, and what follows.** Eqs. (25) and (26) evaluate the trend at the true age $y_r$. Three consequences:
 
@@ -664,7 +732,7 @@ $$ \Delta_{A-B} = \frac{1}{\lvert A \rvert} \sum_{r \in A} \delta_r^{corr} - \fr
 
 tested with Welch's t-test. Subtracting a fixed function of age from the gap is equivalent to using age as a covariate with coefficients fixed on the reference set, so it does not leak the group labels of the scored cohort.
 
-**Table 22.** P4 ensemble, gap before and after the two corrections, by cohort and subset: mean gap in years / mean absolute gap in years / Pearson r of the gap with age (0 = no age trend left). Subsets: normal EEG report or healthy controls; abnormal report or patients.
+**Table 24.** P4 ensemble, gap before and after the two corrections, by cohort and subset: mean gap in years / mean absolute gap in years / Pearson r of the gap with age (0 = no age trend left). Subsets: normal EEG report or healthy controls; abnormal report or patients.
 
 | cohort | subset | n | raw | linear gap, Eq. (25) | quadratic gap, Eq. (26) |
 |---|---|---|---|---|---|
@@ -683,37 +751,37 @@ tested with Welch's t-test. Subtracting a fixed function of age from the gap is 
 | SRM | all | 152 | −1.1 / 4.84 / −0.26 | −2.9 / 5.65 / 0.20 | −3.1 / 5.53 / 0.07 |
 | CHBP | all | 250 | +3.8 / 7.95 / −0.44 | +0.4 / 7.13 / −0.26 | +0.6 / 7.26 / −0.35 |
 
-Three things can be read from Table 22. First, the correction removes the trend where the models work: in the normal-report subsets of Temple and Harvard the correlation of the gap with age goes from −0.46 and −0.42 to +0.11 to +0.13. Second, it uncovers a group difference that the raw gap hides. Abnormal-report recordings are 10 to 13 years older than normal-report ones (58.0 against 44.6 years in Temple, 58.8 against 48.8 in Harvard), so their raw mean gaps are equal (−0.4 against −0.3, −0.1 against 0.0), while after the linear correction they look about 2.7 years older in Temple and 2.0 in Harvard (2.8 and 2.2 with the quadratic form). TDBRAIN patients and controls differ by 0.9 and 0.4 years, not significant. Third, the correction is one function of age and repairs nothing else: on TDBRAIN and SRM, which are less compressed than the reference set, it raises the mean absolute gap (TDBRAIN 4.92 to 5.24 years, SRM 4.84 to 5.65) and adds an offset of −1.3 and −2.9 years, and on CHBP the gap keeps a correlation of −0.26 with age.
+Three things can be read from Table 24. First, the correction removes the trend where the models work: in the normal-report subsets of Temple and Harvard the correlation of the gap with age goes from −0.46 and −0.42 to +0.11 to +0.13. Second, it uncovers a group difference that the raw gap hides. Abnormal-report recordings are 10 to 13 years older than normal-report ones (58.0 against 44.6 years in Temple, 58.8 against 48.8 in Harvard), so their raw mean gaps are equal (−0.4 against −0.3, −0.1 against 0.0), while after the linear correction they look about 2.7 years older in Temple and 2.0 in Harvard (2.8 and 2.2 with the quadratic form). TDBRAIN patients and controls differ by 0.9 and 0.4 years, not significant. Third, the correction is one function of age and repairs nothing else: on TDBRAIN and SRM, which are less compressed than the reference set, it raises the mean absolute gap (TDBRAIN 4.92 to 5.24 years, SRM 4.84 to 5.65) and adds an offset of −1.3 and −2.9 years, and on CHBP the gap keeps a correlation of −0.26 with age.
 
 ### 10.2. Test datasets: used and rejected
 
-Thirteen cohorts were converted with the training pipeline and scored. Cohorts were rejected as age benchmarks for three kinds of reason: (i) too few adult units for a stable estimate, (ii) a released signal whose band or scale differs from the training data in a way no model variant corrects, and (iii) healthy or normal-report subjects predicted with a cohort-wide offset of unknown cause. Table 23 lists every cohort with its status. Only adults are scored in every cohort: the training data has almost no patients under 18, and children are over-predicted by 10 years or more.
+Thirteen cohorts were converted with the training pipeline and scored. Cohorts were rejected as age benchmarks for three kinds of reason: (i) too few adult units for a stable estimate, (ii) a released signal whose band or scale differs from the training data in a way no model variant corrects, and (iii) healthy or normal-report subjects predicted with a cohort-wide offset of unknown cause. Table 25 lists every cohort with its status. Only adults are scored in every cohort: the training data has almost no patients under 18, and children are over-predicted by 10 years or more.
 
-**Table 23.** Every scored cohort and its status. n: adult units (recordings, or sessions for TDBRAIN and Dortmund). MAE: P4 ensemble, years, all adults. The numbers of the rejected cohorts are given as the evidence for the rejection, not as results.
+**Table 25.** Every scored cohort and its status. n: adult units (recordings, or sessions for TDBRAIN and Dortmund). MAE: P4 ensemble, years, all adults. The numbers of the rejected cohorts are given as the evidence for the rejection, not as results.
 
 | cohort | n | age, mean | MAE | status | reason |
 |---|---|---|---|---|---|
-| Temple (TUH) | 272 | 50.7 | 5.87 | used (Table 27) | held-out patients of the training corpus |
-| Harvard (HEEDB) | 7,338 | 54.1 | 5.94 | used (Table 28) | held-out patients of the training corpus |
-| TDBRAIN | 1,113 | 45.2 | 4.92 | used (Table 24) | external, zero-shot |
-| LEMON | 214 | 39.2 | 4.67 | used (Table 25) | external, zero-shot; ages public as 5-year bins |
-| CHBP | 250 | 31.7 | 7.95 | used, as the recording-chain case (Table 26) | recorded 0.5–50 Hz at about 0.6 times the training amplitude; only the device-robust model works (5.90 years, Section 6.5) |
-| Dortmund Vital Study | 816 | 46.1 | 4.53 | used (Table 29) | external, zero-shot; exact ages, 208 people with a 5-year follow-up (Section 6.7); kept test-only |
-| SRM | 152 | 38.8 | 4.84 | used (Table 30) | external, zero-shot; the smallest cohort of the report |
+| Temple (TUH) | 272 | 50.7 | 5.87 | used (Table 29) | held-out patients of the training corpus |
+| Harvard (HEEDB) | 7,338 | 54.1 | 5.94 | used (Table 30) | held-out patients of the training corpus |
+| TDBRAIN | 1,113 | 45.2 | 4.92 | used (Table 26) | external, zero-shot |
+| LEMON | 214 | 39.2 | 4.67 | used (Table 27) | external, zero-shot; ages public as 5-year bins |
+| CHBP | 250 | 31.7 | 7.95 | used, as the recording-chain case (Table 28) | recorded 0.5–50 Hz at about 0.6 times the training amplitude; only the device-robust model works (5.90 years, Section 6.5) |
+| Dortmund Vital Study | 816 | 46.1 | 4.53 | used (Table 31) | external, zero-shot; exact ages, 208 people with a 5-year follow-up (Section 6.7); kept test-only |
+| SRM | 152 | 38.8 | 4.84 | used (Table 32) | external, zero-shot; the smallest cohort of the report |
 | NMT | 1,362 | 38.0 | 14.70 | rejected as an age benchmark | released band-limited to about 1–35 Hz with an undocumented amplitude scale; bias +9.9 years, $R^2 = -0.11$; kept for the normal / abnormal contrast inside the cohort (Section 6.6) |
-| AHEPA | 88 | 66.2 | 11.23 | rejected as an age benchmark | the 29 controls are predicted 9.6 years too young, cause unknown; fewer than 100 units; kept for the patient / control contrast (Table 17) |
-| Iowa Parkinson's | 149 | 69.3 | 10.91 | rejected as an age benchmark | the 49 controls are predicted 10.9 years too young, cause unknown; kept for the patient / control contrast (Table 17) |
-| Tel Aviv Parkinson's | 144 | 65.1 | 8.66 | rejected as an age benchmark | the 28 controls are predicted 7.0 years too young, cause unknown; kept for the patient / control contrast (Table 17) |
+| AHEPA | 88 | 66.2 | 11.23 | rejected as an age benchmark | the 29 controls are predicted 9.6 years too young, cause unknown; fewer than 100 units; kept for the patient / control contrast (Table 19) |
+| Iowa Parkinson's | 149 | 69.3 | 10.91 | rejected as an age benchmark | the 49 controls are predicted 10.9 years too young, cause unknown; kept for the patient / control contrast (Table 19) |
+| Tel Aviv Parkinson's | 144 | 65.1 | 8.66 | rejected as an age benchmark | the 28 controls are predicted 7.0 years too young, cause unknown; kept for the patient / control contrast (Table 19) |
 | MIPDB, adults | 31 | 27.5 | 7.36 | rejected | too few: the 95 % interval of the MAE is more than 4 years wide |
 | HBN, adults | — | — | — | rejected | a paediatric study whose adults span only 18–22 years; kept out of every report |
 
-The three elderly disease cohorts share one failure: their healthy controls, 65 to 69 years old on average, are predicted 7 to 11 years too young, more than the age compression of Table 21 explains at that age (about −4 years). The cause has not been found, so the cohorts cannot measure accuracy; the difference between patients and controls of one cohort is not affected by a cohort-wide offset and remains usable (Section 6.6). NMT fails for a known reason, the band limit of the release: the same 1–35 Hz limit applied to Temple and Harvard recordings takes E2L from 5.3 to 12.6 years. The public datasets that were surveyed but not downloaded are listed in the project notes (`docs/tdbrain_onboarding.md`, Section 23).
+The three elderly disease cohorts share one failure: their healthy controls, 65 to 69 years old on average, are predicted 7 to 11 years too young, more than the age compression of Table 23 explains at that age (about −4 years). The cause has not been found, so the cohorts cannot measure accuracy; the difference between patients and controls of one cohort is not affected by a cohort-wide offset and remains usable (Section 6.6). NMT fails for a known reason, the band limit of the release: the same 1–35 Hz limit applied to Temple and Harvard recordings takes E2L from 5.3 to 12.6 years. The public datasets that were surveyed but not downloaded are listed in the project notes (`docs/tdbrain_onboarding.md`, Section 23).
 
 ### 10.3. Main performance tables per test cohort
 
-Tables 24 to 30 give, for each of the seven cohorts of this report, every model with and without rejection of the 20 % least confident units (Section 4.5; the three scores are spread, total and learned). The 20 % are set aside in the whole cohort and the kept units are then split by subset. MAE in years with a 95 % interval over 2,000 bootstrap resamples of subjects; $R^2$ and r of Eq. (14); bias is the mean gap in years; subset cells are MAE with $R^2$ in brackets. E2L is a single model and has only the spread score. The MAE of predicting the cohort's mean age is given in each caption as the reference. Published results on the same cohorts are in Table 19.
+Tables 26 to 32 give, for each of the seven cohorts of this report, every model with and without rejection of the 20 % least confident units (Section 4.5; the three scores are spread, total and learned). The 20 % are set aside in the whole cohort and the kept units are then split by subset. MAE in years with a 95 % interval over 2,000 bootstrap resamples of subjects; $R^2$ and r of Eq. (14); bias is the mean gap in years; subset cells are MAE with $R^2$ in brackets. E2L is a single model and has only the spread score. The MAE of predicting the cohort's mean age is given in each caption as the reference. Published results on the same cohorts are in Table 21.
 
-**Table 24.** TDBRAIN, adults, zero-shot: 1,113 sessions of 1,062 subjects, mean age 45.2 years; healthy controls 179 sessions (40.3 years), patients 934 (46.2 years). Predicting the mean age: 13.35 years.
+**Table 26.** TDBRAIN, adults, zero-shot: 1,113 sessions of 1,062 subjects, mean age 45.2 years; healthy controls 179 sessions (40.3 years), patients 934 (46.2 years). Predicting the mean age: 13.35 years.
 
 | model | rejected | MAE, all [95 %] | $R^2$ / r | bias | healthy, MAE ($R^2$) | pathological, MAE ($R^2$) |
 |---|---|---|---|---|---|---|
@@ -728,7 +796,7 @@ Tables 24 to 30 give, for each of the seven cohorts of this report, every model 
 |  | 20 %, total | 4.53 [4.26, 4.81] | 0.86 / 0.93 | −0.8 | 4.24 (0.86) | 4.58 (0.86) |
 |  | 20 %, learned | 4.57 [4.30, 4.85] | 0.86 / 0.93 | −0.8 | 4.43 (0.84) | 4.60 (0.86) |
 
-**Table 25.** LEMON, adults, zero-shot: 214 subjects, mean age 39.2 years, all healthy volunteers. Predicting the mean age: 18.60 years.
+**Table 27.** LEMON, adults, zero-shot: 214 subjects, mean age 39.2 years, all healthy volunteers. Predicting the mean age: 18.60 years.
 
 | model | rejected | MAE, all [95 %] | $R^2$ / r | bias |
 |---|---|---|---|---|
@@ -743,7 +811,7 @@ Tables 24 to 30 give, for each of the seven cohorts of this report, every model 
 |  | 20 %, total | 3.80 [3.32, 4.30] | 0.93 / 0.96 | −0.4 |
 |  | 20 %, learned | 3.81 [3.32, 4.34] | 0.92 / 0.96 | −0.4 |
 
-**Table 26.** CHBP, adults, zero-shot: 250 subjects, mean age 31.7 years, all healthy volunteers. Predicting the mean age: 7.27 years.
+**Table 28.** CHBP, adults, zero-shot: 250 subjects, mean age 31.7 years, all healthy volunteers. Predicting the mean age: 7.27 years.
 
 | model | rejected | MAE, all [95 %] | $R^2$ / r | bias |
 |---|---|---|---|---|
@@ -758,7 +826,7 @@ Tables 24 to 30 give, for each of the seven cohorts of this report, every model 
 |  | 20 %, total | 7.03 [6.17, 7.89] | −0.11 / 0.52 | +2.4 |
 |  | 20 %, learned | 7.43 [6.53, 8.37] | −0.29 / 0.47 | +2.8 |
 
-**Table 27.** Temple (TUH), adults, in-domain test: 272 recordings of 249 patients, mean age 50.7 years; normal EEG report 149 recordings (44.6 years), abnormal report 123 (58.0 years). Predicting the mean age: 14.83 years.
+**Table 29.** Temple (TUH), adults, in-domain test: 272 recordings of 249 patients, mean age 50.7 years; normal EEG report 149 recordings (44.6 years), abnormal report 123 (58.0 years). Predicting the mean age: 14.83 years.
 
 | model | rejected | MAE, all [95 %] | $R^2$ / r | bias | normal report, MAE ($R^2$) | abnormal report, MAE ($R^2$) |
 |---|---|---|---|---|---|---|
@@ -773,7 +841,7 @@ Tables 24 to 30 give, for each of the seven cohorts of this report, every model 
 |  | 20 %, total | 5.07 [4.44, 5.69] | 0.87 / 0.93 | −0.8 | 4.40 (0.87) | 6.32 (0.78) |
 |  | 20 %, learned | 5.11 [4.52, 5.68] | 0.86 / 0.93 | −0.7 | 4.46 (0.87) | 6.22 (0.78) |
 
-**Table 28.** Harvard (HEEDB), adults, in-domain test: 7,338 recordings of 5,884 patients, mean age 54.1 years; normal EEG report 1,518 recordings (48.8 years), abnormal 2,253 (58.8 years), no report 3,567 (53.3 years). Predicting the mean age: 16.94 years.
+**Table 30.** Harvard (HEEDB), adults, in-domain test: 7,338 recordings of 5,884 patients, mean age 54.1 years; normal EEG report 1,518 recordings (48.8 years), abnormal 2,253 (58.8 years), no report 3,567 (53.3 years). Predicting the mean age: 16.94 years.
 
 | model | rejected | MAE, all [95 %] | $R^2$ / r | bias | normal, MAE ($R^2$) | abnormal, MAE ($R^2$) | no report, MAE ($R^2$) |
 |---|---|---|---|---|---|---|---|
@@ -788,7 +856,7 @@ Tables 24 to 30 give, for each of the seven cohorts of this report, every model 
 |  | 20 %, total | 5.32 [5.19, 5.45] | 0.88 / 0.94 | −0.2 | 5.23 (0.87) | 5.75 (0.85) | 5.11 (0.89) |
 |  | 20 %, learned | 5.34 [5.20, 5.47] | 0.88 / 0.94 | −0.3 | 5.18 (0.88) | 5.77 (0.86) | 5.15 (0.89) |
 
-**Table 29.** Dortmund Vital Study, adults, zero-shot: 816 sessions of 608 people (four 3-minute runs each), mean age 46.1 years, all healthy volunteers. Predicting the mean age: 12.74 years.
+**Table 31.** Dortmund Vital Study, adults, zero-shot: 816 sessions of 608 people (four 3-minute runs each), mean age 46.1 years, all healthy volunteers. Predicting the mean age: 12.74 years.
 
 | model | rejected | MAE, all [95 %] | $R^2$ / r | bias |
 |---|---|---|---|---|
@@ -803,7 +871,7 @@ Tables 24 to 30 give, for each of the seven cohorts of this report, every model 
 |  | 20 %, total | 4.32 [4.03, 4.63] | 0.87 / 0.93 | −1.0 |
 |  | 20 %, learned | 4.32 [4.03, 4.62] | 0.86 / 0.93 | −0.9 |
 
-**Table 30.** SRM, adults, zero-shot: 152 recordings of 110 people, mean age 38.8 years, all healthy volunteers. Predicting the mean age: 11.27 years.
+**Table 32.** SRM, adults, zero-shot: 152 recordings of 110 people, mean age 38.8 years, all healthy volunteers. Predicting the mean age: 11.27 years.
 
 | model | rejected | MAE, all [95 %] | $R^2$ / r | bias |
 |---|---|---|---|---|
@@ -835,7 +903,7 @@ $$ \hat y_{r,k}^{(m)} = \frac{\sum_{i \in W_m} \alpha_i \, p_i}{\sum_{i \in W_m}
 
 with $p_i$ and $\alpha_i$ the window predictions and attention weights saved when every window was scored. Eq. (29) is exact, not an approximation: the softmax of Eq. (5) renormalises over the kept windows, and the head is linear, so $g\big(\sum_i \alpha_i h_{r,i}\big) = \sum_i \alpha_i\, g(h_{r,i})$ when $\sum_i \alpha_i = 1$. It reproduces the stored predictions to within 0.01 years. For E2L the weights are uniform. The in-domain ensembles were saved for the first 5 minutes only; E2L was also scored on every window in-domain.
 
-**Table 31.** MAE in years by evaluation window. In-domain: after the 60 s trims. "—": not saved. TDBRAIN, Dortmund and SRM runs are at most 5 minutes long, so their 5-minute window holds every window.
+**Table 33.** MAE in years by evaluation window. In-domain: after the 60 s trims. "—": not saved. TDBRAIN, Dortmund and SRM runs are at most 5 minutes long, so their 5-minute window holds every window.
 
 | cohort | E2L, 2 min | E2L, 5 min | E2L, every window | P4, 2 min | P4, 5 min | P4, every window |
 |---|---|---|---|---|---|---|
@@ -847,7 +915,7 @@ with $p_i$ and $\alpha_i$ the window predictions and attention weights saved whe
 | SRM | 5.12 | 5.01 | 5.01 | 4.80 | 4.84 | 4.84 |
 | CHBP | 9.58 | 9.55 | 9.35 | 8.54 | 8.38 | 7.95 |
 
-What Table 31 shows:
+What Table 33 shows:
 
 - **The main tables slightly favour the two long external recordings.** Scored on the first 5 minutes, as in-domain, the P4 ensemble gives 4.80 instead of 4.67 years on LEMON and 8.38 instead of 7.95 on CHBP; the three short cohorts do not change.
 - **The in-domain numbers are conservative.** Every window of a Harvard recording (about 30 minutes) takes E2L from 7.02 to 6.12 years, more than the 0.1 to 0.4 years the long external recordings gain.
@@ -861,7 +929,7 @@ $$ \tau = Q_{0.8}\big\{\, c_{v,k} : v \in V_k,\ k \,\big\}, \qquad \text{keep } 
 
 $c$ is the spread of Eq. (8), or the learned score: the predicted absolute error of the gradient-boosted regressor of Section 4.5, without the rank average with $d_r$. On validation each fold model's recordings are predicted by a regressor fitted on the other fold models' validation folds, so the threshold is not set on fitted values. The combined score of Eq. (9) has no validation form, because on validation every recording is seen by one fold model only. The thresholds for the P4 ensemble are 7.23 years (spread) and 6.03 years (learned). On validation, keeping 80 % lowers the MAE from 6.62 to 6.25 and 6.09 years.
 
-**Table 32.** P4 ensemble, first 5 minutes: MAE in years of the kept units, with the share kept, under each rule of Eq. (30) and under the cohort's own 80 % quantile of the same score.
+**Table 34.** P4 ensemble, first 5 minutes: MAE in years of the kept units, with the share kept, under each rule of Eq. (30) and under the cohort's own 80 % quantile of the same score.
 
 | rule | Temple | Harvard | TDBRAIN | LEMON | Dortmund | SRM | CHBP |
 |---|---|---|---|---|---|---|---|
@@ -871,15 +939,15 @@ $c$ is the spread of Eq. (8), or the learned score: the predicted absolute error
 | learned, cohort quantile | 5.46 (80 %) | 5.28 (80 %) | 4.58 (80 %) | 4.06 (80 %) | 4.27 (80 %) | 4.56 (80 %) | 7.92 (80 %) |
 | learned, validation threshold | 5.53 (83 %) | 5.29 (81 %) | 4.71 (91 %) | 4.10 (87 %) | 4.42 (91 %) | 4.66 (84 %) | 7.90 (80 %) |
 
-What Table 32 shows:
+What Table 34 shows:
 
 - **The thresholds transfer within the domain.** Harvard, whose test patients are exchangeable with the validation patients, keeps 80 and 81 %, as intended; Temple keeps 83 to 88 %.
 - **The external cohorts of volunteers and outpatients keep more, 82 to 91 %,** and the kept units are within −0.05 to +0.16 years of the cohort-quantile rule, which rejects more: cleaner recordings are less uncertain, and a fixed threshold says so.
 - **A shifted cohort is not recognised.** CHBP, with twice the error of the other cohorts, keeps 78 to 80 %: the scores measure the disagreement of windows and of fold models, not the distance of a cohort from the training data. The choice between the standard and the device-robust model (Section 6.5) needs a cohort-level check of amplitude and spectrum, not the per-recording confidence.
 
-**Pre-training data.** The LaBraM encoder was pre-trained on 2,534.78 hours from 16 sources, listed in Appendix D of its paper [@jiang2024labram]: BCI Competition IV-1, Emobrain, Grasp and Lift, Inria BCI Challenge, EEG Motor Movement/Imagery, Raw EEG Data (Trujillo 2020), Resting State EEG Data (Trujillo et al. 2017, 22 subjects), the SEED series, the Siena Scalp EEG Database, the SPIS Resting State Dataset, Target versus Non-Target, the four Temple subsets TUAR, TUEP, TUSZ and TUSL, and the authors' own recordings. Table 33 checks each test cohort.
+**Pre-training data.** The LaBraM encoder was pre-trained on 2,534.78 hours from 16 sources, listed in Appendix D of its paper [@jiang2024labram]: BCI Competition IV-1, Emobrain, Grasp and Lift, Inria BCI Challenge, EEG Motor Movement/Imagery, Raw EEG Data (Trujillo 2020), Resting State EEG Data (Trujillo et al. 2017, 22 subjects), the SEED series, the Siena Scalp EEG Database, the SPIS Resting State Dataset, Target versus Non-Target, the four Temple subsets TUAR, TUEP, TUSZ and TUSL, and the authors' own recordings. Table 35 checks each test cohort.
 
-**Table 33.** Test cohorts in the pre-training data of the LaBraM encoder. Self-supervised: the encoder saw the signals without any age label.
+**Table 35.** Test cohorts in the pre-training data of the LaBraM encoder. Self-supervised: the encoder saw the signals without any age label.
 
 | cohort | in LaBraM's pre-training | consequence |
 |---|---|---|
@@ -888,4 +956,4 @@ What Table 32 shows:
 | TDBRAIN, LEMON, Dortmund, SRM, CHBP | no | zero-shot in the strict sense |
 | AHEPA, Iowa, Tel Aviv, NMT | no | |
 
-The 127 Temple recordings seen in pre-training are not predicted better: MAE 6.03 against 5.73 years for the other 145 (P4 ensemble); they are older (52.2 against 49.3 years) and more often abnormal (58 against 34 %). With age, age squared and the report as covariates, their extra absolute error is −0.34 years [−1.53, 0.90] (P4) and +0.15 [−1.08, 1.35] (E2L), intervals from 2,000 bootstrap resamples of patients. Other EEG foundation models were pre-trained on some of our external cohorts (REVE on NMT and SRM, LEAD on Dortmund and the Iowa set; `docs/tdbrain_onboarding.md` Table 27.2), so the zero-shot status holds for the LaBraM checkpoint only and would have to be re-checked for other initial weights.
+The 127 Temple recordings seen in pre-training are not predicted better: MAE 6.03 against 5.73 years for the other 145 (P4 ensemble); they are older (52.2 against 49.3 years) and more often abnormal (58 against 34 %). With age, age squared and the report as covariates, their extra absolute error is −0.34 years [−1.53, 0.90] (P4) and +0.15 [−1.08, 1.35] (E2L), intervals from 2,000 bootstrap resamples of patients. Other EEG foundation models were pre-trained on some of our external cohorts (REVE on NMT and SRM, LEAD on Dortmund and the Iowa set; `docs/tdbrain_onboarding.md` Table 29.2), so the zero-shot status holds for the LaBraM checkpoint only and would have to be re-checked for other initial weights.

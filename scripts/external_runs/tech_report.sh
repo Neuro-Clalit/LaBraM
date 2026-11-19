@@ -66,6 +66,30 @@ if [[ $step == protocol || $step == all ]]; then
     --val-windows P3ens=$V3 --out-dir $D
 fi
 
+if [[ $step == models || $step == all ]]; then
+  # Table 9 (+ two-step attention models L1 / W4) and Tables 13-15 (age groups, corrections, rejection).
+  # L1 / W4: two-step ABMIL from E2L (docs/mil_stage1_results.md); in-domain first 5 minutes (own_5min_w),
+  # external every window; TDBRAIN / Dortmund / SRM scored for this table into *_all_l1w4.json.
+  RUNS2=(--run W4=/data/runs/heedb/mil_sagemaker/artifacts/w4/finetune --run L1=/data/runs/heedb/mil_local/L1_abmil_20261109_022309_458)
+  for c in tdbrain:TDBRAIN/cohorts/tdbrain_v1 dortmund:DORTMUND/cohorts/dortmund_v1 srm:SRM/cohorts/srm_v1; do
+    [[ -f $OUT/${c%%:*}_all_l1w4.json ]] || $PY scripts/eval_age_by_cohort.py --data-path $E/${c#*:} --splits test \
+      --pred-stats 53.52 19.29 --stage-dir none --eval-minutes 0 --trim-start-sec 0 --trim-end-sec 0 "${RUNS2[@]}" \
+      --out $OUT/${c%%:*}_all_l1w4.json > $OUT/${c%%:*}_all_l1w4.log 2>&1
+  done
+  MSETS=(--set temple:$C:$OUT/own_5min_w.json,$OUT/own_5min_models.json:$OUT/windows/own_5min_models:temple
+         --set harvard:$C:$OUT/own_5min_w.json,$OUT/own_5min_models.json:$OUT/windows/own_5min_models:harvard
+         --set tdbrain:$E/TDBRAIN/cohorts/tdbrain_v1:$OUT/tdbrain_all_l1w4.json,$OUT/tdbrain_all_models.json:$OUT/windows/tdbrain_all
+         --set lemon:$E/LEMON/cohorts/lemon_v1:$OUT/lemon_all.json,$OUT/lemon_all_models.json:$OUT/windows/lemon_all_models
+         --set dortmund:$E/DORTMUND/cohorts/dortmund_v1:$OUT/dortmund_all_l1w4.json,$OUT/dortmund_all_models.json:$OUT/windows/dortmund_all
+         --set srm:$E/SRM/cohorts/srm_v1:$OUT/srm_all_l1w4.json,$OUT/srm_all_models.json:$OUT/windows/srm_all
+         --set chbp:$E/CHBP/cohorts/chbp_v1:$OUT/chbp_all.json,$OUT/chbp_all_models.json:$OUT/windows/chbp_all_models)
+  TSETS=(); for s in "${MSETS[@]}"; do [[ $s == --set ]] && TSETS+=(--set) || TSETS+=("$(echo "$s" | awk -F: '{print $1":"$2":"$3 ($5 ? ":"$5 : "")}')"); done
+  $PY scripts/report_model_table.py "${TSETS[@]}" --models E2L L1 W4 P3ens P4ens --out $D/model_table.csv
+  $PY scripts/report_age_groups.py "${MSETS[@]}" --models E2L L1 W4 P3ens P4ens \
+    --val E2L=$OUT/own_all_val_E2L.json --val L1=$OUT/own_all_val_L1.json --val W4=$OUT/own_all_val_W4.json \
+    --val-windows P4ens=$V4 --val-windows P3ens=$V3 --val-meta $C/age_metadata.json --out $D/age_groups.csv
+fi
+
 if [[ $step == build || $step == all ]]; then
   $PY scripts/build_tech_report.py
 fi
