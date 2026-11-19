@@ -7,7 +7,12 @@ description: How to onboard a new EEG dataset (external test cohort or new train
 
 Worked examples: `docs/chbp_onboarding.md` and `docs/chbp_domain_shift.md`
 (CHBP, Synapse), `docs/external_eval_results.md` (LEMON, MIPDB),
-`docs/heedb_onboarding_plan.md` (HEEDB, training data).
+`docs/tdbrain_onboarding.md` (TDBRAIN, strict DUA, clinical labels),
+`docs/dortmund_onboarding.md` (Dortmund, OpenNeuro, CC0),
+`docs/open_cohorts_onboarding.md` (SRM, AHEPA, Iowa / Tel Aviv PD, NMT),
+`docs/hbn_onboarding.md` (HBN adults, reference only),
+`docs/heedb_onboarding_plan.md` (HEEDB, training data). Every onboarded
+dataset, with its storage and status, is listed in Section 12.
 
 The rule above everything: **an external test cohort is never used to fit,
 tune, select or calibrate anything.**
@@ -22,6 +27,24 @@ tune, select or calibrate anything.**
 - **Read the terms (DUA) first.** Note them in a memory file: redistribution,
   in-lab sharing, publication rules. Examples: HEEDB, never public; TDBRAIN,
   no in-lab sharing.
+- **Access that needs a person: stop and ask the user.** This covers an ORCID
+  or browser login, a DUA to sign, a request form, or an ethics approval.
+  Examples: TDBRAIN (brainclinics.com), CAUEEG, NMT-4K-EEG. Don't look for a
+  way around a closed ACL: TDBRAIN's Synapse entry lists but never downloads.
+  Open data (OpenNeuro, `fcp-indi`) is fetched with
+  `aws s3 sync --no-sign-request`, so no AWS identity is sent.
+- **The GitHub repo is public.** Never commit per-subject or per-recording rows
+  of a DUA-restricted cohort (TDBRAIN, HEEDB, TUH). That includes subject ids
+  with signal statistics, even without ages or diagnoses. Commit aggregates
+  only:
+  - add the cohort to `AGGREGATE_ONLY` in `scripts/external_eval_report.py`;
+  - use small-cell suppression in notebooks;
+  - grep the diff for subject ids (`sub-[0-9]{8}`, `CBM…`, stems) before
+    every push.
+  If such rows were pushed, a revert is not enough: the history must be
+  rewritten and the old branch never merged (the TDBRAIN `qc.csv` of
+  2026-11-15 → `tdbrain-onboarding-clean`). Open-licence cohorts (CC0,
+  CC BY) may keep per-recording rows.
 - **Tokens never go into code, commits or chat.**
   - Keep them in the tool's config file (e.g. `~/.synapseConfig`, mode 600) or
     an environment variable.
@@ -31,6 +54,15 @@ tune, select or calibrate anything.**
   - S3 mirror: `s3://eeg-data-public/<NAME>/v1/{raw,meta,cohorts}`.
   - The bucket is private despite its name. Run
     `dataset_maker/download_heedb.py::check_private` before every upload.
+  - Mirror **everything that cannot be fetched again without a person**:
+    participants and demographics tables, DUA PDFs, encrypted zips. TDBRAIN's
+    participants table is a separate manual download; it sat only on local
+    disk until 2026-11-19.
+  - Archive passwords (TDBRAIN zip) live in a mode-600 file or an env var,
+    never in git or on S3.
+  - **After mirroring, list every prefix that the doc's storage table names**
+    (`aws s3 ls`). The table must match S3, and the dataset must be in the
+    registry of Section 12.
 - **Add the cohort to `sagemaker.data_s3_uris`** in `labram/configs/defaults.py`
   *and* in every default JSON config, so jobs can mount it as an
   `evaluation.test_sets` channel.
@@ -42,6 +74,10 @@ tune, select or calibrate anything.**
   Keep a `listing.jsonl` with ids, sizes and md5s.
 - **Download only what is needed** (EEG, sidecars, participant tables; skip
   MRI). Make it resumable, retry transient errors, and respect API rate limits.
+- **Adults only (age ≥ 18).** The models are trained on adults. From a
+  paediatric study download only the adult participants and select them from
+  the participants table first (HBN: `--min-age 18`). HEEDB v1 is adults only
+  too.
 - **Check the counts against the data paper.** CHBP's paper reports 282
   participants, but only 250 have EEG.
 - **Several releases:** compare the signals directly (md5 and a sample-level
@@ -64,6 +100,7 @@ Write one table per dataset with:
 | coverage | label → 10-20 map | the models need the 19 10-20 channels (A1 / A2 / T1 / T2 may be missing) |
 | protocol | `events.tsv`, annotations | keep the resting part. CHBP: eyes closed, then eyes open / closed, cut at hyperventilation; photic and HV are not resting |
 | clipping / range | fraction of samples at the digital limits | 12-bit files with ±246 µV range |
+| **undocumented release processing** | median channel std against Temple / Harvard; PSD edges | NMT is released band-limited to about 1–35 Hz and stored at about 1/100 of real amplitude, although the header says µV. The reader's ×100 is a label-free assumption: state it. A forward test (Section 7) shows whether any model can survive it |
 | ages | participants table | units, bins (LEMON 5-year bins → midpoints), redaction (TUH `Age:999`), children vs adults |
 
 **Compare with the training data's recording chain:** TUH / HEEDB clinical
@@ -138,6 +175,40 @@ Report, with `scripts/external_age_metrics.py`:
 - **Literature numbers from the primary source** (paper table or the authors'
   results files), with protocol, n and CV design. Published within-cohort CV
   results are not zero-shot. Compare like for like, or say that it isn't.
+- **Check whether the corpus was in a pre-training set.** A cohort outside
+  LaBraM's pre-training corpus is a fair zero-shot test. Note other models'
+  corpora too (Dortmund is in LEAD's), as in Table 23.2 of
+  `docs/tdbrain_onboarding.md`.
+- **Gap corrections that use the true age** (linear / quadratic, Section 10.1
+  of the tech report) produce a residual, not an accuracy. Never report their
+  mean absolute value as an MAE.
+
+### Which cohorts may appear in a final report
+
+Final reports are `docs/tech_report/` and any paper-style summary. Working
+docs (`docs/<name>_onboarding.md`, result CSVs) keep every cohort.
+
+- **Rejected as an age benchmark.** These cohorts are kept for contrasts inside
+  the cohort only:
+  1. **Too few adult units.** Below about 100, or when the 95 % interval of the
+     MAE is wider than about 4 years (MIPDB adults, n = 31). The same rule
+     applies to very small sub-groups in final tables. Drop them from final
+     tables, figures and text, with one sentence saying they were scored and
+     why they are not shown.
+  2. **A released signal that no model variant corrects.** A band or scale
+     differs from the training data (NMT: 1–35 Hz, undocumented ×1/100).
+  3. **Healthy controls predicted with a cohort-wide offset of unknown
+     cause.** AHEPA, Iowa PD and Tel Aviv PD controls (65–69 y) come out 7–11 y
+     too young, more than the age compression explains. Use these cohorts only
+     for patient-vs-control gaps inside the cohort
+     (`scripts/clinical_cohort_gap.py`). A cohort-wide offset cancels in that
+     difference.
+- **Paediatric studies stay out of every final report,** even their adults
+  (HBN: 18–22 y). Their results live only in their onboarding doc.
+- **Keep large healthy cohorts with exact ages test-only.** Dortmund (20–70 y,
+  a 5-year follow-up of 208 people) is never trained on.
+- **Every scored cohort goes into the tech report's cohort table** (Table 17
+  in Section 10.2), with n, MAE, status and the reason for any rejection.
 
 ## 7. If performance degrades: find the cause
 
@@ -226,5 +297,36 @@ Report, with `scripts/external_age_metrics.py`:
 - Launcher `scripts/external_runs/<name>.sh`.
 - A CLAUDE.md line if new code or options were added.
 - A memory note for access and terms.
-- S3 mirror, checked private.
+- S3 mirror, checked private, listed against the doc's storage table.
+- A row in the registry below (Section 12).
 - Tests for new code: the full suite must pass.
+
+## 12. Onboarded datasets: storage and status
+
+Local root `/data/datasets/EEG-public/<NAME>/` (HEEDB:
+`/data/datasets/HEEDB/v4.1`). S3: private, key-only bucket
+`s3://eeg-data-public/` with all four public-access blocks on. "In configs"
+means the cohort is in `sagemaker.data_s3_uris`
+(`labram/configs/defaults.py::DEFAULT_SAGEMAKER_DATA_S3_URIS` and every default
+JSON config), so it can be an `evaluation.test_sets` channel. Training corpora
+are given as an `s3://` `data.data_path` instead.
+
+| dataset | source, licence | S3 (private) | cohort | in configs | status | doc |
+|---|---|---|---|---|---|---|
+| TUH (TUAB, TUEG, …) | NEDC rsync, DUA (no redistribution) | `TUH_EEG/<corpus>/<ver>/` | TUH cohorts, `tuab/v3.0.1/edf/processed_npy` | n/a (`data.data_path`) | training | memory `tuh-nedc-access` |
+| HEEDB v4.1 | BDSP credentialed access point, DUA (never public) | `HEEDB/v4.1/{raw,metadata,index,processed_npy_…,cohorts}` | `heedb_routine_v1`, `heedb_normal_v1`, `tuh_heedb_v1(_compact)` | n/a (`data.data_path`) | training (adults, routine EEG) | `docs/heedb_onboarding_plan.md` |
+| LEMON | `s3://fcp-indi/…/MPI-LEMON`, public | `LEMON/v1/{raw,meta,cohorts/lemon_v1}` | `lemon_v1` | yes | test, used | `docs/external_eval_results.md` |
+| MIPDB | `s3://fcp-indi/…/EEG_Eyetracking_CMI_data`, public | `MIPDB/v1/{raw,meta,events,cohorts/mipdb_v1}` | `mipdb_v1` | yes | test; adults n = 31, out of final reports | `docs/external_eval_results.md` |
+| CHBP | Synapse `syn22324937`, token | `CHBP/v1/{raw,cohorts/chbp_v1}` | `chbp_v1` | yes | test, used (recording-chain case) | `docs/chbp_onboarding.md`, `docs/chbp_domain_shift.md` |
+| MNCS / HarMNqEEG | Synapse `syn26712693` | `MNCS/v1/raw` | — (cross-spectra, no EEG) | no | reference spectra only | `docs/chbp_onboarding.md` |
+| TDBRAIN v3.1 | brainclinics.com, ORCID + DUA (no in-lab sharing) | `TDBRAIN/v1/{zips,raw,meta,cohorts/tdbrain_v1}` (meta holds the participants table) | `tdbrain_v1` | yes | test, used; aggregates only in git | `docs/tdbrain_onboarding.md` |
+| Dortmund Vital Study | OpenNeuro ds005385, CC0 | `DORTMUND/v1/{raw,meta,cohorts/dortmund_v1}` | `dortmund_v1` | yes | test only, accepted | `docs/dortmund_onboarding.md` |
+| SRM | OpenNeuro ds003775, CC0 | `SRM/v1/{raw,meta,cohorts/srm_v1}` | `srm_v1` | yes | test, accepted (small) | `docs/open_cohorts_onboarding.md` |
+| AHEPA | OpenNeuro ds004504, CC0 | `AHEPA/v1/{raw,meta,cohorts/ahepa_v1}` | `ahepa_v1` | yes | contrasts only (controls offset) | `docs/open_cohorts_onboarding.md` |
+| Iowa PD | OpenNeuro ds004584, CC0 | `IOWAPD/v1/{raw,meta,cohorts/iowapd_v1}` | `iowapd_v1` | yes | contrasts only (controls offset) | `docs/open_cohorts_onboarding.md` |
+| Tel Aviv PD | OpenNeuro ds007526, CC0 | `TELAVIVPD/v1/{raw,meta,cohorts/telavivpd_v1}` | `telavivpd_v1` | yes | contrasts only (controls offset) | `docs/open_cohorts_onboarding.md` |
+| NMT | Zenodo 10.5281/zenodo.21629135, CC BY 4.0 | `NMT/v1/{raw,meta,cohorts/nmt_v1}` | `nmt_v1` | yes | normal / abnormal contrast only (band-limited, scale) | `docs/open_cohorts_onboarding.md` |
+| HBN adults | OpenNeuro ds005505–ds005516, CC-BY-SA 4.0 | `HBN/v1/{raw,cohorts/hbn_adults_v1}` | `hbn_adults_v1` | no (paths in `scripts/external_runs/hbn.sh`) | reference only, out of every final report | `docs/hbn_onboarding.md` |
+
+Not onboarded, because each needs the user: CAUEEG (request form + ethics
+approval), NMT-4K-EEG (DUA), TUM chronic pain on OSF (licence unverified).
