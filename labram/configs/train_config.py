@@ -368,6 +368,31 @@ class MILConfig(ConfigBase):
       standardization (stored in the checkpoint) when ``score_input`` uses ``q``.
     * ``save_weights``: write per-window pooling weights of val/test per epoch
       to ``<output_dir>/analysis/``.
+    * Phased one-run schedule (the two-step E2L -> MIL recipe inside one job):
+      ``window_epochs`` first epochs train window-level age only (encoder +
+      head on single windows, like E2L; the pool is not trained), each epoch
+      drawing ``window_minutes_per_epoch`` of every training recording, read
+      recording by recording and flattened into batches of about
+      ``window_batch_size`` windows (``window_batch_size // windows per
+      recording`` recordings per step). ``window_bag_repeats`` draws every
+      recording that many times per epoch (each a fresh random set of
+      ``window_minutes_per_epoch`` of windows), so more recordings share a step
+      without less data per epoch: 1.33 min (8 windows) x 4 repeats with batch
+      256 = 32 recordings x 8 windows per step, 32 windows per recording per epoch.
+    * ``bag_lr`` > 0 gives the bag phase its own LR schedule: the window phase
+      then follows a cosine over its ``window_epochs`` only (peak
+      ``optimizer.lr``, ``optimizer.warmup_epochs`` warm-up) and the bag epochs
+      restart at ``bag_lr`` with ``bag_warmup_epochs`` of linear warm-up and a
+      cosine to ``optimizer.min_lr`` (the two-step recipe's second stage).
+    * ``window_loss_weight`` adds that weight times the per-window age loss
+      (the head on every window's embedding, against its recording's unmixed
+      target) to the bag loss in the trained-encoder bag epochs.
+    * ``bag_repeats`` draws every training recording that many times per bag
+      epoch (fresh windows each time). The next
+      ``freeze_encoder_epochs`` train the bag pool with the encoder frozen
+      (and the head too when ``freeze_head``), then everything trains on bags.
+      ``head_lr_scale`` applies from the first bag epoch. Retention (if any)
+      pulls toward the encoder as it was at the end of the window phase.
     """
     enabled: bool = False
     bag_size: int = 8
@@ -392,6 +417,15 @@ class MILConfig(ConfigBase):
     retention_weight: float = 0.0
     descriptor_fit_batches: int = 50
     save_weights: bool = True
+    window_epochs: int = 0
+    window_minutes_per_epoch: float = 5.0
+    window_batch_size: int = 256
+    window_bag_repeats: int = 1
+    bag_lr: float = 0.0
+    bag_warmup_epochs: int = 0
+    window_loss_weight: float = 0.0
+    bag_repeats: int = 1
+    freeze_head: bool = False
 
     def validate(self) -> None:
         if not self.enabled:
@@ -404,6 +438,14 @@ class MILConfig(ConfigBase):
             raise ValueError("mil.bag_size (and bag_size_choices) must be >= 1")
         if self.head_lr_scale <= 0:
             raise ValueError("mil.head_lr_scale must be > 0")
+        if (self.window_epochs < 0 or self.window_minutes_per_epoch <= 0 or self.window_batch_size < 1
+                or self.window_bag_repeats < 1 or self.bag_repeats < 1 or self.bag_lr < 0
+                or self.bag_warmup_epochs < 0 or self.window_loss_weight < 0):
+            raise ValueError("mil.window_epochs >= 0, window_minutes_per_epoch > 0, window_batch_size >= 1, "
+                             "window_bag_repeats / bag_repeats >= 1, bag_lr / bag_warmup_epochs / "
+                             "window_loss_weight >= 0 are required")
+        if self.bag_lr > 0 and self.window_epochs < 1:
+            raise ValueError("mil.bag_lr (a separate bag-phase LR schedule) needs mil.window_epochs >= 1")
 
 @dataclass
 class DistributedConfig(ConfigBase):

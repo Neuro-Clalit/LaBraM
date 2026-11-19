@@ -391,6 +391,27 @@ def main(config: FinetuneRunConfig, bundle=None):
             batch_size=config.trainer.batch_size, eval_batch_size=config.evaluation.eval_batch_size,
             num_workers=config.data.num_workers, pin_memory=pin_memory,
             collate_fn=_bag_collate() if mil_on else None)
+    if mil_on and config.mil.window_epochs > 0 and not config.trainer.eval:
+        # Phased MIL schedule: the first mil.window_epochs train on single windows
+        # (like E2L), each epoch a fresh window_minutes_per_epoch of every recording.
+        # Windows are read recording by recording (a bag of that many windows each,
+        # clustered reads stream far faster from S3 than random single windows) and
+        # flattened into window batches of about window_batch_size.
+        from labram.data.bags import RecordingBagDataset, collate_bag_windows
+        per_recording = max(1, int(config.mil.window_minutes_per_epoch * 60 // config.data.window_sec))
+        recs_per_batch = max(1, config.mil.window_batch_size // per_recording)
+        win_bags = RecordingBagDataset(dataset_train_windows, k=per_recording, train=True,
+                                       repeats=config.mil.window_bag_repeats)
+        win_sampler = (torch.utils.data.DistributedSampler(win_bags, num_replicas=num_tasks, rank=global_rank,
+                                                           shuffle=True, seed=config.distributed.seed)
+                       if num_tasks > 1 else torch.utils.data.RandomSampler(win_bags))
+        loaders.train_windows = torch.utils.data.DataLoader(
+            win_bags, sampler=win_sampler, batch_size=recs_per_batch, num_workers=config.data.num_workers,
+            pin_memory=pin_memory, drop_last=True, collate_fn=collate_bag_windows)
+        logger.info("MIL phased schedule: %d window epochs (%d windows per draw x %d draws per recording, "
+                    "%d draws = %d windows per step), %d frozen-encoder bag epochs, then joint",
+                    config.mil.window_epochs, per_recording, config.mil.window_bag_repeats, recs_per_batch,
+                    recs_per_batch * per_recording, config.mil.freeze_encoder_epochs)
     if mil_on and not config.trainer.eval and dataset_val is not None:
         loaders.train_eval = _bag_train_eval_loader(
             dataset_train_windows, config, pin_memory, distributed=config.distributed.dist_eval and num_tasks > 1)

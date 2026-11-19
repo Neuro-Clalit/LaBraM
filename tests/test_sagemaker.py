@@ -1243,3 +1243,17 @@ def test_entry_trains_into_checkpoint_dir_and_publishes(tmp_path, monkeypatch):
     entry.publish_checkpoint_outputs()
     assert (model / "finetune" / "log.txt").read_text() == "{}\n"
     assert sorted(p.name for p in model.rglob("*")) == ["finetune", "log.txt"]
+
+
+def test_resume_checkpoint_uri_is_used_verbatim():
+    from types import SimpleNamespace
+    from labram.runs.submit_sagemaker import resolve_checkpoint_uri
+    sm = SimpleNamespace(checkpoint_s3_uri="auto", use_spot=False, role="arn:aws:iam::123456789012:role/R",
+                         resume_checkpoint_s3_uri="s3://b/labram/checkpoints/job-f4-20261111T221412")
+    assert resolve_checkpoint_uri(sm, "other-job", "us-east-1") == "s3://b/labram/checkpoints/job-f4-20261111T221412/"
+    sm.resume_checkpoint_s3_uri = ""
+    assert resolve_checkpoint_uri(sm, "other-job", "us-east-1") == ""        # on-demand + auto: off
+    sm.resume_checkpoint_s3_uri = "/local/path"
+    import pytest
+    with pytest.raises(ValueError):
+        resolve_checkpoint_uri(sm, "other-job", "us-east-1")

@@ -94,3 +94,164 @@ def test_warm_start_from_a_finetuned_checkpoint_loads_weights(tmp_path):
     load_finetune_checkpoint(dst, cfg.finetune_checkpoint)
     assert torch.equal(dst.blocks[0].attn.qkv.weight, src.blocks[0].attn.qkv.weight)
     assert float(dst.head.bias) == 3.0
+
+
+def test_mil_cross_validation_fold_with_held_out_test(tmp_path):
+    """One-step bag training (no warm start) as CV fold 0: folds over train+val by
+    subject, the original test split held out as the fold's test set."""
+    import json
+    from labram.runs import finetune_cv
+    cfg, out = _cfg(tmp_path, **{"mil.pool": "gated", "mil.gated": False, "mil.score_input": "h",
+                                 "cross_validation.enabled": True, "cross_validation.n_folds": 3,
+                                 "cross_validation.fold": 0, "cross_validation.pool": "train_val",
+                                 "cross_validation.test_set": "held_out",
+                                 "cross_validation.split_by": "subject", "trainer.epochs": 1})
+    finetune_cv.run_cross_validation(cfg)
+    fold = glob.glob(os.path.join(str(out) + "*", "fold_0"))
+    assert fold, os.listdir(tmp_path)
+    split = json.load(open(glob.glob(os.path.join(fold[0], "cv_split.json"))[0]))
+    assert split["pool"] == "train_val"
+    metrics = json.load(open(os.path.join(fold[0], "fold_metrics.json")))
+    assert metrics
+    log = open(os.path.join(fold[0], "log.txt")).read()
+    assert '"test_mae"' in log or "test_mae" in log
+
+
+def test_mil_phased_schedule_window_then_pool_then_joint(tmp_path):
+    """mil.window_epochs: a window-level epoch first (pool untouched), then a
+    frozen-encoder epoch training only the pool (freeze_head), then joint bag training."""
+    from labram.runs import run_finetune
+    from labram.train import train_finetune, train_mil
+    cfg, out = _cfg(tmp_path, **{"mil.pool": "gated", "mil.score_input": "h", "trainer.epochs": 3,
+                                 "mil.window_epochs": 1, "mil.window_batch_size": 4,
+                                 "mil.window_minutes_per_epoch": 1.0, "mil.freeze_encoder_epochs": 1,
+                                 "mil.freeze_head": True, "mil.retention_weight": 0.1,
+                                 "mil.head_lr_scale": 5.0, "mixup.enabled": True,
+                                 # the SageMaker jobs' settings (submit_grid.sh BASE)
+                                 "channel_drop.enabled": True, "channel_drop.prob": 0.0,
+                                 "channel_drop.consistency_weight": 0.0,
+                                 "channel_drop.eval_consistency": False})
+    snaps = []
+
+    def snap(model, tag):
+        m = getattr(model, "module", model)
+        snaps.append((tag, {k: v.detach().clone() for k, v in m.state_dict().items()}))
+
+    real_win, real_bag = train_finetune.train_one_epoch, train_mil.train_one_epoch_bags
+
+    def win(model, *a, **k):
+        snap(model, "window_start")
+        out_ = real_win(model, *a, **k)
+        return out_
+
+    def bag(model, *a, **k):
+        snap(model, f"bag_start_{a[4]}")
+        return real_bag(model, *a, **k)
+    train_finetune.train_one_epoch, train_mil.train_one_epoch_bags = win, bag
+    try:
+        summary = run_finetune.main(cfg)
+    finally:
+        train_finetune.train_one_epoch, train_mil.train_one_epoch_bags = real_win, real_bag
+    assert summary["best_val_stats"]["mae"] > 0
+    tags = [t for t, _ in snaps]
+    assert tags == ["window_start", "bag_start_1", "bag_start_2"], tags
+    s = dict(snaps)
+
+    def changed(a, b, prefix):
+        return any(not torch.equal(s[a][k], s[b][k]) for k in s[a]
+                   if k.startswith(prefix) and s[a][k].is_floating_point())
+    assert not changed("window_start", "bag_start_1", "mil.")      # window phase: pool untouched
+    assert changed("window_start", "bag_start_1", "blocks.")       # ... encoder trained
+    assert changed("window_start", "bag_start_1", "head.")         # ... head trained
+    assert changed("bag_start_1", "bag_start_2", "mil.")           # frozen epoch: pool trained
+    assert not changed("bag_start_1", "bag_start_2", "blocks.")    # ... encoder frozen
+    assert not changed("bag_start_1", "bag_start_2", "head.")      # ... head frozen (freeze_head)
+    assert glob.glob(os.path.join(str(out) + "*", "retention_reference.pth"))
+    assert train_mil.bag_phase(cfg.mil, 0) == (True, False)
+    assert train_mil.bag_phase(cfg.mil, 1) == (False, True)
+    assert train_mil.bag_phase(cfg.mil, 2) == (False, False)
+
+
+def test_collate_bag_windows_flattens_bags_into_window_samples():
+    from labram.data.bags import collate_bag_windows
+    a = (torch.randn(3, 2, 10), torch.tensor(40.0), "rec_a", torch.zeros(3))
+    b = (torch.randn(2, 2, 10), torch.tensor(70.0), "rec_b", torch.zeros(2))
+    x, y, ids = collate_bag_windows([a, b])
+    assert x.shape == (5, 2, 10) and torch.equal(x[:3], a[0]) and torch.equal(x[3:], b[0])
+    assert y.tolist() == [40.0, 40.0, 40.0, 70.0, 70.0]
+    assert ids == ["rec_a"] * 3 + ["rec_b"] * 2
+    # multitask targets [age, abnormal] repeat row-wise
+    c = (torch.randn(2, 2, 10), torch.tensor([50.0, 1.0]), "rec_c", torch.zeros(2))
+    _, yc, _ = collate_bag_windows([c])
+    assert yc.shape == (2, 2) and yc[1].tolist() == [50.0, 1.0]
+
+
+def test_bag_dataset_repeats_draw_each_recording_several_times(tmp_path):
+    from labram.data.bags import RecordingBagDataset
+    from labram.data import get_dataset_bundle
+    from labram.data.window_selection import WindowSelection, apply_window_selection
+    from test_window_qc import _corpus
+    from labram.configs.run_configs import FinetuneRunConfig
+    root = _corpus(tmp_path / "data")
+    cfg = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_age.json",
+                                        **{"data.trim_start_sec": 0.0, "data.trim_end_sec": 0.0,
+                                           "data.eval_minutes": 0.0})
+    bundle = apply_window_selection(get_dataset_bundle("TUAB_AGE", str(root), data_format="npy"),
+                                    WindowSelection.from_data_config(cfg.data))
+    one = RecordingBagDataset(bundle.train, k=2, train=True)
+    rep = RecordingBagDataset(bundle.train, k=2, train=True, repeats=3)
+    n = len(one)
+    assert len(rep) == 3 * n
+    assert rep[0][2] == rep[n][2] == rep[2 * n][2]          # same recording ...
+    torch.manual_seed(0)
+    draws = {tuple(rep[n * j][3].tolist()) for j in range(3) for _ in range(5)}
+    assert len(draws) > 1                                     # ... fresh window draws
+
+
+def test_mil_phased_schedule_with_window_bag_repeats(tmp_path):
+    from labram.runs import run_finetune
+    cfg, out = _cfg(tmp_path, **{"mil.pool": "gated", "mil.gated": False, "mil.score_input": "h",
+                                 "trainer.epochs": 2, "mil.window_epochs": 1, "mil.window_minutes_per_epoch": 0.3334,
+                                 "mil.window_bag_repeats": 3, "mil.window_batch_size": 4,
+                                 "mil.freeze_encoder_epochs": 1, "mil.freeze_head": True})
+    assert run_finetune.main(cfg)["best_val_stats"]["mae"] > 0
+
+
+def test_phased_lr_schedule_restarts_for_the_bag_phase():
+    from types import SimpleNamespace
+    import numpy as np
+    from labram.train.train_mil import phased_lr_schedule
+    mil = SimpleNamespace(enabled=True, window_epochs=10, bag_lr=1e-4, bag_warmup_epochs=1)
+    opt = SimpleNamespace(lr=2.8e-4, min_lr=1e-6, warmup_epochs=3)
+    n = 50
+    base = np.zeros(17 * n)
+    s = phased_lr_schedule(base, mil, opt, 17, n)
+    assert len(s) == 17 * n
+    assert abs(s[3 * n] - 2.8e-4) < 1e-6                     # window peak after its warm-up
+    assert s[10 * n - 1] < 5e-6                              # window cosine ends near min_lr
+    assert s[10 * n] < 1e-5 and abs(s[11 * n] - 1e-4) < 2e-6  # bag warm-up from 0 to bag_lr
+    assert s[-1] < 5e-6
+    mil.bag_lr = 0.0
+    assert phased_lr_schedule(base, mil, opt, 17, n) is base   # off: unchanged
+
+
+def test_mil_p3_and_p4_recipes_run(tmp_path):
+    """P3: bag-phase LR restart + retention; P4: per-window loss + bag repeats."""
+    from labram.data.bags import wrap_bags
+    from labram.runs import run_finetune
+    common = {"mil.pool": "gated", "mil.gated": False, "mil.score_input": "h", "trainer.epochs": 3,
+              "mil.window_epochs": 1, "mil.window_minutes_per_epoch": 0.3334, "mil.window_bag_repeats": 2,
+              "mil.window_batch_size": 4, "mil.freeze_encoder_epochs": 1, "mil.freeze_head": True,
+              "mil.head_lr_scale": 5.0}
+    cfg, _ = _cfg(tmp_path / "p3", **{**common, "mil.bag_lr": 1e-4, "mil.bag_warmup_epochs": 1,
+                                      "mil.retention_weight": 0.1})
+    assert run_finetune.main(cfg)["best_val_stats"]["mae"] > 0
+    cfg, _ = _cfg(tmp_path / "p4", **{**common, "mil.window_loss_weight": 0.5, "mil.bag_repeats": 2})
+    assert run_finetune.main(cfg)["best_val_stats"]["mae"] > 0
+    from labram.data import get_dataset_bundle
+    from labram.data.window_selection import WindowSelection, apply_window_selection
+    b = apply_window_selection(get_dataset_bundle("TUAB_AGE", cfg.data.data_path, data_format="npy"),
+                               WindowSelection.from_data_config(cfg.data))
+    from labram.data.bags import RecordingBagDataset
+    n_recordings = len(RecordingBagDataset(b.train, k=3))
+    assert len(wrap_bags(b.train, cfg.mil, True)) == 2 * n_recordings      # bag_repeats=2
