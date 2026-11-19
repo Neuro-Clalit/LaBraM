@@ -272,6 +272,90 @@ def attention_heatmaps(path, wdir, cohort, cases, trim, model_glob="P4_L1_f*_tes
     print(path)
 
 
+def attention_on_eeg(path, wdir, cohort, cases, trim, model_glob="P4_L1_f*_test.parquet",
+                     full_channels=("FP1", "C3", "O1", "FP2", "C4", "O2"),
+                     zoom_channels=("FP1", "F3", "C3", "O1", "FP2", "F4", "C4", "O2"), zoom_windows=9):
+    """The EEG itself with every 10 s window's background coloured by its relative attention
+    weight (mean over the fold models, 1 = uniform): per case, the whole scored recording and a
+    zoom of ``zoom_windows`` windows centred on the lowest-weighted one, with each window's
+    predicted age and weight written above it. Display only: common average reference over the
+    present 10-20 channels and a 0.5 Hz zero-phase high-pass so slow drifts do not hide the traces."""
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import TwoSlopeNorm
+    from scipy.signal import butter, sosfiltfilt
+    from labram.data.tuh_metadata import TUH_CHANNELS
+    from labram.eval.age_plots import assert_max_columns, panel_labels
+    plt.rcParams.update({"font.size": 11, "axes.titlesize": 11.5})
+    files = sorted(glob.glob(os.path.join(wdir, model_glob)))
+    d = pd.concat([pd.read_parquet(f).assign(fold=k) for k, f in enumerate(files)])
+    meta = {r["stem"]: r for r in json.load(open(os.path.join(cohort, "manifest.json")))["recordings"]}
+    names = list(TUH_CHANNELS)
+    cmap, norm = plt.get_cmap("RdYlGn"), TwoSlopeNorm(vmin=0.3, vcenter=1.0, vmax=2.0)
+    sos = butter(2, 0.5, btype="highpass", fs=200, output="sos")
+    fig = plt.figure(figsize=(11, 5.4 * len(cases)))
+    outer = fig.add_gridspec(len(cases), 1, hspace=0.3)
+    axes = []
+    for c, (stem, label) in enumerate(cases):
+        r = d[d.recording == stem].copy()
+        r["a"] = r.alpha / r.groupby("fold").alpha.transform("sum")
+        n = r[r.fold == 0].shape[0]
+        w = (r.a * n).groupby(r.slot).mean()                                  # Eq. (15)
+        p = r.groupby("slot").window_pred.mean()
+        pooled = (r.a * r.window_pred).groupby(r.fold).sum().mean()          # Eq. (7)
+        age = float(r.age.iloc[0])
+        mask = np.asarray(meta[stem]["channel_mask"], bool)
+        x = np.load(os.path.join(cohort, "recordings", f"{stem}.npy"), mmap_mode="r")
+        present = [i for i in range(23) if mask[i] and i not in (16, 17, 21, 22)]
+        slots = w.index.to_numpy()
+        seg = np.asarray(x[(slots[0] + trim) * 2000:(slots[-1] + trim + 1) * 2000], dtype=np.float64)[:, present]
+        seg = seg - seg.mean(axis=1, keepdims=True)                          # common average reference
+        seg = sosfiltfilt(sos, seg, axis=0)                                  # display-only high-pass
+        t0 = (slots[0] + trim) * 10.0                                         # seconds from the file start
+        lo = int(w.idxmin())
+        zs = max(slots[0], min(lo - zoom_windows // 2, slots[-1] - zoom_windows + 1))
+        inner = outer[c].subgridspec(2, 1, height_ratios=[0.8, 1.2], hspace=0.55)
+        for row, (s0, s1, chans, spacing, step) in enumerate(
+                ((slots[0], slots[-1] + 1, full_channels, 90.0, 4), (zs, zs + zoom_windows, zoom_channels, 70.0, 1))):
+            ax = fig.add_subplot(inner[row])
+            scale = (lambda v: v / 60) if row == 0 else (lambda v: v)
+            for sl in range(s0, s1):
+                ax.axvspan(scale(t0 + (sl - slots[0]) * 10), scale(t0 + (sl - slots[0] + 1) * 10),
+                           color=cmap(norm(w[sl])), alpha=0.6, lw=0, zorder=0)
+            show = [ch for ch in chans if ch in names and names.index(ch) in present]
+            a, b = (s0 - slots[0]) * 2000, (s1 - slots[0]) * 2000
+            tt = scale(t0 + np.arange(a, b) / 200.0)
+            clip = 0.55 * spacing
+            for k, ch in enumerate(show):
+                v = seg[a:b:step, present.index(names.index(ch))]
+                ax.plot(tt[::step], np.clip(v, -clip, clip) - k * spacing, color="#1f1f1e",
+                        lw=0.3 if row == 0 else 0.55, rasterized=True, zorder=2)
+            ax.set_yticks([-k * spacing for k in range(len(show))], [ch.capitalize() for ch in show], fontsize=8.5)
+            top = 0.7 * spacing if row == 0 else 1.5 * spacing
+            ax.set_ylim(-(len(show) - 0.35) * spacing, top)
+            ax.set_xlim(tt[0], tt[-1])
+            if row == 0:
+                ax.set_xlabel("time in the recording (min)")
+                ax.axvspan(scale(t0 + (zs - slots[0]) * 10), scale(t0 + (zs - slots[0] + zoom_windows) * 10),
+                           fill=False, ec="#1f1f1e", lw=1.6, zorder=3)
+                ax.set_title(f"{label}: true age {age:.1f}, predicted {pooled:.1f} (error {pooled - age:+.1f} y)")
+            else:
+                ax.set_xlabel("time in the recording (s)")
+                for sl in range(s0, s1):
+                    ax.text(t0 + (sl - slots[0]) * 10 + 5, 0.95 * spacing, f"{p[sl]:.0f} y · w {w[sl]:.2f}",
+                            ha="center", va="center", fontsize=8, color="#1f1f1e", zorder=4)
+                ax.set_title("zoom on the box: window prediction and attention weight above each 10 s window")
+            for side in ("top", "right"):
+                ax.spines[side].set_visible(False)
+            axes.append(ax)
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    cb = fig.colorbar(sm, ax=axes, fraction=0.025, pad=0.01)
+    cb.set_label("relative attention weight $w_i$ (1 = uniform)")
+    panel_labels(axes)
+    assert_max_columns(fig)
+    fig.savefig(path, dpi=170, bbox_inches="tight")
+    plt.close(fig)
+    print(path)
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out-dir", default="docs/tech_report")
@@ -279,6 +363,8 @@ def main():
     ap.add_argument("--cohort", required=True, help="cohort folder with manifest.json and recordings/*.npy")
     ap.add_argument("--recording", required=True)
     ap.add_argument("--trim-windows", type=int, default=0, help="windows trimmed at the start when the cohort was scored")
+    ap.add_argument("--eeg-cases", nargs="*", default=[], metavar="STEM=LABEL",
+                    help="recordings drawn as EEG with the attention weight as background (fig_attention_on_eeg.png)")
     ap.add_argument("--heatmap-cases", nargs="*", default=[], metavar="STEM=LABEL",
                     help="recordings for the whole-recording attention heatmaps (fig_attention_heatmaps.png)")
     args = ap.parse_args()
@@ -288,6 +374,9 @@ def main():
     pipeline(os.path.join(args.out_dir, "fig_pipeline.png"))
     attention_example(os.path.join(args.out_dir, "fig_attention_example.png"), args.windows, args.cohort,
                       args.recording, args.trim_windows)
+    if args.eeg_cases:
+        attention_on_eeg(os.path.join(args.out_dir, "fig_attention_on_eeg.png"), args.windows, args.cohort,
+                         [tuple(c.split("=", 1)) for c in args.eeg_cases], args.trim_windows)
     if args.heatmap_cases:
         cases = [c.split("=", 1) for c in args.heatmap_cases]
         attention_heatmaps(os.path.join(args.out_dir, "fig_attention_heatmaps.png"), args.windows, args.cohort,

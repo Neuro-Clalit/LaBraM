@@ -292,12 +292,21 @@ Figure 3 shows the pooling on one recording of an external cohort. Window predic
 \end{figure}
 
 
-Figure 4 shows the attention over three whole recordings of the same cohort, one predicted well and two predicted badly. In the good case (Figure 4(a)) the window predictions scatter on both sides of the true age (49 \% above it), and the clearest feature of the attention map is a column of near-zero weight at minute 8, where a movement artifact raises the channel amplitude above 100 $\mu$V; all five fold models down-weight it. In the two bad cases (Figure 4(b), (c)) every window errs in the same direction as the final answer, 100 \% of them too old or too young. The attention weights still vary from about 0.6 to 1.7 and the fold models agree on them (mean correlation of their weight maps 0.6 to 0.7, against 0.5 in the good case), but no weighting of uniformly biased windows can reach the true age: attention-pooled and plain-mean predictions differ by about 1 year at most. The error of such a recording lies in what every window looks like to the encoder, not in which windows are chosen, which is why the spread and fold-disagreement scores of Section 4.5, not the attention weights, are used to flag uncertain recordings.
+Figures 4 and 5 show where in a whole recording the attention is placed. Figure 4 draws the EEG itself, with each 10 s window's background coloured by its attention weight: green where the model relies on the window more than average, red where it relies on it less. In the well-predicted recording (Figure 4(a), (b)) the two red windows at 490--510 s hold a movement artifact on every channel (weights 0.58 and 0.25), while windows of calm resting EEG sit near or above the uniform weight; the window predictions there are 60 to 66 years for a person of 60 to 65. In the badly predicted recording (Figure 4(c), (d)) the red windows again hold artifacts, here eye movements and saturated frontal channels, and the green windows are calm. Attention therefore finds the clean signal in both recordings. The difference is what the clean signal says: in the weak case even the most trusted windows read 30 to 33 years for a person of 20 to 25.
+
+Figure 5 shows the same for three recordings as a map over the five fold models. In the good case (Figure 5(a)) the window predictions scatter on both sides of the true age (49 \% above it), and the artifact at minute 8 is a column of near-zero weight in all five fold models. In the two bad cases (Figure 5(b), (c)) every window errs in the same direction as the final answer, 100 \% of them too old or too young. The fold models agree on the weights (mean correlation of their weight maps 0.6 to 0.7, against 0.5 in the good case), but no weighting of uniformly biased windows can reach the true age: attention-pooled and plain-mean predictions differ by about 1 year at most. The error of such a recording lies in what every window looks like to the encoder, not in which windows are chosen, which is why the spread and fold-disagreement scores of Section 4.5, not the attention weights, flag uncertain recordings.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth,height=0.62\textheight,keepaspectratio]{fig_attention_on_eeg.png}
+\caption{Attention on the EEG, P4 ensemble, two LEMON participants: (a), (b) a good prediction (aged 60--65, predicted 62.6), (c), (d) a weak one predicted too old (aged 20--25, predicted 38.0). (a), (c) The whole scored recording (after the 60 s trims), 6 channels; (b), (d) the 90 s in the box, 8 channels, with each window's prediction (fold mean) and relative attention weight $w$ above it. Background: the window's mean relative attention weight over the five fold models (Eq. (15); 1 = uniform, red below, green above). Display only: common average reference, 0.5 Hz high-pass, traces clipped. \texttt{scripts/tech\_report\_figures.py}.}
+\end{figure}
+
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth,height=0.62\textheight,keepaspectratio]{fig_attention_heatmaps.png}
-\caption{Attention over whole recordings, P4 ensemble, three LEMON participants: (a) a good prediction (aged 60--65, predicted 62.6), (b) a weak one predicted too old (aged 20--25, predicted 38.0), (c) a weak one predicted too young (aged 65--70, predicted 44.4). For each, top: the relative attention weight $w$ of every 10 s window (1 = uniform; colour scale shared) for each of the five fold models and their mean; middle: the window predictions (fold means, coloured by the mean weight), the true age (bin midpoint), the attention-pooled prediction of Eq. (7) and the plain mean of the windows. Red markers: windows whose median channel standard deviation after the common average reference exceeds 100 $\mu$V (artifacts). Recordings after the 60 s trims. Chosen to illustrate the extremes: the median absolute error on LEMON is 3.3 years. \texttt{scripts/tech\_report\_figures.py}.}
+\caption{Attention over whole recordings as a map over the fold models, P4 ensemble, three LEMON participants: (a) a good prediction (aged 60--65, predicted 62.6), (b) a weak one predicted too old (aged 20--25, predicted 38.0), (c) a weak one predicted too young (aged 65--70, predicted 44.4). For each, top: the relative attention weight $w$ of every 10 s window (1 = uniform; colour scale shared) for each of the five fold models and their mean; middle: the window predictions (fold means, coloured by the mean weight), the true age (bin midpoint), the attention-pooled prediction of Eq. (7) and the plain mean of the windows. Red markers: windows whose median channel standard deviation after the common average reference exceeds 100 $\mu$V (artifacts). Recordings after the 60 s trims. Chosen to illustrate the extremes: the median absolute error on LEMON is 3.3 years. \texttt{scripts/tech\_report\_figures.py}.}
 \end{figure}
 
 
@@ -555,7 +564,7 @@ Temple, epilepsy & 631 & 49.3 & 7.18 & +0.0 [$-$1.3, 1.3] & $-$0.2 [$-$2.1, 1.8]
 \end{figure}
 
 
-Three results stand out (Table 11, Figure 7).
+Three results stand out (Table 11, Figure 8).
 
 \begin{itemize}
 \item \textbf{Accuracy is close to uniform across diagnoses.} The MAE per Harvard group is 6.0 to 6.9 years against 5.4 for the reference, and most of that is age: at the same age and sex the extra absolute error is 0.3 to 1.2 years. An abnormal report costs about 1 year of absolute error in both cohorts.
@@ -598,7 +607,7 @@ oracle & 3.78 & 3.83 & 3.25 & 2.92 & 3.09 & 3.23 & 5.06 \\
 
 Rejection by the combined score lowers the MAE on every cohort, by 0.2 to 0.9 years on the external ones. It is never significantly worse than the spread and is significantly better on Temple, Harvard and CHBP (paired bootstrap), because the disagreement of the fold models sees errors that are shared by all windows of a recording. Scores built from the attention weights alone are weak and change sign on CHBP. Two cautions apply. The scores were compared on the test cohorts, so the choice among them is not independent of these data. And part of every score is age: within deciles of the predicted age, the combined score keeps 60 to 80 \% of its gain on Temple, Harvard and TDBRAIN, about half on Dortmund, all of it on SRM, but nothing on LEMON and CHBP. The combined score recovers 15 to 50 \% of what the oracle would (15 \% on Dortmund and SRM, where the errors are small and even). On Dortmund the rejected sessions are the older ones, not the outliers: their mean age is 51 to 55 years against 44 to 45 for the kept ones (\texttt{docs/dortmund\_onboarding.md} Table 10.5).
 
-\textbf{Inside the recording.} Figures 9 and 10 relate the error of single windows to the quantities of Eqs. (15) and (16) for the P4 ensemble.
+\textbf{Inside the recording.} Figures 10 and 11 relate the error of single windows to the quantities of Eqs. (15) and (16) for the P4 ensemble.
 
 \begin{figure}[t]
 \centering
@@ -746,7 +755,7 @@ What Tables 13 to 15 add:
 
 CHBP is the one cohort on which every model fails. This section locates the difference in the signal, tests it causally on training-domain recordings, and compares corrections. The numbers here are for the window model E2L and its retrained variants on the first 5 minutes of each recording, the training protocol, so E2L on CHBP reads 9.55 years here and 9.35 in Table 9 (every window). No CHBP age is used anywhere.
 
-\textbf{Where the signals differ.} Table 16 and Figure 12 compare CHBP with healthy Temple and Harvard recordings weighted to CHBP's age distribution. Two properties of the recording chain stand out. The amplitude is 0.5 to 0.6 times that of the training data. And the band is narrower: CHBP was recorded with a 0.5 Hz high-pass and a 50 Hz low-pass~\citep{valdessosa2021chbp}, so its power below 1 Hz is 6 to 12 \% and its power at 45--70 Hz 4 to 5 \% of the training data's. The alpha rhythm, in contrast, is stronger: CHBP is alert, eyes-closed, artifact-free research EEG, which should read as younger, not older. The age range is not the cause either: at CHBP's ages E2L reaches a correlation of 0.66 with age on its own domain, against 0.44 on CHBP. CHBP also holds two acquisition groups, a 64-channel cap (161 recordings; E2L MAE 7.58, r 0.55) and a 120-channel cap (89 recordings; 13.10, r 0.27) with a different spectrum.
+\textbf{Where the signals differ.} Table 16 and Figure 13 compare CHBP with healthy Temple and Harvard recordings weighted to CHBP's age distribution. Two properties of the recording chain stand out. The amplitude is 0.5 to 0.6 times that of the training data. And the band is narrower: CHBP was recorded with a 0.5 Hz high-pass and a 50 Hz low-pass~\citep{valdessosa2021chbp}, so its power below 1 Hz is 6 to 12 \% and its power at 45--70 Hz 4 to 5 \% of the training data's. The alpha rhythm, in contrast, is stronger: CHBP is alert, eyes-closed, artifact-free research EEG, which should read as younger, not older. The age range is not the cause either: at CHBP's ages E2L reaches a correlation of 0.66 with age on its own domain, against 0.44 on CHBP. CHBP also holds two acquisition groups, a 64-channel cap (161 recordings; E2L MAE 7.58, r 0.55) and a 120-channel cap (89 recordings; 13.10, r 0.27) with a different spectrum.
 
 \begin{table}[t]
 \centering
@@ -857,7 +866,7 @@ band + amplitude normalisation, Eqs. (20), (21) (device-robust) & 7.55 & 9.53 & 
 \end{figure}
 
 
-What Table 18 and Figure 13 show:
+What Table 18 and Figure 14 show:
 
 \begin{itemize}
 \item \textbf{The band limit restores the ranking, the amplitude sets the bias.} Band-limited training alone raises the correlation with age on CHBP from 0.44 to 0.55 but keeps an offset of +5 years; only a model that does not see the absolute amplitude removes the offset.
@@ -936,7 +945,7 @@ eyes open $-$ eyes closed, after the tasks & +0.45 [0.13, 0.77] & +0.18 [$-$0.25
 \end{figure}
 
 
-What Table 20 and Figure 14 show:
+What Table 20 and Figure 15 show:
 
 \begin{itemize}
 \item \textbf{The models see people age.} The predicted age rises by 4.3 years over 5.2 years, and 89 \% of the participants are predicted older at the second session. The shortfall is the compression: the cross-sectional slope of the P4 prediction on age is 0.85 in Dortmund (Table 13), which predicts $0.85 \times 5.17 = 4.4$ years, so the change over time agrees with the cross-sectional relation.
