@@ -97,6 +97,15 @@ CHBP~\citep{valdessosa2021chbp} & zero-shot & 250 recordings (250) & 31.7 & heal
 
 \section{Method}
 
+Figure 1 shows the whole pipeline. The encoder and its pre-training are LaBraM's~\citep{jiang2024labram} and are reused unchanged (Figure 1(a)). Everything after the pre-trained weights is ours (Figure 1(b)): one preprocessing for every cohort, the common average reference, the recording-level objective with attention pooling over 10 s windows, the cross-validation ensemble and the confidence. Sections 4.1 to 4.5 define each step.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth,height=0.62\textheight,keepaspectratio]{fig_pipeline.png}
+\caption{The pipeline. (a) LaBraM pre-training~\citep{jiang2024labram}, reused as published: unlabelled EEG is cut into 1 s patches, a neural tokenizer learns a codebook by reconstructing each patch's Fourier amplitude and phase, and the encoder learns by predicting the codes of masked patches. (b) This work: a routine recording is preprocessed once, cut into 10 s windows with a common average reference, and every window is embedded by the fine-tuned encoder; attention pooling turns the window embeddings into one prediction per recording and fold model, and five fold models give the ensemble age and its confidence. Blue: LaBraM's architecture and weights; orange: this work; grey: data; dashed: the training schedule.}
+\end{figure}
+
+
 \subsection{Input and encoder}
 
 A recording $r$ is a set of windows $x_{r,i} \in \mathbb{R}^{C \times T}$ with $T = 2000$ samples (10 s at 200 Hz) and the $C \le 19$ channels of the 10--20 system that the recording has. Each window is re-referenced to the common average, $x_{c,t} \leftarrow x_{c,t} - \frac{1}{C}\sum_{c'} x_{c',t}$, the input variant of LaBraM++~\citep{barmpas2025labrampp} without its per-patch z-scoring. Missing channels are left out of the token sequence. The LaBraM base encoder $f_\theta$ maps a window to an embedding $h_{r,i} = f_\theta(x_{r,i}) \in \mathbb{R}^{200}$, and a linear head $g$ maps an embedding to a scalar.
@@ -144,6 +153,15 @@ with $\mathbf{V} \in \mathbb{R}^{128 \times 200}$ and $\mathbf{w} \in \mathbb{R}
 \end{equation}
 
 The first term is the recording-level Huber loss. The second, with $H(\alpha) = -\sum_i \alpha_i \log \alpha_i$ and $\lambda_H = 0.01$, keeps the attention from collapsing onto one window. The third is a per-window loss through the same head. The fourth is a retention term: it keeps the window embeddings close to those of a frozen copy $f^{ref}$ of the encoder taken at the end of the window phase. At test time a recording is one bag of all its scored windows.
+
+Figure 2 shows the pooling on one recording of an external cohort. Window predictions spread over about 25 years within the recording; the attention weights vary about sixfold (0.40 to 2.28), and the lowest weights go to windows far from the pooled answer, among them a large movement artifact (Figure 2(e)). The highest-weighted window is ordinary resting EEG but not the most accurate one (Figure 2(d)): attention mainly removes bad windows, as Section 6.3 measures over whole cohorts. Here that moves the prediction from 68.1 (plain mean of the windows) to 70.7 years, for a true age in the 70--75 bin.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth,height=0.62\textheight,keepaspectratio]{fig_attention_example.png}
+\caption{Attention pooling over the windows of one recording: LEMON participant aged 70--75, 98 windows of 10 s after the 60 s trims, P4 ensemble ($p_i$ and $w_i$ of Eq. (15)). (a) Window predictions over time, coloured and sized by the relative attention weight $w_i$ (1 = uniform); lines: the true age (bin midpoint), the attention-pooled prediction of Eq. (7) and the plain mean of the windows. (b) The weight per window. (c) Weight against the window's deviation from the pooled prediction, Eq. (16). (d), (e) The EEG of the highest- and the lowest-weighted window, 12 of 19 channels after the common average reference, traces 80 $\mu$V apart and clipped at $\pm$40 $\mu$V. The recording was chosen to illustrate the mechanism; over all LEMON recordings attention improves on the plain mean by 0.4 years (Section 6.3). \texttt{scripts/tech\_report\_figures.py}.}
+\end{figure}
+
 
 Training is one run of 17 epochs from the pre-trained encoder, in three phases (Table 3). The two recipes differ in the schedule and in the regulariser of the joint phase: P3 restarts the learning rate and uses retention; P4 keeps one cosine schedule and adds the per-window loss.
 
@@ -392,7 +410,7 @@ Temple, epilepsy & 631 & 49.3 & 7.18 & +0.0 [$-$1.3, 1.3] & $-$0.2 [$-$2.1, 1.8]
 \end{figure}
 
 
-Three results stand out (Table 7, Figure 3).
+Three results stand out (Table 7, Figure 5).
 
 \begin{itemize}
 \item \textbf{Accuracy is close to uniform across diagnoses.} The MAE per Harvard group is 6.0 to 6.9 years against 5.4 for the reference, and most of that is age: at the same age and sex the extra absolute error is 0.3 to 1.2 years. An abnormal report costs about 1 year of absolute error in both cohorts.
@@ -435,7 +453,7 @@ oracle & 3.78 & 3.83 & 3.25 & 2.92 & 3.09 & 3.23 & 5.06 \\
 
 Rejection by the combined score lowers the MAE on every cohort, by 0.2 to 0.9 years on the external ones. It is never significantly worse than the spread and is significantly better on Temple, Harvard and CHBP (paired bootstrap), because the disagreement of the fold models sees errors that are shared by all windows of a recording. Scores built from the attention weights alone are weak and change sign on CHBP. Two cautions apply. The scores were compared on the test cohorts, so the choice among them is not independent of these data. And part of every score is age: within deciles of the predicted age, the combined score keeps 60 to 80 \% of its gain on Temple, Harvard and TDBRAIN, about half on Dortmund, all of it on SRM, but nothing on LEMON and CHBP. The combined score recovers 15 to 50 \% of what the oracle would (15 \% on Dortmund and SRM, where the errors are small and even). On Dortmund the rejected sessions are the older ones, not the outliers: their mean age is 51 to 55 years against 44 to 45 for the kept ones (\texttt{docs/dortmund\_onboarding.md} Table 6.5).
 
-\textbf{Inside the recording.} Figures 5 and 6 relate the error of single windows to the quantities of Eqs. (15) and (16) for the P4 ensemble.
+\textbf{Inside the recording.} Figures 7 and 8 relate the error of single windows to the quantities of Eqs. (15) and (16) for the P4 ensemble.
 
 \begin{figure}[t]
 \centering
@@ -493,7 +511,7 @@ The ensembles compress less than the window model: in-domain slopes are 0.79 to 
 
 CHBP is the one cohort on which every model fails. This section locates the difference in the signal, tests it causally on training-domain recordings, and compares corrections. The numbers here are for the window model E2L and its retrained variants on the first 5 minutes of each recording, the training protocol, so E2L on CHBP reads 9.55 years here and 9.35 in Table 5 (every window). No CHBP age is used anywhere.
 
-\textbf{Where the signals differ.} Table 10 and Figure 8 compare CHBP with healthy Temple and Harvard recordings weighted to CHBP's age distribution. Two properties of the recording chain stand out. The amplitude is 0.5 to 0.6 times that of the training data. And the band is narrower: CHBP was recorded with a 0.5 Hz high-pass and a 50 Hz low-pass~\citep{valdessosa2021chbp}, so its power below 1 Hz is 6 to 12 \% and its power at 45--70 Hz 4 to 5 \% of the training data's. The alpha rhythm, in contrast, is stronger: CHBP is alert, eyes-closed, artifact-free research EEG, which should read as younger, not older. The age range is not the cause either: at CHBP's ages E2L reaches a correlation of 0.66 with age on its own domain, against 0.44 on CHBP. CHBP also holds two acquisition groups, a 64-channel cap (161 recordings; E2L MAE 7.58, r 0.55) and a 120-channel cap (89 recordings; 13.10, r 0.27) with a different spectrum.
+\textbf{Where the signals differ.} Table 10 and Figure 10 compare CHBP with healthy Temple and Harvard recordings weighted to CHBP's age distribution. Two properties of the recording chain stand out. The amplitude is 0.5 to 0.6 times that of the training data. And the band is narrower: CHBP was recorded with a 0.5 Hz high-pass and a 50 Hz low-pass~\citep{valdessosa2021chbp}, so its power below 1 Hz is 6 to 12 \% and its power at 45--70 Hz 4 to 5 \% of the training data's. The alpha rhythm, in contrast, is stronger: CHBP is alert, eyes-closed, artifact-free research EEG, which should read as younger, not older. The age range is not the cause either: at CHBP's ages E2L reaches a correlation of 0.66 with age on its own domain, against 0.44 on CHBP. CHBP also holds two acquisition groups, a 64-channel cap (161 recordings; E2L MAE 7.58, r 0.55) and a 120-channel cap (89 recordings; 13.10, r 0.27) with a different spectrum.
 
 \begin{table}[t]
 \centering
@@ -604,7 +622,7 @@ band + amplitude normalisation, Eqs. (20), (21) (device-robust) & 7.55 & 9.53 & 
 \end{figure}
 
 
-What Table 12 and Figure 9 show:
+What Table 12 and Figure 11 show:
 
 \begin{itemize}
 \item \textbf{The band limit restores the ranking, the amplitude sets the bias.} Band-limited training alone raises the correlation with age on CHBP from 0.44 to 0.55 but keeps an offset of +5 years; only a model that does not see the absolute amplitude removes the offset.
@@ -683,7 +701,7 @@ eyes open $-$ eyes closed, after the tasks & +0.45 [0.13, 0.77] & +0.18 [$-$0.25
 \end{figure}
 
 
-What Table 14 and Figure 10 show:
+What Table 14 and Figure 12 show:
 
 \begin{itemize}
 \item \textbf{The models see people age.} The predicted age rises by 4.3 years over 5.2 years, and 89 \% of the participants are predicted older at the second session. The shortfall is the compression: the cross-sectional slope of the P4 prediction on age is 0.85 in Dortmund (Table 9), which predicts $0.85 \times 5.17 = 4.4$ years, so the change over time agrees with the cross-sectional relation.
