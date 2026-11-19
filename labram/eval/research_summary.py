@@ -502,7 +502,7 @@ def resolve_config(base_json: str, overrides: Sequence[str] = ()):
 #: infrastructure, paths), left out of :func:`config_diff`.
 NON_SCIENTIFIC = ("output.", "clearml.", "sagemaker.", "logging.", "shutdown.", "distributed.",
                   "data.num_workers", "data.pin_mem", "data.stage_", "data.data_path", "data.split_json",
-                  "evaluation.log_", "evaluation.detailed_metrics", "trainer.debug", "finetune_checkpoint.model_",
+                  "evaluation.log_", "evaluation.detailed_metrics", "evaluation.test_sets", "trainer.debug", "finetune_checkpoint.model_",
                   "cross_validation.fold", "cross_validation.base_dir", "cross_validation.split_json")
 #: Fields a regression fine-tune never reads (classification label smoothing;
 #: the VQNSP loss weights, used only with ``model.codebook_reg``).
