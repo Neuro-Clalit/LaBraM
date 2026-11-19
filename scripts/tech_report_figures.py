@@ -203,6 +203,75 @@ def attention_example(path, wdir, cohort, stem, trim, model_glob="P4_L1_f*_test.
     print(path, f"n={n} pooled={pooled:.2f} plain={plain:.2f} age={age} rho={rho:.2f} hi={hi} lo={lo}")
 
 
+def attention_heatmaps(path, wdir, cohort, cases, trim, model_glob="P4_L1_f*_test.parquet"):
+    """Attention over whole recordings: per case, (top) relative attention weight of every
+    window for each fold model and their mean, (middle) the window predictions with the true
+    age and the pooled prediction, (bottom) the window's median channel SD after CAR."""
+    import matplotlib.pyplot as plt
+    from labram.eval.age_plots import assert_max_columns, panel_labels
+    plt.rcParams.update({"font.size": 12, "axes.titlesize": 13, "axes.labelsize": 12})
+    files = sorted(glob.glob(os.path.join(wdir, model_glob)))
+    d = pd.concat([pd.read_parquet(f).assign(fold=k) for k, f in enumerate(files)])
+    meta = {r["stem"]: r for r in json.load(open(os.path.join(cohort, "manifest.json")))["recordings"]}
+    eeg19 = [i for i in range(23) if i not in (16, 17, 21, 22)]
+    fig = plt.figure(figsize=(10.5, 4.0 * len(cases)))
+    outer = fig.add_gridspec(len(cases), 1, hspace=0.42)
+    tops, im = [], None
+    for c, (stem, label) in enumerate(cases):
+        r = d[d.recording == stem].copy()
+        r["a"] = r.alpha / r.groupby("fold").alpha.transform("sum")
+        n = r[r.fold == 0].shape[0]
+        r["w"] = r.a * n                                                     # Eq. (15): 1 = uniform weight
+        pooled = (r.a * r.window_pred).groupby(r.fold).sum().mean()          # Eq. (7)
+        W = r.pivot(index="fold", columns="slot", values="w")
+        P = r.pivot(index="fold", columns="slot", values="window_pred").mean(axis=0)
+        mat = np.vstack([W.to_numpy(), W.mean(axis=0).to_numpy()])
+        minutes = (W.columns.to_numpy() + trim) / 6.0
+        age = float(r.age.iloc[0])
+        x = np.load(os.path.join(cohort, "recordings", f"{stem}.npy"), mmap_mode="r")
+        mask = np.asarray(meta[stem]["channel_mask"], bool)
+        keep = [i for i in eeg19 if mask[i]]
+        sd = []
+        for slot in W.columns:
+            k = int(slot) + trim
+            seg = np.asarray(x[k * 2000:(k + 1) * 2000], dtype=np.float32)[:, keep]
+            seg = seg - seg.mean(axis=1, keepdims=True)
+            sd.append(float(np.median(seg.std(axis=0))))
+        inner = outer[c].subgridspec(2, 1, height_ratios=[1.2, 1.4], hspace=0.08)
+        ax0 = fig.add_subplot(inner[0])
+        ax1 = fig.add_subplot(inner[1], sharex=ax0)
+        step = 1 / 6.0
+        im = ax0.imshow(mat, aspect="auto", cmap="viridis", vmin=0, vmax=2.5, interpolation="nearest",
+                        extent=(minutes[0] - step / 2, minutes[-1] + step / 2, len(mat) - 0.5, -0.5))
+        ax0.set_yticks(range(len(mat)), [f"fold {k}" for k in range(len(W))] + ["mean"], fontsize=8.5)
+        ax0.axhline(len(W) - 0.5, color="white", lw=1.5)
+        ax0.set_title(f"{label}: true age {age:.1f}, predicted {pooled:.1f}, error {pooled - age:+.1f} y")
+        ax1.scatter(minutes, P, c=mat[-1], cmap="viridis", vmin=0, vmax=2.5, s=26, edgecolor="white", lw=0.3, zorder=3)
+        ax1.axhline(age, color=INK, ls=":", lw=1.6, label="true age")
+        ax1.axhline(pooled, color="#eb6834", lw=2, label="attention-pooled prediction")
+        ax1.axhline(P.mean(), color=MUTED, ls="--", lw=1.4, label="plain mean of the windows")
+        ax1.set_ylabel("window prediction (y)")
+        ax1.legend(frameon=False, fontsize=9, ncol=3, loc="upper left")
+        art = np.asarray(sd) > 100                                           # artifact windows: channel SD > 100 uV
+        if art.any():
+            ax0.scatter(minutes[art], np.full(art.sum(), 0.93), marker="v", s=40, color="#e3242b", zorder=5,
+                        edgecolor="white", linewidth=0.6, transform=ax0.get_xaxis_transform())
+        ax1.set_xlabel("time in the recording (min)" if c == len(cases) - 1 else "")
+        plt.setp(ax0.get_xticklabels(), visible=False)
+        for ax in (ax1,):
+            ax.grid(color=GRID, lw=0.8)
+            for side in ("top", "right"):
+                ax.spines[side].set_visible(False)
+        tops.append(ax0)
+    cb = fig.colorbar(im, ax=fig.axes, fraction=0.02, pad=0.01)
+    cb.set_label("relative attention weight $w_i$ (1 = uniform)")
+    panel_labels(tops)
+    assert_max_columns(fig)
+    fig.savefig(path, dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    print(path)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out-dir", default="docs/tech_report")
@@ -210,6 +279,8 @@ def main():
     ap.add_argument("--cohort", required=True, help="cohort folder with manifest.json and recordings/*.npy")
     ap.add_argument("--recording", required=True)
     ap.add_argument("--trim-windows", type=int, default=0, help="windows trimmed at the start when the cohort was scored")
+    ap.add_argument("--heatmap-cases", nargs="*", default=[], metavar="STEM=LABEL",
+                    help="recordings for the whole-recording attention heatmaps (fig_attention_heatmaps.png)")
     args = ap.parse_args()
     import matplotlib
     matplotlib.use("Agg")
@@ -217,6 +288,10 @@ def main():
     pipeline(os.path.join(args.out_dir, "fig_pipeline.png"))
     attention_example(os.path.join(args.out_dir, "fig_attention_example.png"), args.windows, args.cohort,
                       args.recording, args.trim_windows)
+    if args.heatmap_cases:
+        cases = [c.split("=", 1) for c in args.heatmap_cases]
+        attention_heatmaps(os.path.join(args.out_dir, "fig_attention_heatmaps.png"), args.windows, args.cohort,
+                           [(stem, label) for stem, label in cases], args.trim_windows)
 
 
 if __name__ == "__main__":

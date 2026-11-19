@@ -50,10 +50,12 @@ if [[ $step == tables || $step == all ]]; then
   $PY scripts/window_confidence_figures.py "${SETS[@]}" --model P4ens --out $D/window_confidence.csv --fig-dir $T
   rm -f $T/recording_error_vs_confidence.png                        # not used in the report
   $PY scripts/chbp_variant_bars.py --out $T/fig_chbp_fixes.png      # CHBP corrections (docs/chbp_domain_shift.md)
-  # Figures 1 and 2: the pipeline, and attention pooling on one LEMON recording (open licence; scored after
+  # Figures 2-4: the pipeline, attention pooling on one LEMON recording, attention over whole recordings (open licence; scored after
   # the 60 s trims, so slot i is window i + 6 of the file)
   $PY scripts/tech_report_figures.py --out-dir $T --windows $OUT/windows/lemon_all_models \
-    --cohort $E/LEMON/cohorts/lemon_v1 --recording sub-032490_lemon-rs --trim-windows 6
+    --cohort $E/LEMON/cohorts/lemon_v1 --recording sub-032490_lemon-rs --trim-windows 6 \
+    --heatmap-cases "sub-032465_lemon-rs=good prediction" "sub-032446_lemon-rs=weak prediction, too old" \
+                    "sub-032303_lemon-rs=weak prediction, too young"
 fi
 
 if [[ $step == protocol || $step == all ]]; then
