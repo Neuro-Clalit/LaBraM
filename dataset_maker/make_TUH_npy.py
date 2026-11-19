@@ -95,9 +95,24 @@ def preprocess_recording(edf_path, notch=DEFAULT_NOTCH, method="notch", canonica
     present = channel_map(raw.ch_names, canonical)   # canonical -> raw label
     if len(present) < max(min_channels, 1):
         raise ValueError(f"{len(present)} of the 23 TUH channels present (< {max(min_channels, 1)})")
+    return preprocess_raw(raw, present, notch, method)
+
+
+def preprocess_raw(raw, present, notch=DEFAULT_NOTCH, method="notch", reference=None):
+    """The signal pipeline of :func:`preprocess_recording` on an opened MNE
+    ``raw`` (any reader: EDF, BrainVision, EGI, ...). ``present`` maps a TUH
+    channel name to the raw label carrying it. ``reference="average"``
+    re-references to the mean of the picked channels after loading (for
+    recordings whose reference electrode is itself one of the 23 channels,
+    e.g. EGI's vertex Cz, which would otherwise be all zero); default: the
+    recorded reference is kept, as for TUH and HEEDB."""
     order = [c for c in TUH_CHANNELS if c in present]
     raw.pick([present[c] for c in order])
     raw.load_data(verbose="error")
+    if reference == "average":
+        raw._data -= raw._data.mean(axis=0, keepdims=True)
+    elif reference is not None:
+        raise ValueError(f"unknown reference {reference!r}")
     if raw.info["sfreq"] < MIN_NATIVE_SFREQ:
         raise ValueError(f"sampling rate {raw.info['sfreq']} Hz < {MIN_NATIVE_SFREQ}")
     raw.filter(l_freq=L_FREQ, h_freq=H_FREQ, verbose="error")

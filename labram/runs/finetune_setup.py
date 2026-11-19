@@ -6,7 +6,7 @@
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import torch
 import torch.utils.data
@@ -104,6 +104,8 @@ class DataLoaders:
     # A fixed sample of training recordings scored like val/test each epoch
     # (``evaluation.train_eval_recordings``); None when off.
     train_eval: Optional[torch.utils.data.DataLoader] = None
+    # Named extra test sets (``evaluation.test_sets``), scored like test.
+    test_sets: Optional[Dict[str, torch.utils.data.DataLoader]] = None
 
 
 def build_train_eval_loader(dataset_train, eval_cfg, data_cfg, batch_size: int, num_workers: int,
@@ -162,7 +164,7 @@ def build_samplers(dataset_train, dataset_val, dataset_test, num_tasks: int, glo
 def build_dataloaders(dataset_train, dataset_val, dataset_test,
                       sampler_train, sampler_val, sampler_test,
                       batch_size: int, num_workers: int, pin_memory: bool,
-                      eval_batch_size: int = 0) -> DataLoaders:
+                      eval_batch_size: int = 0, collate_fn=None) -> DataLoaders:
     eval_batch_size = int(eval_batch_size) or int(1.5 * batch_size)
 
     train_loader = torch.utils.data.DataLoader(
@@ -171,6 +173,7 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=True,
+        collate_fn=collate_fn,
     )
 
     if dataset_val is None:
@@ -182,6 +185,7 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=False,
+        collate_fn=collate_fn,
     )
 
     if dataset_test is None:          # e.g. a cohort without a test split
@@ -193,6 +197,7 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
             num_workers=num_workers,
             pin_memory=pin_memory,
             drop_last=False,
+            collate_fn=collate_fn,
         ) for d, s in zip(dataset_test, sampler_test)]
     else:
         test_loader = torch.utils.data.DataLoader(
@@ -201,9 +206,27 @@ def build_dataloaders(dataset_train, dataset_val, dataset_test,
             num_workers=num_workers,
             pin_memory=pin_memory,
             drop_last=False,
+            collate_fn=collate_fn,
         )
 
     return DataLoaders(train=train_loader, val=val_loader, test=test_loader)
+
+
+def build_test_set_loaders(test_sets, distributed: bool, num_tasks: int, global_rank: int,
+                           batch_size: int, eval_batch_size: int, num_workers: int,
+                           pin_memory: bool, collate_fn=None) -> Dict[str, torch.utils.data.DataLoader]:
+    """``{name: loader}`` for the named extra test sets, built like the test
+    loader (sharded across ranks under DDP and gathered back by evaluate())."""
+    eval_batch_size = int(eval_batch_size) or int(1.5 * batch_size)
+    out = {}
+    for name, d in test_sets.items():
+        sampler = (torch.utils.data.DistributedSampler(d, num_replicas=num_tasks, rank=global_rank,
+                                                       shuffle=False)
+                   if distributed else torch.utils.data.SequentialSampler(d))
+        out[name] = torch.utils.data.DataLoader(d, sampler=sampler, batch_size=eval_batch_size,
+                                                num_workers=num_workers, pin_memory=pin_memory,
+                                                drop_last=False, collate_fn=collate_fn)
+    return out
 
 
 def freeze_except(model: torch.nn.Module, prefixes) -> int:
@@ -270,7 +293,12 @@ def load_finetune_checkpoint(model: torch.nn.Module, ckpt_cfg) -> None:
         for key, value in checkpoint_model.items():
             if key.startswith('student.'):
                 new_dict[key[len('student.'):]] = value
-        checkpoint_model = new_dict
+        if new_dict:
+            checkpoint_model = new_dict
+        else:
+            # A fine-tuned checkpoint (e.g. a warm start from a previous run)
+            # has plain keys; filtering it would load nothing at all.
+            logger.info("No 'student.' keys in %s: loading its weights unfiltered", ckpt_cfg.finetune)
 
     state_dict = model.state_dict()
     for k in ['head.weight', 'head.bias']:

@@ -524,7 +524,12 @@ def prepare_TUAB_age_dataset(root, *, normalize_targets: bool = True,
 
     train_ages = [ages[recording_stem(f)] for f in split.files["train"]]
     target_stats = None
-    if normalize_targets:
+    if normalize_targets and not train_ages:
+        # An evaluation-only cohort (every recording in test, e.g. an external
+        # dataset scored by a model trained elsewhere): targets stay in years
+        # and the scorer de-normalizes predictions with the model's own stats.
+        logger.warning("No training recordings in %s: age targets are not normalized", processed)
+    elif normalize_targets:
         mean = sum(train_ages) / len(train_ages)
         var = sum((a - mean) ** 2 for a in train_ages) / max(1, len(train_ages) - 1)
         target_stats = (mean, max(var ** 0.5, 1e-6))

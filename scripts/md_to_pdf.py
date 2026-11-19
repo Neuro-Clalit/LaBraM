@@ -3,9 +3,13 @@
 
 Covers the Markdown the technical docs use: headings, paragraphs, bullet lists,
 pipe tables, fenced code blocks, **bold**, `code`, links, inline ``$...$`` and
-display ``$$...$$`` math. Formulas are rendered with matplotlib's mathtext (STIX
-fonts), so no TeX installation or browser is needed. Two-row ``cases``
-environments are supported; ``\\underbrace`` and other environments are not.
+display ``$$...$$`` math (an equation's ``\\tag{n}`` is printed as its number
+at the right margin), and images ``![caption](path)`` (path relative to the
+Markdown file; the caption is printed under the image). Formulas are rendered
+with matplotlib's mathtext (STIX fonts), so no TeX installation or browser is
+needed. Two-row ``cases`` environments are supported; sizing commands
+(``\\big``, ``\\textstyle``, ...) are dropped and ``\\text`` / ``\\operatorname``
+become upright text; ``\\underbrace`` and other environments are not supported.
 
     pip install matplotlib reportlab   # not in requirements.txt
     python scripts/md_to_pdf.py docs/age_training_scenario_D.md            # -> .pdf beside it
@@ -68,6 +72,8 @@ def _styles():
                                       "leading": 15, "spaceBefore": 9, "spaceAfter": 4,
                                       "keepWithNext": 1}),
         "body": ParagraphStyle("body", **{**base, "spaceAfter": 6}),
+        "caption": ParagraphStyle("caption", **{**base, "fontSize": 8.6, "leading": 11.5, "textColor": MUTED,
+                                                "spaceBefore": 4, "alignment": 1}),
         "bullet": ParagraphStyle("bullet", **{**base, "leftIndent": 14, "bulletIndent": 3,
                                               "spaceAfter": 3}),
         "cell": ParagraphStyle("cell", **{**base, "fontSize": 8.6, "leading": 11.5}),
@@ -89,6 +95,11 @@ class MathRenderer:
         tex = re.sub(r"\\le(?![a-zA-Z])", r"\\leq", tex)
         tex = re.sub(r"\\ge(?![a-zA-Z])", r"\\geq", tex)
         tex = tex.replace(r"\tfrac", r"\frac")
+        tex = re.sub(r"\\(?:[bB]ig{1,2}[lrm]?|textstyle|displaystyle)(?![a-zA-Z])", "", tex)
+        tex = re.sub(r"\\[lr]vert(?![a-zA-Z])", "|", tex)
+        tex = re.sub(r"\\[lr]Vert(?![a-zA-Z])", r"\\|", tex)
+        tex = re.sub(r"\\(?:text|operatorname)\{([^{}]*)\}",
+                     lambda m: r"\mathrm{%s}" % m.group(1).replace(" ", r"\ "), tex)
         tex = re.sub(r"\\begin\{cases\}(.*?)\\end\{cases\}", MathRenderer._cases, tex, flags=re.S)
         if display:
             tex = re.sub(r"\\frac(?![a-zA-Z])", r"\\dfrac", tex)
@@ -118,10 +129,11 @@ class MathRenderer:
 class Converter:
     INLINE_MATH = re.compile(r"(?<![\\$])\$(?!\$)(.+?)(?<!\\)\$")
 
-    def __init__(self, workdir, width):
+    def __init__(self, workdir, width, base_dir=".", max_image_height=13.5 * cm):
         self.math = MathRenderer(workdir)
         self.st = _styles()
         self.width = width
+        self.base_dir, self.max_image_height = base_dir, max_image_height
 
     def inline(self, text):
         """Markdown inline markup -> reportlab paragraph XML."""
@@ -176,10 +188,30 @@ class Converter:
         return [t, Spacer(1, 8)]
 
     def display_math(self, tex):
+        tag = re.search(r"\\tag\{([^{}]*)\}", tex)
+        if tag:
+            tex = tex.replace(tag.group(0), "")
         path, w, h, _ = self.math.render(tex, display=True)
-        scale = min(1.0, (self.width - 12) / w)
+        room = self.width - (60 if tag else 12)
+        scale = min(1.0, room / w)
         img = Image(path, width=w * scale, height=h * scale, hAlign="CENTER")
-        return [Spacer(1, 3), img, Spacer(1, 7)]
+        if not tag:
+            return [Spacer(1, 3), img, Spacer(1, 7)]
+        row = Table([[img, Paragraph(f"({escape(tag.group(1))})", self.st["body"])]],
+                    colWidths=[self.width - 48, 48])
+        row.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (0, 0), (0, 0), "CENTER"),
+                                 ("ALIGN", (1, 0), (1, 0), "RIGHT"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                 ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+        return [Spacer(1, 3), row, Spacer(1, 7)]
+
+    def image(self, caption, path, max_height):
+        from reportlab.lib.utils import ImageReader
+        iw, ih = ImageReader(path).getSize()
+        scale = min(self.width / iw, max_height / ih)
+        out = [Spacer(1, 4), Image(path, width=iw * scale, height=ih * scale, hAlign="CENTER")]
+        if caption:
+            out.append(Paragraph(self.inline(caption), self.st["caption"]))
+        return [KeepTogether(out), Spacer(1, 8)]
 
     def code(self, lines):
         pre = XPreformatted(escape("\n".join(lines)), self.st["code"])
@@ -218,6 +250,10 @@ class Converter:
                     buf.append(lines[j].split("$$")[0])
                 story += self.display_math(" ".join(buf))
                 i = j + 1
+            elif re.match(r"!\[(.*)\]\(([^)]+)\)$", s):
+                m = re.match(r"!\[(.*)\]\(([^)]+)\)$", s)
+                story += self.image(m.group(1), os.path.join(self.base_dir, m.group(2)), self.max_image_height)
+                i += 1
             elif s.startswith("#"):
                 level = len(s) - len(s.lstrip("#"))
                 style = {1: "title", 2: "h2"}.get(level, "h3")
@@ -242,10 +278,26 @@ class Converter:
             else:
                 buf = []
                 while i < len(lines) and lines[i].strip() and not re.match(
-                        r"\s*(#|\||- |```|\$\$)", lines[i]):
+                        r"\s*(#|\||- |```|\$\$|!\[)", lines[i]):
                     buf.append(lines[i].strip())
                     i += 1
-                story.append(Paragraph(self.inline(" ".join(buf)), self.st["body"]))
+                para = Paragraph(self.inline(" ".join(buf)), self.st["body"])
+                # a "**Table n.** caption" paragraph stays on the page of its table's first rows
+                k = i
+                while k < len(lines) and not lines[k].strip():
+                    k += 1
+                if buf[0].startswith("**Table") and k < len(lines) and lines[k].strip().startswith("|"):
+                    rows = []
+                    while k < len(lines) and lines[k].strip().startswith("|"):
+                        rows.append([c.strip() for c in lines[k].strip().strip("|").split("|")])
+                        k += 1
+                    table = self.table(rows)
+                    table[0].keepWithNext = 0
+                    para.keepWithNext = 1
+                    story += [para] + table
+                    i = k
+                else:
+                    story.append(para)
         return story
 
 
@@ -264,7 +316,8 @@ def main():
         canvas.saveState()
         canvas.setFont("Body", 7.5)
         canvas.setFillColor(MUTED)
-        canvas.drawString(2 * cm, 1.2 * cm, f"LaBraM · {title}")
+        short = title if len(title) <= 80 else title[:77].rsplit(" ", 1)[0] + " ..."
+        canvas.drawString(2 * cm, 1.2 * cm, f"LaBraM · {short}")
         canvas.drawRightString(A4[0] - 2 * cm, 1.2 * cm, f"page {doc.page}")
         canvas.restoreState()
 
@@ -272,7 +325,7 @@ def main():
                             topMargin=1.8 * cm, bottomMargin=2 * cm, title=title,
                             author="LaBraM brain-age project")
     with tempfile.TemporaryDirectory() as tmp:
-        story = Converter(tmp, doc.width).convert(md)
+        story = Converter(tmp, doc.width, os.path.dirname(os.path.abspath(args.markdown))).convert(md)
         doc.build(story, onFirstPage=footer, onLaterPages=footer)
     print(f"wrote {out}")
 

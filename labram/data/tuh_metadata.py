@@ -275,17 +275,26 @@ def load_label_lookup_for(root: str, *, filename: str = SIDECAR_FILENAME) -> Dic
     """Resolve and load the normal/abnormal labels covering *root*.
 
     Raises when the sidecar predates the ``label`` field, since an empty lookup
-    would otherwise silently filter every recording out."""
+    would otherwise silently filter every recording out. A sidecar that has the
+    field with every value null (a cohort without report labels, e.g. external
+    psychiatric data) is valid: every recording is unlabelled."""
     path = find_metadata_sidecar(root, filename=filename)
     if path is None:
         raise FileNotFoundError(f"No {filename} found in {root} or any parent directory.")
     labels = label_lookup(load_metadata_sidecar(path))
-    if not labels:
+    if not labels and not _sidecar_has_label_field(path):
         raise ValueError(
             f"{path} has no normal/abnormal labels (written before the 'label' field "
             f"existed). Regenerate it with:\n"
             f"  python dataset_maker/make_TUAB_age.py scan --root <corpus edf dir>")
     return labels
+
+
+def _sidecar_has_label_field(path: str) -> bool:
+    """Whether any record of the sidecar at ``path`` carries a ``label`` key."""
+    with open(path) as fh:
+        recs = json.load(fh).get("recordings", {})
+    return any("label" in r for r in recs.values())
 
 
 def recording_stem(filename: str, *, sep: str = "_") -> str:

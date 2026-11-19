@@ -4,6 +4,7 @@
 # ---------------------------------------------------------
 
 from labram.layers.attention import Attention
+from labram.layers.bag_pool import BagPool, DescriptorNorm, build_bag_pool
 from labram.layers.cls_attention_head import CLSAttentionHead
 from labram.layers.drop_path import DropPath
 from labram.layers.feature_embedders import CodeBookBagEmbedder, FeatureEmbedder
@@ -16,6 +17,9 @@ from labram.layers.transformer_block import Block
 
 __all__ = [
     'Attention',
+    'BagPool',
+    'DescriptorNorm',
+    'build_bag_pool',
     'Block',
     'CLSAttentionHead',
     'CodeBookBagEmbedder',

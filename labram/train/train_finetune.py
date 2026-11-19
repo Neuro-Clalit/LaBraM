@@ -1117,6 +1117,15 @@ def train_loop(
     import time
     import labram.runs.common as runner_common
 
+    # Recording-level MIL (mil.enabled): bag versions of the epoch and the eval.
+    train_epoch_fn, evaluate_fn = train_one_epoch, evaluate
+    if getattr(config, 'mil', None) is not None and config.mil.enabled:
+        import functools
+        from labram.train.train_mil import evaluate_bags, train_one_epoch_bags
+        train_epoch_fn = functools.partial(train_one_epoch_bags, mil_cfg=config.mil)
+        evaluate_fn = functools.partial(evaluate_bags, mil_cfg=config.mil,
+                                        out_dir=config.output.output_dir)
+
     lr_schedule_values = runner_common.make_lr_schedule(
         config.optimizer, config.trainer, num_training_steps_per_epoch)
     wd_schedule_values = runner_common.make_wd_schedule(
@@ -1163,6 +1172,8 @@ def train_loop(
     best_epoch = -1
     best_val_stats: dict = {}
     best_test_stats: dict = {}
+    best_test_set_stats: dict = {}       # name -> stats at the best epoch
+    last_test_set_stats: dict = {}
     best_train_stats: dict = {}
     best_train_eval_stats: dict = {}
     last_epoch = -1
@@ -1180,6 +1191,7 @@ def train_loop(
             best_val_stats, best_test_stats = state["best_val_stats"], state["best_test_stats"]
             best_train_stats = state["best_train_stats"]
             best_train_eval_stats = state.get("best_train_eval_stats", {})
+            best_test_set_stats = state.get("best_test_set_stats", {})
             logger.info("Resumed best-epoch state: best %s val %.4f at epoch %d",
                         select_metric, best_val, best_epoch)
 
@@ -1200,7 +1212,7 @@ def train_loop(
             log_writer.set_step(epoch * num_training_steps_per_epoch * config.trainer.update_freq)
 
         train_timer = utils.PhaseTimer(device)
-        train_stats = train_one_epoch(
+        train_stats = train_epoch_fn(
             model, criterion, loaders.train, optimizer,
             device, epoch, loss_scaler,
             trainer_cfg=config.trainer,
@@ -1240,7 +1252,7 @@ def train_loop(
 
         if loaders.val is not None:
             validation_timer = utils.PhaseTimer(device)
-            val_stats = evaluate(loaders.val, eval_model, device, header='Val:',
+            val_stats = evaluate_fn(loaders.val, eval_model, device, header='Val:',
                                  ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                                  nb_classes=nb_classes, eval_cfg=config.evaluation,
                                  log_writer=log_writer, head='val', epoch=epoch,
@@ -1256,7 +1268,7 @@ def train_loop(
             test_stats, test_timing = {}, {}
             if loaders.test is not None:      # a cohort may have no test split
                 test_timer = utils.PhaseTimer(device)
-                test_stats = evaluate(loaders.test, eval_model, device, header='Test:',
+                test_stats = evaluate_fn(loaders.test, eval_model, device, header='Test:',
                                       ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                                       nb_classes=nb_classes, eval_cfg=config.evaluation,
                                       log_writer=log_writer, head='test', epoch=epoch,
@@ -1267,13 +1279,36 @@ def train_loop(
                 test_timing = utils.timing_stats(
                     'test', test_timer.elapsed(), int(test_stats.get('samples_processed', 0)))
                 logger.info(f"Test EEG {select_metric}: {test_stats[select_metric]:.2f}{unit}")
+            def score_test_sets():
+                # Named extra test sets (evaluation.test_sets), scored like test.
+                out = {}
+                for set_name, set_loader in (getattr(loaders, 'test_sets', None) or {}).items():
+                    out[set_name] = evaluate_fn(
+                        set_loader, eval_model, device, header=f'Test[{set_name}]:',
+                        ch_names=ch_names, metrics=metrics, is_binary=is_binary,
+                        nb_classes=nb_classes, eval_cfg=config.evaluation,
+                        log_writer=log_writer, head=f'test_{set_name}', epoch=epoch,
+                        task=task, target_stats=target_stats,
+                        loss_cfg=config.loss, logging_cfg=config.logging,
+                        criterion=criterion,
+                        channel_drop_cfg=getattr(config, 'channel_drop', None))
+                    logger.info(f"Test[{set_name}] EEG {select_metric}: "
+                                f"{out[set_name][select_metric]:.2f}{unit}")
+                return out
+
+            # Every evaluation.test_sets_every epochs and on the last one; a new
+            # best-val epoch in between is scored too (test_sets_at_best) so the
+            # best-epoch numbers always come from the selected model.
+            sets_every = max(1, int(getattr(config.evaluation, 'test_sets_every', 1) or 1))
+            set_stats = (score_test_sets() if (epoch + 1) % sets_every == 0
+                         or epoch + 1 == config.trainer.epochs else {})
             train_eval_stats, train_eval_timing = {}, {}
             every = max(1, int(getattr(config.evaluation, 'train_eval_every', 1) or 1))
             if train_eval_loader is not None and (
                     (epoch + 1) % every == 0 or epoch + 1 == config.trainer.epochs):
                 # A fixed sample of training recordings, scored like val/test.
                 train_eval_timer = utils.PhaseTimer(device)
-                train_eval_stats = evaluate(
+                train_eval_stats = evaluate_fn(
                     train_eval_loader, eval_model, device, header='TrainEval:',
                     ch_names=ch_names, metrics=metrics, is_binary=is_binary,
                     nb_classes=nb_classes, eval_cfg=config.evaluation,
@@ -1288,6 +1323,9 @@ def train_loop(
                             f"{train_eval_stats[select_metric]:.2f}{unit}")
             _log_dataset_breakdown(val_stats, test_stats, train_eval_stats, select_metric)
 
+            if (better(val_stats[select_metric], best_val) and not set_stats
+                    and getattr(config.evaluation, 'test_sets_at_best', True)):
+                set_stats = score_test_sets()
             if better(val_stats[select_metric], best_val):
                 best_val = val_stats[select_metric]
                 if config.output.output_dir and config.output.save_ckpt and not config.output.save_only_final_model:
@@ -1301,6 +1339,7 @@ def train_loop(
                 best_epoch = epoch
                 best_val_stats = dict(val_stats)
                 best_test_stats = dict(test_stats)
+                best_test_set_stats = {k: dict(v) for k, v in set_stats.items()}
                 best_train_stats = dict(train_stats)
                 if train_eval_stats:      # skipped epochs keep the last scored one
                     best_train_eval_stats = dict(train_eval_stats)
@@ -1314,6 +1353,8 @@ def train_loop(
                 if train_eval_stats:
                     _log_eval_stats(log_writer, train_eval_stats, head="train_eval", epoch=epoch)
             last_val_stats, last_test_stats = dict(val_stats), dict(test_stats)
+            if set_stats:                 # skipped epochs keep the last scored one
+                last_test_set_stats = {k: dict(v) for k, v in set_stats.items()}
             if train_eval_stats:
                 last_train_eval_stats = dict(train_eval_stats)
             val_history.append(float(val_stats[select_metric]))
@@ -1321,6 +1362,7 @@ def train_loop(
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                          **{f'val_{k}': v for k, v in val_stats.items()},
                          **{f'test_{k}': v for k, v in test_stats.items()},
+                         **{f'test_{n}_{k}': v for n, st in set_stats.items() for k, v in st.items()},
                          **{f'train_eval_{k}': v for k, v in train_eval_stats.items()},
                          'epoch': epoch, 'n_parameters': n_parameters,
                          **train_timing, **checkpoint_timing,
@@ -1360,6 +1402,7 @@ def train_loop(
                 "epoch": epoch, "best_val": best_val, "best_test": best_test,
                 "best_epoch": best_epoch, "best_val_stats": best_val_stats,
                 "best_test_stats": best_test_stats, "best_train_stats": best_train_stats,
+                "best_test_set_stats": best_test_set_stats,
                 "best_train_eval_stats": best_train_eval_stats,
                 "val_history": val_history})
         if (config.trainer.early_stopping and loaders.val is not None
@@ -1409,6 +1452,7 @@ def train_loop(
         "val_history": val_history,
         "best_val_stats": best_val_stats,
         "best_test_stats": best_test_stats,
+        "best_test_set_stats": best_test_set_stats,
         "best_train_stats": best_train_stats,
         "best_train_eval_stats": best_train_eval_stats,
         # The final epoch's metrics, for the best-vs-last summary tables.
@@ -1416,5 +1460,6 @@ def train_loop(
         "last_train_stats": last_train_stats,
         "last_val_stats": last_val_stats,
         "last_test_stats": last_test_stats,
+        "last_test_set_stats": last_test_set_stats,
         "last_train_eval_stats": last_train_eval_stats,
     }

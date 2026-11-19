@@ -218,6 +218,22 @@ class EvaluationConfig(ConfigBase):
     train_eval_every: int = 4
     # Batch size of the val / test / train_eval loaders; 0 = 1.5 x trainer.batch_size.
     eval_batch_size: int = 0
+    # Named extra test sets, scored wherever the test split is and logged as
+    # ``test_<name>`` (``labram/data/test_sets.py``): ``<family>`` = the test
+    # split's recordings of one source dataset (``temple`` / ``harvard``), or
+    # ``<name>=<path>`` = an external test-only npy cohort scored zero-shot
+    # (e.g. ``lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1``), with
+    # optional per-set window selection after ``?`` (``trim_start_sec``,
+    # ``trim_end_sec``, ``eval_minutes``, ``age_min``, ``age_max``; e.g. TDBRAIN's
+    # 2-min files: ``...tdbrain_v1?trim_start_sec=0&trim_end_sec=0&eval_minutes=0&age_min=18``).
+    # A set whose data is missing is skipped with a warning.
+    test_sets: List[str] = field(default_factory=list)
+    # Score the test sets every this many epochs and on the last one (not every
+    # epoch: an external cohort adds evaluation time to each epoch it runs) ...
+    test_sets_every: int = 5
+    # ... and on any epoch that sets a new best val, so the best-epoch numbers
+    # (best_test_set_stats) always come from the selected model.
+    test_sets_at_best: bool = True
     # Metric that selects the best epoch (and drives early stopping), e.g.
     # "pathology_macro_roc_auc" for a classification-only multi-task run;
     # "" = the task default (accuracy / MAE). select_mode: "max", "min" or
@@ -259,6 +275,17 @@ class AugmentConfig(ConfigBase):
     * ``channel_dropout_prob``: zero each channel with probability ``channel_dropout_p``.
     * ``time_mask_prob``: zero 1..``time_mask_max_count`` segments of
       ``time_mask_min_sec``..``time_mask_max_sec`` seconds across all channels.
+
+    Device-robustness augmentations (default off, ``*_prob = 0``). Unlike the
+    ones above they change amplitude or spectrum on purpose, to imitate other
+    recording chains (``docs/chbp_domain_shift.md``):
+
+    * ``gain_prob``: multiply the sample by a gain drawn log-uniformly from
+      [``gain_min``, ``gain_max``] (an amplifier / export-scale difference).
+    * ``lowpass_prob``: zero-phase order-8 Butterworth low-pass with a cut-off
+      drawn uniformly from [``lowpass_min_hz``, ``lowpass_max_hz``].
+    * ``highpass_prob``: the same high-pass, cut-off from
+      [``highpass_min_hz``, ``highpass_max_hz``].
     """
     enabled: bool = False
     hemisphere_flip_prob: float = 0.5
@@ -271,6 +298,15 @@ class AugmentConfig(ConfigBase):
     time_mask_max_count: int = 2
     time_mask_min_sec: float = 0.5
     time_mask_max_sec: float = 1.0
+    gain_prob: float = 0.0
+    gain_min: float = 0.55
+    gain_max: float = 1.8
+    lowpass_prob: float = 0.0
+    lowpass_min_hz: float = 40.0
+    lowpass_max_hz: float = 75.0
+    highpass_prob: float = 0.0
+    highpass_min_hz: float = 0.1
+    highpass_max_hz: float = 1.0
 
 
 @dataclass
@@ -304,6 +340,70 @@ class ChannelDropConfig(ConfigBase):
     eval_consistency: bool = True
     start_epoch: int = 0
 
+
+
+@dataclass
+class MILConfig(ConfigBase):
+    """Recording-level multiple-instance (bag) training (``labram/train/train_mil.py``,
+    ``docs/b1_attention_mil_plan.md``). Off unless ``enabled``.
+
+    A training item is one recording: ``bag_size`` of its windows (drawn at
+    random every epoch; ``bag_size_choices`` draws the size per bag), encoded
+    by the transformer, pooled by ``pool`` into one recording embedding that
+    the existing head reads; the loss is per recording. Val/test bags are all
+    of a recording's eval-budget windows (``eval_max_windows`` caps them).
+    ``trainer.batch_size`` then counts bags.
+
+    * ``pool``: ``mean`` (M0) | ``gated`` (M1; ``branches > 1`` = M2;
+      ``gated=false`` = the original, ungated ABMIL score) |
+      ``sigmoid`` (M3) | ``query`` (M4); ``score_input``: what the attention
+      scores see -- ``h`` (encoder features), ``q`` (window descriptors) or ``hq``.
+    * ``entropy_weight``: ``lambda (log n - H(alpha))`` against attention collapse
+      (softmax pools); ``topk_mask_prob``: hide a branch's top window at random.
+    * ``head_lr_scale``: LR multiplier of the pool and head over the top
+      encoder layer; ``freeze_encoder_epochs``: encoder features under no_grad
+      for the first epochs (pool + head only); ``retention_weight``: MSE of the
+      window features to those of the initial (frozen) encoder (BridgeMIL).
+    * ``descriptor_fit_batches``: training batches used to fit the descriptor
+      standardization (stored in the checkpoint) when ``score_input`` uses ``q``.
+    * ``save_weights``: write per-window pooling weights of val/test per epoch
+      to ``<output_dir>/analysis/``.
+    """
+    enabled: bool = False
+    bag_size: int = 8
+    bag_size_choices: List[int] = field(default_factory=list)
+    eval_max_windows: int = 0
+    pool: str = "gated"
+    score_input: str = "h"
+    attn_dim: int = 128
+    # gated attention (tanh * sigmoid, Ilse et al.'s gated variant); False =
+    # the original ABMIL score w^T tanh(V h)
+    gated: bool = True
+    branches: int = 1
+    heads: int = 4
+    self_attention: bool = False
+    temperature: float = 1.0
+    topk_mask_prob: float = 0.0
+    dropout: float = 0.1
+    time_encoding: bool = False
+    entropy_weight: float = 0.01
+    head_lr_scale: float = 1.0
+    freeze_encoder_epochs: int = 0
+    retention_weight: float = 0.0
+    descriptor_fit_batches: int = 50
+    save_weights: bool = True
+
+    def validate(self) -> None:
+        if not self.enabled:
+            return
+        if self.pool not in ("mean", "gated", "sigmoid", "query"):
+            raise ValueError(f"mil.pool must be mean, gated, sigmoid or query, got {self.pool!r}")
+        if self.score_input not in ("h", "q", "hq"):
+            raise ValueError(f"mil.score_input must be h, q or hq, got {self.score_input!r}")
+        if self.bag_size < 1 or any(k < 1 for k in self.bag_size_choices):
+            raise ValueError("mil.bag_size (and bag_size_choices) must be >= 1")
+        if self.head_lr_scale <= 0:
+            raise ValueError("mil.head_lr_scale must be > 0")
 
 @dataclass
 class DistributedConfig(ConfigBase):

@@ -1,0 +1,289 @@
+"""Evaluation-only cohorts: every recording in test, scored by a model trained elsewhere."""
+import json
+import os
+import sys
+
+import numpy as np
+import torch
+
+from labram.data.tuh_datasets import prepare_TUAB_age_dataset
+from labram.data.window_selection import WindowSelection, apply_window_selection
+
+W = 2000
+
+
+def _test_only_cohort(tmp_path):
+    from test_window_qc import _corpus
+    root = _corpus(tmp_path)
+    split = json.load(open(root / "age_split.json"))
+    split["files"] = {"train": [], "val": [],
+                      "test": [f.replace(f"{s}/", "test/", 1) for s in ("train", "val", "test")
+                               for f in split["files"][s]]}
+    json.dump(split, open(root / "age_split.json", "w"))
+    m = json.load(open(root / "manifest.json"))
+    for r in m["recordings"]:
+        r["source_split"] = "test"
+    json.dump(m, open(root / "manifest.json", "w"))
+    return root
+
+
+def test_test_only_cohort_keeps_years_and_survives_window_selection(tmp_path):
+    from labram.data import get_dataset_bundle
+    root = _test_only_cohort(tmp_path)
+    train, test, val, stats = prepare_TUAB_age_dataset(str(root), data_format="npy")
+    assert stats is None and len(train) == 0 and len(test) == 5 * 20
+    bundle = get_dataset_bundle("TUAB_AGE", str(root), data_format="npy")
+    bundle = apply_window_selection(bundle, WindowSelection(trim_start_sec=10.0, eval_minutes=1.0))
+    assert len(bundle.train) == 0 and len(bundle.test) == 5 * 6      # 1 min per recording
+    y = bundle.test[0][1]
+    assert 30 <= float(y) <= 50                                        # ages in years
+
+
+def test_eval_script_scores_a_bag_model_on_a_test_only_cohort(tmp_path):
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+    import eval_age_by_cohort as ev
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    root = _test_only_cohort(tmp_path)
+    run = tmp_path / "run"
+    run.mkdir()
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy", "data.trim_start_sec": 0.0,
+           "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0, "finetune_checkpoint.finetune": "",
+           "mil.enabled": True, "mil.pool": "gated", "mil.gated": False, "mil.score_input": "h",
+           "model.nb_classes": 1, "model.task": "regression"})
+    cfg.save_to(str(run / "run_config.yaml"))
+    model = run_finetune.get_model(cfg)
+    torch.save({"model": model.state_dict(), "epoch": 0}, run / "checkpoint-best.pth")
+    res = ev.evaluate_run(str(run), str(root), "checkpoint-best.pth", ["test"], torch.device("cpu"),
+                          batch_size=4, pred_stats=(50.0, 10.0), stage_dir="none", num_workers=0)
+    test = res["splits"]["test"]
+    assert test["all"]["n"] == 5 and len(test["predictions"]) == 5
+    assert np.isfinite(test["all"]["mae"])
+
+
+def test_finetune_scores_named_test_sets(tmp_path, monkeypatch):
+    """evaluation.test_sets: a family subset of the own test split and an external
+    test-only cohort are scored every epoch and reported at the best epoch."""
+    monkeypatch.delenv("LABRAM_TEST_SETS", raising=False)
+    from test_window_qc import _corpus
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.data.dataset_groups import _CACHE
+    from labram.runs import run_finetune
+    root = _corpus(tmp_path / "own")
+    m = json.load(open(root / "manifest.json"))
+    for r in m["recordings"]:
+        r["corpus"] = "tueg"                                # -> family "temple"
+    json.dump(m, open(root / "manifest.json", "w"))
+    _CACHE.clear()
+    ext = _test_only_cohort(tmp_path / "ext")
+    out = tmp_path / "out"
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy", "data.trim_start_sec": 0.0,
+           "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0, "data.num_workers": 0,
+           "trainer.batch_size": 2, "trainer.epochs": 1, "optimizer.warmup_epochs": 0,
+           "distributed.device": "cpu", "finetune_checkpoint.finetune": "", "clearml.enabled": False,
+           "output.output_dir": str(out), "output.log_dir": str(out),
+           "logging.log_model_graph": False, "evaluation.agg_windows": "mean",
+           "evaluation.train_eval_recordings": 0,
+           "evaluation.test_sets": ["temple", f"ext={ext}", "missing=/no/such/dir"]})
+    summary = run_finetune.main(cfg)
+    sets = summary["best_test_set_stats"]
+    assert set(sets) == {"temple", "ext"}                   # the missing one is skipped
+    assert sets["temple"]["mae"] == summary["best_test_stats"]["mae"]   # every test recording is TUH
+    assert np.isfinite(sets["ext"]["mae"]) and sets["ext"]["mae"] < 100     # targets in years
+
+
+def test_sagemaker_stages_external_test_sets(tmp_path):
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs.submit_sagemaker import stage_s3_inputs
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": "s3://b/cohort", "finetune_checkpoint.finetune": "s3://b/w.pth",
+           "evaluation.test_sets": ["temple", "lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1",
+                                    "other=s3://b/other", "local=/tmp/nowhere"]})
+    staged = stage_s3_inputs(cfg, "finetune")
+    assert staged.channels["test_lemon"] == "s3://eeg-data-public/LEMON/v1/cohorts/lemon_v1"
+    assert staged.channels["test_other"] == "s3://b/other"
+    assert cfg.evaluation.test_sets == ["temple", "lemon=/opt/ml/input/data/test_lemon",
+                                        "other=/opt/ml/input/data/test_other"]
+
+
+def test_test_sets_are_scored_every_n_epochs_and_on_the_last(tmp_path, monkeypatch):
+    """evaluation.test_sets_every: scored on epochs N, 2N, ... and the last one only."""
+    monkeypatch.delenv("LABRAM_TEST_SETS", raising=False)
+    from test_window_qc import _corpus
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    root = _corpus(tmp_path / "own")
+    ext = _test_only_cohort(tmp_path / "ext")
+    out = tmp_path / "out"
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy", "data.trim_start_sec": 0.0,
+           "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0, "data.num_workers": 0,
+           "trainer.batch_size": 2, "trainer.epochs": 3, "optimizer.warmup_epochs": 0,
+           "distributed.device": "cpu", "finetune_checkpoint.finetune": "", "clearml.enabled": False,
+           "output.output_dir": str(out), "output.log_dir": str(out),
+           "logging.log_model_graph": False, "evaluation.agg_windows": "mean",
+           "evaluation.train_eval_recordings": 0, "evaluation.test_sets": [f"ext={ext}"],
+           "evaluation.test_sets_every": 2, "evaluation.test_sets_at_best": False})
+    summary = run_finetune.main(cfg)
+    import glob
+    log = glob.glob(os.path.join(str(out) + "*", "log.txt"))[0]
+    epochs = [json.loads(line) for line in open(log) if line.strip()]
+    scored = [e["epoch"] for e in epochs if "test_ext_mae" in e]
+    assert scored == [1, 2]                                  # epoch 2 (every 2) and epoch 3 (last)
+    assert summary["last_test_set_stats"]["ext"]["mae"] < 100
+
+
+def test_window_model_saves_uniform_window_parquet_and_trims_by_deviation(tmp_path):
+    import pandas as pd
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+    import attention_trimming as at
+    import eval_age_by_cohort as ev
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs import run_finetune
+    root = _test_only_cohort(tmp_path)
+    run = tmp_path / "run"
+    run.mkdir()
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy", "data.trim_start_sec": 0.0,
+           "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0, "finetune_checkpoint.finetune": "",
+           "model.nb_classes": 1, "model.task": "regression"})
+    cfg.save_to(str(run / "run_config.yaml"))
+    torch.save({"model": run_finetune.get_model(cfg).state_dict(), "epoch": 0}, run / "checkpoint-best.pth")
+    path = str(tmp_path / "w" / "E_{split}.parquet")
+    res = ev.evaluate_run(str(run), str(root), "checkpoint-best.pth", ["test"], torch.device("cpu"),
+                          batch_size=8, pred_stats=(50.0, 10.0), stage_dir="none", num_workers=0,
+                          windows_path=path)
+    w = pd.read_parquet(path.format(split="test"))
+    assert len(w) == 5 * 20 and w["recording"].nunique() == 5
+    assert np.allclose(w.groupby("recording")["alpha"].sum(), 1.0)
+    # the uniform pool reproduces the script's recording means
+    rec = at.recording_frame(w)
+    preds = pd.Series(res["splits"]["test"]["predictions"])
+    assert np.allclose(rec["attention"].reindex(preds.index), preds)
+    # the deviation trim drops floor(0.2 n) = 4 windows per recording: an outlier moves nothing
+    w.loc[0, "window_pred"] += 1000.0
+    t = at.trims(w)
+    r0 = w.loc[0, "recording"]
+    assert abs(t["trim20_dev"][r0] - at.recording_frame(w.drop(index=0))["mean"][r0]) < 5.0
+
+
+def test_bag_eval_encodes_long_recordings_in_chunks_with_the_same_result(tmp_path, monkeypatch):
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+    import eval_age_by_cohort as ev
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.models.neural_transformer import NeuralTransformer
+    from labram.runs import run_finetune
+    root = _test_only_cohort(tmp_path)
+    run = tmp_path / "run"
+    run.mkdir()
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": str(root), "data.data_format": "npy", "data.trim_start_sec": 0.0,
+           "data.trim_end_sec": 0.0, "data.eval_minutes": 0.0, "finetune_checkpoint.finetune": "",
+           "mil.enabled": True, "mil.pool": "gated", "mil.score_input": "h",
+           "model.nb_classes": 1, "model.task": "regression"})
+    cfg.save_to(str(run / "run_config.yaml"))
+    torch.save({"model": run_finetune.get_model(cfg).state_dict(), "epoch": 0}, run / "checkpoint-best.pth")
+
+    def score():
+        res = ev.evaluate_run(str(run), str(root), "checkpoint-best.pth", ["test"], torch.device("cpu"),
+                              batch_size=4, pred_stats=(50.0, 10.0), stage_dir="none", num_workers=0)
+        return res["splits"]["test"]["predictions"]
+    whole = score()                                    # 20 windows per bag < 256: one pass
+    monkeypatch.setattr(NeuralTransformer, "BAG_ENCODE_CHUNK", 3)
+    chunked = score()
+    assert whole.keys() == chunked.keys()
+    assert np.allclose([whole[k] for k in whole], [chunked[k] for k in whole], atol=1e-4)
+
+
+def test_window_descriptors_are_chunked_with_the_same_result(monkeypatch):
+    from labram.train import train_mil
+    x = torch.randn(10, 4, 2000) * 30
+    whole = train_mil.window_descriptors(x)
+    monkeypatch.setattr(train_mil, "DESCRIPTOR_CHUNK", 3)
+    assert torch.allclose(train_mil.window_descriptors(x), whole, atol=1e-5)
+
+
+def test_test_set_options_override_the_window_selection(tmp_path):
+    """``name=path?opts``: a short external cohort keeps its windows despite the
+    run's trims, and an age range applies to that set only."""
+    import pytest
+    from labram.data.test_sets import build_test_sets, parse_test_sets, selection_for, split_options
+    from labram.configs.run_configs import FinetuneRunConfig
+    assert split_options("/c?trim_start_sec=0&age_min=18") == ("/c", {"trim_start_sec": 0.0, "age_min": 18.0})
+    assert parse_test_sets(["x=/c?eval_minutes=0"]) == [("x", "/c")]
+    with pytest.raises(ValueError, match="option"):
+        split_options("/c?window_sec=20")
+    run = WindowSelection(trim_start_sec=60.0, trim_end_sec=60.0, eval_minutes=5.0)
+    sel = selection_for(run, {"trim_start_sec": 0.0, "trim_end_sec": 0.0, "eval_minutes": 0.0, "age_min": 18.0})
+    assert (sel.trim_start_sec, sel.trim_end_sec, sel.eval_minutes, sel.age_range) == (0.0, 0.0, 0.0, (18.0, 200.0))
+    ext = _test_only_cohort(tmp_path)                       # 5 recordings x 20 windows, ages 30-50
+    cfg = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_age.json",
+                                        **{"data.data_format": "npy"})
+    trimmed = WindowSelection(trim_start_sec=100.0, trim_end_sec=100.0)  # 200 s: every window gone
+    assert not build_test_sets([f"ext={ext}"], None, cfg.data, trimmed, None)
+    sets = build_test_sets([f"ext={ext}?trim_start_sec=0&trim_end_sec=0", f"old={ext}?trim_start_sec=0"
+                            "&trim_end_sec=0&age_min=200"], None, cfg.data, trimmed, None)
+    assert list(sets) == ["ext"] and len(sets["ext"]) == 5 * 20          # "old": no recording aged >= 200
+
+
+def test_sagemaker_keeps_test_set_options():
+    from labram.configs.run_configs import FinetuneRunConfig
+    from labram.runs.submit_sagemaker import stage_s3_inputs
+    cfg = FinetuneRunConfig.load_config(
+        "labram/configs/defaults/finetune_tuab_age.json",
+        **{"data.data_path": "s3://b/cohort", "finetune_checkpoint.finetune": "s3://b/w.pth"})
+    staged = stage_s3_inputs(cfg, "finetune")                 # the shipped default list
+    assert staged.channels["test_tdbrain"] == "s3://eeg-data-public/TDBRAIN/v1/cohorts/tdbrain_v1"
+    assert ("tdbrain=/opt/ml/input/data/test_tdbrain?trim_start_sec=0&trim_end_sec=0&eval_minutes=0&age_min=18"
+            in cfg.evaluation.test_sets)
+
+
+def test_hbn_lister_keeps_adults_with_a_resting_file(tmp_path):
+    """HBN-EEG: one recording per participant aged >= min_age whose RestingState .set
+    exists, from every release folder; the vertex reference 'Cz' maps to CZ."""
+    from dataset_maker.make_external_npy import (EGI_HYDROCEL_1020, EGI_HYDROCEL_1020_TEMPLATE, egi_present,
+                                                 hbn_recordings)
+    head = ("participant_id\trelease_number\tsex\tage\tehq_total\tcommercial_use\tfull_pheno\tp_factor\t"
+            "attention\tinternalizing\texternalizing\tRestingState\n")
+    rows = {"ds005505": [("sub-A", "M", 19.5, "available"), ("sub-B", "F", 9.0, "available")],
+            "ds005516": [("sub-C", "F", 21.0, "caution"), ("sub-D", "M", 20.0, "unavailable")]}
+    for ds, subs in rows.items():
+        (tmp_path / ds).mkdir()
+        (tmp_path / ds / "participants.tsv").write_text(head + "".join(
+            f"{s}\tR1\t{sex}\t{age}\t50\tYes\tYes\tn/a\t0.1\t0.2\t0.3\t{flag}\n" for s, sex, age, flag in subs))
+        for s, _, _, flag in subs:
+            if flag != "unavailable":
+                (tmp_path / ds / s / "eeg").mkdir(parents=True)
+                (tmp_path / ds / s / "eeg" / f"{s}_task-RestingState_eeg.set").write_bytes(b"")
+    recs = hbn_recordings(str(tmp_path), str(tmp_path), min_age=18)
+    assert [r["subject"] for r in recs] == ["sub-A", "sub-C"]
+    assert recs[0]["age"] == 19.5 and recs[0]["label"] is None and recs[0]["p_factor"] is None
+    assert recs[1]["resting_flag"] == "caution" and recs[1]["stem"] == "sub-C_hbn-rs"
+    assert len(hbn_recordings(str(tmp_path), str(tmp_path))) == 3
+
+    names = [f"E{i}" for i in range(1, 129)] + ["Cz"]
+    present = egi_present(names)
+    assert len(present) == 19 and present["CZ"] == "Cz" and present["C3"] == "E36"
+    assert egi_present(names, EGI_HYDROCEL_1020_TEMPLATE)["C3"] == "E42"
+    assert set(EGI_HYDROCEL_1020) == set(EGI_HYDROCEL_1020_TEMPLATE)
+
+
+def test_fold_ensemble_is_the_per_recording_median():
+    import sys
+    sys.path.insert(0, "scripts")
+    import pandas as pd
+    from external_fold_ensemble import ensemble, fold_runs
+    preds = {"P3_L1_f0": pd.Series({"a": 20.0, "b": 30.0}), "P3_L1_f1": pd.Series({"a": 26.0, "b": 40.0}),
+             "P3_L1_f2": pd.Series({"a": 22.0, "b": 31.0, "c": 50.0}), "E2L": pd.Series({"a": 1.0})}
+    folds = fold_runs(preds, "P3_L1")
+    assert sorted(folds) == [0, 1, 2]
+    assert ensemble(folds.values()).to_dict() == {"a": 22.0, "b": 31.0}
+    assert ensemble(folds.values(), "mean")["a"] == 68 / 3

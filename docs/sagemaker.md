@@ -171,6 +171,15 @@ most the epoch in progress plus the data download. `checkpoint_s3_uri=off`
 disables it; any other value is an S3 prefix to use instead; on-demand jobs are
 not checkpointed unless a prefix is given.
 
+Files that are appended to throughout training (TensorBoard events, `run.log`)
+are written to the model dir (`/opt/ml/model/<phase>/tensorboard`), not the
+synced folder. SageMaker re-uploads a synced file on every change. On the MIL
+spot jobs of 2026-11-09 the sync fell about an hour behind training (X2: the
+job sat in "Uploading" for 25+ min after it had finished) or never delivered a
+checkpoint at all (X6, which then failed with "Artifact upload failed: Too many
+files are written"). TensorBoard history from before an interruption is
+therefore lost with the container; ClearML keeps the full curves.
+
 With `on_demand_fallback=true`, a `MaxWaitTimeExceeded` spot result submits the
 same job again on-demand. It cannot work with `--detach`, because the local
 submitter must wait long enough to observe the spot result. This fallback only

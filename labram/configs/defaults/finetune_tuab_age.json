@@ -287,6 +287,10 @@
         "train_eval_recordings": 500,
         "train_eval_every": 4,
         "eval_batch_size": 0,
+        "test_sets": ["temple", "lemon=/data/datasets/EEG-public/LEMON/cohorts/lemon_v1",
+                      "tdbrain=/data/datasets/EEG-public/TDBRAIN/cohorts/tdbrain_v1?trim_start_sec=0&trim_end_sec=0&eval_minutes=0&age_min=18"],
+        "test_sets_every": 5,
+        "test_sets_at_best": true,
         "select_metric": "",
         "select_mode": "auto"
     },
@@ -306,7 +310,10 @@
         "common_average_reference": true,
         "z_score_patches": false,
         "z_score_eps": 1e-05,
-        "phase_loss": "sincos"
+        "phase_loss": "sincos",
+        "band_hz": [],
+        "amplitude_norm": "",
+        "amplitude_target": 0.1
     },
     "cross_validation": {
         "py/object": "labram.configs.cv_config.CrossValidationConfig",
@@ -345,6 +352,18 @@
         "code_location": "",
         "output_kms_key": "",
         "config_channel": "",
+        "data_s3_uris": {
+            "/data/datasets/EEG-public/LEMON/cohorts/lemon_v1": "s3://eeg-data-public/LEMON/v1/cohorts/lemon_v1",
+            "/data/datasets/EEG-public/MIPDB/cohorts/mipdb_v1": "s3://eeg-data-public/MIPDB/v1/cohorts/mipdb_v1",
+            "/data/datasets/EEG-public/CHBP/cohorts/chbp_v1": "s3://eeg-data-public/CHBP/v1/cohorts/chbp_v1",
+            "/data/datasets/EEG-public/TDBRAIN/cohorts/tdbrain_v1": "s3://eeg-data-public/TDBRAIN/v1/cohorts/tdbrain_v1",
+            "/data/datasets/EEG-public/DORTMUND/cohorts/dortmund_v1": "s3://eeg-data-public/DORTMUND/v1/cohorts/dortmund_v1",
+            "/data/datasets/EEG-public/AHEPA/cohorts/ahepa_v1": "s3://eeg-data-public/AHEPA/v1/cohorts/ahepa_v1",
+            "/data/datasets/EEG-public/IOWAPD/cohorts/iowapd_v1": "s3://eeg-data-public/IOWAPD/v1/cohorts/iowapd_v1",
+            "/data/datasets/EEG-public/TELAVIVPD/cohorts/telavivpd_v1": "s3://eeg-data-public/TELAVIVPD/v1/cohorts/telavivpd_v1",
+            "/data/datasets/EEG-public/SRM/cohorts/srm_v1": "s3://eeg-data-public/SRM/v1/cohorts/srm_v1",
+            "/data/datasets/EEG-public/NMT/cohorts/nmt_v1": "s3://eeg-data-public/NMT/v1/cohorts/nmt_v1"
+        },
         "weight_s3_uris": {
             "./checkpoints/labram-base.pth": "s3://eeg-data-public/models/labram/labram-base.pth",
             "./checkpoints/vqnsp.pth": "s3://eeg-data-public/models/labram/vqnsp.pth"
@@ -375,7 +394,16 @@
         "time_mask_prob": 0.5,
         "time_mask_max_count": 2,
         "time_mask_min_sec": 0.5,
-        "time_mask_max_sec": 1.0
+        "time_mask_max_sec": 1.0,
+        "gain_prob": 0.0,
+        "gain_min": 0.55,
+        "gain_max": 1.8,
+        "lowpass_prob": 0.0,
+        "lowpass_min_hz": 40.0,
+        "lowpass_max_hz": 75.0,
+        "highpass_prob": 0.0,
+        "highpass_min_hz": 0.1,
+        "highpass_max_hz": 1.0
     },
     "channel_drop": {
         "py/object": "labram.configs.train_config.ChannelDropConfig",
@@ -388,5 +416,29 @@
         "detach_full": true,
         "eval_consistency": true,
         "start_epoch": 0
+    },
+    "mil": {
+        "py/object": "labram.configs.train_config.MILConfig",
+        "enabled": false,
+        "bag_size": 8,
+        "bag_size_choices": [],
+        "eval_max_windows": 0,
+        "pool": "gated",
+        "score_input": "h",
+        "attn_dim": 128,
+        "gated": true,
+        "branches": 1,
+        "heads": 4,
+        "self_attention": false,
+        "temperature": 1.0,
+        "topk_mask_prob": 0.0,
+        "dropout": 0.1,
+        "time_encoding": false,
+        "entropy_weight": 0.01,
+        "head_lr_scale": 1.0,
+        "freeze_encoder_epochs": 0,
+        "retention_weight": 0.0,
+        "descriptor_fit_batches": 50,
+        "save_weights": true
     }
 }

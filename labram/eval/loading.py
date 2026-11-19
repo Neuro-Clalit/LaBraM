@@ -77,6 +77,10 @@ def build_finetune_model(
         if m.fused_attention:
             from labram.layers.attention import set_fused_attention
             set_fused_attention(model, True)
+        if getattr(config, 'mil', None) is not None and config.mil.enabled:
+            # bag pooling of a MIL run (mirrors run_finetune.get_model)
+            from labram.train.train_mil import attach_mil
+            attach_mil(model, config.mil)
     if device is not None:
         model.to(device)
     return model

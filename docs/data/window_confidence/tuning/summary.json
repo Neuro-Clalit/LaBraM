@@ -1,0 +1,20 @@
+{
+  "E2L": {
+    "a3_selected": "base+stft+cwt",
+    "a3_l2": 0.001,
+    "window_rejection": {
+      "pooled": "mean",
+      "threshold": 1.0
+    },
+    "confidence_selected": "hgb_spectral"
+  },
+  "E2": {
+    "a3_selected": "base+stft+cwt",
+    "a3_l2": 0.001,
+    "window_rejection": {
+      "pooled": "mean",
+      "threshold": 0.75
+    },
+    "confidence_selected": "hgb_spectral"
+  }
+}

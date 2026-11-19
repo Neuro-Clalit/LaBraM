@@ -99,7 +99,14 @@ def build_config(cli: argparse.Namespace):
         config.output.output_dir = os.path.join(work_dir, cli.phase)
     if not _inside(config.output.log_dir, kept):
         _warn_rebased('output.log_dir', config.output.log_dir)
-        config.output.log_dir = os.path.join(config.output.output_dir, 'tensorboard')
+        # With checkpointing, files appended throughout training (TensorBoard
+        # events, run.log) stay out of the synced folder: SageMaker re-uploads
+        # a synced file on every change, and on spot jobs the sync fell an hour
+        # behind (X2) or never delivered the checkpoints at all (X6). They go
+        # to the model dir, uploaded once at the end, under the same
+        # <phase>/tensorboard path that publish_checkpoint_outputs merges into.
+        base = os.path.join(model_dir, cli.phase) if checkpoint_dir() else config.output.output_dir
+        config.output.log_dir = os.path.join(base, 'tensorboard')
     # Each job runs in a fresh container and its uploaded model dir keeps a
     # fixed layout, so the per-run timestamp suffix is not wanted here.
     config.output.append_timestamp = False
