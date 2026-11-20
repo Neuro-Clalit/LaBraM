@@ -341,16 +341,25 @@ Figure 6 follows the three one-run recipes through their training, as the mean a
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth,height=0.62\textheight,keepaspectratio]{fig_cv_curves.png}
-\caption{Cross-validation of the one-run recipes over epochs: recording MAE in years, mean over the five fold models with the sample standard deviation as error bar. (a) P1 (10 window, 2 attention-only, 4 joint epochs), (b) P3, (c) P4 (Table 7): train-eval (a fixed sample of 500 training recordings per dataset, scored every 4 epochs like validation), each fold model's own validation fold, and the held-out test split; background: the training phase. (d) Validation, (e) test and (f) LEMON MAE of the three recipes, each in its own colour; dotted lines: the first attention-only epoch of P4 (epoch 8) and of P1 and P3 (epoch 10); stars: epochs at which P4 differs from P3 or from P1, $p < 0.05$ in a two-sided Welch $t$-test computed from the two recipes' fold means, standard deviations and $n = 5$ (it measures the spread between fold models, not the sampling of the test recordings). Training on Temple + Harvard; first 5 minutes of every scored recording. \texttt{scripts/tech\_report\_figures.py}.}
+\caption{Cross-validation of the one-run recipes over epochs: recording MAE in years, mean over the five fold models with the sample standard deviation as error bar, for (a) P1 (10 window, 2 attention-only, 4 joint epochs), (b) P3 and (c) P4 (Table 7). Train-eval: a fixed sample of 500 training recordings per dataset, scored every 4 epochs like validation; validation: each fold model's own validation fold; test: the held-out test split. Background: the training phase. Training on Temple + Harvard; first 5 minutes of every scored recording. \texttt{scripts/tech\_report\_figures.py}.}
 \end{figure}
 
 
-Figure 7 splits the test curves of Figure 6(e) by data cohort. The order of the recipes is the same in every cohort: P4 leads from its earlier attention phase (epoch 8) to about epoch 12, P1 trails until its joint phase, and at the last epoch the three recipes are within 0.07 to 0.15 years of each other in every cohort. No difference between P4 and P3 is significant after epoch 13 in any cohort (after epoch 12 over all test recordings); P1 stays about 0.1 years behind on the Harvard normal and no-report recordings, small but consistent across its fold models (significant up to its last epoch). The abnormal-report recordings carry the largest fold-to-fold spread (Temple $\pm$0.3 years at the end), the Harvard cohorts the smallest.
+Figure 7 compares the three recipes epoch by epoch. P4, whose attention-only phase comes two epochs earlier, is significantly better than P3 at epochs 8 and 9 on validation and LEMON (and also at 6, 11 and 12 on test), and better than P1 through most of training; from about epoch 13 the three recipes converge to the same validation and test error.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth,height=0.62\textheight,keepaspectratio]{fig_cv_compare.png}
+\caption{The three one-run recipes compared over epochs: (a) validation MAE (each fold model's own fold), (b) test MAE (held out), (c) LEMON MAE (zero-shot), fold mean $\pm$ standard deviation, in years. Dotted lines: the first attention-only epoch of each recipe. Stars: epochs at which P4 differs from P3 or from P1, $p < 0.05$ in a two-sided Welch $t$-test computed from the two recipes' fold means, standard deviations and $n = 5$ (it measures the spread between fold models, not the sampling of the test recordings). \texttt{scripts/tech\_report\_figures.py}.}
+\end{figure}
+
+
+Figure 8 splits the test curves of Figure 7(b) by data cohort. The order of the recipes is the same in every cohort: P4 leads from its earlier attention phase (epoch 8) to about epoch 12, P1 trails until its joint phase, and at the last epoch the three recipes are within 0.07 to 0.15 years of each other in every cohort. No difference between P4 and P3 is significant after epoch 13 in any cohort (after epoch 12 over all test recordings); P1 stays about 0.1 years behind on the Harvard normal and no-report recordings, small but consistent across its fold models (significant up to its last epoch). The abnormal-report recordings carry the largest fold-to-fold spread (Temple $\pm$0.3 years at the end), the Harvard cohorts the smallest.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth,height=0.62\textheight,keepaspectratio]{fig_cv_cohorts.png}
-\caption{Held-out test MAE per data cohort over epochs, the three one-run recipes (fold mean $\pm$ standard deviation): (a) Temple, normal report (149 recordings), (b) Temple, abnormal report (125), (c) Harvard, normal report (1,518), (d) Harvard, abnormal report (2,253), (e) Harvard, no report (3,567), (f) LEMON, zero-shot (214). Dotted lines and stars as in Figure 6(d)--(f).}
+\caption{Held-out test MAE per data cohort over epochs, the three one-run recipes (fold mean $\pm$ standard deviation): (a) Temple, normal report (149 recordings), (b) Temple, abnormal report (125), (c) Harvard, normal report (1,518), (d) Harvard, abnormal report (2,253), (e) Harvard, no report (3,567), (f) LEMON, zero-shot (214). Dotted lines and stars as in Figure 7.}
 \end{figure}
 
 
@@ -582,7 +591,7 @@ Temple, epilepsy & 631 & 49.3 & 7.18 & +0.0 [$-$1.3, 1.3] & $-$0.2 [$-$2.1, 1.8]
 \end{figure}
 
 
-Three results stand out (Table 11, Figure 10).
+Three results stand out (Table 11, Figure 11).
 
 \begin{itemize}
 \item \textbf{Accuracy is close to uniform across diagnoses.} The MAE per Harvard group is 6.0 to 6.9 years against 5.4 for the reference, and most of that is age: at the same age and sex the extra absolute error is 0.3 to 1.2 years. An abnormal report costs about 1 year of absolute error in both cohorts.
@@ -625,7 +634,7 @@ oracle & 3.78 & 3.83 & 3.25 & 2.92 & 3.09 & 3.23 & 5.06 \\
 
 Rejection by the combined score lowers the MAE on every cohort, by 0.2 to 0.9 years on the external ones. It is never significantly worse than the spread and is significantly better on Temple, Harvard and CHBP (paired bootstrap), because the disagreement of the fold models sees errors that are shared by all windows of a recording. Scores built from the attention weights alone are weak and change sign on CHBP. Two cautions apply. The scores were compared on the test cohorts, so the choice among them is not independent of these data. And part of every score is age: within deciles of the predicted age, the combined score keeps 60 to 80 \% of its gain on Temple, Harvard and TDBRAIN, about half on Dortmund, all of it on SRM, but nothing on LEMON and CHBP. The combined score recovers 15 to 50 \% of what the oracle would (15 \% on Dortmund and SRM, where the errors are small and even). On Dortmund the rejected sessions are the older ones, not the outliers: their mean age is 51 to 55 years against 44 to 45 for the kept ones (\texttt{docs/dortmund\_onboarding.md} Table 10.5).
 
-\textbf{Inside the recording.} Figures 12 and 13 relate the error of single windows to the quantities of Eqs. (15) and (16) for the P4 ensemble.
+\textbf{Inside the recording.} Figures 13 and 14 relate the error of single windows to the quantities of Eqs. (15) and (16) for the P4 ensemble.
 
 \begin{figure}[t]
 \centering
@@ -847,7 +856,7 @@ What Tables 13, 16 and 17 add:
 
 CHBP is the one cohort on which every model fails. This section locates the difference in the signal, tests it causally on training-domain recordings, and compares corrections. The numbers here are for the window model E2L and its retrained variants on the first 5 minutes of each recording, the training protocol, so E2L on CHBP reads 9.55 years here and 9.35 in Table 9 (every window). No CHBP age is used anywhere.
 
-\textbf{Where the signals differ.} Table 19 and Figure 15 compare CHBP with healthy Temple and Harvard recordings weighted to CHBP's age distribution. Two properties of the recording chain stand out. The amplitude is 0.5 to 0.6 times that of the training data. And the band is narrower: CHBP was recorded with a 0.5 Hz high-pass and a 50 Hz low-pass~\citep{valdessosa2021chbp}, so its power below 1 Hz is 6 to 12 \% and its power at 45--70 Hz 4 to 5 \% of the training data's. The alpha rhythm, in contrast, is stronger: CHBP is alert, eyes-closed, artifact-free research EEG, which should read as younger, not older. The age range is not the cause either: at CHBP's ages E2L reaches a correlation of 0.66 with age on its own domain, against 0.44 on CHBP. CHBP also holds two acquisition groups, a 64-channel cap (161 recordings; E2L MAE 7.58, r 0.55) and a 120-channel cap (89 recordings; 13.10, r 0.27) with a different spectrum.
+\textbf{Where the signals differ.} Table 19 and Figure 16 compare CHBP with healthy Temple and Harvard recordings weighted to CHBP's age distribution. Two properties of the recording chain stand out. The amplitude is 0.5 to 0.6 times that of the training data. And the band is narrower: CHBP was recorded with a 0.5 Hz high-pass and a 50 Hz low-pass~\citep{valdessosa2021chbp}, so its power below 1 Hz is 6 to 12 \% and its power at 45--70 Hz 4 to 5 \% of the training data's. The alpha rhythm, in contrast, is stronger: CHBP is alert, eyes-closed, artifact-free research EEG, which should read as younger, not older. The age range is not the cause either: at CHBP's ages E2L reaches a correlation of 0.66 with age on its own domain, against 0.44 on CHBP. CHBP also holds two acquisition groups, a 64-channel cap (161 recordings; E2L MAE 7.58, r 0.55) and a 120-channel cap (89 recordings; 13.10, r 0.27) with a different spectrum.
 
 \begin{table}[t]
 \centering
@@ -958,7 +967,7 @@ band + amplitude normalisation, Eqs. (20), (21) (device-robust) & 7.55 & 9.53 & 
 \end{figure}
 
 
-What Table 21 and Figure 16 show:
+What Table 21 and Figure 17 show:
 
 \begin{itemize}
 \item \textbf{The band limit restores the ranking, the amplitude sets the bias.} Band-limited training alone raises the correlation with age on CHBP from 0.44 to 0.55 but keeps an offset of +5 years; only a model that does not see the absolute amplitude removes the offset.
@@ -1037,7 +1046,7 @@ eyes open $-$ eyes closed, after the tasks & +0.45 [0.13, 0.77] & +0.18 [$-$0.25
 \end{figure}
 
 
-What Table 23 and Figure 17 show:
+What Table 23 and Figure 18 show:
 
 \begin{itemize}
 \item \textbf{The models see people age.} The predicted age rises by 4.3 years over 5.2 years, and 89 \% of the participants are predicted older at the second session. The shortfall is the compression: the cross-sectional slope of the P4 prediction on age is 0.85 in Dortmund (Table 13), which predicts $0.85 \times 5.17 = 4.4$ years, so the change over time agrees with the cross-sectional relation.

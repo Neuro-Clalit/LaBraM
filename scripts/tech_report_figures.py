@@ -405,11 +405,10 @@ def recipe_panel(ax, d, split, group, title, sig_pairs=(("P4", "P3"), ("P4", "P1
 
 
 def cv_curves(path, csv):
-    """Cross-validation curves per epoch of the one-run recipes: (a)-(c) recording MAE of the
-    train-eval sample, each fold model's own validation fold and the held-out test split per
-    recipe, mean over the five fold models with the sample SD as error bar, background = phase;
-    (d)-(f) the three recipes compared on validation, test and LEMON, with per-epoch Welch
-    tests (p < 0.05 marked)."""
+    """Cross-validation curves per epoch of the one-run recipes, one panel per recipe:
+    recording MAE of the train-eval sample, each fold model's own validation fold and the
+    held-out test split, mean over the five fold models with the sample SD as error bar;
+    background = training phase. The legend takes the fourth grid cell."""
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
     from matplotlib.ticker import MultipleLocator
@@ -418,7 +417,7 @@ def cv_curves(path, csv):
     d = pd.read_csv(csv)
     lines = [("train_eval", "train-eval (500 training recordings per dataset)", "#1baf7a", "s"),
              ("val", "validation (own fold)", "#2a78d6", "o"), ("test", "test (held out)", "#eb6834", "^")]
-    fig, axes = plt.subplots(3, 2, figsize=(13, 14))
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9.5))
     a = list(axes.flat)
     da = d[d.group == "all"]
     for ax, recipe in zip(a[:3], ("P1", "P3", "P4")):
@@ -435,29 +434,54 @@ def cv_curves(path, csv):
         ax.set_xlabel("epoch")
         ax.set_ylabel("recording MAE (years)")
         ax.set_ylim(3, 11)
-    recipe_panel(a[3], d, "val", "all", "validation MAE, three recipes")
-    recipe_panel(a[4], d, "test", "all", "test MAE, three recipes")
-    recipe_panel(a[5], d, "test", "lemon", "LEMON MAE (zero-shot), three recipes")
-    for ax in a[3:]:
-        ax.set_ylabel("recording MAE (years)")
-    a[3].legend(frameon=False, fontsize=10, loc="upper right")
-    for ax in a:
         ax.xaxis.set_major_locator(MultipleLocator(2))
         ax.grid(color=GRID, lw=0.8, zorder=1)
         for side in ("top", "right"):
             ax.spines[side].set_visible(False)
+    a[3].axis("off")
     handles = [plt.Line2D([], [], color=c, marker=m, lw=1.6, label=lbl) for _, lbl, c, m in lines]
     handles += [Patch(facecolor=PHASE_COLORS[p], label=f"{p} phase") for p in PHASE_COLORS]
-    handles += [plt.Line2D([], [], color=c, marker="o", lw=1.6, label=f"{r} (d)-(f)") for r, c in RECIPE_COLORS.items()]
-    handles += [plt.Line2D([], [], color=INK, marker="*", lw=0, label="Welch p < 0.05 at that epoch")]
-    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False, fontsize=9.5, bbox_to_anchor=(0.5, -0.005))
-    fig.tight_layout(rect=(0, 0.07, 0.97, 1))
-    panel_labels(list(a))
+    a[3].legend(handles=handles, loc="center", frameon=False, fontsize=11)
+    fig.tight_layout()
+    panel_labels(a[:3])
     assert_max_columns(fig)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(path)
 
+
+def cv_compare(path, csv):
+    """The three one-run recipes compared over epochs on validation, test and LEMON (fold mean
+    +- SD), first attention-only epoch dotted, per-epoch Welch tests marked; legend in the
+    fourth grid cell."""
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MultipleLocator
+    from labram.eval.age_plots import assert_max_columns, panel_labels
+    plt.rcParams.update({"font.size": 11, "axes.titlesize": 12})
+    d = pd.read_csv(csv)
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9.5))
+    a = list(axes.flat)
+    recipe_panel(a[0], d, "val", "all", "validation MAE (own fold)")
+    recipe_panel(a[1], d, "test", "all", "test MAE (held out)")
+    recipe_panel(a[2], d, "test", "lemon", "LEMON MAE (zero-shot)")
+    for ax in a[:3]:
+        ax.set_ylabel("recording MAE (years)")
+        ax.xaxis.set_major_locator(MultipleLocator(2))
+        ax.grid(color=GRID, lw=0.8, zorder=1)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    a[3].axis("off")
+    handles = [plt.Line2D([], [], color=c, marker="o", lw=1.6, label=r) for r, c in RECIPE_COLORS.items()]
+    handles += [plt.Line2D([], [], color=RECIPE_COLORS["P3"], ls=":", lw=1.4, label="first attention-only epoch, P1 and P3 (10)"),
+                plt.Line2D([], [], color=RECIPE_COLORS["P4"], ls=":", lw=1.4, label="first attention-only epoch, P4 (8)")]
+    handles += [plt.Line2D([], [], color=INK, marker="*", lw=0, ms=9, label="Welch p < 0.05 at that epoch")]
+    a[3].legend(handles=handles, loc="center", frameon=False, fontsize=11)
+    fig.tight_layout(rect=(0, 0, 0.97, 1))
+    panel_labels(a[:3])
+    assert_max_columns(fig)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(path)
 
 def cv_cohorts(path, csv):
     """Held-out test MAE per data cohort over epochs, the three one-run recipes on each axis
@@ -507,6 +531,7 @@ def main():
                       args.recording, args.trim_windows)
     if args.cv_curves:
         cv_curves(os.path.join(args.out_dir, "fig_cv_curves.png"), args.cv_curves)
+        cv_compare(os.path.join(args.out_dir, "fig_cv_compare.png"), args.cv_curves)
         cv_cohorts(os.path.join(args.out_dir, "fig_cv_cohorts.png"), args.cv_curves)
     if args.eeg_cases:
         attention_on_eeg(os.path.join(args.out_dir, "fig_attention_on_eeg.png"), args.windows, args.cohort,
