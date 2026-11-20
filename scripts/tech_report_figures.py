@@ -132,7 +132,7 @@ def pipeline(path, labram_png="labram.png"):
     ax.text(75.5, 58.6, "encoder $f_\\theta$: LaBraM base, initialised from pre-training (Figure 4), fine-tuned\n12 blocks · width 200 · 10 heads · 5.8 M parameters", ha="center", fontsize=10.5, color="#2f5597", linespacing=1.3)
     cols = [("Temporal Encoder", "temporal", "-", "190×200"), ("Temporal & Spatial\nEmbedding", "embed", (0, (3, 2)), "191×200\n(+[CLS])"),
             ("Transformer Block 1", "block", "-", ""), ("Transformer Block 2", "block", "-", ""),
-            (None, None, None, None), ("Transformer Block 12", "block", "-", "191×200"), ("mean pool", "head", "-", "$h_i \\in \\mathbb{R}^{200}$")]
+            (None, None, None, None), ("Transformer Block 12", "block", "-", "191×200"), ("[CLS] token", "head", "-", "$h_i \\in \\mathbb{R}^{200}$")]
     xs = [53.4, 60.0, 67.0, 72.6, 78.2, 81.2, 89.0]
     for (lbl, kind, ls, shp), xx in zip(cols, xs):
         if lbl is None:
