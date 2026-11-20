@@ -39,6 +39,10 @@ SETS = [("Temple test", TRAIN, f"{OUT}/own_5min_models.json", "temple"),
         ("Dortmund", f"{E}/DORTMUND/cohorts/dortmund_v1", f"{OUT}/dortmund_all_models.json", None),
         ("SRM", f"{E}/SRM/cohorts/srm_v1", f"{OUT}/srm_all_models.json", None)]
 BANDS = [(1, 2, "1"), (2, 4, "2–3"), (4, 7, "4–6"), (7, 11, "7–10"), (11, 200, "11+")]
+# grid of patients with >= 2 recordings: EEGs per patient x age span (Figure 3(c), (d))
+N_BINS = [(2, 3, "2"), (3, 4, "3"), (4, 5, "4"), (5, 6, "5"), (6, 10, "6–9"), (10, 1000, "10+")]
+SPAN_BINS = [(0, 1, "0"), (1, 2, "1"), (2, 4, "2–3"), (4, 6, "4–5"), (6, 10, "6–9"), (10, 15, "10–14"), (15, 200, "15+")]
+SMALL_CELL = 5                                               # cells with 1-4 patients are shown as "<5"
 
 
 def training_summary():
@@ -46,7 +50,7 @@ def training_summary():
     man = pd.DataFrame(json.load(open(os.path.join(TRAIN, "manifest.json")))["recordings"]).set_index("stem")
     p["session"], p["year"], p["sex"] = man["session"], man["year"], man["sex"]
     p["pat"] = [f"h{a}" if c == "heedb" else str(s) for a, s, c in zip(p.patient_id, p.subject, p.corpus)]
-    rows, spans, counts = [], {}, {}
+    rows, spans, counts, grids = [], {}, {}, {}
     for corpus, name in (("tuh", "Temple"), ("heedb", "Harvard")):
         g = p[p.corpus == corpus]
         per = g.groupby("pat").agg(n=("age", "size"), span=("age", lambda a: a.max() - a.min()),
@@ -70,7 +74,17 @@ def training_summary():
             row[f"share_2plus_{split}"] = (gs >= 2).mean()
         rows.append(row)
         spans[name], counts[name] = s.to_numpy(), per.n.to_numpy()
-    return pd.DataFrame(rows), spans, counts
+        grids[name] = grid(rep)
+    return pd.DataFrame(rows), spans, counts, grids
+
+
+def grid(rep):
+    """Patients with >= 2 recordings per (EEGs per patient, age span) cell: rows = span bins, columns = count bins."""
+    g = np.zeros((len(SPAN_BINS), len(N_BINS)), int)
+    for i, (slo, shi, _) in enumerate(SPAN_BINS):
+        for j, (nlo, nhi, _) in enumerate(N_BINS):
+            g[i, j] = int(((rep.span >= slo) & (rep.span < shi) & (rep.n >= nlo) & (rep.n < nhi)).sum())
+    return g
 
 
 def longitudinal():
@@ -107,14 +121,14 @@ def longitudinal():
     return pd.DataFrame(rows), curves
 
 
-def figure(path, spans, counts, curves):
+def figure(path, spans, counts, curves, grids):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from labram.eval.age_plots import assert_max_columns, panel_labels
-    plt.rcParams.update({"font.size": 11, "axes.titlesize": 12})
+    plt.rcParams.update({"font.size": 15, "axes.titlesize": 16})
     col = {"Temple": "#2a78d6", "Harvard": "#eb6834"}
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9.5))
+    fig, axes = plt.subplots(3, 2, figsize=(15, 15), gridspec_kw={"height_ratios": [1, 1.2, 1]})
     a = list(axes.flat)
     width = 0.4
     for k, (name, n) in enumerate(counts.items()):
@@ -124,18 +138,36 @@ def figure(path, spans, counts, curves):
     a[0].set_yscale("log")
     a[0].set_xticks(range(1, 11), [str(v) for v in range(1, 10)] + ["10+"])
     a[0].set_xlabel("recordings per patient")
-    a[0].set_ylabel("share of patients (%), log scale")
+    a[0].set_ylabel("share of patients (%)")
     a[0].set_title("recordings per patient")
     a[0].legend(frameon=False)
     edges = np.arange(-0.5, 21.5, 1)
     for name, s in spans.items():
         a[1].hist(np.clip(s, 0, 20), bins=edges, density=True, histtype="step", lw=2, color=col[name],
                   label=f"{name} (median {np.median(s):.0f} y, ≥ 5 y: {100 * (s >= 5).mean():.0f} %)")
-    a[1].set_xlabel("age span of a patient's recordings, last minus first (years; 20 = 20 or more)")
-    a[1].set_ylabel("share of patients with ≥ 2 recordings")
+    a[1].set_xlabel("age span, last minus first (years; 20 = 20+)")
+    a[1].set_ylabel("share of patients with ≥ 2")
     a[1].set_title("age span between a patient's recordings")
-    a[1].legend(frameon=False, fontsize=9.5)
-    for ax, model in ((a[2], "P4ens"), (a[3], "E2L")):
+    a[1].legend(frameon=False, fontsize=13)
+    for ax, (name, g) in zip(a[2:4], grids.items()):
+        im = ax.imshow(np.log10(np.maximum(g, 1)), cmap="Blues", vmin=0, vmax=np.log10(max(gg.max() for gg in grids.values())),
+                       aspect="auto", origin="lower")
+        for i in range(g.shape[0]):
+            for j in range(g.shape[1]):
+                v = g[i, j]
+                txt = "" if v == 0 else ("<5" if v < SMALL_CELL else f"{v:,}")
+                ax.text(j, i, txt, ha="center", va="center", fontsize=14,
+                        color="white" if v >= 10 ** (0.6 * np.log10(max(gg.max() for gg in grids.values()))) else "#1f1f1e")
+        cols, rows_ = g.sum(axis=0), g.sum(axis=1)
+        ax.set_xticks(range(len(N_BINS)), [f"{lbl}\n({c:,})" if c >= SMALL_CELL else f"{lbl}\n(<5)" if c else f"{lbl}\n(0)"
+                                           for (_, _, lbl), c in zip(N_BINS, cols)])
+        ax.set_yticks(range(len(SPAN_BINS)), [f"{lbl} ({r:,})" if r >= SMALL_CELL else f"{lbl} (<5)" if r else f"{lbl} (0)"
+                                              for (_, _, lbl), r in zip(SPAN_BINS, rows_)])
+        ax.set_xlabel("EEGs per patient (patients)")
+        ax.set_ylabel("age span, years (patients)")
+        ax.set_title(f"{name}: {g.sum():,} patients with ≥ 2 EEGs")
+        ax.grid(False)
+    for ax, model in ((a[4], "P4ens"), (a[5], "E2L")):
         for (name, m), pts in curves.items():
             if m != model or not pts:
                 continue
@@ -146,12 +178,13 @@ def figure(path, spans, counts, curves):
         lim = 14
         ax.plot([0, lim], [0, lim], ls=":", color="#1f1f1e", lw=1.2, label="identity")
         ax.set_xlim(0, lim)
-        ax.set_xlabel("age difference between a patient's first and last recording (years)")
-        ax.set_ylabel("change of the predicted age (years)")
+        ax.set_xlabel("age difference, first to last recording (years)")
+        ax.set_ylabel("change of predicted age (y)")
         ax.set_title(f"{model}: predicted change against true change")
-        ax.legend(frameon=False, fontsize=9)
-    for ax in a:
+        ax.legend(frameon=False, fontsize=13)
+    for ax in a[:2] + a[4:]:
         ax.grid(color="#e4e3df", lw=0.8)
+    for ax in a:
         for side in ("top", "right"):
             ax.spines[side].set_visible(False)
     fig.tight_layout()
@@ -166,7 +199,7 @@ def main():
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--figure", required=True)
     args = ap.parse_args()
-    summ, spans, counts = training_summary()
+    summ, spans, counts, grids = training_summary()
     lon, curves = longitudinal()
     os.makedirs(args.out_dir, exist_ok=True)
     summ.to_csv(os.path.join(args.out_dir, "repeat_recordings_summary.csv"), index=False)
@@ -177,7 +210,13 @@ def main():
     with pd.option_context("display.width", 250, "display.max_columns", 40):
         print(summ.T.round(3).to_string())
         print(lon.round(3).to_string(index=False))
-    figure(args.figure, spans, counts, curves)
+    pd.DataFrame([{"dataset": name, "age_span": sl, "eegs_per_patient": nl,
+                   "patients": (int(g[i, j]) if g[i, j] == 0 or g[i, j] >= SMALL_CELL else f"<{SMALL_CELL}")}
+                  for name, g in grids.items() for i, (_, _, sl) in enumerate(SPAN_BINS)
+                  for j, (_, _, nl) in enumerate(N_BINS)]).to_csv(os.path.join(args.out_dir, "repeat_recordings_grid.csv"), index=False)
+    for name, g in grids.items():
+        print(name, "patients by EEGs per patient:", dict(zip([b[2] for b in N_BINS], g.sum(axis=0))))
+    figure(args.figure, spans, counts, curves, grids)
 
 
 if __name__ == "__main__":
