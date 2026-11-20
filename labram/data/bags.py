@@ -39,8 +39,12 @@ def _files(dataset) -> List[str]:
 
 class RecordingBagDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, k: int = 8, train: bool = True,
-                 k_choices: Sequence[int] = (), max_windows: int = 0, window_minutes: float = 10 / 60):
+                 k_choices: Sequence[int] = (), max_windows: int = 0, window_minutes: float = 10 / 60,
+                 repeats: int = 1):
         self.base = dataset
+        # repeats > 1 lists every recording that many times per epoch, each item a
+        # fresh random draw of its windows (the phased window phase, mil.window_bag_repeats)
+        self.repeats = max(1, int(repeats))
         self.k, self.train = int(k), bool(train)
         self.k_choices = [int(v) for v in k_choices]
         self.max_windows = int(max_windows)
@@ -54,7 +58,7 @@ class RecordingBagDataset(torch.utils.data.Dataset):
         self.windows = [sorted(by_rec[s]) for s in self.stems]   # [(window index, item)]
 
     def __len__(self):
-        return len(self.stems)
+        return len(self.stems) * self.repeats
 
     def bag_indices(self, r: int):
         rows = self.windows[r]
@@ -68,6 +72,7 @@ class RecordingBagDataset(torch.utils.data.Dataset):
         return rows
 
     def __getitem__(self, r: int):
+        r = r % len(self.stems)
         rows = self.bag_indices(r)
         first = self.windows[r][0][0]
         xs, y = [], None
@@ -93,9 +98,24 @@ def collate_bags(batch):
     return x, y, [b[2] for b in batch], minutes, mask
 
 
+def collate_bag_windows(batch):
+    """Flatten bags into a window batch ``(x [N, C, L], y [N, ...], recording ids)``:
+    every window is its own sample with its recording's target. Used by the window
+    phase of ``mil.window_epochs``, which reads recording by recording (``k`` windows
+    of each) because random single-window reads stream slowly from S3."""
+    xs, ys, ids = [], [], []
+    for xb, yb, stem, _ in batch:
+        n = xb.shape[0]
+        xs.append(xb)
+        ys.append(yb.unsqueeze(0).expand(n, *yb.shape))
+        ids.extend([stem] * n)
+    return torch.cat(xs), torch.cat(ys), ids
+
+
 def wrap_bags(dataset, mil_cfg, train: bool) -> Optional[RecordingBagDataset]:
     if dataset is None:
         return None
     return RecordingBagDataset(dataset, k=mil_cfg.bag_size, train=train,
                                k_choices=mil_cfg.bag_size_choices,
-                               max_windows=0 if train else mil_cfg.eval_max_windows)
+                               max_windows=0 if train else mil_cfg.eval_max_windows,
+                               repeats=getattr(mil_cfg, "bag_repeats", 1) if train else 1)

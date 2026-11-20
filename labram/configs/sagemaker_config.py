@@ -129,6 +129,10 @@ class SageMakerConfig(ConfigBase):
     # s3://sagemaker-<region>-<account>/labram/checkpoints/<job>-<UTC time>/;
     # "off" = never; any other value is the S3 prefix to use instead.
     checkpoint_s3_uri: str = "auto"
+    # An existing job's checkpoint folder (s3://.../<job>-<UTC time>/), used verbatim:
+    # the new job syncs it down and resumes from its checkpoint.pth (e.g. after a
+    # failed job). Empty = a fresh folder per checkpoint_s3_uri.
+    resume_checkpoint_s3_uri: str = ""
     framework_version: str = DEFAULT_SAGEMAKER_FRAMEWORK_VERSION
     py_version: str = DEFAULT_SAGEMAKER_PY_VERSION
     image_uri: str = DEFAULT_SAGEMAKER_IMAGE_URI

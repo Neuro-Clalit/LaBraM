@@ -65,9 +65,9 @@ METHODS = ["none", "cole", "recalibrate", "age_level", "quadratic_gap"]
 USES_AGE = {"age_level", "quadratic_gap"}
 METHOD_LABEL = {"none": "raw", "cole": "Cole inversion", "recalibrate": "recalibration",
                 "age_level": "linear gap (uses age)", "quadratic_gap": "quadratic gap (uses age)"}
-OPEN_COHORTS = {"lemon", "chbp", "mipdb"}             # per-subject points may be drawn
+OPEN_COHORTS = {"lemon", "chbp", "mipdb", "dortmund", "srm"}   # open licences: per-subject points may be drawn
 NAMES = {"temple": "Temple (TUH), in-domain", "harvard": "Harvard (HEEDB), in-domain", "tdbrain": "TDBRAIN",
-         "lemon": "LEMON", "chbp": "CHBP", "mipdb": "MIPDB"}
+         "lemon": "LEMON", "chbp": "CHBP", "mipdb": "MIPDB", "dortmund": "Dortmund", "srm": "SRM"}
 INK, MUTED, GRID = "#1f1f1e", "#6b6a64", "#e4e3df"
 PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
 

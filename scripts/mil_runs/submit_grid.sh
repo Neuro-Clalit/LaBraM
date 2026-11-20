@@ -13,6 +13,9 @@
 # list, so ml.g5.2xlarge (32 GB) ran out of memory with 24 workers (16 held);
 # use WORKERS=10 there. ml.g5.4xlarge (64 GB) with 32 workers is fine.
 #   ONLY="W2 W3" scripts/mil_runs/submit_grid.sh       # a subset
+#   ONLY="CV_L1 CV_W4 CV_W7" FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh   # one-step CV fold 0
+#   scripts/mil_runs/submit_phased_cv.sh             # phased P_* jobs, all 5 folds
+#   RESUME=s3://.../<job>-<time>/ ONLY=P_W7 FOLD=1 ... # continue a failed job from its checkpoints
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PY=${PY:-/data/code/LaBraM/.venv/bin/python}
@@ -52,6 +55,55 @@ K32="mil.bag_size_choices=[$(seq -s, 8 32)] trainer.batch_size=16"
 K64="mil.bag_size_choices=[$(seq -s, 8 64)] trainer.batch_size=8"
 # Window-level control: 8 windows per recording per epoch, batch 256 windows.
 WINDOW=(mil.enabled=false data.train_minutes_per_epoch=1.3334 trainer.batch_size=256)
+# One-step (end-to-end) from labram-base, no E2L step, as 5-fold CV over train+val by
+# subject with the original test split held out (every fold scores the same 7,612 test
+# recordings as the two-step runs). 48 bag epochs (8 windows per recording each, ~384
+# per recording in total) roughly match the two-step data budget (E2L 16 x 30 windows +
+# 4 bag epochs x 8); the 12-epoch F runs saw a quarter of it and ended ~0.45 y behind.
+# FOLD selects the fold (default 0, the verification fold).
+ONESTEP=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=48
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200)
+CV=(cross_validation.enabled=true cross_validation.n_folds=5 cross_validation.fold=${FOLD:-0}
+  cross_validation.pool=train_val cross_validation.test_set=held_out cross_validation.split_by=subject
+  cross_validation.seed=0
+  cross_validation.split_json=s3://eeg-data-public/HEEDB/v4.1/derived/cv/tuh_heedb_v1_cv5_subject_seed0.json)
+# Phased one-run schedule from labram-base (the two-step recipe inside one job): 10
+# window-level epochs exactly like E2L (5 min per recording per epoch, batch 256,
+# lr 2.8e-4, 4 warm-up epochs, cosine over all 16), then 2 bag epochs training only
+# the attention pool (encoder and head frozen), then 4 joint bag epochs.
+PHASED=(optimizer.lr=0.00028 optimizer.warmup_epochs=4 trainer.epochs=16
+  mil.window_epochs=10 mil.window_minutes_per_epoch=5 mil.window_batch_size=256
+  mil.freeze_encoder_epochs=2 mil.freeze_head=true
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760)
+# Phased v2 (P2_*): E2L's data budget in the window phase with diverse batches -- 16
+# window epochs of 32 recordings x 8 windows per step, every recording drawn 4x per
+# epoch (32 windows/recording/epoch, 512 in all), cosine over 22 epochs so the window
+# phase ends at E2L's checkpoint LR (0.7e-4); then 2 attention-only + 4 joint epochs.
+# On-demand jobs only checkpoint with an explicit checkpoint_s3_uri.
+PHASED2=(optimizer.lr=0.00028 optimizer.warmup_epochs=4 trainer.epochs=22
+  mil.window_epochs=16 mil.window_minutes_per_epoch=1.3334 mil.window_bag_repeats=4 mil.window_batch_size=256
+  mil.freeze_encoder_epochs=2 mil.freeze_head=true
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760
+  sagemaker.checkpoint_s3_uri=s3://sagemaker-us-east-1-574441342949/labram/checkpoints)
+# P3: v2's window batching, 10 window epochs on their own cosine (ends near zero), 1
+# attention-only epoch as the warm-up of a bag-phase LR restart at 1e-4, 6 joint epochs
+# (cosine to 0) with retention 0.1 toward the end-of-window encoder. 17 epochs.
+PHASED3=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=17
+  mil.window_epochs=10 mil.window_minutes_per_epoch=1.3334 mil.window_bag_repeats=4 mil.window_batch_size=256
+  mil.freeze_encoder_epochs=1 mil.freeze_head=true mil.bag_lr=0.0001 mil.bag_warmup_epochs=1
+  mil.retention_weight=0.1
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760
+  sagemaker.checkpoint_s3_uri=s3://sagemaker-us-east-1-574441342949/labram/checkpoints)
+# P4: earlier attention -- 8 window epochs, 1 attention-only, 8 joint epochs on the same
+# cosine (from ~1.7e-4), + 0.5 x per-window age loss, each recording drawn 2x per joint epoch.
+PHASED4=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=17
+  mil.window_epochs=8 mil.window_minutes_per_epoch=1.3334 mil.window_bag_repeats=4 mil.window_batch_size=256
+  mil.freeze_encoder_epochs=1 mil.freeze_head=true mil.window_loss_weight=0.5 mil.bag_repeats=2
+  evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760
+  sagemaker.checkpoint_s3_uri=s3://sagemaker-us-east-1-574441342949/labram/checkpoints)
+# The window phase streams (FastFile) recording by recording: random single-window
+# reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
+# mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
 
 declare -A JOBS=(
   [W0]="${WARM[*]} ${WINDOW[*]}"
@@ -73,17 +125,40 @@ declare -A JOBS=(
   # Y: L1 (ungated ABMIL) + retention 0.1, 10 epochs with 4 frozen; attention on h (Y1) or h + q (Y2).
   [Y1]="${MID[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.retention_weight=0.1"
   [Y2]="${MID[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=hq mil.retention_weight=0.1"
+  # CV one-step versions of L1, W4, W7 (CV_<model>; FOLD=k picks the fold).
+  [CV_L1]="${ONESTEP[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
+  [CV_W4]="${ONESTEP[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=h"
+  [CV_W7]="${ONESTEP[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=q mil.retention_weight=0.1"
+  # Phased versions (P_<model>; FOLD=k), and L1 with 4-window bags (64 recordings per step).
+  [P_L1]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
+  [P_W4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=h"
+  [P_W7]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.score_input=q mil.retention_weight=0.1"
+  [P2_L1]="${PHASED2[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
+  [P3_L1]="${PHASED3[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
+  [P4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
+  [P_L1_K4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.bag_size=4 trainer.batch_size=64"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"
   [F3]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=hq mil.time_encoding=true"
 )
+if [ -n "${RESUME:-}" ]; then
+  # A resume folder must be one job's checkpoint folder holding a checkpoint.pth
+  # (an empty variable in a caller's loop once left only the shared root).
+  [ -n "${FOLD:-}" ] || { echo "RESUME needs FOLD" >&2; exit 1; }
+  [[ "${RESUME%/}" == *"-fold-${FOLD}-"* ]] \
+    || { echo "RESUME=$RESUME is not a fold-${FOLD} job folder" >&2; exit 1; }
+  listing=$(aws s3 ls --recursive "${RESUME%/}/" 2>/dev/null || true)   # no grep -q: SIGPIPE + pipefail
+  grep "/checkpoint.pth$" <<< "$listing" > /dev/null \
+    || { echo "RESUME=$RESUME holds no checkpoint.pth" >&2; exit 1; }
+fi
 NAMES=${ONLY:-"W0 W1 W2 W3 W4 W5 W6 W7 F0 F1 F2 F3"}
 for name in $NAMES; do
   read -r -a over <<< "${JOBS[$name]}"
   echo "=== $name: ${JOBS[$name]}"
   "$PY" -m labram.runs.submit_sagemaker --phase finetune --detach \
     --config labram/configs/defaults/finetune_tuab_age.json "${EXTRA[@]}" --set "${BASE[@]}" "${over[@]}" \
-    clearml.task_name="heedb_mil_${name}" "clearml.tags=[\"heedb\",\"mil\",\"${name}\"]" \
-    sagemaker.job_name_prefix="labram-mil-${name,,}"
+    ${RESUME:+sagemaker.resume_checkpoint_s3_uri=$RESUME} \
+    clearml.task_name="heedb_mil_${name}${FOLD:+_fold${FOLD}}" "clearml.tags=[\"heedb\",\"mil\",\"${name}\"]" \
+    sagemaker.job_name_prefix="labram-mil-$(echo "${name,,}" | tr _ -)${FOLD:+-f${FOLD}}"
 done

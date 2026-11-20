@@ -384,8 +384,8 @@ without the true age costs accuracy (Cole: +1.1 years), and the raw prediction s
 
 - **Which age the participants table holds** is assumed (session 1). If it were the age at the last session, the
   first-session ages of 208 people would be about 5 years too high.
-- **Not yet in the technical report.** The report covers five cohorts; adding Dortmund as the sixth means rebuilding
-  its figures with this set.
+- **In the technical report** since 2026-11-19 (seven cohorts, `docs/tech_report/`): Tables 5, 8, 9, 25, the
+  follow-up and state effects in its Section 6.7.
 - **Not a default test set during training.** The cohort's S3 location is registered (`sagemaker.data_s3_uris`); to
   score it during a fine-tune add to `evaluation.test_sets`:
   `dortmund=/data/datasets/EEG-public/DORTMUND/cohorts/dortmund_v1?trim_start_sec=0&trim_end_sec=0&eval_minutes=0`.

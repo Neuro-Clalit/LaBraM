@@ -56,8 +56,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from external_cohort_table import load_meta  # noqa: E402
 
 NAMES = {"temple": "Temple", "harvard": "Harvard", "tdbrain": "TDBRAIN", "lemon": "LEMON", "chbp": "CHBP",
-         "mipdb": "MIPDB"}
-COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]   # categorical slots 1-6, fixed order
+         "mipdb": "MIPDB", "dortmund": "Dortmund", "srm": "SRM"}
+COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300",
+          "#6250d6", "#6b6a64"]                                  # categorical slots 1-8, fixed order
 INK, MUTED, GRID = "#1f1f1e", "#6b6a64", "#e4e3df"
 
 

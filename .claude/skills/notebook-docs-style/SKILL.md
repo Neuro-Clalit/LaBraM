@@ -153,3 +153,21 @@ sudo .venv/bin/python -m playwright install-deps chromium   # bare Ubuntu: libat
 6. Notebook: the PDF is regenerated from the committed outputs
    (`scripts/notebook_to_pdf.py`), linked from the first cell, and its pages were
    looked at (`--pages`): nothing cut off at the page edge.
+
+## 7. Publish every update for review
+
+The user reviews documents on GitHub, not in the terminal. After **every** change to a
+report, a doc, a notebook or its PDF (the technical report in `docs/tech_report/`, a
+`docs/*.md`, a `notebooks/*.ipynb` + `.pdf`):
+
+1. rebuild the rendered file: `scripts/external_runs/tech_report.sh build` for the
+   technical report, `scripts/notebook_to_pdf.py` for a notebook, `scripts/md_to_pdf.py`
+   for a doc with a PDF;
+2. look at the changed pages (section 5, `--pages`), commit and push to the working branch
+   in the same turn;
+3. end the reply with the GitHub link of each updated file,
+   `https://github.com/Neuro-Clalit/LaBraM/blob/<branch>/<path>`, and the page numbers of
+   what changed.
+
+Never stop at a local edit or a local PDF, and never leave the link out, even for a small
+fix.

@@ -291,8 +291,10 @@ def save_cv_split(folds: GroupedFolds, output_dir: str,
 
 
 def load_cv_split_dict(path: str) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    """Read a ``cv_split.json`` from a local path or an ``s3://`` URI (so separately
+    dispatched SageMaker fold jobs can share one saved partition)."""
+    from labram.data.data_split_reuse import load_data_split_json
+    return load_data_split_json(path)
 
 
 def apply_cv_split(bundle: DatasetBundle, split: Dict[str, Any],
