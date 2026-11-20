@@ -56,60 +56,147 @@ def arrow(ax, x0, y0, x1, y1, label=None, color=INK, rad=0.0):
                 style="italic")
 
 
-def pipeline(path):
+def pipeline(path, labram_png="labram.png"):
+    """Figure 5 of the report: this work's fine-tuning and inference path, drawn in the visual
+    language of the original LaBraM figure (temporal encoder, temporal & spatial embedding,
+    transformer blocks), with the tensor shape after every step for one recording. Figure 4 is the
+    original figure itself (Jiang et al. 2024; labram.png of the authors' repository, MIT licence),
+    copied next to it as fig_labram_original.png."""
+    import shutil
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(11, 7.9))
+    from matplotlib.patches import FancyBboxPatch, Rectangle
+    rng = np.random.default_rng(3)
+    TRACE = "#3d7ab8"
+    LB = {"temporal": ("#fde9dc", "#f0a582"), "embed": ("#f2f2f2", "#8c8c8c"), "block": ("#e3f1dc", "#93c47d"),
+          "head": ("#dfe7f6", "#8ea9db")}
+    OURS = ("#fce4d6", "#eb6834")
+
+    def trace(n, smooth=6):
+        v = np.convolve(rng.standard_normal(n + 4 * smooth), np.ones(smooth) / smooth, mode="same")[2 * smooth:-2 * smooth]
+        v += 0.6 * np.sin(np.linspace(0, n / 9, n) + rng.uniform(0, 6))
+        return v / (np.abs(v).max() + 1e-9)
+
+    def box(ax, x, y, w, h, fc, ec, ls="-", lw=1.6, r=0.6):
+        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle=f"round,pad=0,rounding_size={r}", fc=fc, ec=ec, ls=ls, lw=lw))
+
+    def mini(ax, x, y, w, h, n=60, ec="#9a9a9a", fc="white", rows=1):
+        ax.add_patch(Rectangle((x, y), w, h, fc=fc, ec=ec, lw=0.8))
+        t = np.linspace(x + 0.15, x + w - 0.15, n)
+        for q in range(rows):
+            yc = y + h * (q + 0.5) / rows
+            ax.plot(t, yc + 0.36 * h / rows * trace(n, 3), color=TRACE, lw=0.6)
+
+    def arrow(ax, x0, y0, x1, y1):
+        ax.annotate("", xy=(x1, y1), xytext=(x0, y0), arrowprops=dict(arrowstyle="-|>", color=INK, lw=1.5, mutation_scale=14))
+
+    def shape(ax, x, y, txt, **kw):
+        ax.text(x, y, txt, ha="center", va="top", fontsize=10.5, color="#a33a0f", **kw)
+
+    shutil.copyfile(labram_png, os.path.join(os.path.dirname(path), "fig_labram_original.png"))
+    fig, ax = plt.subplots(figsize=(14, 9.6))
     ax.set_xlim(0, 100)
-    ax.set_ylim(0, 66)
+    ax.set_ylim(0, 62)
     ax.axis("off")
-    W, H, X = 16.4, 13.0, [1.5, 21.6, 41.7, 61.8, 81.9]
-    ya, yb, yc = 46.5, 24.5, 3.0
-    ax.text(0.5, 64.5, "(a) LaBraM pre-training (Jiang et al. 2024): reused, not retrained", fontsize=11,
-            fontweight="bold", color=INK, va="top")
-    a = [("unlabelled EEG", "2,535 h from 16 sources\n(BCI, emotion, TUH subsets,\nSiena, own recordings)", "data"),
-         ("1 s patches", "every channel cut into\n200-sample patches,\nplus channel and time\nembeddings", "labram"),
-         ("neural tokenizer", "VQ codebook of 8,192 codes,\nlearned by reconstructing\neach patch's Fourier\namplitude and phase", "labram"),
-         ("masked EEG modelling", "50 % of the patches masked;\nthe encoder predicts their\ncodes (as BEiT v2)", "labram"),
-         ("pre-trained encoder $f_\\theta$", "12 transformer blocks,\nwidth 200, 10 heads,\n5.8 M parameters", "labram")]
-    for x, (t, b, k) in zip(X, a):
-        box(ax, x, ya, W, H, t, b, k)
-    for x0, x1 in zip(X[:-1], X[1:]):
-        arrow(ax, x0 + W + 0.4, ya + H / 2, x1 - 0.4, ya + H / 2)
-
-    ax.text(0.5, 42.0, "(b) This work: recording-level brain age (Sections 4.1–4.5)", fontsize=11,
-            fontweight="bold", color=INK, va="top")
-    b = [("routine EEG recording", "Temple + Harvard: 103,117\nrecordings of 71,656\npatients (train / val / test\nsplit by patient)", "data"),
-         ("one preprocessing", "0.1–75 Hz band-pass,\nline removal at 50 and\n60 Hz, 200 Hz, µV;\nsame for every test cohort", "ours"),
-         ("10 s windows", "training: a bag of K = 8\nrandom windows of one\nrecording; test: all\nscored windows", "ours"),
-         ("common average ref.", "19 channels of the 10–20\nsystem; missing ones left\nout of the token sequence\n(LaBraM++ input)", "ours"),
-         ("fine-tuned encoder $f_\\theta$", "one embedding per window\n$h_i \\in \\mathbb{R}^{200}$ and its\nown prediction $p_i = g(h_i)$", "labram")]
-    for x, (t, b_, k) in zip(X, b):
-        box(ax, x, yb, W, H, t, b_, k)
-    for x0, x1 in zip(X[:-1], X[1:]):
-        arrow(ax, x0 + W + 0.4, yb + H / 2, x1 - 0.4, yb + H / 2)
-    arrow(ax, X[4] + W / 2, ya - 0.4, X[4] + W / 2, yb + H + 0.4, label="initial weights", color="#2a78d6")
-
-    c = [("training", "17 epochs, one run: window\nphase → attention only →\njoint; Huber loss on the\nz-scored age, Eq. (11)", "note"),
-         ("age and confidence", "ensemble age $\\hat y$, gap\n$\\hat y - y$; 20 % least\nconfident set aside by\n$u_r$, Eq. (14)", "ours"),
-         ("5-fold ensemble", "mean of 5 fold models,\nEq. (12); their disagreement\n$d_r$ and the window spread\n$s_r$ measure confidence", "ours"),
-         ("fold model $k$", "one model per fold of the\npatient-grouped 5-fold CV,\nbest epoch on its own\nvalidation fold", "ours"),
-         ("attention pooling", "$\\alpha_i = \\mathrm{softmax}(w^\\top \\tanh(V h_i))$\n$\\hat y_k = g(\\sum_i \\alpha_i h_i)$, Eq. (10)\none prediction per\nrecording", "ours")]
-    for x, (t, b_, k) in zip(X, c):
-        box(ax, x, yc, W, H, t, b_, k)
-    arrow(ax, X[4] + W / 2, yb - 0.4, X[4] + W / 2, yc + H + 0.4)
-    for x0, x1 in zip(X[4:1:-1], X[3:0:-1]):
-        arrow(ax, x0 - 0.4, yc + H / 2, x1 + W + 0.4, yc + H / 2)
-    # legend
-    from matplotlib.patches import Patch
-    handles = [Patch(fc=STYLE[k][0], ec=STYLE[k][1], label=lab) for k, lab in
-               (("data", "data"), ("labram", "LaBraM (architecture / weights)"), ("ours", "this work"),
-                ("note", "training schedule"))]
-    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0.005), ncol=4, frameon=False, fontsize=9)
-    fig.tight_layout()
-    fig.savefig(path, dpi=170)
+    ax.text(0.5, 60.5, "Fine-tuning", fontsize=13, fontweight="bold", color=INK, va="top", family="serif")
+    # 1. preprocessed recording
+    chans = ["Fp1", "C3", "O1", "Fp2", "C4", "O2"]
+    x0, x1, ytop = 3.6, 17.5, 54.0
+    ax.add_patch(Rectangle((x0, ytop - 15.5), x1 - x0, 16.5, fc="white", ec="#9a9a9a", lw=0.9))
+    for k, c in enumerate(chans):
+        yy = ytop - 1.4 - k * 2.6
+        ax.plot(np.linspace(x0 + 0.2, x1 - 0.2, 400), yy + 0.9 * trace(400, 4), color=TRACE, lw=0.6)
+        ax.text(x0 - 0.3, yy, c, ha="right", va="center", fontsize=9, family="serif")
+    for xx in np.linspace(x0, x1, 6)[1:-1]:
+        ax.plot([xx, xx], [ytop - 15.5, ytop + 1.0], color=INK, lw=0.7, ls=":")
+    ax.text((x0 + x1) / 2, ytop + 1.6, "preprocessed recording", ha="center", fontsize=11)
+    shape(ax, (x0 + x1) / 2, ytop - 16.0, "19 × (200 Hz × duration)\nEqs. (1)–(4)")
+    arrow(ax, x1 + 0.6, 46.5, x1 + 3.4, 46.5)
+    # 2. bag of K windows
+    for k in range(3):
+        mini(ax, 22.0 + 1.0 * k, 41.0 + 1.6 * (2 - k), 7.4, 7.0, n=70, rows=4)
+    ax.text(26.6, 53.0, "bag of K = 8 windows", ha="center", fontsize=11)
+    shape(ax, 26.6, 40.4, "K × 19 × 2,000\n(test: all scored windows)")
+    arrow(ax, 32.2, 46.5, 35.0, 46.5)
+    # 3. CAR + patches
+    for r in range(4):
+        for c in range(4):
+            if r == 2 and c == 2:
+                continue
+            mini(ax, 35.8 + c * 3.2, 51.0 - r * 2.9, 2.8, 2.4, n=18)
+    ax.text(43.6, 46.4, "⋱", fontsize=14, ha="center", va="center")
+    ax.text(42.0, 54.4, "CAR, ÷ 100, 1 s patches", ha="center", fontsize=11)
+    shape(ax, 42.0, 41.3, "19 × 10 × 200\nper window, Eq. (5)")
+    arrow(ax, 48.8, 46.5, 51.6, 46.5)
+    # 4. encoder f_theta (LaBraM architecture, pre-trained weights, fine-tuned)
+    box(ax, 52.2, 32.6, 46.6, 25.0, "none", "#2f5597", ls=(0, (5, 3)), lw=1.6, r=2.5)
+    ax.text(75.5, 58.6, "encoder $f_\\theta$: LaBraM base, initialised from pre-training (Figure 4), fine-tuned\n12 blocks · width 200 · 10 heads · 5.8 M parameters", ha="center", fontsize=10.5, color="#2f5597", linespacing=1.3)
+    cols = [("Temporal Encoder", "temporal", "-", "190×200"), ("Temporal & Spatial\nEmbedding", "embed", (0, (3, 2)), "191×200\n(+[CLS])"),
+            ("Transformer Block 1", "block", "-", ""), ("Transformer Block 2", "block", "-", ""),
+            (None, None, None, None), ("Transformer Block 12", "block", "-", "191×200"), ("mean pool", "head", "-", "$h_i \\in \\mathbb{R}^{200}$")]
+    xs = [53.4, 60.0, 67.0, 72.6, 78.2, 81.2, 89.0]
+    for (lbl, kind, ls, shp), xx in zip(cols, xs):
+        if lbl is None:
+            ax.text(xx + 0.4, 46.3, "……", fontsize=14, ha="center", va="center")
+            continue
+        w = 4.6 if kind != "head" else 4.2
+        fc, ec = LB[kind]
+        box(ax, xx, 37.6, w, 17.8, fc, ec, ls=ls, r=0.9)
+        ax.text(xx + w / 2, 46.5, lbl, rotation=-90, ha="center", va="center", fontsize=11, family="serif", linespacing=1.0)
+        if shp:
+            ax.text(xx + w / 2, 37.1, shp, ha="center", va="top", fontsize=10, color="#a33a0f")
+    # row 2: window embeddings -> attention pooling -> head -> folds -> ensemble
+    arrow(ax, 91.1, 32.2, 91.1, 28.9)
+    ax.text(0.5, 30.5, "Inference & pooling", fontsize=13, fontweight="bold", color=INK, va="top", family="serif")
+    # embeddings matrix
+    for k in range(8):
+        for c in range(10):
+            ax.add_patch(Rectangle((85.6 + c * 1.15, 25.6 - k * 1.35), 1.05, 1.15, fc=plt.cm.Blues(0.25 + 0.6 * rng.random()), ec="white", lw=0.3))
+    ax.text(91.4, 27.8, "window embeddings", ha="center", fontsize=11)
+    shape(ax, 91.4, 14.3, "K × 200")
+    arrow(ax, 85.0, 21.0, 82.4, 21.0)
+    # attention pooling (this work)
+    box(ax, 59.2, 11.4, 22.6, 16.0, *OURS, lw=2.0, r=1.2)
+    ax.text(70.5, 26.0, "attention pooling", ha="center", va="top", fontsize=11.5, fontweight="bold")
+    al = np.array([0.9, 1.6, 0.4, 1.2, 2.1, 0.3, 1.0, 1.5])
+    for k, v in enumerate(al):
+        ax.add_patch(Rectangle((63.2 + k * 1.9, 19.4), 1.4, v * 1.75, fc="#eb6834" if v >= 1 else "#f4b183", ec="none"))
+    ax.text(70.5, 19.0, "$\\alpha_i = \\mathrm{softmax}_i(\\mathbf{w}^\\top \\tanh(\\mathbf{V} h_i))$\n"
+            "$\\mathbf{V} \\in \\mathbb{R}^{128 \\times 200}$;  $\\sum_i \\alpha_i h_i \\in \\mathbb{R}^{200}$\nEq. (10)",
+            ha="center", va="top", fontsize=10.2, linespacing=1.5)
+    arrow(ax, 58.6, 21.0, 56.0, 21.0)
+    # head g
+    fc, ec = LB["head"]
+    box(ax, 50.0, 13.0, 5.4, 14.0, fc, ec, r=0.9)
+    ax.text(52.7, 20.0, "Age Head $g$", rotation=-90, ha="center", va="center", fontsize=11, family="serif")
+    shape(ax, 52.7, 12.5, "200 → 1\n$\\hat y_k = \\mu + \\sigma \\hat z_k$")
+    arrow(ax, 49.4, 21.0, 46.6, 21.0)
+    # five fold models
+    for k in range(5):
+        box(ax, 34.6 + 0.7 * k, 13.8 + 1.9 * (4 - k), 9.0, 4.6, "#ffffff", "#eb6834", lw=1.4, r=0.5)
+    ax.text(41.9, 16.1, "fold model 5", ha="center", va="center", fontsize=10)
+    ax.text(39.8, 28.0, "5 fold models (patient-grouped CV)", ha="center", fontsize=11)
+    shape(ax, 39.8, 13.3, "5 predictions $\\hat y_{r,k}$\nper recording")
+    arrow(ax, 34.0, 21.0, 32.8, 21.0)
+    # ensemble and confidence
+    box(ax, 2.0, 11.4, 30.2, 16.0, *OURS, lw=2.0, r=1.2)
+    ax.text(17.1, 26.0, "ensemble age and confidence", ha="center", va="top", fontsize=11.5, fontweight="bold")
+    ax.text(17.1, 22.6, "$\\hat y_r = \\frac{1}{5}\\sum_k \\hat y_{r,k}$, Eq. (12)\n"
+            "fold disagreement $d_r$, window spread $s_{r,k}$\n"
+            "$\\rightarrow$ uncertainty $u_r$, Eq. (14)\n"
+            "brain-age gap $\\hat y_r - y_r$; 20 % least\nconfident recordings set aside",
+            ha="center", va="top", fontsize=10.5, linespacing=1.45)
+    shape(ax, 17.1, 10.9, "one age and one $u_r$ per recording")
+    # training note and legend
+    ax.text(50.0, 5.6, "Training (17 epochs, one run): window phase (E2L-like, window mean) → attention only → joint;"
+            " Huber loss on the z-scored age, Eq. (11).", ha="center", fontsize=10.5, color=MUTED, style="italic")
+    hand = [(LB["block"], "-", "LaBraM components (as in Figure 4)"), (OURS, "-", "this work"), (("#ffffff", "#2f5597"), (0, (5, 3)), "pre-trained weights, fine-tuned")]
+    for k, ((fc, ec), ls, lbl) in enumerate(hand):
+        xx = 10 + k * 31
+        ax.add_patch(Rectangle((xx, 0.6), 2.6, 1.8, fc=fc, ec=ec, ls=ls, lw=1.6))
+        ax.text(xx + 3.4, 1.5, lbl, va="center", fontsize=11)
+    fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(path)
-
 
 def attention_example(path, wdir, cohort, stem, trim, model_glob="P4_L1_f*_test.parquet"):
     import matplotlib.pyplot as plt
