@@ -70,10 +70,13 @@ def format_authors(author):
 
 
 def format_reference(e):
+    """One reference-list entry in Markdown: the title links to a readable copy (``url``),
+    the DOI to doi.org, and a final "full text" link names the host."""
     parts = []
     if "author" in e:
         parts.append(format_authors(e["author"]) + ".")
-    parts.append(detex(e["title"]) + ".")
+    title = detex(e["title"])
+    parts.append((f"[{title}]({e['url']})" if "url" in e else title) + ".")
     venue = e.get("journal") or e.get("booktitle") or e.get("howpublished")
     if venue:
         v = detex(venue)
@@ -84,9 +87,12 @@ def format_reference(e):
         parts.append(v + ",")
     parts.append(e.get("year", "") + ".")
     if "doi" in e:
-        parts.append(f"doi:{e['doi']}.")
+        parts.append(f"doi:[{e['doi']}](https://doi.org/{e['doi']}).")
     if "note" in e:
         parts.append(detex(e["note"]) + ".")
+    if "url" in e:
+        host = re.sub(r"^https?://(www\.)?", "", e["url"]).split("/")[0]
+        parts.append(f"Full text: [{host}]({e['url']}).")
     return " ".join(parts)
 
 
@@ -107,8 +113,10 @@ def to_markdown(src, bib):
             if k not in order:
                 order.append(k)
     number = {k: i + 1 for i, k in enumerate(order)}
-    md = CITE.sub(lambda m: "[" + ", ".join(str(number[k]) for k in cite_keys(m)) + "]", src)
-    refs = ["", "## References", ""] + [f"[{number[k]}] {format_reference(bib[k])}\n" for k in order]
+    # every in-text number jumps to its entry in the reference list (anchor ref-<n>)
+    md = CITE.sub(lambda m: "[" + ", ".join(f"[{number[k]}](#ref-{number[k]})" for k in cite_keys(m)) + "]", src)
+    refs = ["", "## References", ""] + [f'<a id="ref-{number[k]}"></a>[{number[k]}] {format_reference(bib[k])}\n'
+                                        for k in order]
     unused = sorted(set(bib) - set(order))
     return md.rstrip("\n") + "\n" + "\n".join(refs), order, unused
 

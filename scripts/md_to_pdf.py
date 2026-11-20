@@ -150,10 +150,17 @@ class Converter:
         text = self.INLINE_MATH.sub(math_img, text)
         text = re.sub(r"`([^`]+)`", lambda m: stash(f'<font name="Mono" size="{BODY_PT - 1}">'
                                                     f"{escape(m.group(1))}</font>"), text)
-        text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", lambda m: stash(
-            f'<link href="{escape(m.group(2))}" color="#0b6e8a">{escape(m.group(1))}</link>'
-            if m.group(2).startswith("http") else f'<font name="Mono" size="{BODY_PT - 1}">'
-            f"{escape(m.group(1))}</font>"), text)
+        # anchors <a id="x"></a> (reference list) become PDF destinations; [t](#x) links to them
+        text = re.sub(r'<a id="([^"]+)"></a>', lambda m: stash(f'<a name="{escape(m.group(1))}"/>'), text)
+
+        def link(m):
+            label, href = m.group(1), m.group(2)
+            if href.startswith("#"):
+                return stash(f'<a href="{escape(href)}" color="#0b6e8a">{escape(label)}</a>')
+            if href.startswith("http"):
+                return stash(f'<link href="{escape(href)}" color="#0b6e8a">{escape(label)}</link>')
+            return stash(f'<font name="Mono" size="{BODY_PT - 1}">{escape(label)}</font>')
+        text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", link, text)
         text = escape(text)
         text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
         while "\x00" in text:   # slots can nest (e.g. `code` inside a link)
