@@ -1,0 +1,8 @@
+cohort,unit,files,units,people,people_1,people_2,people_3plus,max_units,span_median,span_p10,span_p90,span_gt0
+Temple test,recordings,272,272,249,231,14,<5,4,1.0,0.0,3.0,14
+Harvard test,recordings,7338,7338,5827,4817,708,302,12,1.0,0.0,7.0,615
+TDBRAIN,sessions of 2 files,2222,1113,1062,1015,43,<5,3,1.0699999999999932,0.0,2.6900000000000035,40
+LEMON,recordings,214,214,214,214,0,0,1,,,,0
+Dortmund,sessions of 4 runs,3262,816,608,400,208,0,2,5.0,5.0,6.0,208
+SRM,recordings,152,152,110,68,42,0,2,1.000684462696782,0.21711156741957752,1.0548939082819984,42
+CHBP,recordings,250,250,250,250,0,0,1,,,,0

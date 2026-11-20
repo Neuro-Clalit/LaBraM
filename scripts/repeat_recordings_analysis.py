@@ -33,6 +33,14 @@ from external_cohort_table import load_meta  # noqa: E402
 TRAIN = "/data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1"
 OUT = "/data/runs/heedb/external_eval"
 E = "/data/datasets/EEG-public"
+# every report test cohort, for the EEGs-per-person figure (scored adults: recordings in the P4 ensemble's predictions)
+TEST_COHORTS = [("Temple test", TRAIN, f"{OUT}/own_5min_models.json", "temple", "recordings"),
+                ("Harvard test", TRAIN, f"{OUT}/own_5min_models.json", "harvard", "recordings"),
+                ("TDBRAIN", f"{E}/TDBRAIN/cohorts/tdbrain_v1", f"{OUT}/tdbrain_all_models.json", None, "sessions of 2 files"),
+                ("LEMON", f"{E}/LEMON/cohorts/lemon_v1", f"{OUT}/lemon_all_models.json", None, "recordings"),
+                ("Dortmund", f"{E}/DORTMUND/cohorts/dortmund_v1", f"{OUT}/dortmund_all_models.json", None, "sessions of 4 runs"),
+                ("SRM", f"{E}/SRM/cohorts/srm_v1", f"{OUT}/srm_all_models.json", None, "recordings"),
+                ("CHBP", f"{E}/CHBP/cohorts/chbp_v1", f"{OUT}/chbp_all_models.json", None, "recordings")]
 SETS = [("Temple test", TRAIN, f"{OUT}/own_5min_models.json", "temple"),
         ("Harvard test", TRAIN, f"{OUT}/own_5min_models.json", "harvard"),
         ("TDBRAIN", f"{E}/TDBRAIN/cohorts/tdbrain_v1", f"{OUT}/tdbrain_all_models.json", None),
@@ -121,6 +129,102 @@ def longitudinal():
     return pd.DataFrame(rows), curves
 
 
+def scored_meta(cdir, ev, family):
+    """Adults of a test cohort restricted to the scored recordings; Harvard keyed by the cross-site patient id."""
+    meta = load_meta(cdir, family, 18.0)
+    if family:
+        test = {f.split("/")[-1].rsplit("_", 1)[0] for f in json.load(open(os.path.join(cdir, "age_split.json")))["files"]["test"]}
+        meta = meta[meta.index.isin(test)]
+        if family == "harvard":
+            pid = pd.read_parquet(os.path.join(cdir, "cohort.parquet")).set_index("stem")["patient_id"]
+            meta = meta.assign(subject=pid.reindex(meta.index).astype(str))
+    scored = json.load(open(ev))["P4ens"]["splits"]["test"]["predictions"]
+    return meta[meta.index.isin(list(scored))]
+
+
+def test_cohorts():
+    """Per test cohort: people, EEG units per person (sessions where a session has several files) and,
+    for people with >= 2 units, the time between the first and the last (age difference, years)."""
+    rows, spans = [], {}
+    for name, cdir, ev, family, unit in TEST_COHORTS:
+        m = scored_meta(cdir, ev, family)
+        if "task" in m:                                       # TDBRAIN / Dortmund: one unit = one session
+            u = m.groupby(["subject", "session"]).agg(age=("age", "first")).reset_index()
+        else:
+            u = m.reset_index()[["subject", "age"]]
+        per = u.groupby("subject").agg(n=("age", "size"), span=("age", lambda a: a.max() - a.min()))
+        rep = per[per.n >= 2]
+        row = {"cohort": name, "unit": unit, "files": len(m), "units": len(u), "people": len(per),
+               "people_1": int((per.n == 1).sum()), "people_2": int((per.n == 2).sum()), "people_3plus": int((per.n >= 3).sum()),
+               "max_units": int(per.n.max()), "span_median": rep.span.median() if len(rep) else np.nan,
+               "span_p10": rep.span.quantile(0.1) if len(rep) else np.nan, "span_p90": rep.span.quantile(0.9) if len(rep) else np.nan,
+               "span_gt0": int((rep.span > 0).sum())}
+        rows.append(row)
+        spans[name] = rep.span.to_numpy(float)
+    return pd.DataFrame(rows), spans
+
+
+def test_figure(path, tab, spans):
+    """Figure 4 of the report: EEGs per person and time between them in the seven test cohorts."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from labram.eval.age_plots import assert_max_columns, panel_labels
+    plt.rcParams.update({"font.size": 16, "axes.titlesize": 16})
+    fig, axes = plt.subplots(1, 2, figsize=(15, 8.2), gridspec_kw={"width_ratios": [1.3, 1]})
+    a, b = axes
+    cols = [("people_1", "1", "#cfd9e8"), ("people_2", "2", "#2a78d6"), ("people_3plus", "3 or more", "#0b3c7a")]
+    tab = tab.iloc[::-1].reset_index(drop=True)
+    def c(v):
+        return f"{v:,}" if v == 0 or v >= SMALL_CELL else f"<{SMALL_CELL}"
+    ylab = [f"{r.cohort} ({r.unit})\n{r.people:,} people: {c(r.people_1)} / {c(r.people_2)} / {c(r.people_3plus)}"
+            for r in tab.itertuples()]
+    for k, r in enumerate(tab.itertuples()):
+        left = 0.0
+        for col, lbl, c in cols:
+            v = getattr(r, col)
+            share = 100 * v / r.people
+            a.barh(k, share, left=left, color=c, edgecolor="white", label=lbl if k == 0 else None)
+            if share >= 8:
+                a.text(left + share / 2, k, f"{share:.0f} %", ha="center", va="center", fontsize=13.5,
+                       color="white" if col != "people_1" else "#1f1f1e")
+            left += share
+    a.set_yticks(range(len(tab)), ylab, fontsize=14)
+    a.set_xlim(0, 100)
+    a.set_xlabel("share of people (%)")
+    a.set_title("EEGs per person (people: 1 / 2 / 3+)")
+    a.legend(title="EEGs per person", frameon=False, ncol=3, loc="lower center", bbox_to_anchor=(0.5, 1.07), fontsize=14)
+    a.grid(axis="x", color="#e4e3df", lw=0.8)
+    a.set_axisbelow(True)
+    order = [n for n in tab.cohort if len(spans[n]) >= 5]
+    data = [spans[n] for n in order]
+    pos = [list(tab.cohort).index(n) for n in order]
+    bp = b.boxplot(data, positions=pos, vert=False, whis=(10, 90), showfliers=False, widths=0.55, patch_artist=True,
+                   medianprops=dict(color="#1f1f1e", lw=2))
+    for patch in bp["boxes"]:
+        patch.set(facecolor="#fce4d6", edgecolor="#eb6834", lw=1.4)
+    for k, n in enumerate(tab.cohort):
+        if n not in order:
+            b.text(0.2, k, "one EEG per person", va="center", fontsize=14, color="#6b6a64", style="italic")
+        else:
+            s = spans[n]
+            b.text(b.get_xlim()[1] if False else 15.3, k, f"n = {len(s):,}, median {np.median(s):.1f} y", va="center", ha="right", fontsize=13.5)
+    b.set_yticks(range(len(tab)), [""] * len(tab))
+    b.set_ylim(a.get_ylim())
+    b.set_xlim(0, 15.5)
+    b.set_xlabel("first to last EEG of a person (years)")
+    b.set_title("time between EEGs (people with ≥ 2)")
+    b.grid(axis="x", color="#e4e3df", lw=0.8)
+    for ax in axes:
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    fig.tight_layout()
+    panel_labels(list(axes))
+    assert_max_columns(fig)
+    fig.savefig(path, dpi=150)
+    print(path)
+
+
 def figure(path, spans, counts, curves, grids):
     import matplotlib
     matplotlib.use("Agg")
@@ -198,6 +302,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--figure", required=True)
+    ap.add_argument("--test-figure", default=None, help="EEGs per person in the test cohorts (report Figure 4)")
     args = ap.parse_args()
     summ, spans, counts, grids = training_summary()
     lon, curves = longitudinal()
@@ -217,6 +322,15 @@ def main():
     for name, g in grids.items():
         print(name, "patients by EEGs per patient:", dict(zip([b[2] for b in N_BINS], g.sum(axis=0))))
     figure(args.figure, spans, counts, curves, grids)
+    if args.test_figure:
+        tab, tspans = test_cohorts()
+        out = tab.copy()
+        for c in ("people_1", "people_2", "people_3plus"):                 # small cells (data use agreements)
+            out[c] = [v if v == 0 or v >= SMALL_CELL else f"<{SMALL_CELL}" for v in out[c]]
+        out.to_csv(os.path.join(args.out_dir, "repeat_recordings_test_cohorts.csv"), index=False)
+        with pd.option_context("display.width", 250, "display.max_columns", 30):
+            print(tab.round(2).to_string(index=False))
+        test_figure(args.test_figure, tab, tspans)
 
 
 if __name__ == "__main__":
