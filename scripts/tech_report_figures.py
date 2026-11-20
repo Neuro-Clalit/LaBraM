@@ -8,7 +8,7 @@
   recording of an open cohort (LEMON, CC BY), P4 ensemble: window predictions
   and relative attention weights over time, weight against the deviation from
   the pooled prediction, and the EEG of the highest- and the lowest-weighted
-  window. Ensemble window quantities as Eq. (15) of the report: ``p_i`` the
+  window. Ensemble window quantities as Eq. (20) of the report: ``p_i`` the
   fold mean of the window predictions, ``w_i = (n/K) sum_k alpha_ik``; the
   pooled prediction is the fold mean of ``sum_i alpha_ik p_ik``.
 
@@ -89,11 +89,11 @@ def pipeline(path):
         arrow(ax, x0 + W + 0.4, yb + H / 2, x1 - 0.4, yb + H / 2)
     arrow(ax, X[4] + W / 2, ya - 0.4, X[4] + W / 2, yb + H + 0.4, label="initial weights", color="#2a78d6")
 
-    c = [("training", "17 epochs, one run: window\nphase → attention only →\njoint; Huber loss on the\nz-scored age, Eq. (6)", "note"),
-         ("age and confidence", "ensemble age $\\hat y$, gap\n$\\hat y - y$; 20 % least\nconfident set aside by\n$u_r$, Eq. (9)", "ours"),
-         ("5-fold ensemble", "mean of 5 fold models,\nEq. (7); their disagreement\n$d_r$ and the window spread\n$s_r$ measure confidence", "ours"),
+    c = [("training", "17 epochs, one run: window\nphase → attention only →\njoint; Huber loss on the\nz-scored age, Eq. (11)", "note"),
+         ("age and confidence", "ensemble age $\\hat y$, gap\n$\\hat y - y$; 20 % least\nconfident set aside by\n$u_r$, Eq. (14)", "ours"),
+         ("5-fold ensemble", "mean of 5 fold models,\nEq. (12); their disagreement\n$d_r$ and the window spread\n$s_r$ measure confidence", "ours"),
          ("fold model $k$", "one model per fold of the\npatient-grouped 5-fold CV,\nbest epoch on its own\nvalidation fold", "ours"),
-         ("attention pooling", "$\\alpha_i = \\mathrm{softmax}(w^\\top \\tanh(V h_i))$\n$\\hat y_k = g(\\sum_i \\alpha_i h_i)$, Eq. (5)\none prediction per\nrecording", "ours")]
+         ("attention pooling", "$\\alpha_i = \\mathrm{softmax}(w^\\top \\tanh(V h_i))$\n$\\hat y_k = g(\\sum_i \\alpha_i h_i)$, Eq. (10)\none prediction per\nrecording", "ours")]
     for x, (t, b_, k) in zip(X, c):
         box(ax, x, yc, W, H, t, b_, k)
     arrow(ax, X[4] + W / 2, yb - 0.4, X[4] + W / 2, yc + H + 0.4)
@@ -121,11 +121,11 @@ def attention_example(path, wdir, cohort, stem, trim, model_glob="P4_L1_f*_test.
     if d.empty:
         raise SystemExit(f"{stem} not in {wdir}")
     d["a"] = d.alpha / d.groupby("fold").alpha.transform("sum")
-    pooled = (d.a * d.window_pred).groupby(d.fold).sum().mean()             # Eq. (7) of the fold models' Eq. (5)
+    pooled = (d.a * d.window_pred).groupby(d.fold).sum().mean()             # Eq. (12) of the fold models' Eq. (10)
     w = d.groupby("slot").agg(p=("window_pred", "mean"), a=("a", "mean"), minute=("minute", "first")).reset_index()
     n, K = len(w), len(files)
-    w["wrel"] = w.a * n                                                      # Eq. (15): 1 = uniform weight
-    w["dev"] = (w.p - pooled).abs()                                          # Eq. (16)
+    w["wrel"] = w.a * n                                                      # Eq. (20): 1 = uniform weight
+    w["dev"] = (w.p - pooled).abs()                                          # Eq. (21)
     age = float(d.age.iloc[0])
     plain = w.p.mean()
     meta = {r["stem"]: r for r in json.load(open(os.path.join(cohort, "manifest.json")))["recordings"]}[stem]
@@ -221,8 +221,8 @@ def attention_heatmaps(path, wdir, cohort, cases, trim, model_glob="P4_L1_f*_tes
         r = d[d.recording == stem].copy()
         r["a"] = r.alpha / r.groupby("fold").alpha.transform("sum")
         n = r[r.fold == 0].shape[0]
-        r["w"] = r.a * n                                                     # Eq. (15): 1 = uniform weight
-        pooled = (r.a * r.window_pred).groupby(r.fold).sum().mean()          # Eq. (7)
+        r["w"] = r.a * n                                                     # Eq. (20): 1 = uniform weight
+        pooled = (r.a * r.window_pred).groupby(r.fold).sum().mean()          # Eq. (12)
         W = r.pivot(index="fold", columns="slot", values="w")
         P = r.pivot(index="fold", columns="slot", values="window_pred").mean(axis=0)
         mat = np.vstack([W.to_numpy(), W.mean(axis=0).to_numpy()])
@@ -299,9 +299,9 @@ def attention_on_eeg(path, wdir, cohort, cases, trim, model_glob="P4_L1_f*_test.
         r = d[d.recording == stem].copy()
         r["a"] = r.alpha / r.groupby("fold").alpha.transform("sum")
         n = r[r.fold == 0].shape[0]
-        w = (r.a * n).groupby(r.slot).mean()                                  # Eq. (15)
+        w = (r.a * n).groupby(r.slot).mean()                                  # Eq. (20)
         p = r.groupby("slot").window_pred.mean()
-        pooled = (r.a * r.window_pred).groupby(r.fold).sum().mean()          # Eq. (7)
+        pooled = (r.a * r.window_pred).groupby(r.fold).sum().mean()          # Eq. (12)
         age = float(r.age.iloc[0])
         mask = np.asarray(meta[stem]["channel_mask"], bool)
         x = np.load(os.path.join(cohort, "recordings", f"{stem}.npy"), mmap_mode="r")
@@ -510,6 +510,112 @@ def cv_cohorts(path, csv):
     plt.close(fig)
     print(path)
 
+def preprocessing_figure(path, edf, start_s=140.0, channels=("FP1", "F3", "C3", "P3", "O1", "FP2", "C4", "O2")):
+    """The conversion pipeline step by step on one recording of an open cohort (Dortmund,
+    CC0): the reader (Dortmund: DC offset removed, FCz reference kept), the 0.1-75 Hz
+    band-pass, line removal by spectrum interpolation at 50 and 60 Hz, resampling to
+    200 Hz, and the model input (common average reference, x / 100, 1 s patches)."""
+    import mne
+    import matplotlib.pyplot as plt
+    from scipy.signal import welch
+    from dataset_maker.make_external_npy import open_dortmund
+    from dataset_maker.make_TUH_npy import H_FREQ, L_FREQ, SAMPLE_RATE
+    from labram.data.line_removal import spectrum_interpolate
+    from labram.data.tuh_metadata import TUH_CHANNELS
+    from labram.eval.age_plots import assert_max_columns, panel_labels
+    mne.set_log_level("error")
+    plt.rcParams.update({"font.size": 13, "axes.titlesize": 13.5})
+    raw, present, _ = open_dortmund(edf)
+    order = [c for c in TUH_CHANNELS if c in present]
+    raw.pick([present[c] for c in order]).load_data()
+    fs = raw.info["sfreq"]
+    x0 = raw.get_data(units="uV")                                         # as read (stage 0)
+    bp = raw.copy().filter(l_freq=L_FREQ, h_freq=H_FREQ)                  # Eq. (1)
+    x1 = bp.get_data(units="uV")
+    notch = bp.copy()
+    for f0 in (50.0, 60.0):
+        notch.notch_filter(f0)
+    xn = notch.get_data(units="uV")
+    li = bp.copy()
+    for f0 in (50.0, 60.0):
+        li.apply_function(spectrum_interpolate, channel_wise=True, fs=fs, f0=f0)   # Eq. (2)
+    x2 = li.get_data(units="uV")
+    rs = li.copy().resample(SAMPLE_RATE)
+    x3 = rs.get_data(units="uV")                                          # 200 Hz, µV
+    show = [c for c in channels if c in order]
+    idx = [order.index(c) for c in show]
+    occ = order.index("O1")
+    spacing = 75.0
+    clip = 0.95 * spacing                                                 # display only
+
+    def traces(ax, x, rate, title):
+        a, b = int(start_s * rate), int((start_s + 10) * rate)
+        t = np.arange(b - a) / rate
+        for k, i in enumerate(idx):
+            v = x[i, a:b] - x[i, a:b].mean()
+            v = np.clip(v, -clip, clip)
+            ax.plot(t, v - k * spacing, color=INK, lw=0.5)
+        ax.set_yticks([-k * spacing for k in range(len(show))], [c.capitalize() for c in show], fontsize=11)
+        ax.set_xlabel("time (s)")
+        ax.set_xlim(0, 10)
+        ax.set_title(title)
+
+    fig = plt.figure(figsize=(13, 12))
+    gs = fig.add_gridspec(3, 2, height_ratios=[1, 0.9, 1.05])
+    a = fig.add_subplot(gs[0, 0])
+    traces(a, x0, fs, f"as read: {fs:.0f} Hz, FCz reference, µV")
+    b = fig.add_subplot(gs[0, 1])
+    traces(b, x3, SAMPLE_RATE, "0.1–75 Hz, line removal, 200 Hz")
+    c = fig.add_subplot(gs[1, 0])
+    for x, rate, lbl, col in ((x0, fs, "as read", "#6b6a64"), (x1, fs, "band-pass 0.1–75 Hz, Eq. (1)", "#2a78d6"),
+                              (x2, fs, "+ line removal, Eq. (2)", "#eb6834"), (x3, SAMPLE_RATE, "+ resampled to 200 Hz", "#1baf7a")):
+        f, pxx = welch(x[occ], fs=rate, nperseg=int(4 * rate))
+        keep = f <= min(rate / 2, 150)
+        c.semilogy(f[keep], pxx[keep], color=col, lw=1.4 if lbl != "as read" else 1.0, label=lbl)
+    c.axvline(75, color=MUTED, ls=":", lw=1)
+    c.set_ylim(1e-5, None)
+    c.set_xlabel("frequency (Hz)")
+    c.set_ylabel("O1 power (µV²/Hz)")
+    c.set_title("spectrum after each step")
+    c.legend(frameon=False, fontsize=11, loc="upper right")
+    d = fig.add_subplot(gs[1, 1])
+    for x, lbl, col in ((x1, "band-pass only (line present)", "#2a78d6"), (xn, "notch filter at 50 Hz", "#6250d6"),
+                        (x2, "spectrum interpolation, Eq. (2)", "#eb6834")):
+        f, pxx = welch(x[occ], fs=fs, nperseg=int(10 * fs))
+        keep = (f >= 40) & (f <= 58)
+        d.semilogy(f[keep], pxx[keep], color=col, lw=1.4, label=lbl)
+    d.axvspan(48.5, 51.5, color="#fbecc8", zorder=0, lw=0)
+    d.set_xlabel("frequency (Hz)")
+    d.set_ylabel("O1 power (µV²/Hz)")
+    d.set_title("around 50 Hz: notch against interpolation")
+    d.legend(frameon=False, fontsize=11, loc="lower left")
+    e = fig.add_subplot(gs[2, :])
+    a0, b0 = int(start_s * SAMPLE_RATE), int((start_s + 10) * SAMPLE_RATE)
+    win = x3[:, a0:b0]
+    car = win - win.mean(axis=0, keepdims=True)                           # Eq. (5): common average reference
+    t = np.arange(b0 - a0) / SAMPLE_RATE
+    for sec in range(1, 10):
+        e.axvline(sec, color="#2a78d6", lw=0.8, ls="--", zorder=1)
+    for k, i in enumerate(idx):
+        e.plot(t, np.clip(car[i], -clip, clip) - k * spacing, color=INK, lw=0.6, zorder=2)
+    e.set_yticks([-k * spacing for k in range(len(show))], [c.capitalize() for c in show], fontsize=11)
+    e.set_xlim(0, 10)
+    e.set_xlabel("time in the window (s)")
+    e.set_title(f"model input: one 10 s window, common average reference over the {len(order)} channels,\n"
+                "ten 1 s patches (dashed) of 200 samples; the model reads values / 100")
+    for ax in (a, b, c, d, e):
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    for ax in (c, d):
+        ax.grid(color=GRID, lw=0.8)
+    fig.tight_layout()
+    panel_labels([a, b, c, d, e])
+    assert_max_columns(fig)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(path)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out-dir", default="docs/tech_report")
@@ -517,6 +623,7 @@ def main():
     ap.add_argument("--cohort", required=True, help="cohort folder with manifest.json and recordings/*.npy")
     ap.add_argument("--recording", required=True)
     ap.add_argument("--trim-windows", type=int, default=0, help="windows trimmed at the start when the cohort was scored")
+    ap.add_argument("--preproc-edf", default=None, help="Dortmund EDF for the preprocessing figure (fig_preprocessing.png)")
     ap.add_argument("--cv-curves", default=None, help="docs/data/mil_phased_cv/cv_curves.csv -> fig_cv_curves.png")
     ap.add_argument("--eeg-cases", nargs="*", default=[], metavar="STEM=LABEL",
                     help="recordings drawn as EEG with the attention weight as background (fig_attention_on_eeg.png)")
@@ -529,6 +636,8 @@ def main():
     pipeline(os.path.join(args.out_dir, "fig_pipeline.png"))
     attention_example(os.path.join(args.out_dir, "fig_attention_example.png"), args.windows, args.cohort,
                       args.recording, args.trim_windows)
+    if args.preproc_edf:
+        preprocessing_figure(os.path.join(args.out_dir, "fig_preprocessing.png"), args.preproc_edf)
     if args.cv_curves:
         cv_curves(os.path.join(args.out_dir, "fig_cv_curves.png"), args.cv_curves)
         cv_compare(os.path.join(args.out_dir, "fig_cv_compare.png"), args.cv_curves)

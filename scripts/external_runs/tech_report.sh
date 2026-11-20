@@ -50,9 +50,11 @@ if [[ $step == tables || $step == all ]]; then
   $PY scripts/window_confidence_figures.py "${SETS[@]}" --model P4ens --out $D/window_confidence.csv --fig-dir $T
   rm -f $T/recording_error_vs_confidence.png                        # not used in the report
   $PY scripts/chbp_variant_bars.py --out $T/fig_chbp_fixes.png      # CHBP corrections (docs/chbp_domain_shift.md)
-  # Figures 2-5: the pipeline, attention pooling on one LEMON recording, attention on the EEG and over whole recordings (open licence; scored after
+  # Figure 1: the preprocessing step by step on one Dortmund recording (CC0); Figures 4-7: the pipeline, attention
+  # pooling on one LEMON recording, attention on the EEG and over whole recordings (open licence; scored after
   # the 60 s trims, so slot i is window i + 6 of the file)
   $PY scripts/tech_report_figures.py --out-dir $T --windows $OUT/windows/lemon_all_models \
+    --preproc-edf $E/DORTMUND/raw/ds005385/sub-001/ses-1/eeg/sub-001_ses-1_task-EyesClosed_acq-pre_eeg.edf \
     --cohort $E/LEMON/cohorts/lemon_v1 --recording sub-032490_lemon-rs --trim-windows 6 \
     --cv-curves docs/data/mil_phased_cv/cv_curves.csv \
     --eeg-cases "sub-032465_lemon-rs=good prediction" "sub-032446_lemon-rs=weak prediction, too old" \
