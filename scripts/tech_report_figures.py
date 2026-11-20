@@ -57,11 +57,13 @@ def arrow(ax, x0, y0, x1, y1, label=None, color=INK, rad=0.0):
 
 
 def pipeline(path, labram_png="labram.png"):
-    """Figure 5 of the report: this work's fine-tuning and inference path, drawn in the visual
-    language of the original LaBraM figure (temporal encoder, temporal & spatial embedding,
-    transformer blocks), with the tensor shape after every step for one recording. Figure 4 is the
-    original figure itself (Jiang et al. 2024; labram.png of the authors' repository, MIT licence),
-    copied next to it as fig_labram_original.png."""
+    """The report's pipeline figure (fig_pipeline.png): this work's fine-tuning and inference path,
+    drawn in the visual language of the original LaBraM figure (temporal encoder, temporal & spatial
+    embedding, transformer blocks), with the tensor shape after every step for one recording and a
+    token view of the encoder output (the class token reads every patch token; the window embedding
+    is read from the class token only). The original figure itself (Jiang et al. 2024; labram.png of
+    the authors' repository, MIT licence) is copied next to it as fig_labram_original.png and
+    precedes it in the report."""
     import shutil
     import matplotlib.pyplot as plt
     from matplotlib.patches import FancyBboxPatch, Rectangle
@@ -129,23 +131,53 @@ def pipeline(path, labram_png="labram.png"):
     arrow(ax, 48.8, 46.5, 51.6, 46.5)
     # 4. encoder f_theta (LaBraM architecture, pre-trained weights, fine-tuned)
     box(ax, 52.2, 32.6, 46.6, 25.0, "none", "#2f5597", ls=(0, (5, 3)), lw=1.6, r=2.5)
-    ax.text(75.5, 58.6, "encoder $f_\\theta$: LaBraM base, initialised from pre-training (Figure 4), fine-tuned\n12 blocks · width 200 · 10 heads · 5.8 M parameters", ha="center", fontsize=10.5, color="#2f5597", linespacing=1.3)
-    cols = [("Temporal Encoder", "temporal", "-", "190×200"), ("Temporal & Spatial\nEmbedding", "embed", (0, (3, 2)), "191×200\n(+[CLS])"),
+    ax.text(75.5, 58.6, "encoder $f_\\theta$: LaBraM base, initialised from pre-training (Figure 5), fine-tuned\n12 blocks · width 200 · 10 heads · 5.8 M parameters", ha="center", fontsize=10.5, color="#2f5597", linespacing=1.3)
+    cols = [("Temporal Encoder", "temporal", "-", "190×200"), ("Temporal & Spatial\nEmbedding", "embed", (0, (3, 2)), "191×200"),
             ("Transformer Block 1", "block", "-", ""), ("Transformer Block 2", "block", "-", ""),
-            (None, None, None, None), ("Transformer Block 12", "block", "-", "191×200"), ("[CLS] token", "head", "-", "$h_i \\in \\mathbb{R}^{200}$")]
-    xs = [53.4, 60.0, 67.0, 72.6, 78.2, 81.2, 89.0]
+            (None, None, None, None), ("Transformer Block 12", "block", "-", "191×200")]
+    xs = [53.0, 57.4, 62.0, 66.2, 70.6, 71.6]
     for (lbl, kind, ls, shp), xx in zip(cols, xs):
         if lbl is None:
-            ax.text(xx + 0.4, 46.3, "……", fontsize=14, ha="center", va="center")
+            ax.text(xx, 46.3, "…", fontsize=14, ha="center", va="center")
             continue
-        w = 4.6 if kind != "head" else 4.2
+        w = 3.7
         fc, ec = LB[kind]
-        box(ax, xx, 37.6, w, 17.8, fc, ec, ls=ls, r=0.9)
-        ax.text(xx + w / 2, 46.5, lbl, rotation=-90, ha="center", va="center", fontsize=11, family="serif", linespacing=1.0)
+        box(ax, xx, 37.6, w, 17.8, fc, ec, ls=ls, r=0.8)
+        ax.text(xx + w / 2, 46.5, lbl, rotation=-90, ha="center", va="center", fontsize=10, family="serif", linespacing=1.0)
         if shp:
-            ax.text(xx + w / 2, 37.1, shp, ha="center", va="top", fontsize=10, color="#a33a0f")
+            yy = 35.4 if kind == "embed" else 37.1                 # staggered so the labels do not touch
+            ax.text(xx + w / 2, yy, shp, ha="center", va="top", fontsize=9, color="#a33a0f")
+    ax.text(59.25, 33.9, "(+ [CLS])", ha="center", va="top", fontsize=9, color="#b8860b")
+    # token view of block 12's output: one class token that reads every patch token; the readout is the class token
+    CLS_C, PATCH_C = ("#f8d77a", "#b8860b"), ("#e6e6e6", "#8c8c8c")
+    tx, tw, th = 79.4, 1.7, 1.25
+    ax.text(tx + tw / 2, 56.7, "191 output tokens", ha="center", va="center", fontsize=9.5, color=MUTED)
+    ax.add_patch(Rectangle((tx, 54.3), tw, th, fc=CLS_C[0], ec=CLS_C[1], lw=1.6))
+    ax.text(tx + tw + 0.5, 54.95, "[CLS]", ha="left", va="center", fontsize=10, fontweight="bold", color=CLS_C[1])
+    patch_y = [51.9, 50.4, 48.9, 47.4, 44.4, 42.9]
+    patch_lbl = ["Fp1, 0–1 s", "Fp1, 1–2 s", "Fp1, 2–3 s", "Fp1, 3–4 s", "O2, 8–9 s", "O2, 9–10 s"]
+    for yy, lb in zip(patch_y, patch_lbl):
+        ax.add_patch(Rectangle((tx, yy), tw, th, fc=PATCH_C[0], ec=PATCH_C[1], lw=1.0))
+        ax.text(tx + tw + 0.5, yy + th / 2, lb, ha="left", va="center", fontsize=8.5, color=MUTED)
+        ax.annotate("", xy=(tx, 54.3 + th / 2), xytext=(tx, yy + th / 2),
+                    arrowprops=dict(arrowstyle="-|>", color=CLS_C[1], lw=0.8, alpha=0.75, mutation_scale=7,
+                                    connectionstyle=f"arc3,rad={-0.25 - 0.03 * (54.3 - yy)}"))
+    ax.text(tx + tw / 2, 46.2, "⋮", ha="center", va="center", fontsize=13, color=MUTED)
+    ax.text(tx + tw + 0.5, 41.8, "190 patch tokens\n(19 channels × 10 s)\nnot pooled", ha="left", va="top", fontsize=8.5,
+            color=MUTED, style="italic", linespacing=1.15)
+    ax.text(tx - 0.4, 37.6, "arcs: in every block, [CLS]\nattends to all patch tokens", ha="left", va="top", fontsize=8.5,
+            color=CLS_C[1])
+    # readout: LayerNorm of the class token only
+    fc, ec = LB["head"]
+    box(ax, 87.4, 44.4, 11.2, 4.6, fc, ec, r=0.6)
+    ax.text(93.0, 46.7, "window embedding\n$h_i = \\mathrm{LN}([\\mathrm{CLS}]) \\in \\mathbb{R}^{200}$", ha="center", va="center",
+            fontsize=9, linespacing=1.4)
+    ax.annotate("", xy=(93.0, 49.2), xytext=(tx + tw + 4.6, 54.95),
+                arrowprops=dict(arrowstyle="-|>", color=CLS_C[1], lw=2.2, mutation_scale=15,
+                                connectionstyle="arc3,rad=-0.35"))
+    ax.text(94.6, 53.2, "readout from\n[CLS] only", ha="left", va="center", fontsize=8.5, color=CLS_C[1], linespacing=1.1)
     # row 2: window embeddings -> attention pooling -> head -> folds -> ensemble
-    arrow(ax, 91.1, 32.2, 91.1, 28.9)
+    arrow(ax, 96.6, 44.2, 96.6, 28.9)
     ax.text(0.5, 30.5, "Inference & pooling", fontsize=13, fontweight="bold", color=INK, va="top", family="serif")
     # embeddings matrix
     for k in range(8):
@@ -189,7 +221,7 @@ def pipeline(path, labram_png="labram.png"):
     # training note and legend
     ax.text(50.0, 5.6, "Training (17 epochs, one run): window phase (E2L-like, window mean) → attention only → joint;"
             " Huber loss on the z-scored age, Eq. (11).", ha="center", fontsize=10.5, color=MUTED, style="italic")
-    hand = [(LB["block"], "-", "LaBraM components (as in Figure 4)"), (OURS, "-", "this work"), (("#ffffff", "#2f5597"), (0, (5, 3)), "pre-trained weights, fine-tuned")]
+    hand = [(LB["block"], "-", "LaBraM components (as in Figure 5)"), (OURS, "-", "this work"), (("#ffffff", "#2f5597"), (0, (5, 3)), "pre-trained weights, fine-tuned")]
     for k, ((fc, ec), ls, lbl) in enumerate(hand):
         xx = 10 + k * 31
         ax.add_patch(Rectangle((xx, 0.6), 2.6, 1.8, fc=fc, ec=ec, ls=ls, lw=1.6))
