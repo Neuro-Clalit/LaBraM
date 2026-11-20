@@ -10,8 +10,10 @@ run and split) and compares, per run and cohort group, recording predictions
 * ``trim20_rec`` -- each recording's 20 % lowest-attention windows dropped,
   the rest re-weighted by their renormalised attention;
 * ``trim20_glob`` -- windows whose relative weight r_i = alpha_i n (1 = uniform)
-  is below the 20th percentile of r over the whole split dropped (a recording
-  keeps at least its top window); label-free;
+  is below a threshold dropped (a recording keeps at least its top window); the
+  threshold is the 20th percentile of r over the **validation** windows of the
+  same run (``--val-windows``), never over the split being scored, so it is
+  fixed before the test data are seen; NaN for a run without validation windows;
 * ``trim20_dev`` -- each recording's 20 % windows whose prediction lies farthest
   from the recording's median window prediction dropped, the rest re-weighted
   (the label-free trim for window-level models, whose uniform alpha makes the
@@ -31,6 +33,7 @@ with the oracle (reject the 20 % largest errors) and random rejection (the
 all-recording MAE) as bounds. Rows are written to ``--out``.
 
     python scripts/attention_trimming.py --windows /data/runs/heedb/external_eval/windows \\
+        --val-windows /data/runs/heedb/external_eval/windows/own_all_val \\
         --out docs/data/external_eval/attention_trimming.csv
 """
 import argparse
@@ -66,19 +69,34 @@ def recording_frame(w):
     })
 
 
-def trims(w):
+def val_threshold(val_dir, run, frac=FRAC):
+    """Global trimming threshold of a run: the ``frac`` quantile of the relative weight
+    alpha_i n over its validation windows (``<val_dir>/<run>_val.parquet``); None when the
+    run has no validation windows. The scored split never sets it."""
+    p = os.path.join(val_dir, f"{run}_val.parquet") if val_dir else None
+    if not p or not os.path.exists(p):
+        return None
+    v = pd.read_parquet(p, columns=["recording", "alpha"])
+    return float((v["alpha"] * v.groupby("recording")["alpha"].transform("size")).quantile(frac))
+
+
+def trims(w, thr=None):
+    """Per-recording trims; ``thr`` = the validation-fixed global threshold of ``trim20_glob``
+    (None: that trim is not computed)."""
     w = w.copy()
     n = w.groupby("recording")["alpha"].transform("size")
     w["r"] = w["alpha"] * n
     rank = w.groupby("recording")["alpha"].rank(method="first", ascending=True)
     drop_rec = rank <= np.floor(FRAC * n)
     top = w.groupby("recording")["alpha"].transform("max") == w["alpha"]
-    thr = w["r"].quantile(FRAC)
     dev = (w["window_pred"] - w.groupby("recording")["window_pred"].transform("median")).abs()
     dev_rank = dev.groupby(w["recording"]).rank(method="first", ascending=False)
     drop_dev = dev_rank <= np.floor(FRAC * n)
-    return {"trim20_rec": pooled(w, ~drop_rec), "trim20_dev": pooled(w, ~drop_dev),
-            "trim20_glob": pooled(w, (w["r"] >= thr) | top), "glob_threshold_r": thr,
+    out = {"trim20_rec": pooled(w, ~drop_rec), "trim20_dev": pooled(w, ~drop_dev)}
+    if thr is None:
+        nan = pd.Series(np.nan, index=out["trim20_rec"].index)
+        return {**out, "trim20_glob": nan, "glob_threshold_r": np.nan, "share_dropped_glob": np.nan}
+    return {**out, "trim20_glob": pooled(w, (w["r"] >= thr) | top), "glob_threshold_r": thr,
             "share_dropped_glob": float(((w["r"] < thr) & ~top).mean())}
 
 
@@ -105,11 +123,11 @@ def groups_for(cohort, rec, meta):
     return out
 
 
-def analyse(path, cohort, meta):
+def analyse(path, cohort, meta, val_dir=None):
     run = os.path.basename(path).rsplit("_", 1)[0]
     w = pd.read_parquet(path)
     rec = recording_frame(w)
-    t = trims(w)
+    t = trims(w, val_threshold(val_dir, run))
     rec["trim20_rec"] = t["trim20_rec"]
     rec["trim20_glob"] = t["trim20_glob"]
     rec["trim20_dev"] = t["trim20_dev"]
@@ -145,6 +163,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--windows", required=True, help="root with <cohort>/<run>_test.parquet")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--val-windows", default=None,
+                    help="dir with <run>_val.parquet: sets the trim20_glob threshold (validation only)")
     args = ap.parse_args()
     meta = None
     try:
@@ -158,7 +178,7 @@ def main():
     for d in sorted(glob.glob(os.path.join(args.windows, "*"))):
         cohort = os.path.basename(d)
         for p in sorted(glob.glob(os.path.join(d, "*_test.parquet"))):
-            rows += analyse(p, cohort, meta)
+            rows += analyse(p, cohort, meta, args.val_windows)
     out = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     out.to_csv(args.out, index=False)

@@ -8,8 +8,8 @@ abnormal of the own test split, and LEMON young / old / all):
 * ``all``     -- every window of the recording (``--eval-minutes 0``);
 * ``trim20w`` -- all windows, minus 20 % of them, re-pooled (label-free;
   ``scripts/attention_trimming.py``). Attention models drop the windows whose
-  relative attention weight is below the 20th percentile of the split
-  (``trim20_glob``). Window-level models (E2, E2L) have uniform weights, so they
+  relative attention weight is below the 20th percentile of that weight on the
+  model's **validation** windows, fixed before the cohort is seen (``trim20_glob``). Window-level models (E2, E2L) have uniform weights, so they
   drop each recording's 20 % windows farthest from its median window prediction
   (``trim20_dev``, a 20 % trimmed mean);
 * ``keep80r`` -- all windows, MAE of the 80 % of recordings kept after setting
@@ -116,6 +116,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--thresholds", default="docs/data/confidence_thresholds/min_keep_0.80",
                     help="confidence_thresholds.py output with the val-fitted thresholds")
+    ap.add_argument("--val-windows", default="/data/runs/heedb/external_eval/windows/own_all_val",
+                    help="dir with <model>_val.parquet: the trim20w threshold of each attention model")
     args = ap.parse_args()
     rules = val_thresholds(args.thresholds)
     import mil_cohort_summary as mcs
@@ -129,7 +131,7 @@ def main():
             if os.path.exists(wp):
                 w = pd.read_parquet(wp)
                 rf = at.recording_frame(w)
-                tr = at.trims(w)
+                tr = at.trims(w, at.val_threshold(args.val_windows, model))
                 rf["trim20"] = tr["trim20_dev" if model in WINDOW_MODELS else "trim20_glob"]
                 recs[model] = rf
                 if model in rules:

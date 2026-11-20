@@ -5,16 +5,23 @@ drop the 10 s windows the attention pool trusts least, then re-pool the rest.
 **Window confidence.** For fold model ``k`` and a recording with ``n`` scored windows, the relative
 attention weight of window ``i`` is ``w_i = n * alpha_i`` (1 = uniform weight).
 
-**Thresholds (label-free, fixed once on validation).** ``tau`` = the 10th / 25th / 50th percentile of
-``w`` over the validation windows of the fold models (each on its own validation fold at its best
-epoch, adults, first 5 minutes): trimming ``low`` / ``medium`` / ``high``. The same three values are
-applied to every cohort.
+This is the attention rule of ``scripts/confidence_thresholds.py`` (``load`` / ``keep_mask``, reused
+here) applied to the report's cross-validation ensembles, with three fixed levels besides that
+script's single validation-chosen threshold. No threshold ever looks at a test cohort.
 
-**Rule.** Each fold model keeps the windows with ``w_i >= tau`` (at least ``--min-windows``, the
-highest-weighted, if fewer pass) and re-pools them exactly, ``yhat_k = sum_kept alpha_i p_i /
-sum_kept alpha_i`` (exact for the softmax pool followed by the linear head). The ensemble is the
-mean of its fold models; TDBRAIN and Dortmund sessions the mean of their files. Reference rows: no
-trimming (the reported prediction) and the plain mean of the windows (no attention).
+**Thresholds (fixed on validation only).** ``tau`` = the 10th / 25th / 50th percentile of ``w`` over
+the validation windows of the fold models (each on its own validation fold at its best epoch,
+adults, first 5 minutes): trimming ``low`` / ``medium`` / ``high`` (label-free). ``selected``: the
+``confidence_thresholds.ATT_GRID`` value with the lowest validation MAE (uses validation labels;
+``tau = 0``, no trimming, is on the grid), as ``confidence_thresholds.py`` chooses it. The same
+values are applied to every cohort.
+
+**Rule.** Each fold model keeps the windows with ``w_i >= tau``, and every recording keeps at least
+its most confident window (``confidence_thresholds.keep_mask``); the kept windows are re-pooled
+exactly, ``yhat_k = sum_kept alpha_i p_i / sum_kept alpha_i`` (exact for the softmax pool followed by
+the linear head). The ensemble is the mean of its fold models; TDBRAIN and Dortmund sessions the mean
+of their files. Reference rows: no trimming (the reported prediction) and the plain mean of the
+windows (no attention).
 
 **Outputs.** ``window_trimming.csv`` (per set, model, rule: MAE with 95 % subject-bootstrap interval,
 bias, paired change of the MAE against no trimming with its interval, share of windows trimmed,
@@ -34,25 +41,20 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import confidence_thresholds as ct  # noqa: E402
 from external_cohort_table import load_meta  # noqa: E402
 
 LEVELS = [("low", 0.10), ("medium", 0.25), ("high", 0.50)]
 N_BOOT = 2000
 
 
-def pool(w, tau=None, min_windows=3, mean=False):
-    """Per recording of one fold model's windows ``w`` (recording, alpha, window_pred): the pooled
-    prediction after trimming at ``tau`` (None = no trimming; ``mean``: plain mean, no attention),
-    the number of windows and the number trimmed."""
-    w = w[["recording", "alpha", "window_pred"]].copy()
+def pool(w, tau=None, mean=False):
+    """Per recording of one fold model's windows ``w`` (``confidence_thresholds.load`` frame): the
+    pooled prediction after trimming at ``tau`` (None or 0 = no trimming; ``mean``: plain mean, no
+    attention), the number of windows and the number trimmed."""
+    keep = np.ones(len(w), bool) if not tau else ct.keep_mask(w, "attention", tau)
+    w = w[["recording", "alpha", "window_pred"]].assign(keep=keep)
     g = w.groupby("recording", sort=False)
-    n = g["alpha"].transform("size")
-    w["rel"] = n * w["alpha"] / g["alpha"].transform("sum")
-    if tau is None:
-        w["keep"] = True
-    else:
-        rank = g["rel"].rank(ascending=False, method="first")
-        w["keep"] = (w["rel"] >= tau) | (rank <= min_windows)
     k = w[w["keep"]]
     weight = pd.Series(1.0, index=k.index) if mean else k["alpha"]
     num = (weight * k["window_pred"]).groupby(k["recording"], sort=False).sum()
@@ -95,12 +97,22 @@ def evaluate(units, rules, name, model, rows):
                      "units_changed_share": float((np.abs(units[f"pred_{r}"] - units["pred_none"]) > 0.05).mean())})
 
 
-def fold_table(w, taus, min_windows):
+def fold_table(w, taus):
     t = {"none": pool(w)}
     t["mean"] = pool(w, mean=True)
     for lvl, tau in taus.items():
-        t[lvl] = pool(w, tau, min_windows)
+        t[lvl] = pool(w, tau)
     return t
+
+
+def select_on_validation(val):
+    """``confidence_thresholds.py``'s choice: the attention grid value with the lowest validation MAE,
+    pooled over the fold models' validation recordings (``tau = 0``: no trimming)."""
+    n = np.array([v["code"].max() + 1 for v in val], float)
+    maes = [sum(ct.fast_mae(v, ct.keep_mask(v, "attention", tau)) * nk for v, nk in zip(val, n)) / n.sum()
+            for tau in ct.ATT_GRID]
+    j = int(np.argmin(maes))
+    return float(ct.ATT_GRID[j]), pd.DataFrame({"tau": ct.ATT_GRID, "val_mae": maes})
 
 
 def main():
@@ -109,20 +121,26 @@ def main():
     ap.add_argument("--model", default="P4ens")
     ap.add_argument("--val-windows", required=True, help="comma-separated validation window parquets of the fold models")
     ap.add_argument("--val-cohort", required=True, help="training cohort (corpus and subject of the validation recordings)")
-    ap.add_argument("--min-windows", type=int, default=3)
     ap.add_argument("--min-age", type=float, default=18.0)
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--figure", default=None)
     ap.add_argument("--example", default=None, metavar="SET:RECORDING")
     args = ap.parse_args()
-    rules = ["none", "mean"] + [lvl for lvl, _ in LEVELS]
+    rules = ["none", "mean"] + [lvl for lvl, _ in LEVELS] + ["selected"]
 
-    # thresholds on validation
-    val = [pd.read_parquet(p) for p in args.val_windows.split(",")]
-    val = [v[v["age"] >= args.min_age] for v in val]
-    rel = np.concatenate([(v.groupby("recording")["alpha"].transform("size") * v["alpha"]
-                           / v.groupby("recording")["alpha"].transform("sum")).to_numpy() for v in val])
+    # thresholds on validation only
+    val = []
+    for p in args.val_windows.split(","):
+        v = pd.read_parquet(p, columns=["recording", "age"])
+        adults = set(v.loc[v["age"] >= args.min_age, "recording"])
+        v = ct.load(p)
+        v = v[v["recording"].isin(adults)].reset_index(drop=True)
+        v["code"], _ = pd.factorize(v["recording"])
+        v.attrs["age"] = v.groupby("code")["age"].first().to_numpy()
+        val.append(v)
+    rel = np.concatenate([v["att"].to_numpy() for v in val])
     taus = {lvl: float(np.quantile(rel, q)) for lvl, q in LEVELS}
+    taus["selected"], grid = select_on_validation(val)
     print("thresholds:", {k: round(v, 3) for k, v in taus.items()}, flush=True)
 
     rows, dists = [], {"validation": rel}
@@ -132,7 +150,7 @@ def main():
     coh = coh.assign(pat=sub)
     vunits = []
     for k, v in enumerate(val):
-        t = fold_table(v, taus, args.min_windows)
+        t = fold_table(v, taus)
         u = pd.DataFrame({f"pred_{r}": t[r]["pred"] for r in rules})
         for r in rules:
             u[f"trim_{r}"] = t[r]["trimmed"]
@@ -156,14 +174,15 @@ def main():
         per = []
         allrel = []
         for m in members:
-            w = pd.read_parquet(os.path.join(wdir, f"{m}_test.parquet"), columns=["recording", "slot", "alpha", "window_pred"])
-            w = w[w["recording"].isin(meta.index)]
-            per.append(fold_table(w, taus, args.min_windows))
-            allrel.append((w.groupby("recording")["alpha"].transform("size") * w["alpha"]
-                           / w.groupby("recording")["alpha"].transform("sum")).to_numpy())
+            path = os.path.join(wdir, f"{m}_test.parquet")
+            w = ct.load(path)
+            w = w[w["recording"].isin(meta.index)].reset_index(drop=True)
+            per.append(fold_table(w, taus))
+            allrel.append(w["att"].to_numpy())
             if args.example and args.example.split(":")[0] == name:
                 rec = args.example.split(":", 1)[1]
-                examples.setdefault("windows", []).append(w[w["recording"] == rec].assign(fold=m))
+                ws = pd.read_parquet(path, columns=["recording", "slot", "alpha", "window_pred"])
+                examples.setdefault("windows", []).append(ws[ws["recording"] == rec].assign(fold=m))
         dists[name] = np.concatenate(allrel)
         idx = per[0]["none"].index
         u = pd.DataFrame(index=idx)
@@ -185,8 +204,10 @@ def main():
     df = pd.DataFrame(rows)
     os.makedirs(args.out_dir, exist_ok=True)
     df.to_csv(os.path.join(args.out_dir, "window_trimming.csv"), index=False)
-    pd.DataFrame([{"level": lvl, "validation_quantile": q, "tau": taus[lvl]} for lvl, q in LEVELS]).to_csv(
-        os.path.join(args.out_dir, "window_trimming_thresholds.csv"), index=False)
+    pd.DataFrame([{"level": lvl, "rule": f"validation quantile {q:g}", "tau": taus[lvl]} for lvl, q in LEVELS]
+                 + [{"level": "selected", "rule": "lowest validation MAE on confidence_thresholds.ATT_GRID",
+                     "tau": taus["selected"]}]).to_csv(os.path.join(args.out_dir, "window_trimming_thresholds.csv"), index=False)
+    grid.to_csv(os.path.join(args.out_dir, "window_trimming_val_grid.csv"), index=False)
     with pd.option_context("display.width", 250, "display.max_rows", 200):
         print(df.pivot_table(index="set", columns="rule", values="mae", sort=False).round(2).to_string())
         print(df.pivot_table(index="set", columns="rule", values="windows_trimmed_share", sort=False).round(3).to_string())
@@ -211,12 +232,13 @@ def figure(path, df, taus, dists, examples):
             a[0].hist(np.clip(dists[name], 0, 3), bins=edges, density=True, histtype="step", lw=lw, color=col,
                       label={"validation": "validation (τ fixed here)", "temple": "Temple test", "harvard": "Harvard test", "lemon": "LEMON", "chbp": "CHBP"}[name])
     for lvl, tau in taus.items():
-        a[0].axvline(tau, color=LC[lvl], lw=2, ls="--", label=f"{lvl}: τ = {tau:.2f}")
+        a[0].axvline(tau, color=LC.get(lvl, "#1f1f1e"), lw=2, ls="--" if lvl in LC else ":",
+                     label=f"{lvl}: τ = {tau:.2f}" + (" (min. validation MAE)" if lvl == "selected" else ""))
     a[0].set_xlabel("relative weight $w = n\\,\\alpha$ (1 = uniform; 3 = 3+)")
     a[0].set_ylabel("density of windows")
-    a[0].set_title("window confidence and the three thresholds")
-    a[0].legend(frameon=False, fontsize=12.5, loc="upper right")
-    a[0].set_xlim(-0.05, 4.4)
+    a[0].set_title("window confidence and the thresholds")
+    a[0].legend(frameon=False, fontsize=12, loc="upper right")
+    a[0].set_xlim(-0.05, 5.9)
     a[0].set_xticks([0, 0.5, 1, 1.5, 2, 2.5, 3])
     # (b) example recording
     if examples.get("windows"):
@@ -228,8 +250,8 @@ def figure(path, df, taus, dists, examples):
         col = np.where(e["rel"] >= taus["high"], "#2a78d6",
                        np.where(e["rel"] >= taus["medium"], LC["high"], np.where(e["rel"] >= taus["low"], LC["medium"], LC["low"])))
         a[1].bar(t, e["rel"], width=1 / 6 * 0.9, color=col)
-        for lvl, tau in taus.items():
-            a[1].axhline(tau, color=LC[lvl], lw=1.6, ls="--")
+        for lvl, (_, q) in zip(LC, LEVELS):
+            a[1].axhline(taus[lvl], color=LC[lvl], lw=1.6, ls="--")
         p = examples.get("preds")
         if p is not None:
             txt = " · ".join(f"{lbl} {p[f'pred_{r}']:.1f}"
@@ -251,6 +273,9 @@ def figure(path, df, taus, dists, examples):
         a[2].barh(y + (1 - j) * hgt, 100 * sub["windows_trimmed_share"], hgt, color=LC[lvl], label=lvl)
         a[3].errorbar(sub["delta_mae"], y + (1 - j) * hgt, xerr=[sub["delta_mae"] - sub["delta_lo"], sub["delta_hi"] - sub["delta_mae"]],
                       fmt="o", color=LC[lvl], ms=6, capsize=3, label=lvl)
+    sub = df[df["rule"] == "selected"].set_index("set").reindex(sets)
+    a[3].errorbar(sub["delta_mae"], y + 2 * hgt, xerr=[sub["delta_mae"] - sub["delta_lo"], sub["delta_hi"] - sub["delta_mae"]],
+                  fmt="D", color="#1f1f1e", ms=5, capsize=3, label=f"selected on validation (τ = {taus['selected']:.2f})")
     sub = df[df["rule"] == "mean"].set_index("set").reindex(sets)
     a[3].errorbar(sub["delta_mae"], y - 2 * hgt, xerr=[sub["delta_mae"] - sub["delta_lo"], sub["delta_hi"] - sub["delta_mae"]],
                   fmt="s", color="#6b6a64", ms=5, capsize=3, label="plain mean (no attention)")

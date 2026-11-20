@@ -825,32 +825,32 @@ Rejection by the combined score lowers the MAE on every cohort, by 0.2 to 0.9 ye
 \item \textbf{Fold disagreement is a recording-level signal.} Over all windows it follows the error (rank correlation 0.16 to 0.39), but inside a recording it does not (median between $-$0.07 and +0.01 on six of the seven cohorts, 0.14 on LEMON): the fold models disagree on whole recordings, which is the part the combined score adds to the spread.
 \end{itemize}
 
-\textbf{Window trimming by attention weight.} Rejection sets whole recordings aside; trimming keeps every recording and drops, inside it, the windows the attention pool trusts least. With $w_{ik} = n\,\alpha_{ik}$ the relative weight of window $i$ for fold model $k$ (Eq. (20) before averaging over the fold models; 1 = uniform), each fold model keeps the windows at or above a threshold $\tau$, at least the three highest-weighted, and re-pools them:
+\textbf{Window trimming by attention weight.} Rejection sets whole recordings aside; trimming keeps every recording and drops, inside it, the windows the attention pool trusts least. With $w_{ik} = n\,\alpha_{ik}$ the relative weight of window $i$ for fold model $k$ (Eq. (20) before averaging over the fold models; 1 = uniform), each fold model keeps the windows at or above a threshold $\tau$, at least its most confident window, and re-pools them (the attention rule of \texttt{scripts/confidence\_thresholds.py}, \texttt{docs/external\_eval\_results.md} Section 7, here applied to the cross-validation ensembles):
 
 \begin{equation}
-\mathcal{K}_k(\tau) = \{\, i : w_{ik} \ge \tau \,\} \cup \{\text{the 3 highest } w_{ik}\}, \qquad \hat y_{r,k}(\tau) = \frac{\sum_{i \in \mathcal{K}_k(\tau)} \alpha_{ik}\, p_{ik}}{\sum_{i \in \mathcal{K}_k(\tau)} \alpha_{ik}}, \qquad \tau_q = Q_q\big( w \text{ on validation} \big) \tag{23}
+\mathcal{K}_k(\tau) = \{\, i : w_{ik} \ge \tau \,\} \cup \{\arg\max_i w_{ik}\}, \qquad \hat y_{r,k}(\tau) = \frac{\sum_{i \in \mathcal{K}_k(\tau)} \alpha_{ik}\, p_{ik}}{\sum_{i \in \mathcal{K}_k(\tau)} \alpha_{ik}}, \qquad \tau_q = Q_q\big( w \text{ on validation} \big) \tag{23}
 \end{equation}
 
-which is exact for the softmax pool followed by the linear head, so no model is re-run. The three thresholds are fixed once, without labels, as the 10th, 25th and 50th percentiles of $w$ over the validation windows of the fold models (each on its own validation fold at its best epoch; adults, first 5 minutes): \textbf{low} $\tau = 0.53$, \textbf{medium} $\tau = 0.80$, \textbf{high} $\tau = 1.00$ (every window weighted below uniform is dropped). The ensemble is the mean of the trimmed fold models. Validation is scored per fold model (each recording by the one model it was held out from), the test cohorts by the five-model ensemble, both on the protocol of Table 21. Table 17 gives the MAE, Table 18 how much is trimmed, and Figure 19 shows the thresholds, one recording and the effect per cohort (\texttt{scripts/window\_trimming.py}).
+which is exact for the softmax pool followed by the linear head, so no model is re-run. The three thresholds are fixed once, without labels, as the 10th, 25th and 50th percentiles of $w$ over the validation windows of the fold models (each on its own validation fold at its best epoch; adults, first 5 minutes): \textbf{low} $\tau = 0.53$, \textbf{medium} $\tau = 0.80$, \textbf{high} $\tau = 1.00$ (every window weighted below uniform is dropped). A fourth threshold is the one \texttt{confidence\_thresholds.py} would choose: the value of a grid of $\tau$ (0 to 2 in steps of 0.05, 0 = no trimming) with the lowest validation MAE, \textbf{selected} $\tau = 0.45$ (validation labels, but no test data; the earlier window-trimming analysis chose 0.35 to 0.55 for six older attention models, \texttt{docs/external\_eval\_results.md} Table 7.1). No threshold is computed on a test cohort. The ensemble is the mean of the trimmed fold models. Validation is scored per fold model (each recording by the one model it was held out from), the test cohorts by the five-model ensemble, both on the protocol of Table 21. Table 17 gives the MAE, Table 18 how much is trimmed, and Figure 19 shows the thresholds, one recording and the effect per cohort (\texttt{scripts/window\_trimming.py}).
 
 \begin{table}[t]
 \centering
 \small
-\caption{Window trimming by attention weight, P4: MAE in years and, in brackets, the change against no trimming; \texttt{*}: the 95 \% paired bootstrap interval of the change (resampling people) excludes 0. Validation: single fold models on their own validation folds (Temple and Harvard, adults, first 5 minutes); test: the ensemble. \texttt{plain mean}: the mean of all window predictions, without attention.}
+\caption{Window trimming by attention weight, P4, thresholds fixed on validation: MAE in years and, in brackets, the change against no trimming; \texttt{*}: the 95 \% paired bootstrap interval of the change (resampling people) excludes 0. Validation: single fold models on their own validation folds (Temple and Harvard, adults, first 5 minutes); test: the ensemble. \texttt{plain mean}: the mean of all window predictions, without attention.}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{lllllll}
+\begin{tabular}{llllllll}
 \toprule
-\textbf{cohort} & \textbf{units} & \textbf{no trimming} & \textbf{low} & \textbf{medium} & \textbf{high} & \textbf{plain mean} \\
+\textbf{cohort} & \textbf{units} & \textbf{no trimming} & \textbf{low} & \textbf{medium} & \textbf{high} & \textbf{selected on validation} & \textbf{plain mean} \\
 \midrule
-Temple validation & 18,643 & 7.54 [7.35, 7.72] & 7.55 (+0.01*) & 7.63 (+0.09*) & 7.86 (+0.32*) & 7.55 (+0.01) \\
-Harvard validation & 38,468 & 6.17 [6.11, 6.23] & 6.15 ($-$0.01*) & 6.18 (+0.01*) & 6.30 (+0.13*) & 6.80 (+0.63*) \\
-Temple test & 272 & 5.87 [5.25, 6.54] & 5.86 ($-$0.01) & 5.79 ($-$0.08) & 5.84 ($-$0.03) & 6.04 (+0.17*) \\
-Harvard test & 7,338 & 5.94 [5.82, 6.07] & 5.92 ($-$0.02*) & 5.91 ($-$0.03*) & 5.96 (+0.02) & 6.60 (+0.66*) \\
-TDBRAIN & 1,113 & 4.92 [4.68, 5.19] & 4.92 (0.00) & 4.99 (+0.06*) & 5.30 (+0.37*) & 4.92 ($-$0.01) \\
-LEMON & 214 & 4.67 [4.11, 5.24] & 4.63 ($-$0.04*) & 4.44 ($-$0.22*) & 4.28 ($-$0.39*) & 5.06 (+0.39*) \\
-Dortmund & 816 & 4.53 [4.25, 4.82] & 4.53 (0.00) & 4.58 (+0.05) & 4.78 (+0.25*) & 4.55 (+0.02) \\
-SRM & 152 & 4.84 [4.23, 5.50] & 4.89 (+0.05*) & 5.22 (+0.37*) & 5.72 (+0.87*) & 4.65 ($-$0.19*) \\
-CHBP & 250 & 7.95 [7.11, 8.87] & 7.99 (+0.04) & 8.10 (+0.15) & 8.26 (+0.31*) & 7.92 ($-$0.03) \\
+Temple validation & 18,643 & 7.54 [7.35, 7.72] & 7.55 (+0.01*) & 7.63 (+0.10*) & 7.87 (+0.34*) & 7.54 (0.00*) & 7.55 (+0.01) \\
+Harvard validation & 38,468 & 6.17 [6.11, 6.23] & 6.15 ($-$0.01*) & 6.18 (+0.01*) & 6.31 (+0.14*) & 6.15 ($-$0.01*) & 6.80 (+0.63*) \\
+Temple test & 272 & 5.87 [5.25, 6.54] & 5.86 ($-$0.01) & 5.79 ($-$0.08) & 5.84 ($-$0.03) & 5.86 (0.00) & 6.04 (+0.17*) \\
+Harvard test & 7,338 & 5.94 [5.82, 6.07] & 5.92 ($-$0.02*) & 5.91 ($-$0.03*) & 5.96 (+0.02) & 5.92 ($-$0.02*) & 6.60 (+0.66*) \\
+TDBRAIN & 1,113 & 4.92 [4.68, 5.19] & 4.92 (0.00) & 4.99 (+0.06*) & 5.30 (+0.37*) & 4.92 (0.00) & 4.92 ($-$0.01) \\
+LEMON & 214 & 4.67 [4.11, 5.24] & 4.63 ($-$0.04*) & 4.44 ($-$0.22*) & 4.28 ($-$0.39*) & 4.66 ($-$0.01) & 5.06 (+0.39*) \\
+Dortmund & 816 & 4.53 [4.25, 4.82] & 4.53 (0.00) & 4.58 (+0.05) & 4.78 (+0.25*) & 4.53 (0.00) & 4.55 (+0.02) \\
+SRM & 152 & 4.84 [4.23, 5.50] & 4.89 (+0.05*) & 5.22 (+0.37*) & 5.72 (+0.87*) & 4.87 (+0.03*) & 4.65 ($-$0.19*) \\
+CHBP & 250 & 7.95 [7.11, 8.87] & 7.99 (+0.04) & 8.10 (+0.15) & 8.26 (+0.31*) & 7.97 (+0.02) & 7.92 ($-$0.03) \\
 \bottomrule
 \end{tabular}
 }
@@ -861,21 +861,23 @@ CHBP & 250 & 7.95 [7.11, 8.87] & 7.99 (+0.04) & 8.10 (+0.15) & 8.26 (+0.31*) & 7
 \centering
 \small
 \caption{Share of the windows trimmed at each threshold and, in brackets, the share of units whose prediction changes by more than 0.05 years.}
-\begin{tabular}{llll}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lllll}
 \toprule
-\textbf{cohort} & \textbf{low} & \textbf{medium} & \textbf{high} \\
+\textbf{cohort} & \textbf{low} & \textbf{medium} & \textbf{high} & \textbf{selected on validation} \\
 \midrule
-Temple validation & 3 \% (29 \%) & 22 \% (89 \%) & 55 \% (96 \%) \\
-Harvard validation & 14 \% (70 \%) & 27 \% (93 \%) & 47 \% (97 \%) \\
-Temple test & 2 \% (33 \%) & 20 \% (94 \%) & 55 \% (98 \%) \\
-Harvard test & 14 \% (74 \%) & 27 \% (95 \%) & 48 \% (98 \%) \\
-TDBRAIN & 1 \% (26 \%) & 17 \% (94 \%) & 53 \% (99 \%) \\
-LEMON & 3 \% (47 \%) & 23 \% (98 \%) & 53 \% (99 \%) \\
-Dortmund & 1 \% (31 \%) & 18 \% (94 \%) & 54 \% (99 \%) \\
-SRM & 3 \% (45 \%) & 23 \% (97 \%) & 54 \% (99 \%) \\
-CHBP & 5 \% (65 \%) & 28 \% (98 \%) & 55 \% (99 \%) \\
+Temple validation & 3 \% (29 \%) & 22 \% (89 \%) & 55 \% (98 \%) & 2 \% (17 \%) \\
+Harvard validation & 14 \% (70 \%) & 27 \% (93 \%) & 47 \% (98 \%) & 13 \% (63 \%) \\
+Temple test & 2 \% (33 \%) & 20 \% (94 \%) & 55 \% (98 \%) & 1 \% (17 \%) \\
+Harvard test & 14 \% (74 \%) & 27 \% (95 \%) & 48 \% (98 \%) & 12 \% (67 \%) \\
+TDBRAIN & 1 \% (26 \%) & 17 \% (94 \%) & 53 \% (99 \%) & 1 \% (14 \%) \\
+LEMON & 3 \% (47 \%) & 23 \% (98 \%) & 53 \% (99 \%) & 1 \% (23 \%) \\
+Dortmund & 1 \% (31 \%) & 18 \% (94 \%) & 54 \% (99 \%) & 1 \% (12 \%) \\
+SRM & 3 \% (45 \%) & 23 \% (97 \%) & 54 \% (99 \%) & 1 \% (24 \%) \\
+CHBP & 5 \% (65 \%) & 28 \% (98 \%) & 55 \% (99 \%) & 3 \% (45 \%) \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
 
 
@@ -887,7 +889,7 @@ CHBP & 5 \% (65 \%) & 28 \% (98 \%) & 55 \% (99 \%) \\
 
 
 \begin{itemize}
-\item \textbf{On validation, trimming does not help.} Low trimming changes the MAE by 0.01 years in either direction; medium and high make it worse, by up to 0.32 years in Temple and 0.13 in Harvard. A level chosen on validation is therefore low or none, and on the test cohorts low trimming changes the MAE by at most 0.05 years.
+\item \textbf{On validation, trimming does not help.} Low trimming changes the MAE by 0.01 years in either direction; medium and high make it worse, by up to 0.34 years in Temple and 0.14 in Harvard. The threshold selected on validation, $\tau = 0.45$, drops 1 to 3 \% of the windows (12 \% in Harvard, where a group of windows gets almost no weight, Figure 19(a)) and changes the test MAE by at most 0.03 years; low trimming by at most 0.05 years.
 \item \textbf{The attention pool has already done the work.} The windows below the low threshold carry little weight in the pool, so dropping them hardly moves the prediction; dropping windows of ordinary weight (medium, high) throws away information. The pool itself matters where windows are bad: the plain mean is 0.63 to 0.66 years worse in Harvard (validation and test), 0.17 in the Temple test and 0.39 on LEMON, no different on TDBRAIN, Dortmund and CHBP, and 0.19 years better on SRM (Figure 17: on these four the weight carries no information about the window).
 \item \textbf{LEMON is the exception, and it does not transfer.} High trimming lowers LEMON's MAE from 4.67 to 4.28 years [$-$0.64, $-$0.13], but raises it on TDBRAIN (+0.37), Dortmund (+0.25), CHBP (+0.31) and most on SRM (+0.87). Trimming also makes every external cohort's predictions younger (high: the bias falls by 0.3 to 1.2 years); on LEMON the MAE improves although the bias grows from $-$0.76 to $-$1.47 years, so the gain there comes from fewer large errors, not from the bias.
 \item \textbf{Recommendation.} Keep the attention-pooled prediction without trimming; to discard unreliable data, set whole recordings aside by the combined score (Table 16), which lowers the MAE on every cohort.

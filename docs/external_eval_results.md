@@ -278,7 +278,7 @@ $$
 and the columns differ in $S_r$ and $R$:
 - **5 min** (default): $S_r$ = the first 30 windows after the 60 s trim; $R$ = all recordings.
 - **all windows**: $S_r$ = every window between the 60 s trims (`--eval-minutes 0`).
-- **trim 20 % windows**: $S_r$ = all windows except those whose relative weight $\alpha_i\,n_r$ is below the 20th percentile over the split. This is label-free; a recording keeps at least its top window.
+- **trim 20 % windows**: $S_r$ = all windows except those whose relative weight $\alpha_i\,n_r$ is below a threshold fixed on the model's **validation** windows: the 20th percentile of $\alpha_i\,n_r$ there (0.84–0.93 for these models), so roughly 20 % of the windows are dropped and the scored cohort never sets the cut-off. This is label-free; a recording keeps at least its top window.
 - **keep 80 % recordings**: all windows. $R$ excludes the 20 % of recordings with the largest attention-weighted spread $s_r$, Eq. (6.2). The other 20 % get no prediction, so this column is selective prediction over 80 % of the recordings.
 - **trim 20 % + keep 80 %**: both at once. $S_r$ is the trim-20 % set, $R$ the keep-80 % set (ranked by $s_r$ over all windows).
 - **val trim / val keep / val trim + keep**: the same three operations with
@@ -291,8 +291,10 @@ and the columns differ in $S_r$ and $R$:
   share of the cohort's recordings kept is in parentheses: unlike keep 80 %,
   it is not fixed per cohort. E2 has no val windows (—).
 
-The fixed-share columns (trim 20 %, keep 80 %) are label-free but set their
-cut-off from the test cohort itself, so each cohort loses exactly 20 %. The
+The keep 80 % column is label-free but sets its cut-off from the test
+cohort itself, so each cohort loses exactly 20 % of its recordings; the trim 20 % threshold
+is fixed on validation (it set its cut-off from each scored cohort until 2026-11-20, which
+changed the trim columns by at most 0.08 y). The
 val columns are what a deployed model can do: one threshold, fixed before
 the test data are seen.
 
@@ -344,7 +346,7 @@ windows). **Bold** marks the best value in a column of a table.
 | L1 | ungated, h; 4 ep | **5.71** | **4.79** | 4.78 | **4.47** | **4.49** | **4.78** | **4.47 (79 %)** | **4.47 (80 %)** |
 | W7 | gated, q, ret. 0.1; 4 ep | 5.83 | 4.88 | 4.87 | 4.61 | 4.61 | 4.88 | 4.57 (77 %) | 4.57 (78 %) |
 | X1 | gated, h, ret. 0.1; 20 ep | **5.71** | 4.80 | **4.77** | 4.52 | 4.50 | 4.79 | 4.51 (78 %) | 4.51 (79 %) |
-| X3 | gated, h + q, ret. 0.1; 20 ep | 5.87 | 4.93 | 4.91 | 4.61 | 4.61 | 4.92 | 4.60 (80 %) | 4.63 (81 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 5.87 | 4.93 | 4.92 | 4.61 | 4.61 | 4.92 | 4.60 (80 %) | 4.63 (81 %) |
 | Y1 | ungated, h, ret. 0.1; 10 ep | 5.75 | 4.85 | 4.84 | 4.58 | 4.59 | 4.85 | 4.54 (77 %) | 4.55 (77 %) |
 
 ### Table 6.3. Harvard abnormal (n = 2,253), MAE in years
@@ -356,9 +358,9 @@ windows). **Bold** marks the best value in a column of a table.
 | W4 | gated, h; 4 ep | 6.77 | 6.27 | 6.33 | 5.89 | 5.96 | 6.28 | 5.90 (81 %) | 5.92 (80 %) |
 | L1 | ungated, h; 4 ep | 6.79 | 6.25 | 6.33 | 5.86 | 5.94 | 6.26 | 5.86 (80 %) | 5.90 (81 %) |
 | W7 | gated, q, ret. 0.1; 4 ep | 6.73 | 6.23 | **6.27** | **5.82** | **5.85** | 6.24 | **5.80 (79 %)** | **5.82 (79 %)** |
-| X1 | gated, h, ret. 0.1; 20 ep | 6.75 | 6.27 | 6.33 | 5.90 | 5.98 | 6.28 | 5.90 (80 %) | 5.91 (81 %) |
-| X3 | gated, h + q, ret. 0.1; 20 ep | 6.78 | 6.33 | 6.43 | 5.93 | 6.02 | 6.34 | 5.96 (81 %) | 5.98 (82 %) |
-| Y1 | ungated, h, ret. 0.1; 10 ep | **6.67** | **6.22** | 6.32 | 5.88 | 5.99 | **6.22** | 5.88 (81 %) | 5.89 (81 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | 6.75 | 6.27 | 6.33 | 5.90 | 5.97 | 6.28 | 5.90 (80 %) | 5.91 (81 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 6.78 | 6.33 | 6.42 | 5.93 | 6.02 | 6.34 | 5.96 (81 %) | 5.98 (82 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | **6.67** | **6.22** | 6.31 | 5.88 | 5.98 | **6.22** | 5.88 (81 %) | 5.89 (81 %) |
 
 ### Table 6.4. Harvard unlabelled (n = 3,567), MAE in years
 
@@ -366,12 +368,12 @@ windows). **Bold** marks the best value in a column of a table.
 |---|---|---|---|---|---|---|---|---|---|
 | E2 | window model; 8 ep | 6.86 | 6.15 | 5.94† | 5.93 | 5.74† | — | — | — |
 | E2L | window model; 16 ep | 6.64 | 5.94 | 5.78† | 5.66 | 5.52† | 5.80 | 5.64 (79 %) | 5.71 (82 %) |
-| W4 | gated, h; 4 ep | 5.83 | 5.27 | 5.30 | 4.91 | 4.94 | 5.26 | 4.91 (80 %) | 4.91 (79 %) |
-| L1 | ungated, h; 4 ep | **5.80** | **5.22** | **5.27** | **4.83** | **4.89** | **5.22** | **4.83 (80 %)** | **4.83 (80 %)** |
+| W4 | gated, h; 4 ep | 5.83 | 5.27 | 5.29 | 4.91 | 4.94 | 5.26 | 4.91 (80 %) | 4.91 (79 %) |
+| L1 | ungated, h; 4 ep | **5.80** | **5.22** | **5.27** | **4.83** | **4.88** | **5.22** | **4.83 (80 %)** | **4.83 (80 %)** |
 | W7 | gated, q, ret. 0.1; 4 ep | 5.87 | 5.32 | 5.33 | 4.95 | 4.96 | 5.32 | 4.94 (79 %) | 4.94 (80 %) |
-| X1 | gated, h, ret. 0.1; 20 ep | 5.84 | 5.28 | 5.32 | 4.98 | 5.02 | 5.28 | 4.97 (80 %) | 4.98 (80 %) |
-| X3 | gated, h + q, ret. 0.1; 20 ep | 5.87 | 5.33 | 5.38 | 4.98 | 5.03 | 5.33 | 5.02 (81 %) | 5.02 (81 %) |
-| Y1 | ungated, h, ret. 0.1; 10 ep | 5.83 | 5.30 | 5.37 | 5.00 | 5.07 | 5.30 | 4.97 (79 %) | 4.99 (79 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | 5.84 | 5.28 | 5.32 | 4.98 | 5.01 | 5.28 | 4.97 (80 %) | 4.98 (80 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 5.87 | 5.33 | 5.38 | 4.98 | 5.02 | 5.33 | 5.02 (81 %) | 5.02 (81 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 5.83 | 5.30 | 5.36 | 5.00 | 5.07 | 5.30 | 4.97 (79 %) | 4.99 (79 %) |
 
 ### Table 6.5. Temple (TUAB) normal (n = 149), MAE in years
 
@@ -379,12 +381,12 @@ windows). **Bold** marks the best value in a column of a table.
 |---|---|---|---|---|---|---|---|---|---|
 | E2 | window model; 8 ep | 5.13 | 5.14 | 5.00† | 5.01 | 4.83† | — | — | — |
 | E2L | window model; 16 ep | 4.91 | 4.81 | 4.72† | 4.66 | 4.54† | 4.74 | 4.71 (95 %) | 4.60 (81 %) |
-| W4 | gated, h; 4 ep | 4.45 | 4.15 | 4.14 | 4.13 | 4.11 | 4.14 | 4.12 (93 %) | 4.11 (93 %) |
-| L1 | ungated, h; 4 ep | 4.41 | 4.15 | 4.13 | 4.18 | 4.17 | 4.15 | 4.10 (93 %) | 4.10 (93 %) |
+| W4 | gated, h; 4 ep | 4.45 | 4.15 | 4.15 | 4.13 | 4.12 | 4.14 | 4.12 (93 %) | 4.11 (93 %) |
+| L1 | ungated, h; 4 ep | 4.41 | 4.15 | 4.12 | 4.18 | 4.16 | 4.15 | 4.10 (93 %) | 4.10 (93 %) |
 | W7 | gated, q, ret. 0.1; 4 ep | 4.36 | 4.15 | 4.12 | 4.08 | 4.07 | 4.15 | 4.15 (94 %) | 4.15 (94 %) |
-| X1 | gated, h, ret. 0.1; 20 ep | **4.27** | **4.09** | **4.01** | **4.02** | **3.98** | **4.08** | 4.09 (91 %) | 4.08 (91 %) |
-| X3 | gated, h + q, ret. 0.1; 20 ep | 4.43 | 4.10 | 4.11 | 4.05 | 4.06 | 4.10 | **4.03 (94 %)** | **4.03 (94 %)** |
-| Y1 | ungated, h, ret. 0.1; 10 ep | 4.50 | 4.18 | 4.22 | 4.19 | 4.22 | 4.19 | 4.15 (93 %) | 4.17 (91 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | **4.27** | **4.09** | **4.02** | **4.02** | **3.99** | **4.08** | 4.09 (91 %) | 4.08 (91 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 4.43 | 4.10 | 4.10 | 4.05 | 4.06 | 4.10 | **4.03 (94 %)** | **4.03 (94 %)** |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 4.50 | 4.18 | 4.21 | 4.19 | 4.21 | 4.19 | 4.15 (93 %) | 4.17 (91 %) |
 
 ### Table 6.6. Temple (TUAB) abnormal (n = 125), MAE in years
 
@@ -392,12 +394,12 @@ windows). **Bold** marks the best value in a column of a table.
 |---|---|---|---|---|---|---|---|---|---|
 | E2 | window model; 8 ep | 8.56 | 8.32 | 8.27† | 7.79 | 7.68† | — | — | — |
 | E2L | window model; 16 ep | 8.50 | 8.52 | 8.42† | 7.87 | 7.78† | 8.49 | 8.03 (86 %) | 8.85 (74 %) |
-| W4 | gated, h; 4 ep | 8.20 | 8.14 | 8.14 | 7.98 | 7.97 | 8.14 | 7.95 (87 %) | 7.96 (87 %) |
+| W4 | gated, h; 4 ep | 8.20 | 8.14 | 8.14 | 7.98 | 7.96 | 8.14 | 7.95 (87 %) | 7.96 (87 %) |
 | L1 | ungated, h; 4 ep | 8.13 | **8.12** | **8.13** | 8.30 | 8.31 | **8.12** | 8.11 (87 %) | 8.11 (87 %) |
-| W7 | gated, q, ret. 0.1; 4 ep | **8.07** | 8.14 | 8.16 | **7.65** | **7.66** | 8.14 | **7.91 (85 %)** | **7.91 (85 %)** |
-| X1 | gated, h, ret. 0.1; 20 ep | 8.18 | 8.29 | 8.30 | 7.91 | 7.87 | 8.29 | 8.00 (86 %) | 8.00 (86 %) |
+| W7 | gated, q, ret. 0.1; 4 ep | **8.07** | 8.14 | 8.17 | **7.65** | **7.66** | 8.14 | **7.91 (85 %)** | **7.91 (85 %)** |
+| X1 | gated, h, ret. 0.1; 20 ep | 8.18 | 8.29 | 8.30 | 7.91 | 7.88 | 8.29 | 8.00 (86 %) | 8.00 (86 %) |
 | X3 | gated, h + q, ret. 0.1; 20 ep | 8.17 | 8.17 | 8.15 | 7.74 | 7.74 | 8.17 | 7.97 (86 %) | 7.97 (86 %) |
-| Y1 | ungated, h, ret. 0.1; 10 ep | 8.23 | 8.24 | 8.23 | 8.05 | 8.04 | 8.23 | 8.10 (86 %) | 8.12 (86 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 8.23 | 8.24 | 8.22 | 8.05 | 8.04 | 8.23 | 8.10 (86 %) | 8.12 (86 %) |
 
 ### Table 6.7. LEMON all (n = 214), MAE in years
 
@@ -405,12 +407,12 @@ windows). **Bold** marks the best value in a column of a table.
 |---|---|---|---|---|---|---|---|---|---|
 | E2 | window model; 8 ep | 5.81 | 5.75 | 5.43† | 4.78 | 4.56† | — | — | — |
 | E2L | window model; 16 ep | 5.22 | 5.20 | 4.89† | 4.37 | 4.19† | 4.95 | 4.59 (87 %) | 4.61 (86 %) |
-| W4 | gated, h; 4 ep | 4.62 | 4.51 | 4.39 | 3.80 | 3.82 | 4.52 | 3.97 (86 %) | 3.94 (85 %) |
-| L1 | ungated, h; 4 ep | 4.68 | 4.56 | 4.51 | 3.86 | 3.94 | 4.56 | 4.05 (86 %) | 4.06 (86 %) |
-| W7 | gated, q, ret. 0.1; 4 ep | 4.66 | 4.59 | 4.58 | 3.96 | 3.96 | 4.60 | 4.11 (85 %) | 4.11 (85 %) |
-| X1 | gated, h, ret. 0.1; 20 ep | 4.53 | 4.50 | 4.30 | 3.88 | 3.72 | 4.49 | **3.93 (87 %)** | **3.93 (87 %)** |
+| W4 | gated, h; 4 ep | 4.62 | 4.51 | 4.39 | 3.80 | 3.80 | 4.52 | 3.97 (86 %) | 3.94 (85 %) |
+| L1 | ungated, h; 4 ep | 4.68 | 4.56 | 4.50 | 3.86 | 3.94 | 4.56 | 4.05 (86 %) | 4.06 (86 %) |
+| W7 | gated, q, ret. 0.1; 4 ep | 4.66 | 4.59 | 4.58 | 3.96 | 3.97 | 4.60 | 4.11 (85 %) | 4.11 (85 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | 4.53 | 4.50 | 4.32 | 3.88 | 3.75 | 4.49 | **3.93 (87 %)** | **3.93 (87 %)** |
 | X3 | gated, h + q, ret. 0.1; 20 ep | **4.47** | **4.37** | **4.20** | **3.75** | **3.68** | **4.37** | **3.93 (89 %)** | **3.93 (89 %)** |
-| Y1 | ungated, h, ret. 0.1; 10 ep | 4.55 | 4.51 | 4.40 | 3.89 | 3.83 | 4.50 | 3.99 (86 %) | 3.95 (88 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 4.55 | 4.51 | 4.39 | 3.89 | 3.81 | 4.50 | 3.99 (86 %) | 3.95 (88 %) |
 
 ### Table 6.8. LEMON young (n = 144), MAE in years
 
@@ -418,12 +420,12 @@ windows). **Bold** marks the best value in a column of a table.
 |---|---|---|---|---|---|---|---|---|---|
 | E2 | window model; 8 ep | 4.52 | 4.59 | 4.22† | 3.42 | 3.19† | — | — | — |
 | E2L | window model; 16 ep | 3.88 | 3.94 | 3.59† | 3.04 | 2.85† | 3.61 | 3.64 (93 %) | 3.31 (92 %) |
-| W4 | gated, h; 4 ep | **3.55** | **3.48** | 3.32 | 2.86 | 2.97 | **3.49** | 3.16 (92 %) | 3.17 (92 %) |
-| L1 | ungated, h; 4 ep | 3.75 | 3.63 | 3.56 | 2.97 | 3.11 | 3.63 | 3.26 (92 %) | 3.27 (92 %) |
-| W7 | gated, q, ret. 0.1; 4 ep | 3.73 | 3.64 | 3.60 | 2.94 | 2.94 | 3.65 | 3.34 (92 %) | 3.34 (92 %) |
-| X1 | gated, h, ret. 0.1; 20 ep | 3.68 | 3.64 | 3.40 | 2.82 | **2.70** | 3.64 | **3.13 (92 %)** | **3.13 (92 %)** |
-| X3 | gated, h + q, ret. 0.1; 20 ep | 3.61 | 3.51 | **3.31** | **2.72** | **2.70** | 3.51 | 3.21 (93 %) | 3.21 (93 %) |
-| Y1 | ungated, h, ret. 0.1; 10 ep | 3.78 | 3.74 | 3.50 | 2.98 | 2.94 | 3.74 | 3.33 (91 %) | 3.27 (93 %) |
+| W4 | gated, h; 4 ep | **3.55** | **3.48** | 3.34 | 2.86 | 2.95 | **3.49** | 3.16 (92 %) | 3.17 (92 %) |
+| L1 | ungated, h; 4 ep | 3.75 | 3.63 | 3.56 | 2.97 | 3.10 | 3.63 | 3.26 (92 %) | 3.27 (92 %) |
+| W7 | gated, q, ret. 0.1; 4 ep | 3.73 | 3.64 | 3.60 | 2.94 | 2.95 | 3.65 | 3.34 (92 %) | 3.34 (92 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | 3.68 | 3.64 | 3.43 | 2.82 | 2.71 | 3.64 | **3.13 (92 %)** | **3.13 (92 %)** |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 3.61 | 3.51 | **3.32** | **2.72** | **2.69** | 3.51 | 3.21 (93 %) | 3.21 (93 %) |
+| Y1 | ungated, h, ret. 0.1; 10 ep | 3.78 | 3.74 | 3.52 | 2.98 | 2.93 | 3.74 | 3.33 (91 %) | 3.27 (93 %) |
 
 ### Table 6.9. LEMON old (n = 70), MAE in years
 
@@ -431,12 +433,12 @@ windows). **Bold** marks the best value in a column of a table.
 |---|---|---|---|---|---|---|---|---|---|
 | E2 | window model; 8 ep | 8.47 | 8.12 | 7.91† | 7.07 | 6.98† | — | — | — |
 | E2L | window model; 16 ep | 7.97 | 7.77 | 7.56† | 6.91 | 6.82† | 7.70 | 6.99 (76 %) | 7.92 (74 %) |
-| W4 | gated, h; 4 ep | 6.82 | 6.65 | 6.60 | 5.90 | 6.02 | 6.64 | 6.02 (74 %) | 5.97 (71 %) |
-| L1 | ungated, h; 4 ep | 6.61 | 6.47 | 6.47 | 5.90 | 6.05 | 6.47 | 6.05 (74 %) | 6.06 (74 %) |
-| W7 | gated, q, ret. 0.1; 4 ep | 6.57 | 6.54 | 6.58 | 5.97 | 5.81 | 6.55 | 6.18 (70 %) | 6.19 (70 %) |
-| X1 | gated, h, ret. 0.1; 20 ep | 6.29 | 6.25 | 6.14 | 5.76 | 5.71 | 6.26 | 5.88 (77 %) | 5.89 (77 %) |
-| X3 | gated, h + q, ret. 0.1; 20 ep | 6.24 | 6.13 | **6.01** | 5.73 | **5.64** | 6.13 | 5.64 (81 %) | **5.64 (81 %)** |
-| Y1 | ungated, h, ret. 0.1; 10 ep | **6.13** | **6.08** | 6.25 | **5.57** | 5.82 | **6.06** | **5.63 (76 %)** | **5.64 (77 %)** |
+| W4 | gated, h; 4 ep | 6.82 | 6.65 | 6.55 | 5.90 | 5.93 | 6.64 | 6.02 (74 %) | 5.97 (71 %) |
+| L1 | ungated, h; 4 ep | 6.61 | 6.47 | 6.45 | 5.90 | 6.04 | 6.47 | 6.05 (74 %) | 6.06 (74 %) |
+| W7 | gated, q, ret. 0.1; 4 ep | 6.57 | 6.54 | 6.58 | 5.97 | 5.78 | 6.55 | 6.18 (70 %) | 6.19 (70 %) |
+| X1 | gated, h, ret. 0.1; 20 ep | 6.29 | 6.25 | 6.16 | 5.76 | 5.73 | 6.26 | 5.88 (77 %) | 5.89 (77 %) |
+| X3 | gated, h + q, ret. 0.1; 20 ep | 6.24 | 6.13 | **6.02** | 5.73 | **5.66** | 6.13 | 5.64 (81 %) | **5.64 (81 %)** |
+| Y1 | ungated, h, ret. 0.1; 10 ep | **6.13** | **6.08** | 6.16 | **5.57** | 5.73 | **6.06** | **5.63 (76 %)** | **5.64 (77 %)** |
 
 What Tables 6.1–6.9 show:
 
@@ -499,6 +501,11 @@ only report the result. Script: `scripts/confidence_thresholds.py`; rows in
 `reject_selected.csv`, `coverage_curves.csv`; the 80 % variant in
 `min_keep_0.80/`). The val and test windows come from
 `scripts/eval_age_by_cohort.py --eval-minutes 0 --save-windows`.
+
+The same attention rule, with three validation-quantile levels next to the validation-chosen
+$\tau$, is applied to the P4 cross-validation ensemble on Temple / Harvard validation and the
+seven report cohorts in the technical report, Section 6.3 (`scripts/window_trimming.py`, which
+reuses `load` / `keep_mask` of `scripts/confidence_thresholds.py`).
 
 For window $i$ of recording $r$ ($n_r$ windows, attention $\alpha_i$, window
 prediction $p_i$ in years), the window confidences are

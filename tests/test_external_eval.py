@@ -287,3 +287,38 @@ def test_fold_ensemble_is_the_per_recording_median():
     assert sorted(folds) == [0, 1, 2]
     assert ensemble(folds.values()).to_dict() == {"a": 22.0, "b": 31.0}
     assert ensemble(folds.values(), "mean")["a"] == 68 / 3
+
+
+def test_global_trim_threshold_comes_from_validation_never_from_the_scored_split(tmp_path):
+    """trim20_glob (attention_trimming / eval_strategies_table) and the window_trimming levels take
+    their threshold from validation windows only; without them the global trim is not computed."""
+    import pandas as pd
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+    import attention_trimming as at
+    import window_trimming as wt
+    rng = np.random.default_rng(0)
+
+    def windows(n_rec, scale):
+        a = rng.gamma(2.0, scale, size=(n_rec, 10))
+        return pd.DataFrame({"recording": np.repeat([f"r{i}" for i in range(n_rec)], 10),
+                             "alpha": (a / a.sum(1, keepdims=True)).ravel(),
+                             "window_pred": rng.normal(50, 5, n_rec * 10), "age": 50.0})
+    val, test = windows(40, 1.0), windows(30, 0.2)
+    val.to_parquet(tmp_path / "M_val.parquet")
+    thr = at.val_threshold(str(tmp_path), "M")
+    rel = val["alpha"] * 10
+    assert abs(thr - rel.quantile(0.2)) < 1e-12
+    assert at.val_threshold(str(tmp_path), "missing") is None
+    assert at.trims(test)["trim20_glob"].isna().all()               # no validation: no global trim
+    t = at.trims(test, thr)
+    test_rel = test["alpha"] * 10
+    top = test_rel == test_rel.groupby(test["recording"]).transform("max")
+    assert abs(t["share_dropped_glob"] - ((test_rel < thr) & ~top).mean()) < 1e-12
+    # window_trimming: a recording keeps at least its most confident window, exact re-pooling
+    test.to_parquet(tmp_path / "M_test.parquet")
+    import confidence_thresholds as ct
+    w = ct.load(str(tmp_path / "M_test.parquet"))
+    p = wt.pool(w, tau=10.0)                                      # above every weight: top window only
+    best = w.loc[w.groupby("recording")["att"].idxmax()].set_index("recording")["window_pred"]
+    assert np.allclose(p["pred"].reindex(best.index), best)
+    assert (p["trimmed"] == 9).all()
