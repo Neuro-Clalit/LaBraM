@@ -49,6 +49,9 @@ if [[ $step == tables || $step == all ]]; then
   # Figures 5 and 6
   $PY scripts/window_confidence_figures.py "${SETS[@]}" --model P4ens --out $D/window_confidence.csv --fig-dir $T
   rm -f $T/recording_error_vs_confidence.png                        # not used in the report
+  # Section 6.3: window trimming by attention weight, thresholds = validation quantiles of the relative weight
+  $PY scripts/window_trimming.py "${SETS[@]}" --val-windows $V4 --val-cohort $C --out-dir $D \
+    --figure $T/fig_window_trimming.png --example lemon:sub-032490_lemon-rs
   $PY scripts/chbp_variant_bars.py --out $T/fig_chbp_fixes.png      # CHBP corrections (docs/chbp_domain_shift.md)
   # Figure 1: the preprocessing step by step on one Dortmund recording (CC0); Figures 4-8: the original LaBraM figure and our pipeline, attention
   # pooling on one LEMON recording, attention on the EEG and over whole recordings (open licence; scored after
