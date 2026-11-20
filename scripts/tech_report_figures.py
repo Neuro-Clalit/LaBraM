@@ -364,55 +364,127 @@ PHASES = {  # recipe -> [(first epoch, last epoch, phase)], from the runs' mil.w
 PHASE_COLORS = {"window": "#e3edf9", "attention only": "#fbecc8", "joint": "#e9def3"}
 
 
+RECIPE_COLORS = {"P1": "#6250d6", "P3": "#008080", "P4": "#d9480f"}   # distinct from the split colours
+RECIPE_PHASE_STARTS = {r: [e0 for e0, _, ph in v if ph != "window"] for r, v in PHASES.items()}
+
+
+def welch_p(m1, s1, n1, m2, s2, n2):
+    """Two-sided Welch t-test from summary statistics (mean, sample SD, n)."""
+    from scipy import stats
+    v1, v2 = s1 ** 2 / n1, s2 ** 2 / n2
+    t = (m1 - m2) / np.sqrt(v1 + v2)
+    df = (v1 + v2) ** 2 / (v1 ** 2 / (n1 - 1) + v2 ** 2 / (n2 - 1))
+    return 2 * stats.t.sf(abs(t), df)
+
+
+def recipe_panel(ax, d, split, group, title, sig_pairs=(("P4", "P3"), ("P4", "P1"))):
+    """The three recipes on one axis (fold mean +- SD), attention-phase starts as dotted lines
+    in the recipe colour, and per-epoch Welch tests of each pair marked under the curves."""
+    for recipe, color in RECIPE_COLORS.items():
+        g = d[(d.recipe == recipe) & (d.split == split) & (d.group == group)].sort_values("epoch")
+        ax.errorbar(g.epoch, g["mean"], yerr=g["sd"], color=color, marker="o", ms=3.8, lw=1.6, capsize=2.5,
+                    label=recipe, zorder=3)
+        for e in RECIPE_PHASE_STARTS[recipe][:1]:
+            ax.axvline(e - 0.5, color=color, ls=":", lw=1.3, zorder=1)
+    shown = d[(d.split == split) & (d.group == group)]
+    lo, hi = (shown["mean"] - shown["sd"]).min(), (shown["mean"] + shown["sd"]).max()
+    ax.set_ylim(lo - 0.25 * (hi - lo), hi + 0.04 * (hi - lo))       # a band below the data for the test marks
+    for k, (a, b) in enumerate(sig_pairs):
+        ga = d[(d.recipe == a) & (d.split == split) & (d.group == group)].set_index("epoch")
+        gb = d[(d.recipe == b) & (d.split == split) & (d.group == group)].set_index("epoch")
+        ep = ga.index.intersection(gb.index)
+        p = np.array([welch_p(ga.loc[e, "mean"], ga.loc[e, "sd"], ga.loc[e, "n"],
+                              gb.loc[e, "mean"], gb.loc[e, "sd"], gb.loc[e, "n"]) for e in ep])
+        sig = ep[p < 0.05]
+        y = 0.035 + 0.055 * k
+        ax.scatter(sig, np.full(len(sig), y), transform=ax.get_xaxis_transform(), marker="*", s=40,
+                   color=RECIPE_COLORS[b], edgecolor=RECIPE_COLORS[a], linewidth=0.8, zorder=4)
+        ax.text(1.0, y, f"{a} vs {b}", transform=ax.transAxes, fontsize=8, va="center", ha="left", color=INK)
+    ax.set_title(title)
+    ax.set_xlabel("epoch")
+
+
 def cv_curves(path, csv):
-    """Cross-validation curves per epoch of the one-run recipes: recording MAE of the
-    train-eval sample, each fold model's own validation fold and the held-out test split,
-    mean over the five fold models with the sample SD as error bar; background = phase."""
+    """Cross-validation curves per epoch of the one-run recipes: (a)-(c) recording MAE of the
+    train-eval sample, each fold model's own validation fold and the held-out test split per
+    recipe, mean over the five fold models with the sample SD as error bar, background = phase;
+    (d)-(f) the three recipes compared on validation, test and LEMON, with per-epoch Welch
+    tests (p < 0.05 marked)."""
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
+    from matplotlib.ticker import MultipleLocator
     from labram.eval.age_plots import assert_max_columns, panel_labels
     plt.rcParams.update({"font.size": 11, "axes.titlesize": 12})
     d = pd.read_csv(csv)
-    d = d[d.group == "all"]
     lines = [("train_eval", "train-eval (500 training recordings per dataset)", "#1baf7a", "s"),
              ("val", "validation (own fold)", "#2a78d6", "o"), ("test", "test (held out)", "#eb6834", "^")]
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9.5), sharey=True)
-    for ax, recipe in zip(axes.flat[:3], ("P1", "P3", "P4")):
+    fig, axes = plt.subplots(3, 2, figsize=(13, 14))
+    a = list(axes.flat)
+    da = d[d.group == "all"]
+    for ax, recipe in zip(a[:3], ("P1", "P3", "P4")):
         for e0, e1, ph in PHASES[recipe]:
             ax.axvspan(e0 - 0.5, e1 + 0.5, color=PHASE_COLORS[ph], zorder=0, lw=0)
         for split, label, color, mk in lines:
-            g = d[(d.recipe == recipe) & (d.split == split)].sort_values("epoch")
+            g = da[(da.recipe == recipe) & (da.split == split)].sort_values("epoch")
             ax.errorbar(g.epoch, g["mean"], yerr=g["sd"], color=color, marker=mk, ms=4.5, lw=1.6, capsize=3,
                         label=label, zorder=3)
-        gap = d[(d.recipe == recipe) & (d.split.isin(["val", "train_eval"])) & (d.epoch == d[d.recipe == recipe].epoch.max())]
-        gv = gap.set_index("split")["mean"]
-        ax.set_title(f"{recipe}: final val {gv['val']:.2f}, train-eval {gv['train_eval']:.2f} (gap {gv['val'] - gv['train_eval']:.2f})")
+        last = da[da.recipe == recipe].epoch.max()
+        gv = da[(da.recipe == recipe) & (da.epoch == last)].set_index("split")["mean"]
+        ax.set_title(f"{recipe}: final val {gv['val']:.2f}, train-eval {gv['train_eval']:.2f} "
+                     f"(gap {gv['val'] - gv['train_eval']:.2f})")
         ax.set_xlabel("epoch")
         ax.set_ylabel("recording MAE (years)")
-    ax = axes.flat[3]
-    for recipe, color in (("P1", "#6b6a64"), ("P3", "#2a78d6"), ("P4", "#eb6834")):
-        g = d[(d.recipe == recipe) & (d.split == "val")].sort_values("epoch")
-        ax.errorbar(g.epoch, g["mean"], yerr=g["sd"], color=color, marker="o", ms=4, lw=1.6, capsize=3, label=recipe, zorder=3)
-    ax.set_title("validation MAE of the three recipes")
-    ax.set_xlabel("epoch")
-    ax.legend(frameon=False, fontsize=10, loc="upper right")
-    from matplotlib.ticker import MultipleLocator
-    for a in axes.flat:
-        a.set_ylim(3, 11)
-        a.xaxis.set_major_locator(MultipleLocator(2))
-        a.grid(color=GRID, lw=0.8, zorder=1)
+        ax.set_ylim(3, 11)
+    recipe_panel(a[3], d, "val", "all", "validation MAE, three recipes")
+    recipe_panel(a[4], d, "test", "all", "test MAE, three recipes")
+    recipe_panel(a[5], d, "test", "lemon", "LEMON MAE (zero-shot), three recipes")
+    for ax in a[3:]:
+        ax.set_ylabel("recording MAE (years)")
+    a[3].legend(frameon=False, fontsize=10, loc="upper right")
+    for ax in a:
+        ax.xaxis.set_major_locator(MultipleLocator(2))
+        ax.grid(color=GRID, lw=0.8, zorder=1)
         for side in ("top", "right"):
-            a.spines[side].set_visible(False)
+            ax.spines[side].set_visible(False)
     handles = [plt.Line2D([], [], color=c, marker=m, lw=1.6, label=lbl) for _, lbl, c, m in lines]
     handles += [Patch(facecolor=PHASE_COLORS[p], label=f"{p} phase") for p in PHASE_COLORS]
-    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False, fontsize=10, bbox_to_anchor=(0.5, -0.005))
-    fig.tight_layout(rect=(0, 0.07, 1, 1))
-    panel_labels(list(axes.flat))
+    handles += [plt.Line2D([], [], color=c, marker="o", lw=1.6, label=f"{r} (d)-(f)") for r, c in RECIPE_COLORS.items()]
+    handles += [plt.Line2D([], [], color=INK, marker="*", lw=0, label="Welch p < 0.05 at that epoch")]
+    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False, fontsize=9.5, bbox_to_anchor=(0.5, -0.005))
+    fig.tight_layout(rect=(0, 0.07, 0.97, 1))
+    panel_labels(list(a))
     assert_max_columns(fig)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(path)
 
+
+def cv_cohorts(path, csv):
+    """Held-out test MAE per data cohort over epochs, the three one-run recipes on each axis
+    (fold mean +- SD), with per-epoch Welch tests marked."""
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import MultipleLocator
+    from labram.eval.age_plots import assert_max_columns, panel_labels
+    plt.rcParams.update({"font.size": 11, "axes.titlesize": 12})
+    d = pd.read_csv(csv)
+    panels = [("temple_normal", "Temple, normal report"), ("temple_abnormal", "Temple, abnormal report"),
+              ("harvard_normal", "Harvard, normal report"), ("harvard_abnormal", "Harvard, abnormal report"),
+              ("harvard_unlabelled", "Harvard, no report"), ("lemon", "LEMON, zero-shot")]
+    fig, axes = plt.subplots(3, 2, figsize=(13, 13.5))
+    for ax, (group, title) in zip(axes.flat, panels):
+        recipe_panel(ax, d, "test", group, title)
+        ax.set_ylabel("recording MAE (years)")
+        ax.xaxis.set_major_locator(MultipleLocator(2))
+        ax.grid(color=GRID, lw=0.8, zorder=1)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    axes.flat[0].legend(frameon=False, fontsize=10, loc="upper right")
+    fig.tight_layout(rect=(0, 0, 0.97, 1))
+    panel_labels(list(axes.flat))
+    assert_max_columns(fig)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(path)
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -435,6 +507,7 @@ def main():
                       args.recording, args.trim_windows)
     if args.cv_curves:
         cv_curves(os.path.join(args.out_dir, "fig_cv_curves.png"), args.cv_curves)
+        cv_cohorts(os.path.join(args.out_dir, "fig_cv_cohorts.png"), args.cv_curves)
     if args.eeg_cases:
         attention_on_eeg(os.path.join(args.out_dir, "fig_attention_on_eeg.png"), args.windows, args.cohort,
                          [tuple(c.split("=", 1)) for c in args.eeg_cases], args.trim_windows)
