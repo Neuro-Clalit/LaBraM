@@ -356,6 +356,64 @@ def attention_on_eeg(path, wdir, cohort, cases, trim, model_glob="P4_L1_f*_test.
     plt.close(fig)
     print(path)
 
+PHASES = {  # recipe -> [(first epoch, last epoch, phase)], from the runs' mil.window_epochs and schedules
+    "P1": [(0, 9, "window"), (10, 11, "attention only"), (12, 15, "joint")],
+    "P3": [(0, 9, "window"), (10, 10, "attention only"), (11, 16, "joint")],
+    "P4": [(0, 7, "window"), (8, 8, "attention only"), (9, 16, "joint")],
+}
+PHASE_COLORS = {"window": "#e3edf9", "attention only": "#fbecc8", "joint": "#e9def3"}
+
+
+def cv_curves(path, csv):
+    """Cross-validation curves per epoch of the one-run recipes: recording MAE of the
+    train-eval sample, each fold model's own validation fold and the held-out test split,
+    mean over the five fold models with the sample SD as error bar; background = phase."""
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+    from labram.eval.age_plots import assert_max_columns, panel_labels
+    plt.rcParams.update({"font.size": 11, "axes.titlesize": 12})
+    d = pd.read_csv(csv)
+    d = d[d.group == "all"]
+    lines = [("train_eval", "train-eval (500 training recordings per dataset)", "#1baf7a", "s"),
+             ("val", "validation (own fold)", "#2a78d6", "o"), ("test", "test (held out)", "#eb6834", "^")]
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9.5), sharey=True)
+    for ax, recipe in zip(axes.flat[:3], ("P1", "P3", "P4")):
+        for e0, e1, ph in PHASES[recipe]:
+            ax.axvspan(e0 - 0.5, e1 + 0.5, color=PHASE_COLORS[ph], zorder=0, lw=0)
+        for split, label, color, mk in lines:
+            g = d[(d.recipe == recipe) & (d.split == split)].sort_values("epoch")
+            ax.errorbar(g.epoch, g["mean"], yerr=g["sd"], color=color, marker=mk, ms=4.5, lw=1.6, capsize=3,
+                        label=label, zorder=3)
+        gap = d[(d.recipe == recipe) & (d.split.isin(["val", "train_eval"])) & (d.epoch == d[d.recipe == recipe].epoch.max())]
+        gv = gap.set_index("split")["mean"]
+        ax.set_title(f"{recipe}: final val {gv['val']:.2f}, train-eval {gv['train_eval']:.2f} (gap {gv['val'] - gv['train_eval']:.2f})")
+        ax.set_xlabel("epoch")
+        ax.set_ylabel("recording MAE (years)")
+    ax = axes.flat[3]
+    for recipe, color in (("P1", "#6b6a64"), ("P3", "#2a78d6"), ("P4", "#eb6834")):
+        g = d[(d.recipe == recipe) & (d.split == "val")].sort_values("epoch")
+        ax.errorbar(g.epoch, g["mean"], yerr=g["sd"], color=color, marker="o", ms=4, lw=1.6, capsize=3, label=recipe, zorder=3)
+    ax.set_title("validation MAE of the three recipes")
+    ax.set_xlabel("epoch")
+    ax.legend(frameon=False, fontsize=10, loc="upper right")
+    from matplotlib.ticker import MultipleLocator
+    for a in axes.flat:
+        a.set_ylim(3, 11)
+        a.xaxis.set_major_locator(MultipleLocator(2))
+        a.grid(color=GRID, lw=0.8, zorder=1)
+        for side in ("top", "right"):
+            a.spines[side].set_visible(False)
+    handles = [plt.Line2D([], [], color=c, marker=m, lw=1.6, label=lbl) for _, lbl, c, m in lines]
+    handles += [Patch(facecolor=PHASE_COLORS[p], label=f"{p} phase") for p in PHASE_COLORS]
+    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False, fontsize=10, bbox_to_anchor=(0.5, -0.005))
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    panel_labels(list(axes.flat))
+    assert_max_columns(fig)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(path)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out-dir", default="docs/tech_report")
@@ -363,6 +421,7 @@ def main():
     ap.add_argument("--cohort", required=True, help="cohort folder with manifest.json and recordings/*.npy")
     ap.add_argument("--recording", required=True)
     ap.add_argument("--trim-windows", type=int, default=0, help="windows trimmed at the start when the cohort was scored")
+    ap.add_argument("--cv-curves", default=None, help="docs/data/mil_phased_cv/cv_curves.csv -> fig_cv_curves.png")
     ap.add_argument("--eeg-cases", nargs="*", default=[], metavar="STEM=LABEL",
                     help="recordings drawn as EEG with the attention weight as background (fig_attention_on_eeg.png)")
     ap.add_argument("--heatmap-cases", nargs="*", default=[], metavar="STEM=LABEL",
@@ -374,6 +433,8 @@ def main():
     pipeline(os.path.join(args.out_dir, "fig_pipeline.png"))
     attention_example(os.path.join(args.out_dir, "fig_attention_example.png"), args.windows, args.cohort,
                       args.recording, args.trim_windows)
+    if args.cv_curves:
+        cv_curves(os.path.join(args.out_dir, "fig_cv_curves.png"), args.cv_curves)
     if args.eeg_cases:
         attention_on_eeg(os.path.join(args.out_dir, "fig_attention_on_eeg.png"), args.windows, args.cohort,
                          [tuple(c.split("=", 1)) for c in args.eeg_cases], args.trim_windows)

@@ -54,6 +54,7 @@ if [[ $step == tables || $step == all ]]; then
   # the 60 s trims, so slot i is window i + 6 of the file)
   $PY scripts/tech_report_figures.py --out-dir $T --windows $OUT/windows/lemon_all_models \
     --cohort $E/LEMON/cohorts/lemon_v1 --recording sub-032490_lemon-rs --trim-windows 6 \
+    --cv-curves docs/data/mil_phased_cv/cv_curves.csv \
     --eeg-cases "sub-032465_lemon-rs=good prediction" "sub-032446_lemon-rs=weak prediction, too old" \
     --heatmap-cases "sub-032465_lemon-rs=good prediction" "sub-032446_lemon-rs=weak prediction, too old" \
                     "sub-032303_lemon-rs=weak prediction, too young"
@@ -87,6 +88,11 @@ if [[ $step == models || $step == all ]]; then
          --set srm:$E/SRM/cohorts/srm_v1:$OUT/srm_all_l1w4.json,$OUT/srm_all_models.json:$OUT/windows/srm_all
          --set chbp:$E/CHBP/cohorts/chbp_v1:$OUT/chbp_all.json,$OUT/chbp_all_models.json:$OUT/windows/chbp_all_models)
   TSETS=(); for s in "${MSETS[@]}"; do [[ $s == --set ]] && TSETS+=(--set) || TSETS+=("$(echo "$s" | awk -F: '{print $1":"$2":"$3 ($5 ? ":"$5 : "")}')"); done
+  # Table 16: every configuration field on which the models differ (run_config.yaml of each run)
+  $PY scripts/report_config_table.py --run E2L=/data/runs/heedb/e2l/finetune_20261104_215141_883 \
+    --run L1=/data/runs/heedb/mil_local/L1_abmil_20261109_022309_458 --run W4=/data/runs/heedb/mil_sagemaker/artifacts/w4/finetune \
+    --run P3=$R/P3_L1/fold_0/cv/fold_0 --run P4=$R/P4_L1/fold_0/cv/fold_0 \
+    --run robust=/data/runs/chbp_fix/e2l_robust_full_20261112_175034_869 --out $D/config_comparison.csv
   $PY scripts/report_model_table.py "${TSETS[@]}" --models E2L L1 W4 P3ens P4ens --out $D/model_table.csv
   $PY scripts/report_age_groups.py "${MSETS[@]}" --models E2L L1 W4 P3ens P4ens \
     --val E2L=$OUT/own_all_val_E2L.json --val L1=$OUT/own_all_val_L1.json --val W4=$OUT/own_all_val_W4.json \
