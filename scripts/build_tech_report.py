@@ -52,7 +52,7 @@ def parse_bib(path):
 
 def detex(s):
     """BibTeX text -> plain Unicode for the Markdown reference list."""
-    for a, b in ((r'{\"o}', "ö"), (r"{\'e}", "é"), (r"{\'a}", "á"), (r"{\~n}", "ñ"), (r"{\o}", "ø")):
+    for a, b in ((r"\&", "&"), (r'{\"o}', "ö"), (r"{\'e}", "é"), (r"{\'a}", "á"), (r"{\~n}", "ñ"), (r"{\o}", "ø")):
         s = s.replace(a, b)
     return re.sub(r"[{}]", "", s)
 

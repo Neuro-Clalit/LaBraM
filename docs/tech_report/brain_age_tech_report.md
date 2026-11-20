@@ -831,7 +831,7 @@ The state shift is as large as many of the clinical effects of Tables 15 and 28,
 | LEMON | Mellot et al. [[40](#ref-40)] | Riemannian model, without / with re-centring | trained on TUAB normals | not reported | 0.26 / 0.44 |
 | LEMON | Hajhassani et al. [[33](#ref-33)] | as above | zero-shot | 9.91 | 0.63 |
 | LEMON | ours, P4 ensemble | Section 4 | zero-shot | 4.67 | 0.90 |
-| Dortmund | Azami and Zandbagleh [[34](#ref-34)] | spectral features | within, 10-fold CV, eyes open + closed; conference abstract | 2.24 | 0.91 |
+| Dortmund | Azami and Zandbagleh [[34](#ref-34)] | hybrid deep network (CNN, bidirectional LSTM, attention) on periodic and aperiodic power spectra | within, 10-fold CV, eyes open + closed; conference abstract | 2.24 | 0.91 |
 | Dortmund | ours, P4 ensemble | Section 4 | zero-shot, sessions, 20–70 years | 4.53 | 0.85 |
 | SRM | none found | | | | |
 | SRM | ours, P3 ensemble | Section 4 | zero-shot | 4.75 | 0.79 |
@@ -1229,7 +1229,7 @@ The 127 Temple recordings seen in pre-training are not predicted better: MAE 6.0
 
 <a id="ref-33"></a>[33] Davoud Hajhassani, Paul-Adrien Graignic, Bruno Aristimunha, Apolline Mellot, Tom Mariani, Clément Nober, Bruna J. Lopes, Léo Burgund, Lionel Kusch, Thomas Semah, Arnault H. Caillet. [Automated Artifact Removal in EEG Age Prediction: A systematic comparison](https://arxiv.org/abs/2609.31195). 2026. arXiv:2609.31195 (preprint). Full text: [arxiv.org](https://arxiv.org/abs/2609.31195).
 
-<a id="ref-34"></a>[34] Hamed Azami, Ahmad Zandbagleh. [EEG-based brain age prediction in the Dortmund Vital Study](https://pmc.ncbi.nlm.nih.gov/articles/PMC12782802/). Alzheimer's \& Dementia, conference supplement, 2025. PMC12782802; title paraphrased, only the abstract was read. Full text: [pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC12782802/).
+<a id="ref-34"></a>[34] Hamed Azami, Ahmad Zandbagleh. [Age Prediction with Resting-State EEG: An Explainable Hybrid Deep Learning Framework Using Periodic and Aperiodic Features Across Eyes-Open and Eyes-Closed Conditions](https://pmc.ncbi.nlm.nih.gov/articles/PMC12782802/pdf/ALZ-21-e106423.pdf). Alzheimer's & Dementia 21:e106423, 2025. doi:[10.1002/alz70856_106423](https://doi.org/10.1002/alz70856_106423). Conference abstract (supplement) on the Dortmund Vital Study; only the abstract was read. Full text: [pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC12782802/pdf/ALZ-21-e106423.pdf).
 
 <a id="ref-35"></a>[35] Haoqi Sun, Luis Paixao, Jefferson T. Oliva, Balaji Goparaju, Diego Z. Carvalho, Kicky G. van Leeuwen, Oluwaseun Akeju, Robert J. Thomas, Sydney S. Cash, Matt T. Bianchi, M. Brandon Westover. [Brain age from the electroencephalogram of sleep](https://pmc.ncbi.nlm.nih.gov/articles/PMC6478501/). Neurobiology of Aging 74:112–120, 2019. doi:[10.1016/j.neurobiolaging.2018.10.016](https://doi.org/10.1016/j.neurobiolaging.2018.10.016). Full text: [pmc.ncbi.nlm.nih.gov](https://pmc.ncbi.nlm.nih.gov/articles/PMC6478501/).
 

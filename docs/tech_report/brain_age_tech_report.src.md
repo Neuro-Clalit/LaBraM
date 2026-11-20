@@ -831,7 +831,7 @@ The state shift is as large as many of the clinical effects of Tables 15 and 28,
 | LEMON | Mellot et al. [@mellot2023harmonizing] | Riemannian model, without / with re-centring | trained on TUAB normals | not reported | 0.26 / 0.44 |
 | LEMON | Hajhassani et al. [@hajhassani2026artifact] | as above | zero-shot | 9.91 | 0.63 |
 | LEMON | ours, P4 ensemble | Section 4 | zero-shot | 4.67 | 0.90 |
-| Dortmund | Azami and Zandbagleh [@azami2025dortmund] | spectral features | within, 10-fold CV, eyes open + closed; conference abstract | 2.24 | 0.91 |
+| Dortmund | Azami and Zandbagleh [@azami2025dortmund] | hybrid deep network (CNN, bidirectional LSTM, attention) on periodic and aperiodic power spectra | within, 10-fold CV, eyes open + closed; conference abstract | 2.24 | 0.91 |
 | Dortmund | ours, P4 ensemble | Section 4 | zero-shot, sessions, 20–70 years | 4.53 | 0.85 |
 | SRM | none found | | | | |
 | SRM | ours, P3 ensemble | Section 4 | zero-shot | 4.75 | 0.79 |
