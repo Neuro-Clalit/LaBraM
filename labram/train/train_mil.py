@@ -76,7 +76,21 @@ def n_descriptors() -> int:
 
 # ----------------------------------------------------------------- model / optim
 def attach_mil(model: torch.nn.Module, mil_cfg) -> torch.nn.Module:
-    """Give ``model`` its bag pooling (``model.mil``), sized to the head input."""
+    """Give ``model`` its bag pooling (``model.mil``), sized to the head input. With
+    ``mil.window_features`` the model first gets its handcrafted-feature branch
+    (``model.window_feat``) and a head that reads [class token, features]."""
+    if getattr(mil_cfg, "window_features", "off") != "off":
+        from labram.layers.window_features import WindowFeatureBranch
+        old = model.head
+        if not isinstance(old, torch.nn.Linear):
+            raise ValueError("mil.window_features needs the linear head (model.head_type=linear)")
+        model.window_feat = WindowFeatureBranch(mil_cfg.feature_dim, mil_cfg.feature_dropout)
+        head = torch.nn.Linear(old.in_features + mil_cfg.feature_dim, old.out_features)
+        with torch.no_grad():                    # class-token part as built; feature part at the same scale
+            head.weight[:, :old.in_features] = old.weight
+            head.weight[:, old.in_features:].normal_(std=float(old.weight.std()))
+            head.bias.copy_(old.bias)
+        model.head = head
     dim = model.head.in_features if hasattr(model.head, "in_features") else model.num_features
     kw = dict(score_input=mil_cfg.score_input, dropout=mil_cfg.dropout,
               time_encoding=mil_cfg.time_encoding)
@@ -98,7 +112,7 @@ def split_head_lr(optimizer: torch.optim.Optimizer, model: torch.nn.Module, scal
     if scale == 1.0:
         return
     model = getattr(model, "module", model)
-    fast = {id(p) for n, p in model.named_parameters() if n.startswith(("mil.", "head."))}
+    fast = {id(p) for n, p in model.named_parameters() if n.startswith(("mil.", "head.", "window_feat."))}
     new_groups = []
     for g in optimizer.param_groups:
         moved = [p for p in g["params"] if id(p) in fast]
@@ -164,6 +178,27 @@ def fit_descriptor_norm(model, loader, device, n_batches: int) -> None:
     m.mil.desc_norm.fit(torch.cat(rows))
     m.mil.desc_fitted.fill_(True)
     logger.info("MIL: descriptor standardization fitted on %d windows", sum(len(r) for r in rows))
+
+
+def fit_window_features(model, loader, device, n_batches: int, ch_names) -> None:
+    """Fit the handcrafted-feature branch (``mil.window_features``) on the windows of the first
+    training bags: tangent-space references and standardization, stored in the checkpoint."""
+    m = getattr(model, "module", model)
+    branch = getattr(m, "window_feat", None)
+    if branch is None or bool(branch.extract.fitted):
+        return
+    if utils.get_world_size() > 1:
+        raise NotImplementedError("mil.window_features: fit the features in a single-process run first "
+                                  "(the fitted statistics are then in its checkpoint)")
+    branch.set_channels(utils.get_channel_indices(ch_names))
+    rows = []
+    for i, (x, _, _, _, mask) in enumerate(loader):
+        if i >= n_batches:
+            break
+        rows.append(x[mask])
+    x = torch.cat(rows)
+    branch.extract.fit(x.to(device))
+    logger.info("MIL: window features (%d per window) fitted on %d windows", branch.extract.n_features, len(x))
 
 
 # ------------------------------------------------------------------ batches

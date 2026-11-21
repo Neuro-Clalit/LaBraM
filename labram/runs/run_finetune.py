@@ -71,6 +71,8 @@ def _check_mil_supported(config, is_regression_task: bool) -> None:
                          "condition_on_abnormal or age_input")
     if m.head_type not in ("linear", "mlp", "multitask"):
         raise ValueError(f"mil.enabled needs head_type linear, mlp or multitask, got {m.head_type!r}")
+    if config.mil.window_features != "off" and m.head_type != "linear":
+        raise ValueError("mil.window_features needs model.head_type=linear")
     if config.loss.regression_loss == "soft_label":
         raise ValueError("mil.enabled needs a scalar age loss, not soft_label")
     if config.trainer.enable_deepspeed or config.data.age_bin_sampling:
@@ -552,6 +554,9 @@ def main(config: FinetuneRunConfig, bundle=None):
     if mil_on and model_without_ddp.mil.needs_descriptors:
         from labram.train.train_mil import fit_descriptor_norm
         fit_descriptor_norm(model_without_ddp, loaders.train, device, config.mil.descriptor_fit_batches)
+    if mil_on and getattr(model_without_ddp, "window_feat", None) is not None and not config.trainer.eval:
+        from labram.train.train_mil import fit_window_features
+        fit_window_features(model_without_ddp, loaders.train, device, config.mil.feature_fit_batches, ch_names)
 
     if config.trainer.eval:
         # loaders.test may be a single loader or a list; normalize to a list.

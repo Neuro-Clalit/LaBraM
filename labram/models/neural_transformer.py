@@ -293,6 +293,9 @@ class NeuralTransformer(NeuralTransformerBase):
                                                 config.session_head_dim, bias=False)
             self.num_features += config.session_head_dim
         self.head = self._build_head(config.num_classes)
+        # Handcrafted window features joined to the class token (mil.window_features);
+        # set, together with a wider head, by labram/train/train_mil.py::attach_mil.
+        self.window_feat = None
 
         if isinstance(self.head, nn.Linear):
             trunc_normal_(self.head.weight, std=.02)
@@ -412,8 +415,12 @@ class NeuralTransformer(NeuralTransformerBase):
             return (out, None) if return_features else out
         if self.session_mode == "tokens":
             kwargs['session'] = condition
+        signal = x
         x = self.forward_features(x, channel_indices=channel_indices, return_patch_tokens=return_patch_tokens, return_all_tokens=return_all_tokens, **kwargs)
         feature = x
+        if self.window_feat is not None:
+            # the window's handcrafted features next to its class token
+            x = torch.cat((x, self.window_feat(signal, channel_indices).to(x.dtype)), dim=-1)
         if self.session_mode == "head":
             if condition is None:
                 raise ValueError("this model takes session features: call it with "
@@ -448,7 +455,9 @@ class NeuralTransformer(NeuralTransformerBase):
         window minutes; ``present`` ``[N, C]`` + ``ci_all`` to encode each
         window on its present channels (the channel-drop path); ``no_grad_encoder``
         (frozen encoder); ``mix`` ``(perm, lam)`` mixes the pooled embeddings of
-        bags (mixup). Returns ``(head output [B, ...], alpha [B, K], h [N, D])``.
+        bags (mixup). Returns ``(head output [B, ...], alpha [B, K], h [N, D])``;
+        with ``mil.window_features`` ``h`` is the class token joined with the
+        projected handcrafted features of the window (the head's input).
         """
         import contextlib
         mask = bag['mask']
@@ -471,6 +480,10 @@ class NeuralTransformer(NeuralTransformerBase):
                     rows.append(idx)
                 order = torch.argsort(torch.cat(rows))
                 h = torch.cat([f.to(parts[0].dtype) for f in parts])[order]
+        if self.window_feat is not None:
+            # [class token, handcrafted features]: what the attention scores, the pool and the head read
+            f = self.window_feat(x, channel_indices, frozen=bool(bag.get('no_grad_encoder')))
+            h = torch.cat((h, f.to(h.dtype)), dim=-1)
         b, k = mask.shape
         hb = h.new_zeros(b, k, h.shape[-1])
         hb = hb.index_put((mask.nonzero(as_tuple=True)), h)

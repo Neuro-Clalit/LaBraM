@@ -446,6 +446,10 @@
         "bag_warmup_epochs": 0,
         "window_loss_weight": 0.0,
         "bag_repeats": 1,
-        "freeze_head": false
+        "freeze_head": false,
+        "window_features": "off",
+        "feature_dim": 64,
+        "feature_dropout": 0.1,
+        "feature_fit_batches": 50
     }
 }
