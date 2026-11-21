@@ -12,8 +12,8 @@ same evaluation. The only change is the feature branch.
 
 Code: `labram/layers/window_features.py` (features, projection), `labram/train/train_mil.py`
 (`attach_mil`, `fit_window_features`), `labram/models/neural_transformer.py` (`forward`, `forward_bag`),
-`scripts/window_feature_usage.py` (Section 10). Feature study that chose the blocks:
-`scripts/feature_stack.py`.
+`scripts/window_feature_usage.py` (Section 10), `scripts/window_feature_figures.py` (the example
+figures of Sections 2–7). Feature study that chose the blocks: `scripts/feature_stack.py`.
 
 ## 1. Overview
 
@@ -53,6 +53,18 @@ The blocks are the best choice per question of the recording-level feature study
 third); connectivity per 10 s window; and an attention weighting of the windows as the best summary. Inside the model the per-recording summary is the attention
 pool (8.5), which is why the features are computed per window here.
 
+**Example data in the figures.** Figures 2.1–7.3 show the features on real EEG from the Dortmund Vital
+Study (OpenNeuro ds005385, CC0 public domain), a healthy test-only cohort the model never trained on; the
+clinical cohorts (Temple, Harvard) and TDBRAIN may not be shown recording by recording in this public
+repository. Two people are shown: **person A**, 20 years, the median of the 70 people aged 25 or younger
+in posterior relative alpha power (4.4), and **person B**, 70 years, the same for the 14 people aged 70 or
+older. For each, one 10 s window of the eyes-closed and one of the eyes-open run recorded at the start of
+session 1: the clean window (no sample beyond 800 µV, no channel with SD below 0.5 µV) with the smallest peak-to-peak
+amplitude, i.e. the one with the fewest eye and muscle artifacts. The features are computed by the
+model's own module with the trained checkpoint's references, standardisation and projection. The age
+panels use all 604 people with all 19 channels, one value per person: the median over the clean windows
+of the person's eyes-closed run.
+
 ## 2. Input window and reference
 
 A window is 10 s of the 19 scalp channels FP1, FP2, F3, F4, C3, C4, P3, P4, O1, O2, F7, F8, T3, T4, T5, T6,
@@ -74,6 +86,18 @@ $$ x'_c(t) = \mathbf{1}[c \in \mathcal{P}] \left( x_c(t) - \frac{1}{|\mathcal{P}
 $\log_{10}\varepsilon$ for its log powers), which the standardisation (7.2) maps far from the training
 mean and clips at $\pm 6$; its zero rows in the covariances are kept positive definite by the shrinkage
 (5.3).
+
+### Figure 2.1. The four example windows
+
+The referenced signal $x'$ (2.3) of all 19 channels, 10 s, in µV (traces 60 µV apart; red bar 50 µV).
+(a) person A, eyes closed; (b) person A, eyes open; (c) person B, eyes closed; (d) person B, eyes open.
+
+![Figure 2.1](figures/window_features/eeg_examples.png)
+
+With the eyes closed both people show the posterior alpha rhythm, the regular 8–12 Hz waves at
+O1, O2, P4, T5 and T6 (Figure 2.1(a), (c)); opening the eyes suppresses it (Figure 2.1(b), (d)), and the
+eyes-open windows carry fast muscle activity at the frontal and temporal channels. These differences are
+what the features of Sections 4–6 turn into numbers.
 
 ## 3. Spectral estimate
 
@@ -97,6 +121,17 @@ and the power spectral density of channel $c$ is its diagonal:
 $$ P_c(f) = \mathrm{Re}\, S_{cc}(f) \tag{3.4} $$
 
 Band sums below use $\Delta f = 0.5$ Hz and half-open bands $[a, b)$ over these 88 frequencies.
+
+### Figure 3.1. Power spectra of the example windows
+
+(a) PSD (3.4) at O1 of the four windows of Figure 2.1, µV²/Hz on a log scale; (b) log10 PSD of all 19
+channels of person A's eyes-closed window.
+
+![Figure 3.1](figures/window_features/spectra.png)
+
+The alpha rhythm is a peak in the spectrum: at 11.5 Hz for person A and at 8.5 Hz for person B with the
+eyes closed (Figure 3.1(a)), and largely gone with the eyes open. In person A's eyes-closed window the
+peak sits on the posterior channels (Figure 3.1(b)).
 
 ## 4. Per-channel features (68 per channel, 1,292)
 
@@ -165,11 +200,37 @@ $$ \log_{10}\left( P_c(f) + \varepsilon \right) \approx a_c + \beta_c \log_{10} 
 
 $$ \chi_c = -\beta_c, \qquad \mathrm{offset}_c = a_c \tag{4.12} $$
 
+### Figure 4.1. The spectral features on one channel
+
+(a) Person A's eyes-closed spectrum at O1 on log-log axes with the five bands, the 1/f fit (4.11), the
+peak alpha frequency (4.10) and the 95 % spectral edge frequency (4.8); (b) relative band power (4.4) at
+O1 of the four windows.
+
+![Figure 4.1](figures/window_features/spectral_features.png)
+
+Each number of Section 4.1 is one reading of this curve. For person A with the eyes closed: peak alpha
+frequency 11.5 Hz, 1/f exponent 1.34, edge frequency 18 Hz; for person B with the eyes closed: 8.5 Hz,
+0.82 and 31.5 Hz, a slower alpha peak on a flatter spectrum. Relative alpha power is 0.47 for both with
+the eyes closed and falls to 0.25 (A) and 0.15 (B) with the eyes open (Figure 4.1(b)), which is why the
+alpha features also carry the eye state of a window.
+
 ### 4.2 Spectrum in 1 Hz bins (44)
 
 $$ \mathrm{bin}_c(e) = \log_{10}\left( \Delta f \sum_{e \le f < e+1} P_c(f) + \varepsilon \right), \qquad e = 1, \ldots, 44 \tag{4.13} $$
 
 Each bin holds two frequencies ($e$ and $e + 0.5$ Hz).
+
+### Figure 4.2. The 1 Hz bins of all channels
+
+(a) The 44 bins (4.13) of the 19 channels of person A's eyes-closed window, log10 µV²; (b) person B minus
+person A, both eyes closed, difference of log10 power (red: more power in person B).
+
+![Figure 4.2](figures/window_features/bins.png)
+
+The bins are the spectrum of every channel at 1 Hz resolution (Figure 4.2(a)). Against person A,
+person B has more power at 8–10 Hz on nearly every channel and less at 11–15 Hz at O1, O2, T5 and T6:
+the alpha peak has moved to a lower frequency. Person B also has more power above 30 Hz at the
+occipital and posterior temporal channels (Figure 4.2(b)).
 
 ### 4.3 Time domain (7)
 
@@ -191,6 +252,40 @@ where $\sigma_c$ is the population standard deviation of $x^b_c$.
 $$ \mathrm{mobility}_c = \sqrt{v_1 / v_0}, \qquad \mathrm{complexity}_c = \sqrt{v_2 / v_1} \,/\, \mathrm{mobility}_c \tag{4.17} $$
 
 $$ \mathrm{ZCR}_c = \frac{1}{L-1} \sum_{t=1}^{L-1} \mathbf{1}\left[ \mathrm{sign}\, z_c(t) \ne \mathrm{sign}\, z_c(t-1) \right] \tag{4.18} $$
+
+### Figure 4.3. The time-domain features
+
+(a) The first 2 s of person A's eyes-closed window at O1: the referenced signal (2.3) and its 1–45 Hz
+part (4.14), µV; (b) the seven time-domain features (4.15)–(4.18) at O1 of the four windows, as
+standardised values (7.2), i.e. in standard deviations of the training windows.
+
+![Figure 4.3](figures/window_features/time_domain.png)
+
+The time-domain features describe the shape of the band-limited trace (Figure 4.3(a)). With the eyes
+open the signal crosses zero more often and its frequency content shifts up: zero-crossing rate and
+Hjorth mobility rise for both people, most for person B (Figure 4.3(b)).
+
+### 4.4 How the per-channel features change with age
+
+Across people, the association of a feature with age is measured by the Spearman correlation, the
+Pearson correlation of the ranks (`pandas` `corr(method="spearman")`):
+
+$$ \rho = \mathrm{corr}\left( \mathrm{rank}(v_1, \ldots, v_n),\; \mathrm{rank}(\mathrm{age}_1, \ldots, \mathrm{age}_n) \right) \tag{4.19} $$
+
+where $v_i$ is person $i$'s feature value (the median over the clean windows of the eyes-closed run).
+
+### Figure 4.4. Four spectral features against age
+
+One point per person, 604 people of the Dortmund Vital Study, eyes closed, with $\rho$ (4.19):
+(a) peak alpha frequency (4.10), mean of the posterior channels O1, O2, P3, P4, PZ, T5, T6; (b) 1/f
+exponent (4.12), mean of all channels; (c) relative alpha power (4.4), posterior mean; (d) log10
+theta / alpha (4.5), mean of all channels.
+
+![Figure 4.4](figures/window_features/features_vs_age.png)
+
+Every one of these follows age only weakly ($|\rho|$ 0.10–0.34, Figure 4.4): the peak alpha frequency
+slows (−0.21), the spectrum flattens (1/f exponent −0.34) and relative alpha falls (−0.20). No single
+feature predicts age; the model combines thousands of them with the class token.
 
 ## 5. Band covariances in the tangent space (1,026)
 
@@ -235,6 +330,36 @@ The vector holds the six bands in filter-bank order, $6 \times 171 = 1{,}026$ va
 covariance in a band departs from the typical training window, invariant to an invertible mixing of the
 channels that is common to the window and the reference.
 
+The distance of a window from the training reference in band $b$ is the norm of its tangent matrix
+(the affine-invariant Riemannian distance between $\hat{C}_b$ and $R_b$):
+
+$$ d_b = \left\| T_b \right\|_F = \sqrt{ \sum_{i,j} T_{b,ij}^2 } \tag{5.7} $$
+
+### Figure 5.1. A band covariance and its tangent matrix
+
+(a) The alpha-band covariance $C_b$ (5.1) of person A's eyes-closed window, µV², channels in the order
+of Section 2; (b) its tangent matrix $T_b$ (5.5) at the trained reference, in the 18 basis directions of
+(5.2) (log ratio to the reference; red above it, blue below).
+
+![Figure 5.1](figures/window_features/covariance.png)
+
+The covariance shows the alpha rhythm as a spatial pattern: strong, positively coupled posterior
+channels (O1, O2, P4, T5, T6) and frontal channels weakly against them after the average reference
+(Figure 5.1(a)). The tangent matrix says how this pattern differs from the typical training window
+(Figure 5.1(b)); its 171 upper-triangle values (5.6) are what the model receives.
+
+### Figure 5.2. Distance from the training reference
+
+(a) Distance $d_b$ (5.7) per band of the four example windows; (b) alpha-band distance against age, one
+point per person (median over the person's eyes-closed windows), with $\rho$ (4.19).
+
+![Figure 5.2](figures/window_features/tangent_norms.png)
+
+Opening the eyes moves the window towards the reference in the alpha band (person A: 5.7 to 3.7) and
+away from it at 20–45 Hz (person A: 3.7 to 7.9 in high beta), the muscle activity of Figure 2.1(b): the
+training reference, an average of clinical windows, has less alpha than a healthy eyes-closed window.
+Across people the alpha distance falls slightly with age ($\rho$ = −0.22, Figure 5.2(b)).
+
 ## 6. Connectivity (1,710)
 
 Phase coupling between every pair of channels, from the same cross-spectra (`_conn`). The coherency of
@@ -254,6 +379,26 @@ the common reference; the magnitude-squared coherence (6.3) keeps it. The vector
 then kind (iCOH, MSC), then pair: $5 \times 2 \times 171 = 1{,}710$ values. With only $S = 9$ segments per
 window, (6.3) is biased upwards (about $1/S$ for independent channels); the bias is about the same in
 every window, so the standardisation (7.2) centres it away.
+
+### Figure 6.1. Connectivity of one window
+
+Alpha band, person A's eyes-closed window, all channel pairs (the diagonal is not a feature):
+(a) imaginary coherence (6.2); (b) coherence (6.3).
+
+![Figure 6.1](figures/window_features/connectivity.png)
+
+### Figure 6.2. How connectivity changes with eye state and age
+
+Alpha-band coherence (6.3), differences between windows: (a) person A, eyes closed minus eyes open;
+(b) person B minus person A, both eyes closed (red: higher in the first).
+
+![Figure 6.2](figures/window_features/connectivity_contrast.png)
+
+Coherence is high between neighbouring channels that pick up the same sources, such as FP1–FP2,
+F4–FZ and O2–T6 (Figure 6.1(b)). Imaginary coherence ignores that zero-lag part and picks out a
+different set of pairs, those coupled with a time lag, here for example P3 with FZ, CZ and C3
+(Figure 6.1(a)). Closing the eyes raises alpha coherence almost everywhere (mean over pairs 0.28 to 0.33,
+Figure 6.2(a)); between the two people the differences are mixed in sign (Figure 6.2(b)).
 
 ## 7. Standardisation and projection
 
@@ -276,6 +421,38 @@ The projection is the only trained part of the branch ($W \in \mathbb{R}^{64 \ti
 initialised $\mathcal{N}(0, 1/4028)$, $b_e = 0$; 257,856 parameters):
 
 $$ e = \mathrm{Dropout}_{0.1}\left( W z + b_e \right) \in \mathbb{R}^{64} \tag{7.4} $$
+
+### Figure 7.1. The standardised feature vector of a window
+
+All 4,028 standardised values $z$ (7.2) in the order of Table 1.1, coloured by family; the per-channel
+families alternate within each channel's 68 values, and grey lines mark where the covariances and the
+connectivity start. (a) Person A, eyes closed; (b) person B, eyes closed.
+
+![Figure 7.1](figures/window_features/standardized_vector.png)
+
+### Figure 7.2. The 64 numbers the model receives
+
+The projection output $e$ (7.4, evaluation mode, no dropout) of the four example windows.
+
+![Figure 7.2](figures/window_features/projection_output.png)
+
+The model sees a window's 4,028 features (Figure 7.1) only through these 64 numbers (Figure 7.2), which
+differ clearly between the four windows: between the two people and between the eye states.
+
+### Figure 7.3. Which features follow age
+
+Spearman $\rho$ (4.19) of every standardised feature with age across the 604 people (median over each
+person's eyes-closed windows): (a) $|\rho|$ by family (box: quartiles, whiskers: range without
+outliers); (b) the 15 features with the largest $|\rho|$, coloured by family.
+
+![Figure 7.3](figures/window_features/age_correlation.png)
+
+One at a time, the per-channel spectral (median $|\rho|$ 0.20) and time-domain (0.17) features follow
+age most; the 1 Hz bins (0.08), covariances (0.07) and connectivity (0.05) much less (Figure 7.3(a)).
+The strongest single features are low-frequency power at 2–6 Hz over the frontal and central midline
+(FZ, CZ: $\rho$ ≈ −0.46), the 1/f offset (FZ −0.44) and relative beta power at C3 / C4 (+0.43)
+(Figure 7.3(b)). The trained model nevertheless weights the covariances most (Section 10.1): what
+counts there is information the class token lacks, not the strength of each feature on its own.
 
 ## 8. Integration into the model
 
@@ -516,6 +693,7 @@ Each step of this document and the function that implements it.
 | Joined vector, wider head | (8.1), (8.2) | `labram/train/train_mil.py::attach_mil`, `NeuralTransformer.forward` / `forward_bag` |
 | Attention pool | (8.3)–(8.7) | `labram/layers/bag_pool.py::GatedAttentionPool` |
 | Training phases, losses | (9.1)–(9.4) | `labram/train/train_mil.py`, `labram/train/train_finetune.py` |
+| Example figures (Dortmund) | Figures 2.1–7.3, (4.19), (5.7) | `scripts/window_feature_figures.py` |
 | Usage diagnostics | (10.1)–(10.6) | `scripts/window_feature_usage.py` |
 | Evaluation and comparison | (11.1)–(11.3) | `scripts/mil_runs/eval_p4_features.sh`, `scripts/mil_runs/compare_runs.py` |
 | Reference numpy implementation (tested equal) | Sections 4–6 | `labram/features/extractors.py`, `tests/test_window_features.py` |

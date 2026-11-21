@@ -1,0 +1,29 @@
+feature,spearman_rho
+"peak alpha frequency, posterior (Hz)",-0.20663728085881866
+"1/f exponent, mean of channels",-0.33835391408748877
+"relative alpha power, posterior",-0.19533853140794358
+"log10 theta / alpha, mean of channels",0.10119451054114993
+alpha tangent norm,-0.2174585446244317
+family spectral: median |rho|,0.1967155746399708
+family 1 Hz bins: median |rho|,0.07865626109400803
+family time domain: median |rho|,0.16889762900730987
+family covariance (tangent): median |rho|,0.07156456198870001
+family connectivity: median |rho|,0.05142369093392768
+top: CZ bin 5 Hz,-0.4620100158184021
+top: FZ bin 5 Hz,-0.4586091074335007
+top: FZ bin 4 Hz,-0.45348437559523863
+top: CZ bin 4 Hz,-0.4446902884775211
+top: FZ 1/f offset,-0.4413764564645646
+top: F4 bin 5 Hz,-0.43263352024660073
+top: C3 rel beta,0.4300054044488726
+top: FZ bin 3 Hz,-0.4282647213538999
+top: C4 rel beta,0.42748792494230503
+top: PZ bin 5 Hz,-0.42275769237562577
+top: F3 bin 5 Hz,-0.4219407487722113
+top: FZ bin 2 Hz,-0.4197130698904463
+top: FZ bin 6 Hz,-0.4122566686830606
+top: F3 1/f offset,-0.4056656110518594
+top: O2 bin 5 Hz,-0.40225511527786667
+age of person A,20.0
+age of person B,70.0
+people,604.0
