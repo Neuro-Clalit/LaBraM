@@ -1,0 +1,13 @@
+,value
+recordings,600.0
+windows,18000.0
+max_abs_diff_vs_evaluation_years,0.04456522598862733
+mean_abs_diff_vs_evaluation_years,0.0058988708412276184
+sd_window_pred_cls_part_years,15.646106719970703
+sd_window_pred_feature_part_years,3.8027260303497314
+corr_cls_feature_parts,0.5061476213332302
+rms_attention_preact_cls_part,1.991194486618042
+rms_attention_preact_feature_part,1.729332447052002
+mae_full_years,6.140347969934531
+mae_features_neutral_years,7.199552322449535
+mean_abs_change_neutral_years,2.682840080967732
