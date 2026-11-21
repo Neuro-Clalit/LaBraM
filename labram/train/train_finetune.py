@@ -37,6 +37,7 @@ from labram.train.augment import augment_batch
 from labram.train.channel_drop import ChannelDropper
 from labram.train.early_stopping import should_stop
 from labram.train.mixup import mixup_batch
+from labram.models.codebook_aux import get_codebook_aux
 from labram.models.outputs import PredictorOutput
 from labram.optim_factory import (
     apply_lr_wd_schedule,
@@ -179,6 +180,7 @@ def train_one_epoch(
     dropper = ChannelDropper.from_config(channel_drop_cfg, ch_names)
     if dropper is not None and isinstance(criterion, CodebookRegularizedCriterion):
         raise ValueError("channel_drop is not supported with model.codebook_reg")
+    codebook_aux = get_codebook_aux(model)
     model.train(True)
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -243,6 +245,8 @@ def train_one_epoch(
         elif mixed:
             samples, targets, _ = mixup_batch(samples, targets, mixup_cfg.alpha, mixup_sigma)
         consistency = None
+        if codebook_aux is not None:
+            codebook_aux.start()
 
         if dropper is not None:
             # The random drop starts at channel_drop.start_epoch (missing channels are
@@ -263,6 +267,15 @@ def train_one_epoch(
             with torch.amp.autocast(device.type, enabled=(device.type == 'cuda')):
                 loss, output, breakdown = train_class_batch(
                     model, samples, targets, criterion, channel_indices)
+
+        # codebook_aux: quantization / reconstruction terms of this step's
+        # encoder forwards, added to the task loss (logged apart from it).
+        aux_stats = {}
+        if codebook_aux is not None:
+            aux_loss, aux_stats = codebook_aux.finish()
+            aux_stats["aux_task_loss"] = float(loss.detach())
+            if aux_loss is not None:
+                loss = loss + aux_loss
 
         loss_value = loss.item()
 
@@ -331,6 +344,8 @@ def train_one_epoch(
                 train_groups.extend(list(group_batch))
 
         metric_logger.update(loss=loss_value)
+        if aux_stats:
+            metric_logger.update(**aux_stats)
         if consistency is not None:
             metric_logger.update(channel_drop_consistency=float(consistency.detach()))
         # Keep the meter name stable across tasks so the existing logging and
@@ -365,6 +380,8 @@ def train_one_epoch(
         if log_writer is not None:
             log_writer.update(**step_timing, head="timing")
             log_writer.update(loss=loss_value, head="loss")
+            if aux_stats:
+                log_writer.update(**aux_stats, head="codebook_aux")
             # ``train_*`` series per step; val/test add their per-epoch values.
             # (``_`` not ``/``: ClearML's TensorBoard capture would split a
             # ``/`` series into a separate plot.)

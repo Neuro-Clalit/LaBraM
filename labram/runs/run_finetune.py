@@ -79,6 +79,21 @@ def _check_mil_supported(config, is_regression_task: bool) -> None:
         raise ValueError("mil.enabled works on 10 s windows (data.window_sec=10)")
 
 
+def _check_codebook_aux_supported(config, time_patches: int) -> None:
+    """``codebook_aux`` reads the patch tokens of the plain encoder."""
+    config.codebook_aux.validate()
+    m = config.model
+    if m.codebook_reg.enabled:
+        raise ValueError("codebook_aux and model.codebook_reg are two ways to add the same losses: enable one")
+    if m.session_features != "off" or m.age_input != "off":
+        raise ValueError("codebook_aux is not supported with session features or age_input")
+    if config.trainer.enable_deepspeed:
+        raise ValueError("codebook_aux is not supported with DeepSpeed")
+    if time_patches > 16:
+        raise ValueError("codebook_aux needs windows of at most 16 patches: the VQNSP decoder "
+                         "has a fixed 16-patch time embedding")
+
+
 def _bag_collate():
     from labram.data.bags import collate_bags
     return collate_bags
@@ -143,6 +158,10 @@ def get_model(config: FinetuneRunConfig):
     if getattr(config, 'mil', None) is not None and config.mil.enabled:
         from labram.train.train_mil import attach_mil
         attach_mil(model, config.mil)
+    if getattr(config, 'codebook_aux', None) is not None and config.codebook_aux.enabled:
+        _check_codebook_aux_supported(config, time_patches)
+        from labram.models.codebook_aux import attach_codebook_aux
+        attach_codebook_aux(model, config.codebook_aux)
     if m.lora.enabled:
         # Injected before the pretrained checkpoint loads: the base weights keep
         # their keys, the LoRA factors are new (B = 0, so the model is unchanged
@@ -435,6 +454,14 @@ def main(config: FinetuneRunConfig, bundle=None):
     if config.model.trainable_prefixes:
         freeze_except(model, config.model.trainable_prefixes)
     model.to(device)
+    if config.codebook_aux.enabled and not config.trainer.eval:
+        # Held next to the model (not a submodule), so it is moved separately;
+        # get_model only warns about a missing weight, a training run needs it.
+        aux = model.__dict__.get('codebook_aux')
+        if aux is None:
+            raise FileNotFoundError(
+                f"codebook_aux.tokenizer_weight={config.codebook_aux.tokenizer_weight!r} not found")
+        aux.to(device)
 
     model_ema = None
     if config.optimizer.model_ema:

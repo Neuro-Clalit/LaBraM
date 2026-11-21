@@ -3,6 +3,7 @@ from typing import List
 
 from labram.configs.base_configs import ConfigBase
 from labram.configs.defaults import (
+    DEFAULT_TOKENIZER_MODEL,
     DEFAULT_AUTO_RESUME,
     DEFAULT_OUTPUT_APPEND_TIMESTAMP,
     DEFAULT_BATCH_SIZE,
@@ -446,6 +447,54 @@ class MILConfig(ConfigBase):
                              "window_loss_weight >= 0 are required")
         if self.bag_lr > 0 and self.window_epochs < 1:
             raise ValueError("mil.bag_lr (a separate bag-phase LR schedule) needs mil.window_epochs >= 1")
+
+@dataclass
+class CodebookAuxConfig(ConfigBase):
+    """Auxiliary codebook losses on the plain fine-tune model (opt-in;
+    ``labram/models/codebook_aux.py``). Unlike ``model.codebook_reg`` the model,
+    its head and its checkpoints stay those of a normal fine-tune, so this works
+    with ``mil``, ``channel_drop`` and the class-token readout.
+
+    The encoder's patch tokens pass through the tokenizer's projection layer,
+    its codebook and (for the reconstruction term) its decoder, all frozen:
+
+    * ``embedding_weight`` x the quantization loss: squared distance of each
+      projected (L2-normalised) token to its nearest code.
+    * ``amplitude_weight`` x the amplitude reconstruction loss: MSE between the
+      decoder's output and the std-normalised FFT amplitude of the input patch,
+      on the first ``freq_fraction`` of the FFT bins (0.5 = the one-sided
+      spectrum, 0-99 Hz).
+
+    ``tokenizer_weight`` is a VQNSP checkpoint whose projection layer
+    (``encode_task_layer``) was fitted to the encoder the run starts from
+    (``scripts/fit_codebook_projection.py``): the released tokenizer's own layer
+    does not fit the tokens of ``labram-base``. A term with weight 0 is still
+    logged: the quantization loss every step, the reconstruction loss every
+    ``monitor_every`` steps (0 = never) without gradient.
+    """
+    enabled: bool = False
+    tokenizer_model: str = DEFAULT_TOKENIZER_MODEL
+    tokenizer_weight: str = ''
+    amplitude_weight: float = 0.0
+    embedding_weight: float = 0.0
+    freq_fraction: float = 0.5
+    monitor_every: int = 20
+
+    def validate(self) -> None:
+        if not self.enabled:
+            return
+        if not self.tokenizer_weight:
+            raise ValueError("codebook_aux.enabled needs codebook_aux.tokenizer_weight "
+                             "(see scripts/fit_codebook_projection.py)")
+        if self.amplitude_weight < 0 or self.embedding_weight < 0:
+            raise ValueError("codebook_aux.amplitude_weight / embedding_weight must be >= 0")
+        if self.amplitude_weight == 0 and self.embedding_weight == 0:
+            raise ValueError("codebook_aux.enabled needs amplitude_weight > 0 or embedding_weight > 0")
+        if not 0 < self.freq_fraction <= 1:
+            raise ValueError("codebook_aux.freq_fraction must be in (0, 1]")
+        if self.monitor_every < 0:
+            raise ValueError("codebook_aux.monitor_every must be >= 0")
+
 
 @dataclass
 class DistributedConfig(ConfigBase):
