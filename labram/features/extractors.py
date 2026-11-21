@@ -136,6 +136,54 @@ def psd_bin_features(freqs, psd, lo=1.0, hi=45.0, width=1.0):
     return feats, [f"log_psd_{e:g}Hz" for e in edges[:-1]]
 
 
+# ------------------------------------------------------------ cross-spectra, connectivity
+def cross_spectra(x: np.ndarray, fs: float = FS, seg_sec: float = 2.0, lo: float = 1.0, hi: float = 45.0):
+    """Cross-spectral density of every window: ``[W, C, T] -> (freqs [F], csd [W, C, C, F])``.
+
+    Welch estimate inside each window: Hann segments of ``seg_sec`` with 50 % overlap, mean removed
+    per segment, one-sided density (µV²/Hz), frequencies ``lo <= f < hi`` only. ``csd[w, i, i]`` is
+    the power spectrum of channel ``i``; a window of 10 s holds 9 segments of 2 s.
+    """
+    nper = int(seg_sec * fs)
+    seg = sliding_window_view(x, nper, axis=-1)[..., :: nper // 2, :]          # [W, C, S, nper]
+    win = signal.get_window("hann", nper)
+    spec = np.fft.rfft((seg - seg.mean(axis=-1, keepdims=True)) * win, axis=-1)
+    freqs = np.fft.rfftfreq(nper, 1.0 / fs)
+    sel = (freqs >= lo) & (freqs < hi)
+    spec = spec[..., sel]
+    csd = np.einsum("wisf,wjsf->wijf", spec, spec.conj()) * (2.0 / (fs * (win ** 2).sum() * seg.shape[-2]))
+    return freqs[sel], csd
+
+
+def band_connectivity(freqs, csd, bands=None):
+    """Connectivity of every channel pair per band from a cross-spectral density ``[..., C, C, F]``:
+    the absolute imaginary part of the band-averaged coherency (insensitive to volume conduction)
+    and the band-averaged magnitude-squared coherence. Returns ``[..., 2 * n_bands * n_pairs]``
+    (per band: imaginary coherence of the pairs, then coherence) and the names."""
+    bands = bands or BANDS
+    c = csd.shape[-2]
+    iu = np.triu_indices(c, k=1)
+    power = np.real(np.einsum("...iif->...if", csd))
+    coh = csd / np.sqrt(power[..., :, None, :] * power[..., None, :, :] + EPS)
+    feats, names = [], []
+    for band, (lo, hi) in bands.items():
+        sel = (freqs >= lo) & (freqs < hi)
+        feats += [np.abs(coh[..., sel].imag.mean(axis=-1))[..., iu[0], iu[1]],
+                  (np.abs(coh[..., sel]) ** 2).mean(axis=-1)[..., iu[0], iu[1]]]
+        names += [f"{kind}_{band}_{i}-{j}" for kind in ("icoh", "coh") for i, j in zip(*iu)]
+    return np.concatenate(feats, axis=-1), names
+
+
+def band_covariance(freqs, csd, bands=None):
+    """Covariance per frequency band from a cross-spectral density ``[..., C, C, F]``: the real part
+    integrated over the band (Parseval), ``[..., n_bands, C, C]``; the spectral counterpart of
+    band-pass filtering and :func:`window_covariances`."""
+    bands = bands or FILTERBANK
+    df = freqs[1] - freqs[0]
+    return np.stack([csd[..., (freqs >= lo) & (freqs < hi)].real.sum(axis=-1) * df for lo, hi in bands.values()],
+                    axis=-3)
+
+
 # ------------------------------------------------------------ spectrograms
 def stft_spectrogram(x: np.ndarray, fs: float = FS, seg_sec: float = 1.0, lo: float = 1.0,
                      hi: float = 45.0, pad: int = 1):

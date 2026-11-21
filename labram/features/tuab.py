@@ -106,7 +106,15 @@ def to_windows(x: np.ndarray) -> np.ndarray:
 
 
 def window_quality(xw: np.ndarray) -> np.ndarray:
-    """``[W, 4]``: max |x|, max peak-to-peak, min channel std, median channel std (µV)."""
+    """``[W, 4]``: max |x|, max peak-to-peak, min channel std, median channel std (µV).
+
+    Channels that are zero in every window are left out: a channel the montage lacks is stored
+    zero-filled (``channel_mask``), and counting it would mark every window as flat, which
+    switches the rejection off for the whole recording.
+    """
+    present = np.abs(xw).max(axis=(0, 2)) > 0
+    if present.any() and not present.all():
+        xw = xw[:, present]
     std = xw.std(axis=-1)
     return np.stack([np.abs(xw).max(axis=(1, 2)), np.ptp(xw, axis=-1).max(axis=1),
                      std.min(axis=1), np.median(std, axis=1)], axis=-1)
@@ -318,6 +326,258 @@ def extract_recording_cohort(path: str, n_skip: int = 6, n_use: int = 30) -> dic
     out["n_clean"] = int(mask.sum())
     out["quality"] = quality.astype(np.float32)
     return out
+
+
+# ---------------------------------------------------------------- state-resolved spectra
+# Periodic / aperiodic spectra per vigilance state, after Azami et al. 2025 (periodic and
+# aperiodic power spectral density of eyes-closed and eyes-open rest). Clinical recordings carry
+# no eye-state labels, so the two states are the recording's own high-alpha and low-alpha windows.
+STATE_POSTERIOR = ("O1", "O2", "P3", "P4", "PZ", "T5", "T6")
+STATE_ALPHA_HZ = (7.0, 13.0)
+STATE_FRACTION = 1.0 / 3.0          # each state = this share of the clean windows (top / bottom by alpha)
+STATE_MIN_WINDOWS = 3
+STATES = ("high", "low")            # high alpha = eyes-closed-like, low alpha = eyes-open-like
+
+
+def _aperiodic_residual(freqs, psd):
+    """``(log10 PSD - aperiodic fit, exponent, offset)`` with the log-log line of
+    :func:`extractors.aperiodic_exponent`; frequencies below 1 Hz are left out."""
+    sel = freqs >= 1.0
+    chi, offset = fx.aperiodic_exponent(freqs, psd)
+    fit = offset[..., None] - chi[..., None] * np.log10(freqs[sel])
+    return np.log10(psd[..., sel] + fx.EPS) - fit, chi, offset, freqs[sel]
+
+
+def window_alpha_index(freqs, psd) -> np.ndarray:
+    """``[W]``: height of the alpha peak above the aperiodic fit (log10 units), the maximum in
+    7-13 Hz averaged over the posterior channels; ``psd`` is ``[W, 19, F]`` in ``CHANNELS_1020`` order."""
+    post = [CHANNELS_1020.index(c) for c in STATE_POSTERIOR]
+    resid, _, _, f = _aperiodic_residual(freqs, psd[:, post])
+    a = (f >= STATE_ALPHA_HZ[0]) & (f <= STATE_ALPHA_HZ[1])
+    return resid[..., a].max(axis=-1).mean(axis=-1)
+
+
+def _papsd(freqs, psd, lo=1.0, hi=45.0):
+    """Periodic spectrum in 1 Hz bins ``[..., 44]`` (mean of log10 PSD minus the aperiodic fit
+    inside each bin), aperiodic ``[..., 2]`` (exponent, offset) and log power per bin ``[..., 44]``."""
+    resid, chi, offset, f = _aperiodic_residual(freqs, psd)
+    edges = np.arange(lo, hi)
+    periodic = np.stack([resid[..., (f >= e) & (f < e + 1.0)].mean(axis=-1) for e in edges], axis=-1)
+    return periodic, np.stack([chi, offset], axis=-1), fx.psd_bin_features(freqs, psd, lo, hi)[0]
+
+
+def split_states(alpha: np.ndarray, clean: np.ndarray):
+    """Boolean masks ``(high, low)`` over the windows: the top and the bottom third of the clean
+    windows by alpha index (at least :data:`STATE_MIN_WINDOWS` each); with fewer than twice that
+    many clean windows both states are every clean window."""
+    idx = np.flatnonzero(clean)
+    high, low = np.zeros(len(alpha), bool), np.zeros(len(alpha), bool)
+    if len(idx) < 2 * STATE_MIN_WINDOWS:
+        high[idx] = low[idx] = True
+        return high, low
+    n = max(STATE_MIN_WINDOWS, int(round(len(idx) * STATE_FRACTION)))
+    order = idx[np.argsort(alpha[idx], kind="stable")]
+    low[order[:n]] = True
+    high[order[-n:]] = True
+    return high, low
+
+
+def extract_recording_state_spectra(path: str, n_skip: int = 6, n_use: int = 30) -> dict:
+    """Periodic / aperiodic spectra of the recording's high-alpha and low-alpha windows.
+
+    Same windows, reference preparation and rejection as :func:`extract_recording_cohort`. Each
+    clean window gets an alpha index (:func:`window_alpha_index`); the Welch spectra of the top
+    third (``high``: eyes-closed-like) and of the bottom third (``low``: eyes-open-like) are
+    combined per state and channel (median of the log spectrum over the state's windows) and split
+    into a periodic spectrum (1 Hz bins), the aperiodic exponent / offset and the log power per
+    bin. ``state/all/...`` is the same over every clean window (no state split).
+    """
+    seg = load_segment(path, n_skip + n_use)
+    quality = window_quality(to_windows(seg))
+    use = np.zeros(quality.shape[0], dtype=bool)
+    use[n_skip:] = True
+    clean = use & clean_mask(quality)
+    if not clean.any():
+        clean = use
+    freqs, psd = fx.welch_psd(to_windows(prepare(seg, PREP_REF)))          # [W, 19, F]
+    alpha = window_alpha_index(freqs, psd)
+    high, low = split_states(alpha, clean)
+    out = {}
+    for name, mask in (("high", high), ("low", low), ("all", clean)):
+        # median over the state's windows of the log spectrum: one artifact window (EMG, movement)
+        # would dominate a plain average of the power
+        state_psd = 10.0 ** np.median(np.log10(psd[mask] + fx.EPS), axis=0)
+        periodic, aperiodic, logpsd = _papsd(freqs, state_psd)
+        out[f"state/{name}/periodic"] = periodic.astype(np.float32)
+        out[f"state/{name}/aperiodic"] = aperiodic.astype(np.float32)
+        if name != "all":
+            out[f"state/{name}/logpsd"] = logpsd.astype(np.float32)
+    out["alpha_index"] = np.array([alpha[high].mean(), alpha[low].mean(), alpha[clean].mean()], np.float32)
+    out["n_state"] = int(high.sum())
+    return out
+
+
+def state_spectra_names() -> dict:
+    """Column names of :func:`extract_recording_state_spectra`'s families (per channel)."""
+    bins = [f"{e:g}Hz" for e in np.arange(1.0, 45.0)]
+    out = {}
+    for name in ("high", "low", "all"):
+        out[f"state/{name}/periodic"] = [f"periodic_{name}_{b}" for b in bins]
+        out[f"state/{name}/aperiodic"] = [f"aperiodic_exponent_{name}", f"aperiodic_offset_{name}"]
+        if name != "all":
+            out[f"state/{name}/logpsd"] = [f"log_psd_{name}_{b}" for b in bins]
+    return out
+
+
+# ---------------------------------------------------------------- method study
+# One pass that computes the same cheap features under different analysis choices, so each choice
+# can be tested on its own (scripts/feature_stack.py, kind "study"): window length, eye state,
+# how the windows of a recording are summarised, and connectivity estimated on short or long data.
+STUDY_CORE = ("len10", "len30", "len60", "len30_seg4", "state_high", "state_low",
+              "agg_mean", "agg_q10", "agg_q90", "agg_sd", "agg_attn")
+STUDY_CONN = ("conn_all", "conn_len10", "conn_len30", "conn_high", "conn_low")
+STUDY_COV = ("cov_all", "cov_high", "cov_low")
+
+
+def _core(xw: np.ndarray, seg_sec: float = 2.0) -> np.ndarray:
+    """``[W, C, 68]``: spectral (17), 1 Hz log-PSD bins (44) and time-domain (7) features per window."""
+    freqs, psd = fx.welch_psd(xw, seg_sec=seg_sec)
+    return np.concatenate([fx.spectral_features(freqs, psd)[0], fx.psd_bin_features(freqs, psd)[0],
+                           fx.time_features(xw)[0]], axis=-1)
+
+
+def _long_windows(x: np.ndarray, clean: np.ndarray, first: int, k: int):
+    """Windows of ``k`` consecutive 10 s windows from window ``first`` on: ``([Wl, C, k*WIN], clean)``;
+    a long window is clean when all its 10 s windows are."""
+    n = (len(clean) - first) // k
+    xl = x[:, first * WIN:(first + n * k) * WIN].reshape(x.shape[0], n, k * WIN).transpose(1, 0, 2)
+    return xl, clean[first:first + n * k].reshape(n, k).all(axis=1)
+
+
+def _robust(feats: np.ndarray, mask: np.ndarray, fn=np.median) -> np.ndarray:
+    return fn(feats[mask] if mask.any() else feats, axis=0).astype(np.float32)
+
+
+def extract_recording_study(path: str, attention=None, n_skip: int = 6, n_use: int = 30) -> dict:
+    """Features of one recording under each analysis choice of the method study.
+
+    Same data as :func:`extract_recording_cohort` (reference preparation, the 5 minutes after the
+    first, the same 10 s rejection). ``attention`` is the model's weight per scored window
+    (window ``n_skip + i`` has weight ``attention[i]``), for the attention-weighted summary.
+
+    * window length (median over clean windows of the core features): ``len10``, ``len30``,
+      ``len60``; ``len30_seg4`` = 30 s windows with 4 s Welch segments (0.25 Hz resolution);
+    * eye state: ``state_high`` / ``state_low`` = the core features of the high-alpha
+      (eyes-closed-like) and low-alpha (eyes-open-like) thirds of the 10 s windows;
+    * summary over the 10 s windows: ``agg_mean``, ``agg_q10``, ``agg_q90``, ``agg_sd`` (spread),
+      ``agg_attn`` (weighted by the model's attention);
+    * connectivity (imaginary coherence and coherence per band and channel pair): ``conn_all``
+      from all clean data at once, ``conn_len10`` / ``conn_len30`` as the median over 10 s / 30 s
+      estimates, ``conn_high`` / ``conn_low`` per eye state;
+    * covariances per band from the cross-spectra: ``cov_all``, ``cov_high``, ``cov_low``.
+    """
+    seg = load_segment(path, n_skip + n_use)
+    quality = window_quality(to_windows(seg))
+    use = np.zeros(quality.shape[0], dtype=bool)
+    use[n_skip:] = True
+    clean = use & clean_mask(quality)
+    if not clean.any():
+        clean = use
+    x = prepare(seg, PREP_REF)
+    xw = to_windows(x)
+    core = _core(xw)                                                    # [W, 19, 68]
+    out = {"len10": _robust(core, clean)}
+    for k, name in ((3, "len30"), (6, "len60")):
+        xl, cl = _long_windows(x, clean, n_skip, k)
+        out[name] = _robust(_core(xl), cl) if len(xl) else np.full(core.shape[1:], np.nan, np.float32)
+        if k == 3:
+            out["len30_seg4"] = (_robust(_core(xl, seg_sec=4.0), cl) if len(xl)
+                                 else np.full(core.shape[1:], np.nan, np.float32))
+    freqs, psd = fx.welch_psd(xw)
+    high, low = split_states(window_alpha_index(freqs, psd), clean)
+    out["state_high"], out["state_low"] = _robust(core, high), _robust(core, low)
+    cc = core[clean]
+    out["agg_mean"], out["agg_sd"] = cc.mean(axis=0).astype(np.float32), cc.std(axis=0).astype(np.float32)
+    out["agg_q10"], out["agg_q90"] = (np.quantile(cc, q, axis=0).astype(np.float32) for q in (0.1, 0.9))
+    out["agg_attn"] = np.full(core.shape[1:], np.nan, np.float32)
+    if attention is not None and len(attention):
+        w = np.asarray(attention, float)[: core.shape[0] - n_skip]
+        out["agg_attn"] = (np.tensordot(w / w.sum(), core[n_skip:n_skip + len(w)], axes=1)).astype(np.float32)
+    f, csd = fx.cross_spectra(xw)                                       # [W, 19, 19, F]
+    conn = lambda c: fx.band_connectivity(f, c)[0]                      # noqa: E731
+    cov = lambda c: fx.band_covariance(f, c).astype(np.float32)         # noqa: E731
+    out["conn_all"] = conn(csd[clean].mean(axis=0)).astype(np.float32)
+    out["conn_len10"] = _robust(conn(csd), clean)
+    n3 = (csd.shape[0] - n_skip) // 3
+    if n3:
+        csd3 = csd[n_skip:n_skip + 3 * n3].reshape(n3, 3, *csd.shape[1:]).mean(axis=1)
+        out["conn_len30"] = _robust(conn(csd3), clean[n_skip:n_skip + 3 * n3].reshape(n3, 3).all(axis=1))
+    else:
+        out["conn_len30"] = np.full_like(out["conn_all"], np.nan)
+    out["conn_high"], out["conn_low"] = (conn(csd[m].mean(axis=0)).astype(np.float32) for m in (high, low))
+    out["cov_all"], out["cov_high"], out["cov_low"] = (cov(csd[m].mean(axis=0)) for m in (clean, high, low))
+    out["n_clean"] = int(clean.sum())
+    return out
+
+
+STUDY2_CONN = ("conn_calm", "conn_attn")
+STUDY2_COV = ("cov_calm", "cov_rand", "cov_tn", "cov_attn")
+
+
+def extract_recording_study2(path: str, attention=None, n_skip: int = 6, n_use: int = 30) -> dict:
+    """Controls for the eye-state result of :func:`extract_recording_study`: is a covariance from the
+    high-alpha third better because of the eye state, or because those windows are free of artifacts?
+
+    Band covariances (and connectivity) from other selections of the same clean 10 s windows:
+    ``calm`` = the third with the lowest amplitude (median channel SD), whatever its alpha;
+    ``rand`` = a random third (as many windows as a state, no selection); ``tn`` = every clean
+    window, each scaled to the same total power before averaging (no window dominates);
+    ``attn`` = every scored window weighted by the model's attention.
+    """
+    import zlib
+    seg = load_segment(path, n_skip + n_use)
+    quality = window_quality(to_windows(seg))
+    use = np.zeros(quality.shape[0], dtype=bool)
+    use[n_skip:] = True
+    clean = use & clean_mask(quality)
+    if not clean.any():
+        clean = use
+    f, csd = fx.cross_spectra(to_windows(prepare(seg, PREP_REF)))       # [W, 19, 19, F]
+    idx = np.flatnonzero(clean)
+    n = len(idx) if len(idx) < 2 * STATE_MIN_WINDOWS else max(STATE_MIN_WINDOWS, int(round(len(idx) * STATE_FRACTION)))
+    calm = idx[np.argsort(quality[idx, 3], kind="stable")[:n]]
+    rand = np.random.default_rng(zlib.crc32(os.path.basename(path).encode())).choice(idx, size=n, replace=False)
+    power = np.real(np.einsum("wiif->w", csd))                          # total power of each window
+    tn = (csd[idx] / power[idx, None, None, None]).mean(axis=0) * np.median(power[idx])
+    cov = lambda c: fx.band_covariance(f, c).astype(np.float32)         # noqa: E731
+    conn = lambda c: fx.band_connectivity(f, c)[0].astype(np.float32)   # noqa: E731
+    out = {"cov_calm": cov(csd[calm].mean(axis=0)), "cov_rand": cov(csd[rand].mean(axis=0)), "cov_tn": cov(tn),
+           "conn_calm": conn(csd[calm].mean(axis=0))}
+    out["cov_attn"] = np.full_like(out["cov_calm"], np.nan)
+    out["conn_attn"] = np.full_like(out["conn_calm"], np.nan)
+    if attention is not None and len(attention):
+        w = np.asarray(attention, float)[: csd.shape[0] - n_skip]
+        weighted = np.tensordot(w / w.sum(), csd[n_skip:n_skip + len(w)], axes=1)
+        out["cov_attn"], out["conn_attn"] = cov(weighted), conn(weighted)
+    alpha = window_alpha_index(*fx.welch_psd(to_windows(prepare(seg, PREP_REF))))
+    high, _ = split_states(alpha, clean)
+    out["calm_high_overlap"] = float(np.isin(calm, np.flatnonzero(high)).mean())   # share of calm windows that are high-alpha
+    return out
+
+
+def study_names() -> dict:
+    """Column names of :func:`extract_recording_study`'s families (core: per channel)."""
+    xw = np.random.default_rng(0).standard_normal((1, 2, WIN))
+    freqs, psd = fx.welch_psd(xw)
+    core = (list(fx.spectral_features(freqs, psd)[1]) + list(fx.psd_bin_features(freqs, psd)[1])
+            + list(fx.time_features(xw)[1]))
+    f, csd = fx.cross_spectra(np.random.default_rng(0).standard_normal((1, len(CHANNELS_1020), WIN)))
+    conn = fx.band_connectivity(f, csd)[1]
+    iu = np.triu_indices(len(CHANNELS_1020))
+    cov = [f"cov_{band}_{i}-{j}" for band in fx.FILTERBANK for i in range(len(CHANNELS_1020))
+           for j in range(len(CHANNELS_1020))]
+    return {**{k: core for k in STUDY_CORE}, **{k: conn for k in STUDY_CONN + STUDY2_CONN},
+            **{k: cov for k in STUDY_COV + STUDY2_COV}}
 
 
 EXTRACTORS = {"main": extract_recording, "scattering": extract_recording_scattering,

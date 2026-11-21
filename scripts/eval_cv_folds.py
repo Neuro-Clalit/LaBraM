@@ -11,7 +11,10 @@ fold x split x source (TUAB / TUEG, from the TUH index) x cohort
 (all / normal / abnormal); then mean ± std over folds. Split ``heldout`` is the
 cohort's own test set, which CV with pool=train_val leaves out (the official
 TUAB test set): every fold model is scored on the same recordings, with that
-fold's training-target stats.
+fold's training-target stats. A bag (MIL, ``mil.enabled``) fold model pools each
+recording's windows with its own attention, as in training's evaluation;
+``--save-windows DIR`` then also writes every window's attention weight and
+own prediction (``<DIR>/<name>_f<k>_<split>.parquet``).
 
     python scripts/eval_cv_folds.py --data-path .../cohorts/all_both_v3_cvcompact \\
         --run cvbase=/tmp/cv/cvbase_{0..4}/cv/fold_{0..4} ... --out cv_eval.csv
@@ -26,7 +29,7 @@ import pandas as pd
 import torch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from eval_age_by_cohort import _per_recording, _predict  # noqa: E402
+from eval_age_by_cohort import _per_recording, _predict, _predict_bags  # noqa: E402
 
 import labram.models.registry  # noqa: F401,E402
 from labram.data import get_dataset_bundle  # noqa: E402
@@ -71,6 +74,13 @@ def main(argv=None):
     p.add_argument("--splits", nargs="+", default=["val", "test", "heldout"])
     p.add_argument("--preds-out", default=None,
                    help="per-recording predictions (years) per exp/fold/split, JSON")
+    p.add_argument("--save-windows", default=None, metavar="DIR",
+                   help="bag models: per-window attention weight and prediction, one parquet per fold and split")
+    p.add_argument("--full-windows", action="store_true",
+                   help="score the val fold on every window of its recordings (a training split may list a "
+                        "subset), so val is scored exactly like the held-out test split")
+    p.add_argument("--bag-batch-size", type=int, default=12, help="bag models: recordings per batch")
+    p.add_argument("--num-workers", type=int, default=8, help="bag models: data-loader workers")
     args = p.parse_args(argv)
     preds = {}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -85,6 +95,13 @@ def main(argv=None):
         split = json.load(open(os.path.join(fold_dir, "cv_split.json")))
         base = get_dataset_bundle(cfg.data.dataset, args.data_path, data_format="npy")
         bundle = materialize_fold(apply_cv_split(base, split), k, base)
+        if args.full_windows:                   # every window of the val recordings, as the test split lists them
+            from labram.data.tuh_metadata import recording_stem
+            from labram.data.window_selection import _leaves
+            for leaf in _leaves(bundle.val):
+                n_windows, _ = leaf.window_inventory()
+                recs = sorted({(os.path.dirname(f), recording_stem(f)) for f in leaf.files})
+                leaf.files = [f"{d}/{stem}_{i}.pkl" for d, stem in recs for i in range(n_windows[(d, stem)])]
         bundle = apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
         held = apply_window_selection(
             get_dataset_bundle(cfg.data.dataset, args.data_path, data_format="npy"),
@@ -92,6 +109,14 @@ def main(argv=None):
         for leaf in getattr(held, "datasets", [held]):
             if hasattr(leaf, "target_stats"):
                 leaf.target_stats = bundle.target_stats        # the fold's z-scoring
+        if cfg.data.drop_channels:              # as training served them (run_finetune.main)
+            from labram.data.channel_selection import drop_channels
+            from labram.data.window_selection import _leaves
+            dropped = {n.upper() for n in cfg.data.drop_channels}
+            keep = np.asarray([i for i, c in enumerate(bundle.ch_names) if c.upper() not in dropped])
+            drop_channels(bundle, cfg.data.drop_channels)
+            for leaf in _leaves(held):          # the separately built held-out split too
+                leaf.keep_channels = keep
         bundle.heldout = held
         cfg.model.nb_classes, cfg.model.task = bundle.nb_classes, bundle.task
         from labram.data.window_selection import resolve_multitask_class_names
@@ -109,10 +134,25 @@ def main(argv=None):
         # checkpoint-best.pth stores epoch="best"; the epoch index is in train_state.json
         ts = os.path.join(fold_dir, "train_state.json")
         best_epoch = json.load(open(ts)).get("best_epoch") if os.path.exists(ts) else state.get("epoch")
+        mil = getattr(cfg, "mil", None) is not None and cfg.mil.enabled
         for s in args.splits:
-            pred, true, recs = _predict(model, getattr(bundle, s), bundle.ch_names, device,
-                                        args.batch_size, session=session,
-                                        channel_drop=getattr(cfg, "channel_drop", None))
+            if mil:                             # one attention-pooled prediction per recording
+                win = {} if args.save_windows else None
+                pred, true, recs = _predict_bags(model, getattr(bundle, s), bundle.ch_names, device, cfg.mil,
+                                                 batch_size=args.bag_batch_size,
+                                                 channel_drop=getattr(cfg, "channel_drop", None),
+                                                 num_workers=args.num_workers, windows_out=win)
+                if win:
+                    import labram.utils as utils
+                    wdf = pd.DataFrame(win)
+                    wdf["window_pred"] = utils.denormalize(wdf["window_pred"].to_numpy(), bundle.target_stats)
+                    wdf["age"] = wdf["recording"].map(dict(zip(recs, utils.denormalize(true, bundle.target_stats))))
+                    os.makedirs(args.save_windows, exist_ok=True)
+                    wdf.to_parquet(os.path.join(args.save_windows, f"{name}_f{k}_{s}.parquet"))
+            else:
+                pred, true, recs = _predict(model, getattr(bundle, s), bundle.ch_names, device,
+                                            args.batch_size, session=session,
+                                            channel_drop=getattr(cfg, "channel_drop", None))
             ids, py, ty = _per_recording(pred, true, recs, bundle.target_stats)
             preds.setdefault(name, {}).setdefault(str(k), {})[s] = {
                 r: [float(a), float(b)] for r, a, b in zip(ids, py, ty)}
