@@ -554,6 +554,12 @@ def main(config: FinetuneRunConfig, bundle=None):
     if mil_on and model_without_ddp.mil.needs_descriptors:
         from labram.train.train_mil import fit_descriptor_norm
         fit_descriptor_norm(model_without_ddp, loaders.train, device, config.mil.descriptor_fit_batches)
+    if mil_on and getattr(model_without_ddp, "window_feat", None) is not None:
+        # per-recording tables (mil.recording_features) of the cohort and of each external test set
+        from labram.data.test_sets import parse_test_sets
+        from labram.train.train_mil import load_recording_features
+        load_recording_features(model_without_ddp, [config.data.data_path] + [
+            p for _, p in parse_test_sets(config.evaluation.test_sets) if p], config.mil)
     if mil_on and getattr(model_without_ddp, "window_feat", None) is not None and not config.trainer.eval:
         from labram.train.train_mil import fit_window_features
         fit_window_features(model_without_ddp, loaders.train, device, config.mil.feature_fit_batches, ch_names)

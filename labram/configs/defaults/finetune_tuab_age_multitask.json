@@ -454,6 +454,9 @@
         "window_features": "off",
         "feature_dim": 64,
         "feature_dropout": 0.1,
-        "feature_fit_batches": 50
+        "feature_fit_batches": 50,
+        "feature_extra": [],
+        "recording_features": "",
+        "feature_norm": "none"
     }
 }

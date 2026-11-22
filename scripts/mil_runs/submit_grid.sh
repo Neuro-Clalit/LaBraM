@@ -105,7 +105,23 @@ PHASED4=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=17
 # reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
 # mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
 
+# P4 + handcrafted window features (mil.window_features, docs/window_features.md) and the candidate
+# additions, each on its own, all together, and with the feature part layer-normalised; fold 0:
+#   ONLY="P4F_L1 P4F_GREEN_L1 P4F_SLOW_L1 P4F_MS_L1 P4F_AEC_L1 P4F_CPLX_L1 P4F_ALL_L1 P4F_LN_L1" \
+#     FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
+# P4F_SLOW / P4F_ALL read slow_dynamics_v1.npz from the cohort and test-set folders
+# (scripts/make_recording_features.py).
+FEAT=(mil.window_features=handcrafted mil.feature_dim=64 mil.feature_dropout=0.1)
+P4ARGS="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${FEAT[*]}"
 declare -A JOBS=(
+  [P4F_L1]="$P4ARGS"
+  [P4F_GREEN_L1]="$P4ARGS mil.feature_extra=[\"green\"]"
+  [P4F_SLOW_L1]="$P4ARGS mil.recording_features=slow_dynamics_v1.npz"
+  [P4F_MS_L1]="$P4ARGS mil.feature_extra=[\"microstates\"]"
+  [P4F_AEC_L1]="$P4ARGS mil.feature_extra=[\"aec\"]"
+  [P4F_CPLX_L1]="$P4ARGS mil.feature_extra=[\"complexity\"]"
+  [P4F_ALL_L1]="$P4ARGS mil.feature_extra=[\"green\",\"microstates\",\"aec\",\"complexity\"] mil.recording_features=slow_dynamics_v1.npz"
+  [P4F_LN_L1]="$P4ARGS mil.feature_norm=layernorm"
   [W0]="${WARM[*]} ${WINDOW[*]}"
   [W1]="${WARM[*]} ${BAG[*]} mil.pool=mean mil.freeze_encoder_epochs=1"
   [W2]="${WARM[*]} ${BAG[*]} mil.pool=gated mil.score_input=q mil.freeze_encoder_epochs=1"

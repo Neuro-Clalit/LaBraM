@@ -84,8 +84,15 @@ def attach_mil(model: torch.nn.Module, mil_cfg) -> torch.nn.Module:
         old = model.head
         if not isinstance(old, torch.nn.Linear):
             raise ValueError("mil.window_features needs the linear head (model.head_type=linear)")
-        model.window_feat = WindowFeatureBranch(mil_cfg.feature_dim, mil_cfg.feature_dropout)
-        head = torch.nn.Linear(old.in_features + mil_cfg.feature_dim, old.out_features)
+        n_rec = 0
+        if getattr(mil_cfg, "recording_features", ""):
+            from labram.features.slow_dynamics import BANDS, KINDS
+            n_rec = 19 * len(BANDS) * len(KINDS)
+        model.window_feat = WindowFeatureBranch(mil_cfg.feature_dim, mil_cfg.feature_dropout,
+                                                extra=getattr(mil_cfg, "feature_extra", []) or [],
+                                                recording_features=n_rec,
+                                                norm=getattr(mil_cfg, "feature_norm", "none"))
+        head = torch.nn.Linear(old.in_features + model.window_feat.out_dim, old.out_features)
         with torch.no_grad():                    # class-token part as built; feature part at the same scale
             head.weight[:, :old.in_features] = old.weight
             head.weight[:, old.in_features:].normal_(std=float(old.weight.std()))
@@ -191,14 +198,42 @@ def fit_window_features(model, loader, device, n_batches: int, ch_names) -> None
         raise NotImplementedError("mil.window_features: fit the features in a single-process run first "
                                   "(the fitted statistics are then in its checkpoint)")
     branch.set_channels(utils.get_channel_indices(ch_names))
-    rows = []
-    for i, (x, _, _, _, mask) in enumerate(loader):
+    rows, stems = [], []
+    for i, (x, _, st, _, mask) in enumerate(loader):
         if i >= n_batches:
             break
         rows.append(x[mask])
+        stems.extend(st)
     x = torch.cat(rows)
     branch.extract.fit(x.to(device))
-    logger.info("MIL: window features (%d per window) fitted on %d windows", branch.extract.n_features, len(x))
+    logger.info("MIL: window features (%d per window%s) fitted on %d windows", branch.extract.n_features,
+                "".join(f", {b}" for b in branch.extract.extra) + (", green" if branch.green is not None else ""),
+                len(x))
+    if branch.rec is not None:
+        raw = branch.rec.lookup(stems, device)
+        found = int((~torch.isnan(raw).all(1)).sum())
+        if found < len(stems) // 2:
+            raise ValueError(f"mil.recording_features: only {found} of {len(stems)} training recordings "
+                             "are in the loaded tables")
+        branch.rec.fit(raw)
+        logger.info("MIL: recording features (%d) standardised on %d of %d training recordings",
+                    branch.rec.n_in, found, len(stems))
+
+
+def load_recording_features(model, roots, mil_cfg) -> None:
+    """Load the per-recording table ``mil.recording_features`` from each folder of ``roots``
+    (the cohort and the external test sets) into the model's recording block."""
+    m = getattr(model, "module", model)
+    branch = getattr(m, "window_feat", None)
+    name = getattr(mil_cfg, "recording_features", "")
+    if branch is None or branch.rec is None or not name:
+        return
+    for root in roots:
+        path = os.path.join(str(root), name) if root else ""
+        if path and os.path.exists(path):
+            logger.info("MIL: %d recording feature rows from %s", branch.rec.load_table(path), path)
+        elif root:
+            logger.warning("MIL: no recording features at %s (those recordings get the training mean)", path)
 
 
 # ------------------------------------------------------------------ batches
@@ -218,7 +253,7 @@ def prepare(batch, device, ch_names, dropper, mil, augment_cfg=None, train=False
     if train and augment_cfg is not None:
         xr = augment_batch(xr, augment_cfg, ch_names)
     x4 = rearrange(xr, "N C (A T) -> N C A T", T=200)
-    bag = {"mask": mask, "q": q, "t": minutes}
+    bag = {"mask": mask, "q": q, "t": minutes, "stems": list(stems)}
     if dropper is not None:
         bag["present"] = dropper.present(x4)
         bag["ci_all"] = dropper.ci_all

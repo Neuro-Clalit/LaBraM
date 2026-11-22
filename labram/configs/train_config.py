@@ -435,6 +435,15 @@ class MILConfig(ConfigBase):
     feature_dim: int = 64
     feature_dropout: float = 0.1
     feature_fit_batches: int = 50
+    # Optional blocks added to the window features (labram/layers/window_features.py):
+    # "microstates", "aec", "complexity" (fixed, standardised with the rest) and "green"
+    # (learned filter-bank covariances, trained with the model).
+    feature_extra: List[str] = field(default_factory=list)
+    # One vector per recording (slow amplitude dynamics, scripts/make_recording_features.py):
+    # the file name of a table in the cohort folder (and in each external test-set folder).
+    recording_features: str = ""
+    # "layernorm": normalise the feature part of the window vector before it joins the class token
+    feature_norm: str = "none"
 
     def validate(self) -> None:
         if not self.enabled:
@@ -443,6 +452,13 @@ class MILConfig(ConfigBase):
             raise ValueError(f"mil.window_features must be off or handcrafted, got {self.window_features!r}")
         if self.feature_dim < 1 or not 0 <= self.feature_dropout < 1 or self.feature_fit_batches < 1:
             raise ValueError("mil.feature_dim >= 1, 0 <= feature_dropout < 1 and feature_fit_batches >= 1 are required")
+        if self.feature_norm not in ("none", "layernorm"):
+            raise ValueError(f"mil.feature_norm must be none or layernorm, got {self.feature_norm!r}")
+        bad = set(self.feature_extra) - {"microstates", "aec", "complexity", "green"}
+        if bad:
+            raise ValueError(f"mil.feature_extra: unknown blocks {sorted(bad)}")
+        if (self.feature_extra or self.recording_features) and self.window_features == "off":
+            raise ValueError("mil.feature_extra / mil.recording_features need mil.window_features=handcrafted")
         if self.pool not in ("mean", "gated", "sigmoid", "query"):
             raise ValueError(f"mil.pool must be mean, gated, sigmoid or query, got {self.pool!r}")
         if self.score_input not in ("h", "q", "hq"):

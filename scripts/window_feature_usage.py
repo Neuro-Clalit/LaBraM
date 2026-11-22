@@ -122,7 +122,7 @@ def usage(run, cohort, out_dir, n_rec, device):
     from labram.configs.run_configs import FinetuneRunConfig
     from labram.data.eeg_constants import get_channel_indices
     from labram.runs import run_finetune
-    cfg = FinetuneRunConfig.load_config(os.path.join(run, "run_config.yaml"))
+    cfg = FinetuneRunConfig.load_config(os.path.join(run, "run_config.yaml"), raise_exception=False)
     cfg.model.nb_classes = 1                     # set from the data bundle at run time (scalar age head)
     model = run_finetune.get_model(cfg)
     model.load_state_dict(torch.load(os.path.join(run, "checkpoint-best.pth"), map_location="cpu",

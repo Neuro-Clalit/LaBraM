@@ -268,6 +268,9 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     model.to(device).eval()
 
     root = getattr(bundle.test, "root", data_path)
+    if getattr(cfg, "mil", None) is not None and cfg.mil.enabled:
+        from labram.train.train_mil import load_recording_features
+        load_recording_features(model, [root], cfg.mil)      # mil.recording_features of this cohort
     labels = load_label_lookup_for(root)
     result = {"epoch": state.get("epoch"), "splits": {},
               "pred_target_stats": pred_stats or bundle.target_stats,

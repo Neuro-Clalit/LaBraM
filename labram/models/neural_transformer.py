@@ -482,7 +482,10 @@ class NeuralTransformer(NeuralTransformerBase):
                 h = torch.cat([f.to(parts[0].dtype) for f in parts])[order]
         if self.window_feat is not None:
             # [class token, handcrafted features]: what the attention scores, the pool and the head read
-            f = self.window_feat(x, channel_indices, frozen=bool(bag.get('no_grad_encoder')))
+            stems = bag.get('stems')
+            if stems is not None:            # the recording of every window, for mil.recording_features
+                stems = [stems[i] for i in mask.nonzero(as_tuple=True)[0].tolist()]
+            f = self.window_feat(x, channel_indices, frozen=bool(bag.get('no_grad_encoder')), stems=stems)
             h = torch.cat((h, f.to(h.dtype)), dim=-1)
         b, k = mask.shape
         hb = h.new_zeros(b, k, h.shape[-1])
