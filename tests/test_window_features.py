@@ -223,3 +223,17 @@ def test_run_finetune_with_every_extra_block(tmp_path):
     model.load_state_dict(state)
     assert model.head.in_features == model.num_features + 8 + 32 + 16 == model.mil.pool.dim
     assert model.window_feat.out_norm is not None
+
+
+def test_learned_filterbank_handles_a_single_window_in_training():
+    """The channel-drop path can hand the model a group of one window."""
+    from labram.layers.window_features import LearnedFilterbankCov
+    x = torch.from_numpy(_windows(n=6, seed=6))
+    xc = x - x.mean(1, keepdim=True)
+    g = LearnedFilterbankCov(n_filters=4, rank=3, out_dim=5)
+    g.init_stats(xc)
+    g.train()
+    out = g(xc[:1])
+    assert out.shape == (1, 5) and torch.isfinite(out).all()
+    z = (g.vectors(xc) - g.run_mean) / torch.sqrt(g.run_var + 1e-5)
+    assert z.mean(0).abs().max() < 1e-3                                # initialised on these windows

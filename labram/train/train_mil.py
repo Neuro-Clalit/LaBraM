@@ -206,6 +206,8 @@ def fit_window_features(model, loader, device, n_batches: int, ch_names) -> None
         stems.extend(st)
     x = torch.cat(rows)
     branch.extract.fit(x.to(device))
+    if branch.green is not None:
+        branch.green.init_stats(branch.extract.car(x.to(device).float()))
     logger.info("MIL: window features (%d per window%s) fitted on %d windows", branch.extract.n_features,
                 "".join(f", {b}" for b in branch.extract.extra) + (", green" if branch.green is not None else ""),
                 len(x))

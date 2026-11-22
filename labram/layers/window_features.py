@@ -403,7 +403,11 @@ class LearnedFilterbankCov(nn.Module):
     2-40 Hz) are applied in the frequency domain; each band's channel covariance (Parseval, on the
     18-dimensional average-reference basis, lightly shrunk) is reduced by a trainable bilinear map
     ``W_k^T C W_k`` (18 -> ``rank``), taken to the log domain (eigendecomposition, float64),
-    vectorised, batch-normalised and projected to ``out_dim``. Trained with the model.
+    vectorised, standardised and projected to ``out_dim``. Trained with the model.
+
+    The standardisation uses running statistics (initialised on the fit windows,
+    :meth:`init_stats`, then updated with momentum from training batches), never the batch's
+    own, so a group of one window (the channel-drop path splits batches by channel set) works.
     """
 
     def __init__(self, n_filters: int = 10, rank: int = 8, out_dim: int = 32, fs: float = 200.0,
@@ -420,12 +424,33 @@ class LearnedFilterbankCov(nn.Module):
         self.register_buffer("iu", iu, persistent=False)
         self.register_buffer("iu_coef", torch.where(iu[0] == iu[1], 1.0, math.sqrt(2.0)).double(), persistent=False)
         n_vec = n_filters * iu.shape[1]
-        self.norm = nn.BatchNorm1d(n_vec)
+        self.register_buffer("run_mean", torch.zeros(n_vec))
+        self.register_buffer("run_var", torch.ones(n_vec))
+        self.gain = nn.Parameter(torch.ones(n_vec))
+        self.bias = nn.Parameter(torch.zeros(n_vec))
+        self.momentum = 0.01
         self.out = nn.Linear(n_vec, out_dim)
         self.fs, self.shrink, self.out_dim = fs, shrink, out_dim
 
+    @torch.no_grad()
+    def init_stats(self, xc: torch.Tensor, chunk: int = 256):
+        """Running statistics from windows ``xc [M, 19, L]`` (µV, average-referenced)."""
+        v = torch.cat([self.vectors(xc[i:i + chunk]) for i in range(0, xc.shape[0], chunk)])
+        self.run_mean.copy_(v.mean(0))
+        self.run_var.copy_(v.var(0, unbiased=False).clamp_min(1e-6))
+
     def forward(self, xc: torch.Tensor) -> torch.Tensor:
         """``xc [N, 19, L]`` µV, average-referenced -> ``[N, out_dim]``."""
+        v = self.vectors(xc)
+        if self.training and v.shape[0] > 1:
+            with torch.no_grad():
+                self.run_mean.lerp_(v.mean(0), self.momentum)
+                self.run_var.lerp_(v.var(0, unbiased=False), self.momentum)
+        z = (v - self.run_mean) / torch.sqrt(self.run_var + 1e-5) * self.gain + self.bias
+        return self.out(z)
+
+    def vectors(self, xc: torch.Tensor) -> torch.Tensor:
+        """The log-domain band covariances, vectorised: ``[N, n_filters * rank * (rank + 1) / 2]``."""
         n, c, t = xc.shape
         spec = torch.fft.rfft(xc.float(), dim=-1)
         f = torch.fft.rfftfreq(t, 1.0 / self.fs, device=xc.device)
@@ -442,8 +467,7 @@ class LearnedFilterbankCov(nn.Module):
         red = red + 1e-6 * torch.diagonal(red, dim1=-2, dim2=-1).mean(-1)[..., None, None] * eye_r
         ev, vec = torch.linalg.eigh(red)
         log = (vec * ev.clamp_min(1e-12).log()[..., None, :]) @ vec.transpose(-1, -2)
-        v = (log[..., self.iu[0], self.iu[1]] * self.iu_coef).flatten(1).float()
-        return self.out(self.norm(v))
+        return (log[..., self.iu[0], self.iu[1]] * self.iu_coef).flatten(1).float()
 
 
 class RecordingFeatures(nn.Module):
