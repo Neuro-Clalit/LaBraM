@@ -24,20 +24,25 @@ the frozen decoder :math:`d`:
 
 with :math:`a` the FFT amplitude of the (model-preprocessed) input patch,
 standardised per window over channels, patches and the kept bins
-(``SpectralReconstructionLoss``), and ``sg`` the stop-gradient. The added loss
-is ``amplitude_weight * L_recon + embedding_weight * L_quant``. Nothing in this
+(``SpectralReconstructionLoss``), and ``sg`` the stop-gradient. With
+``freq_band_hz = [lo, hi]`` the mean is taken over the bins of that band only
+(1 Hz per bin for 1 s patches at 200 Hz); the target is still standardised over
+all kept bins, so it stays on the scale the frozen decoder was trained for. The
+added loss is ``amplitude_weight * L_recon + embedding_weight * L_quant``. Nothing in this
 module is trained: the gradient only passes *through* it into the encoder.
 
 The module is held next to the model, not registered in it
 (:func:`attach_codebook_aux`), so the model's ``state_dict``, checkpoints and
 optimizer groups are exactly those of a run without it.
 """
+import math
 import os
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from einops import rearrange
 from timm.models import create_model
 
 import labram.utils as utils
@@ -48,6 +53,9 @@ logger = utils.get_logger(__name__)
 
 # Rows of the token-to-codebook distance matrix computed at once (x 8192 codes).
 _CHUNK = 16384
+# LaBraM inputs are resampled to 200 Hz; a patch of T samples has FFT bins
+# SAMPLE_RATE_HZ / T apart (1 Hz for the usual 200-sample patch).
+SAMPLE_RATE_HZ = 200.0
 
 
 class CodebookAuxiliary(nn.Module):
@@ -61,7 +69,7 @@ class CodebookAuxiliary(nn.Module):
 
     def __init__(self, tokenizer: nn.Module, amplitude_weight: float = 0.0,
                  embedding_weight: float = 0.0, freq_fraction: float = 0.5,
-                 monitor_every: int = 20):
+                 monitor_every: int = 20, freq_band_hz: Optional[Sequence[float]] = None):
         super().__init__()
         self.encode_task_layer = tokenizer.encode_task_layer
         self.decoder = tokenizer.decoder
@@ -73,6 +81,7 @@ class CodebookAuxiliary(nn.Module):
         self.embedding_weight = float(embedding_weight)
         self.monitor_every = int(monitor_every)
         self.spectral = SpectralReconstructionLoss(LossConfig(freq_fraction=freq_fraction))
+        self.freq_band_hz = tuple(float(f) for f in freq_band_hz) if freq_band_hz else None
         for p in self.parameters():
             p.requires_grad_(False)
         self.active = False
@@ -101,15 +110,38 @@ class CodebookAuxiliary(nn.Module):
             quantized = z + (z_q - z).detach()
         return quantized, loss, idx.view(z.shape[:-1])
 
-    def reconstruction_loss(self, quantized: torch.Tensor, x: torch.Tensor, channel_indices) -> torch.Tensor:
-        """Amplitude loss of the decoder's output for ``quantized`` [B, L, Q]
-        against the spectrum of ``x`` [B, N, A, T] (already preprocessed)."""
+    def band_bins(self, patch_samples: int, n_bins: int) -> Tuple[int, int]:
+        """First and last FFT bin (inclusive) of ``freq_band_hz``."""
+        hz_per_bin = SAMPLE_RATE_HZ / patch_samples
+        lo = int(math.ceil(self.freq_band_hz[0] / hz_per_bin - 1e-9))
+        hi = min(int(math.floor(self.freq_band_hz[1] / hz_per_bin + 1e-9)), n_bins - 1)
+        if not 0 <= lo <= hi:
+            raise ValueError(f"codebook_aux.freq_band_hz={list(self.freq_band_hz)} selects no bin of "
+                             f"the {n_bins} kept ({hz_per_bin:g} Hz per bin)")
+        return lo, hi
+
+    def reconstruction_losses(self, quantized: torch.Tensor, x: torch.Tensor,
+                              channel_indices) -> Tuple[torch.Tensor, torch.Tensor]:
+        """(scored loss, loss over all kept bins) of the decoder's output for
+        ``quantized`` [B, L, Q] against the spectrum of ``x`` [B, N, A, T]
+        (already preprocessed). The scored loss is the band's when
+        ``freq_band_hz`` is set, else the same tensor as the full one."""
         b, n = x.shape[0], x.shape[1]
         grid = quantized.view(b, n, -1, quantized.shape[-1]).permute(0, 3, 1, 2)      # [B, Q, N, A]
         features = self.decoder(grid, channel_indices, return_patch_tokens=True)
-        magnitude = self.decode_task_layer_magnitude(features)
+        magnitude = self.decode_task_layer_magnitude(features).float()
         target, _ = self.spectral.spectrum_targets(x.float())
-        return self.spectral.reconstruction_loss(magnitude.float(), target)
+        target = rearrange(target, 'b n a c -> b (n a) c')
+        squared = (magnitude[..., :target.shape[-1]] - target).pow(2)                  # [B, L, bins]
+        full = squared.mean()
+        if self.freq_band_hz is None:
+            return full, full
+        lo, hi = self.band_bins(x.shape[-1], squared.shape[-1])
+        return squared[..., lo:hi + 1].mean(), full
+
+    def reconstruction_loss(self, quantized: torch.Tensor, x: torch.Tensor, channel_indices) -> torch.Tensor:
+        """The scored amplitude loss (in ``freq_band_hz`` when set)."""
+        return self.reconstruction_losses(quantized, x, channel_indices)[0]
 
     # ------------------------------------------------------- per-step protocol
     def start(self) -> None:
@@ -125,13 +157,13 @@ class CodebookAuxiliary(nn.Module):
         if self.codebook.device != patch_tokens.device:
             self.to(patch_tokens.device)
         quantized, quant, idx = self.quantize(patch_tokens)
-        recon = None
+        recon = full = None
         if self.amplitude_weight > 0:
-            recon = self.reconstruction_loss(quantized, x, channel_indices)
+            recon, full = self.reconstruction_losses(quantized, x, channel_indices)
         elif self._monitor:
             with torch.no_grad():
-                recon = self.reconstruction_loss(quantized, x, channel_indices)
-        self._parts.append((idx.numel(), quant, recon, idx.reshape(-1)))
+                recon, full = self.reconstruction_losses(quantized, x, channel_indices)
+        self._parts.append((idx.numel(), quant, recon, idx.reshape(-1), full))
 
     def finish(self) -> Tuple[Optional[torch.Tensor], Dict[str, float]]:
         """(weighted loss to add or None, logged terms). Groups of one step
@@ -140,14 +172,17 @@ class CodebookAuxiliary(nn.Module):
         parts, self._parts = self._parts, []
         if not parts:
             return None, {}
-        total = sum(n for n, *_ in parts)
-        quant = sum(q * (n / total) for n, q, _, _ in parts)
+        total = sum(p[0] for p in parts)
+        quant = sum(p[1] * (p[0] / total) for p in parts)
         stats = {"aux_quant_loss": float(quant.detach()),
-                 "aux_codes": float(torch.unique(torch.cat([i for *_, i in parts])).numel())}
+                 "aux_codes": float(torch.unique(torch.cat([p[3] for p in parts])).numel())}
         loss = self.embedding_weight * quant if self.embedding_weight > 0 else None
         if parts[0][2] is not None:
-            recon = sum(r * (n / total) for n, _, r, _ in parts)
+            recon = sum(p[2] * (p[0] / total) for p in parts)
             stats["aux_recon_loss"] = float(recon.detach())
+            if self.freq_band_hz is not None:
+                # all kept bins, for comparison with a run scored on all of them
+                stats["aux_recon_full_loss"] = float(sum(p[4].detach() * (p[0] / total) for p in parts))
             if self.amplitude_weight > 0:
                 loss = self.amplitude_weight * recon if loss is None else loss + self.amplitude_weight * recon
         if loss is not None:
@@ -184,9 +219,11 @@ def attach_codebook_aux(model: nn.Module, cfg) -> Optional[CodebookAuxiliary]:
                          f"tokens, the model's are {model.embed_dim}-d")
     aux = CodebookAuxiliary(tokenizer, amplitude_weight=cfg.amplitude_weight,
                             embedding_weight=cfg.embedding_weight,
-                            freq_fraction=cfg.freq_fraction, monitor_every=cfg.monitor_every)
+                            freq_fraction=cfg.freq_fraction, monitor_every=cfg.monitor_every,
+                            freq_band_hz=getattr(cfg, "freq_band_hz", None))
     model.__dict__["codebook_aux"] = aux
     logger.info("codebook_aux attached from %s: amplitude_weight=%g embedding_weight=%g freq_fraction=%g "
-                "(%d codes x %d, all frozen)", cfg.tokenizer_weight, cfg.amplitude_weight,
-                cfg.embedding_weight, cfg.freq_fraction, n_codes, code_dim)
+                "freq_band_hz=%s (%d codes x %d, all frozen)", cfg.tokenizer_weight, cfg.amplitude_weight,
+                cfg.embedding_weight, cfg.freq_fraction, list(aux.freq_band_hz or []) or "all kept bins",
+                n_codes, code_dim)
     return aux

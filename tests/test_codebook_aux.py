@@ -130,6 +130,31 @@ def test_zero_weight_reconstruction_is_monitored_without_gradient(tmp_path):
     assert seen == [True, False, True, False]
 
 
+def test_frequency_band_scores_only_its_bins():
+    """freq_band_hz=[1, 45]: the scored loss is the mean squared error over bins
+    1..45 of the same decoder output and target as the full loss; the target is
+    standardised over all kept bins either way."""
+    from labram import utils
+    torch.manual_seed(0)
+    full_aux, tok = _aux(amplitude_weight=1.0, freq_fraction=0.5)
+    band_aux, _ = _aux(amplitude_weight=1.0, freq_fraction=0.5, freq_band_hz=[1, 45])
+    band_aux.load_state_dict(full_aux.state_dict())
+    ci = utils.get_channel_indices(["FP1", "FP2", "C3", "C4", "O1"])
+    x = torch.randn(2, 5, 4, 200)
+    q, _, _ = full_aux.quantize(torch.randn(2, 5 * 4, 200))
+    full, full_again = full_aux.reconstruction_losses(q, x, ci)
+    assert full is full_again
+    band, band_full = band_aux.reconstruction_losses(q, x, ci)
+    assert torch.allclose(band_full, full, atol=1e-6)
+    grid = q.view(2, 5, -1, q.shape[-1]).permute(0, 3, 1, 2)
+    magnitude = band_aux.decode_task_layer_magnitude(band_aux.decoder(grid, ci, return_patch_tokens=True))
+    target, _ = band_aux.spectral.spectrum_targets(x)
+    target = rearrange(target, "b n a c -> b (n a) c")
+    assert band_aux.band_bins(200, target.shape[-1]) == (1, 45)
+    expected = (magnitude[..., 1:46] - target[..., 1:46]).pow(2).mean()
+    assert torch.allclose(band, expected, atol=1e-6) and not torch.allclose(band, full)
+
+
 def test_config_validation(tmp_path):
     from labram.configs.train_config import CodebookAuxConfig
     CodebookAuxConfig().validate()                                         # off: nothing to check
@@ -140,6 +165,11 @@ def test_config_validation(tmp_path):
     with pytest.raises(ValueError, match="freq_fraction"):
         CodebookAuxConfig(enabled=True, tokenizer_weight="x.pth", amplitude_weight=1.0,
                           freq_fraction=0.0).validate()
+    ok = dict(enabled=True, tokenizer_weight="x.pth", amplitude_weight=1.0)
+    CodebookAuxConfig(**ok, freq_band_hz=[1, 45]).validate()
+    for bad in ([45, 1], [1], [1, 100], [-1, 45]):           # reversed, one value, above the kept 0-99 Hz, negative
+        with pytest.raises(ValueError, match="freq_band_hz"):
+            CodebookAuxConfig(**ok, freq_band_hz=bad).validate()
 
 
 def test_missing_weight_warns_at_build_and_fails_a_training_run(tmp_path):
@@ -160,6 +190,7 @@ def _epochs(out):
 
 
 @pytest.mark.parametrize("weights", [{"codebook_aux.amplitude_weight": 1.0},
+                                     {"codebook_aux.amplitude_weight": 1.0, "codebook_aux.freq_band_hz": [1.0, 45.0]},
                                      {"codebook_aux.embedding_weight": 10.0, "codebook_aux.monitor_every": 1}])
 def test_p4_recipe_with_codebook_aux(tmp_path, weights):
     """Window phase, attention-only epoch (no auxiliary), joint bag phase; the
@@ -185,6 +216,7 @@ def test_p4_recipe_with_codebook_aux(tmp_path, weights):
         assert row["train_aux_quant_loss"] > 0 and row["train_aux_recon_loss"] > 0
         assert row["train_aux_codes"] >= 1 and row["train_aux_task_loss"] > 0
         assert row["train_loss"] == pytest.approx(row["train_aux_task_loss"] + row["train_aux_loss"], rel=1e-3)
+        assert ("train_aux_recon_full_loss" in row) == ("codebook_aux.freq_band_hz" in weights)
     assert not any(k.startswith("train_aux") for k in rows[1])     # attention only: encoder frozen
     (ckpt,) = glob.glob(os.path.join(str(out) + "*", "checkpoint-best.pth"))
     state = torch.load(ckpt, map_location="cpu", weights_only=False)["model"]

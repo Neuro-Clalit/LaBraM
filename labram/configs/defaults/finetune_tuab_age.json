@@ -459,6 +459,7 @@
         "amplitude_weight": 0.0,
         "embedding_weight": 0.0,
         "freq_fraction": 0.5,
+        "freq_band_hz": [],
         "monitor_every": 20
     }
 }

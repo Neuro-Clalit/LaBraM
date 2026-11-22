@@ -109,6 +109,9 @@ PHASED4=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=17
 # (scripts/fit_codebook_projection.py), so both runs share it and FOLD must stay 0.
 #   P4R: + 1.0 x amplitude reconstruction on the half spectrum (0-99 Hz)
 #   P4Q: + 10 x quantization loss (the reconstruction is logged every 20 steps, no gradient)
+#   P4RB: P4R scored on the 1-45 Hz bins only (P4RB0: 0-45 Hz, with the 0 Hz bin); the
+#         target stays standardised over 0-99 Hz, the full-band loss is logged alongside.
+#         Job capped at 24 h (P4R/P4Q sat in SageMaker's final upload for hours).
 AUX=(codebook_aux.enabled=true codebook_aux.freq_fraction=0.5
   codebook_aux.tokenizer_weight=${AUX_WEIGHT:-s3://eeg-data-public/HEEDB/v4.1/derived/models/codebook_aux/vqnsp_proj_labram_base_cls19_fold0.pth})
 # The window phase streams (FastFile) recording by recording: random single-window
@@ -147,6 +150,8 @@ declare -A JOBS=(
   [P3_L1]="${PHASED3[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
   [P4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
   [P4R_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.amplitude_weight=1.0"
+  [P4RB_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.amplitude_weight=1.0 codebook_aux.freq_band_hz=[1.0,45.0] sagemaker.max_run_sec=86400"
+  [P4RB0_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.amplitude_weight=1.0 codebook_aux.freq_band_hz=[0.0,45.0] sagemaker.max_run_sec=86400"
   [P4Q_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.embedding_weight=10.0"
   [P_L1_K4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.bag_size=4 trainer.batch_size=64"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"

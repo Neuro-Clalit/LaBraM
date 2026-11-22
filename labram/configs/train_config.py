@@ -463,7 +463,9 @@ class CodebookAuxConfig(ConfigBase):
     * ``amplitude_weight`` x the amplitude reconstruction loss: MSE between the
       decoder's output and the std-normalised FFT amplitude of the input patch,
       on the first ``freq_fraction`` of the FFT bins (0.5 = the one-sided
-      spectrum, 0-99 Hz).
+      spectrum, 0-99 Hz). ``freq_band_hz = [lo, hi]`` scores only the bins of
+      that band (1 Hz per bin); the target is still standardised over all
+      kept bins, the scale the frozen decoder was trained on. Empty = all.
 
     ``tokenizer_weight`` is a VQNSP checkpoint whose projection layer
     (``encode_task_layer``) was fitted to the encoder the run starts from
@@ -478,6 +480,7 @@ class CodebookAuxConfig(ConfigBase):
     amplitude_weight: float = 0.0
     embedding_weight: float = 0.0
     freq_fraction: float = 0.5
+    freq_band_hz: List[float] = field(default_factory=list)
     monitor_every: int = 20
 
     def validate(self) -> None:
@@ -492,6 +495,12 @@ class CodebookAuxConfig(ConfigBase):
             raise ValueError("codebook_aux.enabled needs amplitude_weight > 0 or embedding_weight > 0")
         if not 0 < self.freq_fraction <= 1:
             raise ValueError("codebook_aux.freq_fraction must be in (0, 1]")
+        if self.freq_band_hz:
+            top = 200 * self.freq_fraction - 1          # highest kept bin, Hz (1 s patches at 200 Hz)
+            if (len(self.freq_band_hz) != 2 or not 0 <= self.freq_band_hz[0] < self.freq_band_hz[1]
+                    or self.freq_band_hz[1] > top):
+                raise ValueError(f"codebook_aux.freq_band_hz must be [lo, hi] with 0 <= lo < hi <= {top:g} "
+                                 f"(the kept bins), got {self.freq_band_hz}")
         if self.monitor_every < 0:
             raise ValueError("codebook_aux.monitor_every must be >= 0")
 
