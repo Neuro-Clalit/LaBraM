@@ -11,17 +11,23 @@ export OMP_NUM_THREADS=1 PYTHONPATH=.
 PY=${PY:-/data/code/LaBraM/.venv/bin/python}
 ROOT=${CAND_ROOT:-/data/runs/heedb/feature_candidates/runs}
 E=/data/datasets/EEG-public; C=/data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1
-fetch() {   # <name> <job>: the job's output folder (run_config.yaml, log.txt, checkpoint-best.pth)
+fetch() {   # <name> <job>: the job's run folder (run_config.yaml, log.txt, checkpoint-best.pth) from its checkpoint S3 folder
   local name=$1 job=$2 dir=$ROOT/$1
-  [[ -f $dir/checkpoint-best.pth ]] && return
-  mkdir -p "$dir"
-  local art; art=$(aws sagemaker describe-training-job --training-job-name "$job" --query ModelArtifacts.S3ModelArtifacts --output text)
-  aws s3 cp --only-show-errors "$art" "$dir/model.tar.gz"
-  tar -xzf "$dir/model.tar.gz" -C "$dir" && rm "$dir/model.tar.gz"
-  local best; best=$(find "$dir" -name checkpoint-best.pth | head -1)
-  [[ -n $best ]] || { echo "$job: no checkpoint-best.pth in $art" >&2; return 1; }
-  local src; src=$(dirname "$best")
-  [[ $src == "$dir" ]] || cp -n "$src"/{checkpoint-best.pth,log.txt,run_config.yaml} "$dir"/
+  [[ -f $dir/checkpoint-best.pth ]] && grep -q "Age target normalization" "$dir/log/run.log" 2>/dev/null && return
+  mkdir -p "$dir/log"
+  local ck; ck=$(aws sagemaker describe-training-job --training-job-name "$job" --query CheckpointConfig.S3Uri --output text)
+  for f in checkpoint-best.pth log.txt run_config.yaml log/run.log fold_metrics.json; do
+    aws s3 cp --only-show-errors "${ck%/}/cv/fold_0/$f" "$dir/$f" || [[ $f == fold_metrics.json ]]
+  done
+  # the job's run.log in S3 can lack the start-up lines; the target normalisation (needed by
+  # --pred-stats-from-log) is then taken from the job's CloudWatch log
+  if ! grep -q "Age target normalization" "$dir/log/run.log"; then
+    local stream; stream=$(aws logs describe-log-streams --log-group-name /aws/sagemaker/TrainingJobs \
+      --log-stream-name-prefix "$job" --query 'logStreams[0].logStreamName' --output text)
+    aws logs get-log-events --log-group-name /aws/sagemaker/TrainingJobs --log-stream-name "$stream" \
+      --start-from-head --limit 2000 --query 'events[].message' --output text | tr '\t' '\n' \
+      | grep -m1 "Age target normalization" >> "$dir/log/run.log" || true   # grep -m1 closes the pipe early
+  fi
 }
 BASE_JOB=$1; shift
 fetch P4F_L1 "$BASE_JOB"
