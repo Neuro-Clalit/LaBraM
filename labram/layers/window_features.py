@@ -62,6 +62,9 @@ N_CHANNELS = 19
 FIXED_EXTRA = ("microstates", "aec", "complexity")
 LEARNED_EXTRA = ("green",)
 N_MICROSTATES = 5
+# The fixed families of the base vector (mil.feature_families; empty = all): per channel
+# spectral (17), 1 Hz bins (44) and time domain (7), then band covariances and connectivity.
+FAMILIES = ("spectral", "bins", "time", "covariance", "connectivity")
 N_EXTRA = {"microstates": 3 * N_MICROSTATES + N_MICROSTATES * (N_MICROSTATES - 1) + 1,
            "aec": 5 * 171, "complexity": N_CHANNELS * 6}
 
@@ -91,9 +94,13 @@ class HandcraftedWindowFeatures(nn.Module):
     CHUNK = 256
 
     def __init__(self, fs: float = 200.0, seg_sec: float = 2.0, lo: float = 1.0, hi: float = 45.0,
-                 shrink: float = 1e-3, extra: Sequence[str] = ()):
+                 shrink: float = 1e-3, extra: Sequence[str] = (), families: Sequence[str] = ()):
         super().__init__()
         self.extra = tuple(b for b in FIXED_EXTRA if b in extra)
+        unknown = set(families) - set(FAMILIES)
+        if unknown:
+            raise ValueError(f"unknown feature families {sorted(unknown)}; expected some of {FAMILIES}")
+        self.families = tuple(f for f in FAMILIES if f in families) or FAMILIES
         self.fs, self.nper, self.lo, self.hi, self.shrink = fs, int(seg_sec * fs), lo, hi, shrink
         self.register_buffer("hann", torch.hann_window(self.nper, periodic=True), persistent=False)
         f = torch.fft.rfftfreq(self.nper, 1.0 / fs)
@@ -127,7 +134,20 @@ class HandcraftedWindowFeatures(nn.Module):
         self.n_cov = len(FILTERBANK) * iu.shape[1]
         self.n_conn = len(BANDS) * 2 * self.pairs.shape[1]
         self.n_extra = {b: N_EXTRA[b] for b in self.extra}
-        self.n_features = self.n_core + self.n_cov + self.n_conn + sum(self.n_extra.values())
+        # columns kept from the full vector (all of the optional blocks, the chosen base families)
+        per_channel = {"spectral": range(0, 17), "bins": range(17, 61), "time": range(61, 68)}
+        keep = torch.zeros(self.n_core + self.n_cov + self.n_conn + sum(self.n_extra.values()), dtype=torch.bool)
+        for f, ks in per_channel.items():
+            if f in self.families:
+                for c in range(N_CHANNELS):
+                    keep[[c * 68 + k for k in ks]] = True
+        if "covariance" in self.families:
+            keep[self.n_core:self.n_core + self.n_cov] = True
+        if "connectivity" in self.families:
+            keep[self.n_core + self.n_cov:self.n_core + self.n_cov + self.n_conn] = True
+        keep[self.n_core + self.n_cov + self.n_conn:] = True
+        self.register_buffer("keep", keep, persistent=False)
+        self.n_features = int(keep.sum())
         if "microstates" in self.extra:     # fitted scalp maps, unit norm, zero mean over channels
             self.register_buffer("ms_maps", torch.zeros(N_MICROSTATES, N_CHANNELS))
         # fitted on training windows, saved with the checkpoint
@@ -330,7 +350,7 @@ class HandcraftedWindowFeatures(nn.Module):
         for i in range(0, max(x.shape[0], 1), self.CHUNK):
             xc, psd, csd = self._spectra(x[i:i + self.CHUNK].float())
             parts = [self._core(xc, psd).flatten(1), self._tangent(self._cov(csd)), self._conn(psd, csd)]
-            rows.append(torch.cat(parts + self._extra(xc), 1))
+            rows.append(torch.cat(parts + self._extra(xc), 1)[:, self.keep])
         return torch.nan_to_num(torch.cat(rows), nan=0.0, posinf=0.0, neginf=0.0)
 
     @torch.no_grad()
@@ -521,13 +541,14 @@ class WindowFeatureBranch(nn.Module):
     """
 
     def __init__(self, dim: int = 64, dropout: float = 0.1, input_scale: float = 100.0,
-                 extra: Sequence[str] = (), recording_features: int = 0, norm: str = "none"):
+                 extra: Sequence[str] = (), recording_features: int = 0, norm: str = "none",
+                 families: Sequence[str] = ()):
         super().__init__()
         unknown = set(extra) - set(FIXED_EXTRA) - set(LEARNED_EXTRA)
         if unknown:
             raise ValueError(f"unknown window feature blocks {sorted(unknown)}; "
                              f"expected some of {FIXED_EXTRA + LEARNED_EXTRA}")
-        self.extract = HandcraftedWindowFeatures(extra=extra)
+        self.extract = HandcraftedWindowFeatures(extra=extra, families=families)
         self.proj = nn.Linear(self.extract.n_features, dim)
         nn.init.normal_(self.proj.weight, std=self.extract.n_features ** -0.5)    # unit-scale output at the start
         nn.init.zeros_(self.proj.bias)

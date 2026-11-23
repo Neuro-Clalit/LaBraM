@@ -237,3 +237,15 @@ def test_learned_filterbank_handles_a_single_window_in_training():
     assert out.shape == (1, 5) and torch.isfinite(out).all()
     z = (g.vectors(xc) - g.run_mean) / torch.sqrt(g.run_var + 1e-5)
     assert z.mean(0).abs().max() < 1e-3                                # initialised on these windows
+
+
+def test_feature_families_select_columns_of_the_full_vector():
+    x = torch.from_numpy(_windows(n=4, seed=7))
+    full = HandcraftedWindowFeatures().vector(x)
+    slim = HandcraftedWindowFeatures(families=("bins", "covariance", "connectivity"))
+    v = slim.vector(x)
+    assert slim.n_features == 19 * 44 + 1026 + 1710 == v.shape[1]
+    torch.testing.assert_close(v[:, :44], full[:, 17:61])                     # channel 1's bins come first
+    torch.testing.assert_close(v[:, 19 * 44:], full[:, 19 * 68:])            # covariance + connectivity
+    with pytest.raises(ValueError):
+        HandcraftedWindowFeatures(families=("alpha",))

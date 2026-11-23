@@ -122,6 +122,11 @@ declare -A JOBS=(
   [P4F_CPLX_L1]="$P4ARGS mil.feature_extra=[\"complexity\"]"
   [P4F_ALL_L1]="$P4ARGS mil.feature_extra=[\"green\",\"microstates\",\"aec\",\"complexity\"] mil.recording_features=slow_dynamics_v1.npz"
   [P4F_LN_L1]="$P4ARGS mil.feature_norm=layernorm"
+  # The recommended combination after the fold-0 candidate round: the handcrafted families the
+  # trained model relies on (1 Hz bins, band covariances, connectivity), learned filter-bank
+  # covariances and the layer-normalised feature part; RECC adds the complexity block.
+  [P4F_REC_L1]="$P4ARGS mil.feature_families=[\"bins\",\"covariance\",\"connectivity\"] mil.feature_extra=[\"green\"] mil.feature_norm=layernorm"
+  [P4F_RECC_L1]="$P4ARGS mil.feature_families=[\"bins\",\"covariance\",\"connectivity\"] mil.feature_extra=[\"green\",\"complexity\"] mil.feature_norm=layernorm"
   [W0]="${WARM[*]} ${WINDOW[*]}"
   [W1]="${WARM[*]} ${BAG[*]} mil.pool=mean mil.freeze_encoder_epochs=1"
   [W2]="${WARM[*]} ${BAG[*]} mil.pool=gated mil.score_input=q mil.freeze_encoder_epochs=1"

@@ -444,6 +444,9 @@ class MILConfig(ConfigBase):
     recording_features: str = ""
     # "layernorm": normalise the feature part of the window vector before it joins the class token
     feature_norm: str = "none"
+    # The fixed families of the base vector (empty = all): spectral, bins, time, covariance,
+    # connectivity (labram/layers/window_features.py::FAMILIES).
+    feature_families: List[str] = field(default_factory=list)
 
     def validate(self) -> None:
         if not self.enabled:
@@ -454,6 +457,9 @@ class MILConfig(ConfigBase):
             raise ValueError("mil.feature_dim >= 1, 0 <= feature_dropout < 1 and feature_fit_batches >= 1 are required")
         if self.feature_norm not in ("none", "layernorm"):
             raise ValueError(f"mil.feature_norm must be none or layernorm, got {self.feature_norm!r}")
+        bad_f = set(self.feature_families) - {"spectral", "bins", "time", "covariance", "connectivity"}
+        if bad_f:
+            raise ValueError(f"mil.feature_families: unknown families {sorted(bad_f)}")
         bad = set(self.feature_extra) - {"microstates", "aec", "complexity", "green"}
         if bad:
             raise ValueError(f"mil.feature_extra: unknown blocks {sorted(bad)}")

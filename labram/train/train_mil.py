@@ -91,7 +91,8 @@ def attach_mil(model: torch.nn.Module, mil_cfg) -> torch.nn.Module:
         model.window_feat = WindowFeatureBranch(mil_cfg.feature_dim, mil_cfg.feature_dropout,
                                                 extra=getattr(mil_cfg, "feature_extra", []) or [],
                                                 recording_features=n_rec,
-                                                norm=getattr(mil_cfg, "feature_norm", "none"))
+                                                norm=getattr(mil_cfg, "feature_norm", "none"),
+                                                families=getattr(mil_cfg, "feature_families", []) or [])
         head = torch.nn.Linear(old.in_features + model.window_feat.out_dim, old.out_features)
         with torch.no_grad():                    # class-token part as built; feature part at the same scale
             head.weight[:, :old.in_features] = old.weight
