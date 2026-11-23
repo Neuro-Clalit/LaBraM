@@ -450,5 +450,16 @@
         "window_loss_weight": 0.0,
         "bag_repeats": 1,
         "freeze_head": false
+    },
+    "codebook_aux": {
+        "py/object": "labram.configs.train_config.CodebookAuxConfig",
+        "enabled": false,
+        "tokenizer_model": "vqnsp_encoder_base_decoder_3x200x12",
+        "tokenizer_weight": "",
+        "amplitude_weight": 0.0,
+        "embedding_weight": 0.0,
+        "freq_fraction": 0.5,
+        "freq_band_hz": [],
+        "monitor_every": 20
     }
 }

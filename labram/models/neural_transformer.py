@@ -362,6 +362,7 @@ class NeuralTransformer(NeuralTransformerBase):
 
     def forward_features(self, x, channel_indices=None, return_patch_tokens=False, return_all_tokens=False, **kwargs):
         session = kwargs.pop('session', None)
+        x_in = x
         x = self._embed_inputs(x, channel_indices=channel_indices)
         if self.session_mode == "tokens":
             # Appended after the patch tokens: they join the mean pool / the
@@ -372,6 +373,13 @@ class NeuralTransformer(NeuralTransformerBase):
             x = blk(x, rel_pos_bias=None)
 
         x = self.norm(x)
+        # codebook_aux: a training step that asked for it (aux.start()) gets the
+        # patch tokens of every encoder forward that carries gradient.
+        aux = self.__dict__.get('codebook_aux')
+        if aux is not None and aux.active and torch.is_grad_enabled():
+            tokens = x[:, 1:1 + x_in.shape[1] * x_in.shape[2]]
+            aux.accumulate(self.fc_norm(tokens) if self.fc_norm is not None else tokens,
+                           self.maybe_preprocess_input(x_in), channel_indices)
         if self.fc_norm is not None:
             if return_all_tokens:
                 return self.fc_norm(x)

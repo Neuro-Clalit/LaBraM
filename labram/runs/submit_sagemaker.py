@@ -183,7 +183,8 @@ def stage_s3_inputs(config: RunConfig, phase: str = 'finetune') -> StagedInputs:
     Handled: ``data.data_path`` -> ``dataset`` channel (TUAB/TUEV loaders use
     ``os.listdir``, so the data must be a mount, not an S3 URI);
     ``finetune_checkpoint.finetune`` -> ``pretrained`` and
-    ``model.codebook_reg.tokenizer_weight`` -> ``tokenizer`` (finetune); and
+    ``model.codebook_reg.tokenizer_weight`` -> ``tokenizer`` and (when enabled)
+    ``codebook_aux.tokenizer_weight`` -> ``codebook_aux`` (finetune); and
     ``model.tokenizer.tokenizer_weight`` -> ``tokenizer`` (pretrain, the frozen
     VQNSP). ``data.split_json`` is left as an ``s3://`` URI — it is read directly
     via the shared FileSystem in-container, no channel needed.
@@ -221,6 +222,11 @@ def stage_s3_inputs(config: RunConfig, phase: str = 'finetune') -> StagedInputs:
             cr.tokenizer_weight = _stage_weight_file(
                 staged, 'tokenizer', cr.tokenizer_weight,
                 'model.codebook_reg.tokenizer_weight', mirrors)
+        aux = getattr(config, 'codebook_aux', None)
+        if aux is not None and getattr(aux, 'enabled', False) and getattr(aux, 'tokenizer_weight', ''):
+            aux.tokenizer_weight = _stage_weight_file(
+                staged, 'codebook_aux', aux.tokenizer_weight,
+                'codebook_aux.tokenizer_weight', mirrors)
         _stage_test_sets(staged, config)
     elif phase == 'pretrain':
         # Masked pre-training loads a frozen VQNSP tokenizer via torch.load, so

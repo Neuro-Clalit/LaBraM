@@ -46,6 +46,7 @@ from labram.configs.train_config import (
     AugmentConfig,
     ChannelDropConfig,
     MILConfig,
+    CodebookAuxConfig,
     OutputConfig,
     ShutdownConfig,
     TrainerConfig,
@@ -208,6 +209,9 @@ class FinetuneRunConfig(RunConfig):
     channel_drop: ChannelDropConfig = field(default_factory=ChannelDropConfig)
     # Recording-level multiple-instance (bag) training (opt-in).
     mil: MILConfig = field(default_factory=MILConfig)
+    # Auxiliary quantization / spectral-reconstruction losses from a frozen
+    # VQNSP codebook + decoder on the plain fine-tune model (opt-in).
+    codebook_aux: CodebookAuxConfig = field(default_factory=CodebookAuxConfig)
     # K-fold cross-validation (opt-in). Disabled -> single train/val/test run.
     cross_validation: CrossValidationConfig = field(default_factory=CrossValidationConfig)
     optimizer: OptimizerConfig = field(

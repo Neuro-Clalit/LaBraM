@@ -16,6 +16,7 @@
 #   ONLY="CV_L1 CV_W4 CV_W7" FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh   # one-step CV fold 0
 #   scripts/mil_runs/submit_phased_cv.sh             # phased P_* jobs, all 5 folds
 #   RESUME=s3://.../<job>-<time>/ ONLY=P_W7 FOLD=1 ... # continue a failed job from its checkpoints
+#   ONLY="P4R_L1 P4Q_L1" FOLD=0 SPOT=false WORKERS=24 scripts/mil_runs/submit_grid.sh  # P4 + codebook_aux
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PY=${PY:-/data/code/LaBraM/.venv/bin/python}
@@ -101,6 +102,18 @@ PHASED4=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=17
   mil.freeze_encoder_epochs=1 mil.freeze_head=true mil.window_loss_weight=0.5 mil.bag_repeats=2
   evaluation.train_eval_every=4 sagemaker.max_run_sec=259200 sagemaker.max_wait_min=5760
   sagemaker.checkpoint_s3_uri=s3://sagemaker-us-east-1-574441342949/labram/checkpoints)
+# P4 + one auxiliary codebook term (codebook_aux, labram/models/codebook_aux.py): the
+# encoder's patch tokens go through a frozen projection layer, the frozen VQNSP codebook
+# and (P4R) its frozen decoder, in the window phase and the joint phase. The projection
+# layer was fitted once on fold 0's training recordings with the pretrained encoder frozen
+# (scripts/fit_codebook_projection.py), so both runs share it and FOLD must stay 0.
+#   P4R: + 1.0 x amplitude reconstruction on the half spectrum (0-99 Hz)
+#   P4Q: + 10 x quantization loss (the reconstruction is logged every 20 steps, no gradient)
+#   P4RB: P4R scored on the 1-45 Hz bins only (P4RB0: 0-45 Hz, with the 0 Hz bin); the
+#         target stays standardised over 0-99 Hz, the full-band loss is logged alongside.
+#         Job capped at 24 h (P4R/P4Q sat in SageMaker's final upload for hours).
+AUX=(codebook_aux.enabled=true codebook_aux.freq_fraction=0.5
+  codebook_aux.tokenizer_weight=${AUX_WEIGHT:-s3://eeg-data-public/HEEDB/v4.1/derived/models/codebook_aux/vqnsp_proj_labram_base_cls19_fold0.pth})
 # The window phase streams (FastFile) recording by recording: random single-window
 # reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
 # mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
@@ -136,6 +149,10 @@ declare -A JOBS=(
   [P2_L1]="${PHASED2[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
   [P3_L1]="${PHASED3[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
   [P4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h"
+  [P4R_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.amplitude_weight=1.0"
+  [P4RB_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.amplitude_weight=1.0 codebook_aux.freq_band_hz=[1.0,45.0] sagemaker.max_run_sec=86400"
+  [P4RB0_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.amplitude_weight=1.0 codebook_aux.freq_band_hz=[0.0,45.0] sagemaker.max_run_sec=86400"
+  [P4Q_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.embedding_weight=10.0"
   [P_L1_K4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.bag_size=4 trainer.batch_size=64"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"

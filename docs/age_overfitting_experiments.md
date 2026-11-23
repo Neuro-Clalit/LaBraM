@@ -455,7 +455,9 @@ is 4 in both ClearML and the local log.
 the fit (Table 8.2), but val is unchanged (−0.05, −0.10, +0.01) and test is worse
 (+0.24, +0.14, +0.36). By epoch 14, train MAE still falls to 1.72 (DX1,
 ClearML), 1.26 (DX4) and 1.69 (DX4b, local logs), against 1.23 for D. The
-memorization is at best delayed, not prevented.
+memorization is at best delayed, not prevented. The same terms on the Temple + Harvard
+P4 model (`codebook_aux`, quantization and reconstruction on 0–99, 1–45 and
+0–45 Hz) gave the same verdict: [`codebook_aux_p4_results.md`](codebook_aux_p4_results.md).
 
 ## 9. Input and augmentation: random crop, window length, gradient clipping
 

@@ -37,6 +37,7 @@ import labram.utils as utils
 from labram.layers.bag_pool import MILPooling, attention_entropy_gap
 from labram.losses.outputs import LossBreakdown
 from labram.losses.regression import regression_output, regression_target
+from labram.models.codebook_aux import get_codebook_aux
 from labram.optim_factory import apply_lr_wd_schedule, optimizer_update
 from labram.train.augment import augment_batch
 from labram.train.channel_drop import ChannelDropper
@@ -242,6 +243,7 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
     if frozen:
         logger.info("MIL epoch %d: encoder frozen (%s only)", epoch, "pool" if head_frozen else "pool + head")
     retention = mil_cfg.retention_weight > 0 and not frozen
+    codebook_aux = get_codebook_aux(model)
     window_loss = getattr(mil_cfg, "window_loss_weight", 0.0) > 0
     ref = (_reference_encoder(model, os.path.join(out_dir, "retention_reference.pth") if out_dir else None)
            if mil_cfg.retention_weight > 0 else None)
@@ -266,6 +268,8 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
             perm = torch.randperm(y.shape[0], device=device)
             bag["mix"] = (perm, lam)
             y = lam * y + (1 - lam) * y[perm]
+        if codebook_aux is not None and not frozen:
+            codebook_aux.start()
         with torch.amp.autocast(device.type, enabled=device.type == "cuda"):
             out, alpha, h = model(x4, ci, bag=bag)
             loss, target = _bag_loss(criterion, out, y)
@@ -284,6 +288,13 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
                     _, _, h_ref = ref(x4, ci, bag={**bag, "mix": None, "no_grad_encoder": True})
                 ret_loss = F.mse_loss(h.float(), h_ref.float())
                 loss = loss + mil_cfg.retention_weight * ret_loss
+        # codebook_aux: terms of this step's window encodings (trained-encoder epochs).
+        aux_stats = {}
+        if codebook_aux is not None and not frozen:
+            aux_loss, aux_stats = codebook_aux.finish()
+            aux_stats["aux_task_loss"] = float(loss.detach())
+            if aux_loss is not None:
+                loss = loss + aux_loss
         loss_value = loss.item()
         if not math.isfinite(loss_value):
             logger.error("Loss is %s, stopping training", loss_value)
@@ -300,6 +311,8 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
         mae = float((pred - tgt).abs().mean()) * std
         metric_logger.update(loss=loss_value, mae=mae, attn_entropy_gap=float(ent),
                              attn_max=float(alpha.max(-1).values.mean()))
+        if aux_stats:
+            metric_logger.update(**aux_stats)
         if ret_loss is not None:
             metric_logger.update(retention_loss=float(ret_loss))
         if win_loss is not None:
@@ -310,6 +323,8 @@ def train_one_epoch_bags(model, criterion, data_loader, optimizer, device, epoch
         if log_writer is not None:
             log_writer.update(loss=loss_value, head="loss")
             log_writer.update(mae=mae, attn_entropy_gap=float(ent), head="mil")
+            if aux_stats:
+                log_writer.update(**aux_stats, head="codebook_aux")
             log_writer.set_step()
     metric_logger.synchronize_between_processes()
     logger.info("Averaged stats: %s", metric_logger)
