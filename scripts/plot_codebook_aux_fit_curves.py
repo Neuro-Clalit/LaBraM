@@ -12,6 +12,8 @@ like validation (``train_eval``, no mixup), every 4 epochs and at the last; plus
 the running training MAE of each epoch (mixup targets; windows in epochs 0-7,
 bags after). MSE = RMSE^2 of the recording-level predictions (years^2). Runs are
 coloured in the order given (categorical slots 1-5 of the reference palette).
+The figures carry no title: the doc that shows them (docs/codebook_aux_p4_results.md)
+numbers and titles them in its own headings.
 """
 import argparse
 import csv
@@ -106,8 +108,6 @@ for ax in (b, c):
 for ax in axes.flat:
     phases(ax)
 legend(fig, runs, 1.045)
-fig.suptitle("Figure 1. MSE by split over epochs: " + " vs ".join(runs), x=0.01, ha="left",
-             y=1.085, fontsize=12, fontweight="semibold")
 fig.savefig(f"{OUT}/fig1_mse_by_split.png", dpi=200, bbox_inches="tight")
 
 # ---------------------------------------------------------------- Figure 2
@@ -132,8 +132,6 @@ style_key = [Line2D([], [], color=INK2, linestyle=s, marker=m, markersize=5, mar
              for s, m, lab in (("-", None, "validation"), ("--", None, "test"),
                                (":", "o", "training recordings (clean)"))]
 fig.legend(handles=style_key, loc="upper center", ncol=3, frameon=False, bbox_to_anchor=(0.5, 1.02))
-fig.suptitle("Figure 2. Training vs validation vs test MSE, one panel per run", x=0.01, ha="left",
-             y=1.04, fontsize=12, fontweight="semibold")
 fig.savefig(f"{OUT}/fig2_mse_per_run.png", dpi=200, bbox_inches="tight")
 
 # ---------------------------------------------------------------- Figure 3
@@ -151,8 +149,6 @@ for ax in axes:
     phases(ax)
 a.text(8.6, 9.6, "running MAE: mixup targets;\nwindows in 0-7, bags from 8", fontsize=8, color=MUTED, va="top")
 legend(fig, runs, 1.1)
-fig.suptitle("Figure 3. MAE every epoch, including the running training error", x=0.01, ha="left",
-             y=1.2, fontsize=12, fontweight="semibold")
 fig.savefig(f"{OUT}/fig3_mae_running.png", dpi=200, bbox_inches="tight")
 
 # ---------------------------------------------------------------- Figure 4
@@ -179,8 +175,6 @@ if recon_runs:
     for ax in axes:
         phases(ax)
     legend(fig, recon_runs, 1.1)
-    fig.suptitle("Figure 4. Reconstruction terms during training (epoch means, drop-path on)", x=0.01,
-                 ha="left", y=1.2, fontsize=12, fontweight="semibold")
     fig.savefig(f"{OUT}/fig4_reconstruction_terms.png", dpi=200, bbox_inches="tight")
 
 # ---------------------------------------------------------------- table
