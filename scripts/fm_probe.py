@@ -76,12 +76,19 @@ def recording_features(cache_dir: str, split: str, kind: str = "mean") -> pd.Dat
     (``mean``) or mean and standard deviation over windows (``mean_std``);
     columns ``age``, ``dataset``, ``cohort`` and ``n_windows`` are appended."""
     d = os.path.join(cache_dir, split)
-    h = np.load(os.path.join(d, "h.npy")).astype(np.float64)
+    # Memory-mapped: a per-channel cache of the training split is tens of GB.
+    h = np.load(os.path.join(d, "h.npy"), mmap_mode="r")
     meta = pd.read_parquet(os.path.join(d, "meta.parquet"))
     groups = meta.groupby("recording", sort=True).indices
     stems = list(groups)
-    mean = np.stack([h[groups[s]].mean(0) for s in stems])
-    feats = mean if kind == "mean" else np.hstack([mean, np.stack([h[groups[s]].std(0) for s in stems])])
+    mean = np.empty((len(stems), h.shape[1]))
+    std = np.empty_like(mean) if kind == "mean_std" else None
+    for i, s in enumerate(stems):
+        rows = np.asarray(h[np.sort(groups[s])], dtype=np.float64)
+        mean[i] = rows.mean(0)
+        if std is not None:
+            std[i] = rows.std(0)
+    feats = mean if std is None else np.hstack([mean, std])
     out = pd.DataFrame(feats, index=stems)
     first = meta.groupby("recording", sort=True).first()
     out["age"], out["dataset"], out["cohort"] = first["age"], first["dataset"], first["cohort"]
