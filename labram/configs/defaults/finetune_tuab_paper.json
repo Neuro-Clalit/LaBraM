@@ -60,6 +60,11 @@
         "task": "classification",
         "target_stats": null,
         "trainable_prefixes": [],
+        "encoder": {
+            "readout": "",
+            "input_norm": "none",
+            "clip_sd": 15.0
+        },
         "codebook_reg": {
             "py/object": "labram.configs.model_config.CodebookRegConfig",
             "enabled": false,

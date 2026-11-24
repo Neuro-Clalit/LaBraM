@@ -9,7 +9,6 @@ import os
 import numpy as np
 import torch
 
-from timm.models import create_model
 from timm.utils import ModelEma
 
 import labram.models.registry  # noqa: F401
@@ -25,7 +24,6 @@ from labram.data.window_selection import (
     enable_session_features,
     train_window_ages,
 )
-from labram.layers.lora import inject_lora, mark_only_lora_trainable
 from labram.losses import (
     AbnormalConditionedAgeCriterion, CodebookRegularizedCriterion, LossConfig, MultiTaskAgeCriterion,
     SessionFeatureAgeCriterion,
@@ -34,14 +32,13 @@ from labram.losses.regression import downstream_term_name
 from labram.configs.run_configs import FinetuneRunConfig
 from labram.configs.utils_conf import add_override_arg, parse_overrides
 from labram.train.train_finetune import evaluate, train_loop
-from labram.runs.codebook_setup import (
-    CodebookRegLayerAssigner, build_codebook_classifier, loss_config_from_codebook_reg,
-)
+from labram.runs.codebook_setup import CodebookRegLayerAssigner, loss_config_from_codebook_reg
 from labram.runs.finetune_setup import (
     build_dataloaders, build_samplers, build_test_set_loaders, build_train_eval_loader,
     enable_window_ids, freeze_except,
-    load_finetune_checkpoint, required_time_patches, subset_for_debug,
+    load_finetune_checkpoint, subset_for_debug,
 )
+from labram.runs.model_factory import build_finetune_model
 from labram.optim_factory import (
     LayerDecayValueAssigner, create_optimizer, get_parameter_groups,
     log_trainable_parameters,
@@ -79,21 +76,6 @@ def _check_mil_supported(config, is_regression_task: bool) -> None:
         raise ValueError("mil.enabled works on 10 s windows (data.window_sec=10)")
 
 
-def _check_codebook_aux_supported(config, time_patches: int) -> None:
-    """``codebook_aux`` reads the patch tokens of the plain encoder."""
-    config.codebook_aux.validate()
-    m = config.model
-    if m.codebook_reg.enabled:
-        raise ValueError("codebook_aux and model.codebook_reg are two ways to add the same losses: enable one")
-    if m.session_features != "off" or m.age_input != "off":
-        raise ValueError("codebook_aux is not supported with session features or age_input")
-    if config.trainer.enable_deepspeed:
-        raise ValueError("codebook_aux is not supported with DeepSpeed")
-    if time_patches > 16:
-        raise ValueError("codebook_aux needs windows of at most 16 patches: the VQNSP decoder "
-                         "has a fixed 16-patch time embedding")
-
-
 def _bag_collate():
     from labram.data.bags import collate_bags
     return collate_bags
@@ -121,56 +103,8 @@ def _bag_train_eval_loader(dataset_train_windows, config, pin_memory: bool, dist
 
 
 def get_model(config: FinetuneRunConfig):
-    time_patches = required_time_patches(config.data)
-    if config.model.codebook_reg.enabled:
-        if time_patches > 16:
-            raise ValueError(
-                "data.window_sec > 16 is not supported with model.codebook_reg: the "
-                "grafted VQNSP decoder has a fixed 16-patch time embedding")
-        return build_codebook_classifier(config)
-    m = config.model
-    model = create_model(
-        m.model, pretrained=False,
-        num_classes=m.nb_classes, drop_rate=m.drop,
-        drop_path_rate=m.drop_path, attn_drop_rate=m.attn_drop_rate,
-        use_mean_pooling=m.use_mean_pooling, init_scale=m.init_scale,
-        concat_cls_token=m.concat_cls_token,
-        head_type=m.head_type, attention_head=m.attention_head, mlp_head=m.mlp_head,
-        multitask_head=m.multitask_head,
-        condition_on_abnormal=m.condition_on_abnormal,
-        abnormal_embed_dim=m.abnormal_embed_dim,
-        # model.age_input=tokens reuses the session-token path: one [1, 1] group.
-        session_features="tokens" if m.age_input == "tokens" else m.session_features,
-        session_feature_groups=[[1, 1]] if m.age_input == "tokens" else m.session_feature_groups,
-        session_feature_drop=m.session_feature_drop,
-        session_feature_norm=m.session_feature_norm,
-        session_token_gain=m.session_token_gain,
-        session_head_dim=m.session_head_dim,
-        use_rel_pos_bias=m.rel_pos_bias, use_abs_pos_emb=m.abs_pos_emb,
-        init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
-        labram_plus=config.labram_plus, max_time_patches=time_patches,
-        **({'depth': m.depth} if m.depth is not None else {}),
-        input_clip=m.input_clip_uv / 100,
-    )
-    if m.fused_attention:
-        from labram.layers.attention import set_fused_attention
-        set_fused_attention(model, True)
-    if getattr(config, 'mil', None) is not None and config.mil.enabled:
-        from labram.train.train_mil import attach_mil
-        attach_mil(model, config.mil)
-    if getattr(config, 'codebook_aux', None) is not None and config.codebook_aux.enabled:
-        _check_codebook_aux_supported(config, time_patches)
-        from labram.models.codebook_aux import attach_codebook_aux
-        attach_codebook_aux(model, config.codebook_aux)
-    if m.lora.enabled:
-        # Injected before the pretrained checkpoint loads: the base weights keep
-        # their keys, the LoRA factors are new (B = 0, so the model is unchanged
-        # until training), and only they + the head remain trainable.
-        n_layers = inject_lora(model, m.lora.targets, m.lora.rank, m.lora.alpha, m.lora.dropout)
-        n_trainable = mark_only_lora_trainable(model, m.lora.train_prefixes)
-        logger.info("LoRA: rank %d (alpha %.1f) on %d linears; %d trainable parameters",
-                    m.lora.rank, m.lora.alpha, n_layers, n_trainable)
-    return model
+    """The fine-tune model of ``config`` (``labram/runs/model_factory.py``)."""
+    return build_finetune_model(config)
 
 
 def main(config: FinetuneRunConfig, bundle=None):
@@ -495,8 +429,11 @@ def main(config: FinetuneRunConfig, bundle=None):
         # with optional layer-wise decay folded into the encoder group.
         assigner = CodebookRegLayerAssigner(config.model.codebook_reg, num_layers, config.optimizer.layer_decay)
     elif config.optimizer.layer_decay < 1.0:
+        # A foreign encoder names its own layers (model.layer_id); LaBraM's are
+        # read off the parameter names.
         assigner = LayerDecayValueAssigner(
-            [config.optimizer.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)])
+            [config.optimizer.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)],
+            layer_id_fn=getattr(model_without_ddp, 'layer_id', None))
 
     skip_weight_decay_list = model.no_weight_decay()
     if config.trainer.disable_weight_decay_on_rel_pos_bias:

@@ -17,6 +17,7 @@
 #   scripts/mil_runs/submit_phased_cv.sh             # phased P_* jobs, all 5 folds
 #   RESUME=s3://.../<job>-<time>/ ONLY=P_W7 FOLD=1 ... # continue a failed job from its checkpoints
 #   ONLY="P4R_L1 P4Q_L1" FOLD=0 SPOT=false WORKERS=24 scripts/mil_runs/submit_grid.sh  # P4 + codebook_aux
+#   ONLY=CB4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh                      # P4 with the CBraMod encoder
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PY=${PY:-/data/code/LaBraM/.venv/bin/python}
@@ -114,6 +115,22 @@ PHASED4=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=17
 #         Job capped at 24 h (P4R/P4Q sat in SageMaker's final upload for hours).
 AUX=(codebook_aux.enabled=true codebook_aux.freq_fraction=0.5
   codebook_aux.tokenizer_weight=${AUX_WEIGHT:-s3://eeg-data-public/HEEDB/v4.1/derived/models/codebook_aux/vqnsp_proj_labram_base_cls19_fold0.pth})
+# P4 with a foreign pretrained encoder instead of LaBraM (labram/models/fm_regressor.py,
+# docs/fm_encoder_onboarding.md): same split, bags, phases and evaluation; only the encoder,
+# its released weights and its input options change. The LaBraM-only BASE options (fused
+# attention, class-token readout) are not read by these models. The input options are the
+# ones the frozen-probe screening selected on validation (Table 6.2 of the doc): CBraMod
+# with a 0.3 Hz high-pass and a +-100 uV clip (its pretraining band and amplitude range),
+# REVE with a per-window z-score; both after the common average reference, as LaBraM.
+# CBraMod (12 layers) keeps P4's layer decay 0.65 and trains at 0.8x LaBraM's speed.
+# REVE-base (22 layers) takes layer decay 0.8, since 0.65^23 would leave its lower half
+# untrained; it trains at 0.29x LaBraM's speed and 256 windows per step do not fit a 24 GB
+# GPU, so its job needs the batch split over accumulation steps or GPUs.
+#   ONLY=CB4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
+CBRAMOD=(model.model=cbramod_base_patch200 labram_plus.band_hz=[0.3,99.0] model.input_clip_uv=100
+  finetune_checkpoint.finetune=${CBRAMOD_CKPT:-s3://eeg-data-public/models/cbramod/pretrained_weights.pth})
+REVE=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window optimizer.layer_decay=0.8
+  finetune_checkpoint.finetune=${REVE_CKPT:-s3://eeg-data-public/models/reve/reve-base/model.safetensors})
 # The window phase streams (FastFile) recording by recording: random single-window
 # reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
 # mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
@@ -154,6 +171,9 @@ declare -A JOBS=(
   [P4RB0_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.amplitude_weight=1.0 codebook_aux.freq_band_hz=[0.0,45.0] sagemaker.max_run_sec=86400"
   [P4Q_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.embedding_weight=10.0"
   [P_L1_K4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.bag_size=4 trainer.batch_size=64"
+  # P4 with CBraMod / REVE as the encoder (FOLD=0: the same split as P4_L1 fold 0).
+  [CB4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${CBRAMOD[*]}"
+  [RV4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE[*]}"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"

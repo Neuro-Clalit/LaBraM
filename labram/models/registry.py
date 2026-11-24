@@ -105,6 +105,66 @@ def labram_huge_patch200_200(pretrained=False, **kwargs):
 
 
 # ---------------------------------------------------------------------------
+# Foreign pretrained encoders (CBraMod, REVE) with the fine-tune interface
+# ---------------------------------------------------------------------------
+
+# Registry-name prefixes of the models built around a third-party encoder
+# (labram/models/backbones); everything else is a LaBraM NeuralTransformer.
+FOREIGN_ENCODER_PREFIXES = ("cbramod_", "reve_")
+
+
+def is_foreign_encoder(model_name: str) -> bool:
+    """True when ``model.model`` names a CBraMod / REVE model."""
+    return str(model_name).startswith(FOREIGN_ENCODER_PREFIXES)
+
+
+def _foreign_regressor(backbone, kwargs: dict):
+    """A :class:`FoundationRegressor` around ``backbone``. Takes the head and
+    input options of ``create_model`` and ignores LaBraM-only architecture
+    kwargs. ``encoder`` is a ``model.encoder`` config (or dict, or None)."""
+    from labram.models.fm_regressor import FoundationRegressor
+    kw = _strip_timm_kwargs(dict(kwargs))
+    enc = kw.get("encoder")
+    get = (lambda k, d: enc.get(k, d)) if isinstance(enc, dict) else (lambda k, d: getattr(enc, k, d))
+    model = FoundationRegressor(
+        backbone, num_classes=kw.get("num_classes", 1), head_type=kw.get("head_type", "linear"),
+        mlp_head=kw.get("mlp_head"), multitask_head=kw.get("multitask_head"),
+        init_scale=kw.get("init_scale", 1.0),
+        readout=get("readout", ""), input_norm=get("input_norm", "none"), clip_sd=get("clip_sd", 15.0),
+        labram_plus=_coerce_labram_plus(kw.get("labram_plus")), input_clip=kw.get("input_clip", 0.0))
+    model.default_cfg = _cfg()
+    return model
+
+
+@register_model
+def cbramod_base_patch200(pretrained=False, **kwargs):
+    """CBraMod (12 criss-cross layers, width 200, ~4.9 M parameters)."""
+    from labram.models.backbones import CBraModBackbone
+    return _foreign_regressor(CBraModBackbone(), kwargs)
+
+
+@register_model
+def cbramod_tiny_patch200(pretrained=False, **kwargs):
+    """Random-init 2-layer CBraMod for tests (the stem fixes the width at 200)."""
+    from labram.models.backbones import CBraModBackbone
+    return _foreign_regressor(CBraModBackbone(n_layer=2, dim_feedforward=64), kwargs)
+
+
+@register_model
+def reve_base_patch200(pretrained=False, **kwargs):
+    """REVE-base (22 layers, width 512, ~69 M parameters)."""
+    from labram.models.backbones import REVEBackbone
+    return _foreign_regressor(REVEBackbone(), kwargs)
+
+
+@register_model
+def reve_tiny_patch200(pretrained=False, **kwargs):
+    """Random-init 2-layer REVE for tests."""
+    from labram.models.backbones import REVEBackbone
+    return _foreign_regressor(REVEBackbone(embed_dim=64, depth=2, heads=2, head_dim=16), kwargs)
+
+
+# ---------------------------------------------------------------------------
 # Pre-training factories
 # ---------------------------------------------------------------------------
 

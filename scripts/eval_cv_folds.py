@@ -86,9 +86,16 @@ def main(argv=None):
         base = get_dataset_bundle(cfg.data.dataset, args.data_path, data_format="npy")
         bundle = materialize_fold(apply_cv_split(base, split), k, base)
         bundle = apply_window_selection(bundle, WindowSelection.from_data_config(cfg.data))
-        held = apply_window_selection(
+        held_bundle = apply_window_selection(
             get_dataset_bundle(cfg.data.dataset, args.data_path, data_format="npy"),
-            WindowSelection.from_data_config(cfg.data)).test
+            WindowSelection.from_data_config(cfg.data))
+        if cfg.data.drop_channels:
+            # The run's channel set (e.g. the 19 without A1/A2/T1/T2), as in
+            # training and eval_age_by_cohort.py.
+            from labram.data.channel_selection import drop_channels
+            drop_channels(bundle, cfg.data.drop_channels)
+            drop_channels(held_bundle, cfg.data.drop_channels)
+        held = held_bundle.test
         for leaf in getattr(held, "datasets", [held]):
             if hasattr(leaf, "target_stats"):
                 leaf.target_stats = bundle.target_stats        # the fold's z-scoring

@@ -90,6 +90,28 @@ class CodebookRegConfig(ConfigBase):
 
 
 @dataclass
+class EncoderConfig(ConfigBase):
+    """Options of a foreign pretrained encoder, used when ``model.model`` names
+    one (``cbramod_*`` / ``reve_*``, ``labram/models/fm_regressor.py``); the
+    LaBraM models ignore them.
+
+    ``readout``: how the encoder's channel x patch tokens become the feature
+    the head reads. ``mean`` (the default, ``""``) averages all tokens;
+    ``attn`` uses the encoder's own pretrained pooling (REVE's query
+    attention). A LayerNorm follows either.
+
+    ``input_norm``: amplitude normalisation applied in the model after the
+    clip and CAR. ``none`` feeds µV / 100 (CBraMod's unit, and the one REVE's
+    authors fine-tune on); ``zscore_window`` z-scores every channel over the
+    window and clips at ``+-clip_sd`` (REVE's pretraining normalisation,
+    computed per window instead of per session).
+    """
+    readout: str = ""
+    input_norm: str = "none"
+    clip_sd: float = 15.0
+
+
+@dataclass
 class LoRAConfig(ConfigBase):
     """Low-rank adaptation of the fine-tune encoder (opt-in).
 
@@ -241,13 +263,38 @@ class FinetuneModelConfig(ConfigBase):
     # regression/classification-head probe; ["head", "fc_norm", "blocks.11"]
     # also adapts the last block.
     trainable_prefixes: List[str] = field(default_factory=list)
+    # Options of a foreign pretrained encoder (model.model = cbramod_* / reve_*).
+    encoder: EncoderConfig = field(default_factory=EncoderConfig)
     codebook_reg: CodebookRegConfig = field(default_factory=CodebookRegConfig)
     lora: LoRAConfig = field(default_factory=LoRAConfig)
+
+    @property
+    def foreign_encoder(self) -> bool:
+        """True when ``model`` names a third-party encoder (CBraMod, REVE)."""
+        return str(self.model).startswith(("cbramod_", "reve_"))
 
     def validate(self) -> None:
         if self.task not in ("classification", "regression"):
             raise ValueError(
                 f"model.task must be 'classification' or 'regression', got {self.task!r}")
+        if self.encoder.readout not in ("", "mean", "attn"):
+            raise ValueError(f"model.encoder.readout must be '', 'mean' or 'attn', got {self.encoder.readout!r}")
+        if self.encoder.input_norm not in ("none", "zscore_window"):
+            raise ValueError("model.encoder.input_norm must be 'none' or 'zscore_window', "
+                             f"got {self.encoder.input_norm!r}")
+        if self.foreign_encoder:
+            # The foreign-encoder model has the plain readout and heads only.
+            unsupported = [name for name, on in (
+                ("model.codebook_reg", self.codebook_reg.enabled), ("model.lora", self.lora.enabled),
+                ("model.session_features", self.session_features != "off"),
+                ("model.age_input", self.age_input != "off"),
+                ("model.condition_on_abnormal", self.condition_on_abnormal),
+                ("model.head_type=attention", self.head_type == "attention"),
+                ("model.concat_cls_token", self.concat_cls_token),
+                ("model.depth", self.depth is not None)) if on]
+            if unsupported:
+                raise ValueError(f"model.model={self.model!r} (a foreign encoder) does not support "
+                                 + ", ".join(unsupported))
         if self.lora.enabled:
             if self.trainable_prefixes:
                 raise ValueError("model.lora cannot be combined with model.trainable_prefixes")

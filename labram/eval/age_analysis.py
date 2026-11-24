@@ -86,11 +86,18 @@ def load_age_bundle(run_dir: str, data_path: str, stage_dir: Optional[str] = Non
     exact samples the run was evaluated on (window selection and
     ``data.drop_channels``), without building its model. ``stage_dir``
     overrides ``data.stage_dir`` (``"none"``: read in place)."""
-    from labram.data import get_dataset_bundle
-    from labram.data.window_selection import WindowSelection, apply_window_selection
     from labram.eval.loading import load_run_config
 
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
+    return cfg, age_bundle_for_config(cfg, data_path, stage_dir)
+
+
+def age_bundle_for_config(cfg, data_path: str, stage_dir: Optional[str] = None):
+    """The window-selected dataset bundle a run config describes, read from
+    ``data_path`` (which replaces ``cfg.data.data_path``)."""
+    from labram.data import get_dataset_bundle
+    from labram.data.window_selection import WindowSelection, apply_window_selection
+
     cfg.data.data_path = data_path
     if stage_dir is not None:
         cfg.data.stage_dir = stage_dir
@@ -103,7 +110,7 @@ def load_age_bundle(run_dir: str, data_path: str, stage_dir: Optional[str] = Non
         drop_channels(bundle, cfg.data.drop_channels)
     stage_bundle(bundle, cfg.data.stage_dir, reserve_gb=cfg.data.stage_reserve_gb,
                  splits=("val", "test", "train"))     # analyses read val/test first
-    return cfg, bundle
+    return bundle
 
 
 def load_age_run(run_dir: str, data_path: str, checkpoint: str = "checkpoint-best.pth",
