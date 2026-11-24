@@ -92,6 +92,8 @@ if [[ $step == external || $step == all ]]; then
 fi
 
 if [[ $step == fit || $step == all ]]; then
+  # the mean window embedding only: with 20,000 recordings the mean + SD features of the
+  # per-channel readout (19,456 columns for REVE) cost far more memory and time for no gain in the screening
   $PY scripts/fm_probe.py fit --root $O/probe --encoders LaBraM CBraMod REVE --recordings $O/recordings.json \
-    --cohorts lemon dortmund tdbrain srm chbp --out $O/probe/probe | tee $O/probe_fit.txt
+    --cohorts lemon dortmund tdbrain srm chbp --features mean --out $O/probe/probe | tee $O/probe_fit.txt
 fi

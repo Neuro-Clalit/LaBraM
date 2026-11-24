@@ -262,7 +262,10 @@ def build_cache(runs: Dict[str, str], data_path: str, out_dir: str, splits=("val
             return torch.utils.data.DataLoader(torch.utils.data.Subset(data, index), batch_size=batch_size,
                                                shuffle=False, num_workers=num_workers, pin_memory=True)
         stats = recording_channel_stats(make_loader(), device) if recording_zscore else None
-        feats = {name: [] for name, *_ in loaded}
+        # Features go straight to disk (a per-channel readout of the training
+        # split is tens of GB): one preallocated float16 file per run, renamed to
+        # h.npy when the split is complete, so a partial file is never reused.
+        feats = {}
         preds = {name: [] for name, *_ in loaded}
         desc, recs, wins, ages = defaultdict(list), [], [], []
         t0, done = time.time(), 0
@@ -276,7 +279,13 @@ def build_cache(runs: Dict[str, str], data_path: str, out_dir: str, splits=("val
                 else:
                     p, h = encode(run.model, dropper, xin, channel_indices)
                 preds[name].append(p.cpu())
-                feats[name].append(h.half().cpu())
+                if name not in feats:
+                    d = os.path.join(out_dir, name, split)
+                    os.makedirs(d, exist_ok=True)
+                    feats[name] = np.lib.format.open_memmap(
+                        os.path.join(d, "h.npy.partial"), mode="w+", dtype=np.float16,
+                        shape=(len(index), h.shape[1]))
+                feats[name][done:done + len(stem)] = h.half().cpu().numpy()
             if descriptors:
                 for key, v in all_descriptors(x).items():
                     desc[key].append(v.float().cpu())
@@ -300,8 +309,11 @@ def build_cache(runs: Dict[str, str], data_path: str, out_dir: str, splits=("val
                 if cols else np.zeros((len(meta), 0), np.float32))
         for name, run, _, frozen in loaded:
             d = os.path.join(out_dir, name, split)
-            os.makedirs(d, exist_ok=True)
-            np.save(os.path.join(d, "h.npy"), torch.cat(feats[name]).numpy())
+            if done != len(index):
+                raise RuntimeError(f"{name} {split}: {done} windows encoded, {len(index)} expected")
+            feats[name].flush()
+            del feats[name]
+            os.replace(os.path.join(d, "h.npy.partial"), os.path.join(d, "h.npy"))
             pred = (np.full(len(meta), np.nan, np.float32) if frozen else
                     utils.denormalize(torch.cat(preds[name]).numpy(), run.pred_stats).astype(np.float32))
             np.save(os.path.join(d, "pred.npy"), pred)

@@ -122,14 +122,15 @@ def fit_probe(train: pd.DataFrame):
 
 
 def run_fit(root: str, encoders, recordings: dict, cohorts=(), main: str = "main", reference: str = None,
-            min_age: float = 18.0, out: str = None):
-    """Fit and score every encoder; returns ``(metric table, paired table)``."""
+            min_age: float = 18.0, out: str = None, features=FEATURES):
+    """Fit and score every encoder on each feature set in ``features``; returns
+    ``(metric table, paired table)``."""
     from labram.eval.cv_compare import bootstrap_delta_mae
     roles = recordings["probe"]
     rows, preds, truth = [], {}, {}
     for enc in encoders:
         base = os.path.join(root, main, enc)
-        for kind in FEATURES:
+        for kind in features:
             pool = pd.concat([recording_features(base, s, kind) for s in ("train", "val")
                               if os.path.exists(os.path.join(base, s, "h.npy"))])
             pool = pool[~pool.index.duplicated()]
@@ -159,7 +160,7 @@ def run_fit(root: str, encoders, recordings: dict, cohorts=(), main: str = "main
     paired = []
     reference = reference or encoders[0]
     for group, by_model in preds.items():
-        for kind in FEATURES:
+        for kind in features:
             ref = by_model.get(f"{reference}/{kind}")
             for enc in encoders:
                 cur = by_model.get(f"{enc}/{kind}")
@@ -201,6 +202,8 @@ def main():
     f.add_argument("--cohorts", nargs="*", default=[], help="external test cohorts cached under --root")
     f.add_argument("--reference", default=None, help="encoder the others are compared with (default: the first)")
     f.add_argument("--min-age", type=float, default=18.0, help="external cohorts: adults only")
+    f.add_argument("--features", nargs="+", choices=FEATURES, default=list(FEATURES),
+                   help="recording feature sets (mean_std doubles the width)")
     f.add_argument("--out", default=None, help="output prefix")
     args = ap.parse_args()
     if args.cmd == "sample":
@@ -218,7 +221,7 @@ def main():
     with open(args.recordings) as fh:
         recordings = json.load(fh)
     table, paired = run_fit(args.root, args.encoders, recordings, args.cohorts, args.main,
-                            args.reference, args.min_age, args.out)
+                            args.reference, args.min_age, args.out, args.features)
     wide = table.pivot_table(index=["encoder", "features"], columns="group", values="mae", sort=False)
     print("MAE (years)\n" + wide.round(2).to_string())
     if len(paired):
