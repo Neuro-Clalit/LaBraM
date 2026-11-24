@@ -20,10 +20,9 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
   LaBraM on LEMON and 0.7 on Dortmund. Both are 4 to 5 years better than frozen LaBraM on CHBP.
 - **Input per encoder, selected on validation** (Table 6.2): common average reference for all
   three; CBraMod with a 0.3 Hz high-pass and a ±100 µV clip; REVE with a per-window z-score.
-- **Fine-tune (stage B): ready, not submitted.** `CB4_L1` (P4 recipe with CBraMod, fold 0) is
-  defined in `scripts/mil_runs/submit_grid.sh` and passes the dry run and a local run on the real
-  fold. REVE trains at 0.29 times LaBraM's speed (Table 7.1) and is submitted only after the
-  CBraMod result.
+- **Fine-tune (stage B): both runs started on 2026-11-24.** `CB4_L1` (P4 recipe with CBraMod,
+  fold 0) runs on the local GPU, about 15 hours. `RV4_L1` (the same with REVE) runs on SageMaker,
+  about 2 days. Their results are added to Section 7 when they finish.
 
 The target of every comparison is the best single model on the same split: **P4_L1 fold 0,
 validation 6.59 years, test 6.06 years** (`docs/mil_stage1_results.md`, Table 13.14).
@@ -461,7 +460,9 @@ weights and the input options of Table 6.2 change (`scripts/mil_runs/submit_grid
   `labram_plus.band_hz=[0.3,99.0]`, `model.input_clip_uv=100`. Learning rate 2.8e-4 and layer
   decay 0.65 as in P4.
 - **`RV4_L1`** = `P4_L1` + `model.model=reve_base_patch200`, the REVE weights,
-  `model.encoder.input_norm=zscore_window`, layer decay 0.8 (Eq. (5.1)).
+  `model.encoder.input_norm=zscore_window`, layer decay 0.8 (Eq. (5.1)), and each update as two
+  accumulation steps of 16 recordings × 8 windows (`trainer.batch_size=16`,
+  `trainer.update_freq=2`, `mil.window_batch_size=128`), so the windows per update stay P4's 256.
 
 ### Table 7.1. Training and inference throughput on one A10G
 
@@ -476,8 +477,8 @@ step at the stated batch; "relative" is against LaBraM at batch 256.
 | REVE-base | out of memory | 233 | 15.4 GB (batch 128) | 820 | 0.29 |
 
 CBraMod costs about 1.3 times a P4 fold. REVE costs about 3.5 times, and P4's 256 windows per
-step do not fit a 24 GB GPU, so its job needs the batch split over two accumulation steps or over
-GPUs.
+step do not fit a 24 GB GPU. At 128 windows per accumulation step REVE takes 15.9 GB and runs at
+235 windows per second, in the window phase and in the bag phase.
 
 **Decision rule.** Paired comparison with P4_L1 fold 0 on the same 7,612 test recordings
 (`scripts/paired_bag_mae.py`) and on the external cohorts (`scripts/eval_age_by_cohort.py`). A
@@ -486,15 +487,28 @@ single-pair threshold of `labram/eval/research_summary.py`. An encoder replaces 
 wins on Harvard test and does not lose on LEMON and Dortmund; 5-fold cross-validation and the
 ensemble follow as a separate step.
 
-**Pre-flight of `CB4_L1`.**
+**Pre-flight.**
 - The P4 recipe ran end to end on a GPU with the released CBraMod and REVE weights under mixed
   precision (synthetic recordings).
-- The `CB4_L1` configuration ran locally on the real cohort and fold 0 in debug mode (a window
-  epoch, a joint bag epoch, validation and test scoring).
-- `ONLY=CB4_L1 FOLD=0 scripts/mil_runs/submit_grid.sh --dry_run` stages the weights as the
-  `pretrained` channel from `s3://eeg-data-public/models/cbramod/pretrained_weights.pth`.
+- The `CB4_L1` and `RV4_L1` configurations each ran locally on the real cohort and fold 0 in debug
+  mode (a window epoch, a joint bag epoch, validation and test scoring), `RV4_L1` with its two
+  accumulation steps.
+- The dry runs stage the weights as the `pretrained` channel from
+  `s3://eeg-data-public/models/cbramod/pretrained_weights.pth` and
+  `s3://eeg-data-public/models/reve/reve-base/model.safetensors`.
 
-**Status.** `CB4_L1` is not submitted yet; `RV4_L1` waits for its result.
+### Table 7.2. Stage B runs
+
+Both started on 2026-11-24 from commit `d3da8b4`. P4_L1 fold 0 took 12.8 hours on
+`ml.g5.4xlarge`; the durations are estimates from the measured step time (CBraMod: 0.34 s per
+256-window step locally) and from Table 7.1 (REVE).
+
+| Run | Where | Identifier | Expected duration |
+|---|---|---|---|
+| `CB4_L1` fold 0 | local A10G, `scripts/mil_runs/run_local_fm.sh` | `/data/runs/heedb/fm_encoders/CB4_L1/fold_0`, ClearML [heedb_mil_CB4_L1_fold0_local](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/13a62dc1bc8049669b79af59923e0cfb) | about 15 h |
+| `RV4_L1` fold 0 | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4-l1-f0-fold-0-2026-11-24-22-58-36-692` | about 2 days (cap 72 h) |
+
+**Status.** Both runs are in progress (Table 7.2); no fine-tune result yet.
 
 ## 8. How to run
 
@@ -510,9 +524,11 @@ scripts/external_runs/fm_probe.sh sample
 scripts/external_runs/fm_probe.sh screen
 scripts/external_runs/fm_probe.sh all
 
-# stage B (Section 7)
-ONLY=CB4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh --dry_run
-ONLY=CB4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
+# stage B (Section 7): on SageMaker, or on the local GPU
+ONLY=RV4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh --dry_run
+ONLY=RV4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
+scripts/mil_runs/run_local_fm.sh                             # CBraMod, fold 0
+scripts/mil_runs/run_local_fm.sh output.auto_resume=true     # continue after an interruption
 
 # any fine-tune with another encoder
 python -m labram.runs.run_finetune --config labram/configs/defaults/finetune_tuab_age.json \
