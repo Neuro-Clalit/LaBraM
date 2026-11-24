@@ -124,12 +124,16 @@ AUX=(codebook_aux.enabled=true codebook_aux.freq_fraction=0.5
 # REVE with a per-window z-score; both after the common average reference, as LaBraM.
 # CBraMod (12 layers) keeps P4's layer decay 0.65 and trains at 0.8x LaBraM's speed.
 # REVE-base (22 layers) takes layer decay 0.8, since 0.65^23 would leave its lower half
-# untrained; it trains at 0.29x LaBraM's speed and 256 windows per step do not fit a 24 GB
-# GPU, so its job needs the batch split over accumulation steps or GPUs.
+# untrained; it trains at 0.29x LaBraM's speed. 256 windows per step do not fit a 24 GB GPU,
+# so each update is two accumulation steps of 16 recordings x 8 windows (15.9 GB), in the
+# window phase and in the bag phase: the windows per update stay P4's 256.
 #   ONLY=CB4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
+#   ONLY=RV4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
+#   scripts/mil_runs/run_local_fm.sh                 # CB4_L1 fold 0 on the local GPU
 CBRAMOD=(model.model=cbramod_base_patch200 labram_plus.band_hz=[0.3,99.0] model.input_clip_uv=100
   finetune_checkpoint.finetune=${CBRAMOD_CKPT:-s3://eeg-data-public/models/cbramod/pretrained_weights.pth})
 REVE=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window optimizer.layer_decay=0.8
+  trainer.batch_size=16 trainer.update_freq=2 mil.window_batch_size=128
   finetune_checkpoint.finetune=${REVE_CKPT:-s3://eeg-data-public/models/reve/reve-base/model.safetensors})
 # The window phase streams (FastFile) recording by recording: random single-window
 # reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
