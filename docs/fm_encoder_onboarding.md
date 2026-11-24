@@ -12,16 +12,18 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
 - **Code: done.** `model.model=cbramod_base_patch200` or `reve_base_patch200` selects the encoder;
   loaders, training loops, bag training, losses, evaluation and checkpoints are unchanged
   (Section 5). Both ports reproduce the upstream networks exactly (Table 4.1).
-- **Frozen encoders are weak for age.** With a ridge probe on 2,000 training recordings the best
-  frozen encoder reaches 11.6 years of validation MAE (REVE), against 16.3 for predicting the
-  mean age and 7.0 for the same probe on fine-tuned LaBraM features (Tables 6.1 and 6.2). The
-  replacement question is therefore decided by fine-tuning, not by frozen features.
+- **Frozen encoders are weak for age.** A ridge probe on 20,000 training recordings reaches 9.3
+  to 9.7 years of test MAE with a frozen encoder (Table 6.3), against 6.06 for the fine-tuned P4
+  model. The replacement question is therefore decided by fine-tuning, not by frozen features.
+- **Frozen ranking** (Table 6.4). REVE is the best in-domain: 0.41 years better than LaBraM on
+  Harvard test. CBraMod is the best on the two external decision cohorts: 2.0 years better than
+  LaBraM on LEMON and 0.7 on Dortmund. Both are 4 to 5 years better than frozen LaBraM on CHBP.
 - **Input per encoder, selected on validation** (Table 6.2): common average reference for all
   three; CBraMod with a 0.3 Hz high-pass and a ±100 µV clip; REVE with a per-window z-score.
-- **Fine-tune (stage B).** `CB4_L1` (P4 recipe with CBraMod, fold 0) is defined in
-  `scripts/mil_runs/submit_grid.sh` and passes the dry run and a local run on the real fold.
-  REVE trains at 0.29 times LaBraM's speed (Table 7.1) and is submitted only after the CBraMod
-  result.
+- **Fine-tune (stage B): ready, not submitted.** `CB4_L1` (P4 recipe with CBraMod, fold 0) is
+  defined in `scripts/mil_runs/submit_grid.sh` and passes the dry run and a local run on the real
+  fold. REVE trains at 0.29 times LaBraM's speed (Table 7.1) and is submitted only after the
+  CBraMod result.
 
 The target of every comparison is the best single model on the same split: **P4_L1 fold 0,
 validation 6.59 years, test 6.06 years** (`docs/mil_stage1_results.md`, Table 13.14).
@@ -64,7 +66,7 @@ nothing is cohort-specific in what follows.
 
 An encoder that saw a cohort during self-supervised pretraining (without labels) is not tested
 zero-shot on it. REVE's list comes from a summary of its paper and from our own onboarding docs;
-its dataset appendix was not read verbatim.
+its dataset appendix was not read verbatim. LaBraM's row is the review's reading of its paper.
 
 | Encoder | Saw during pretraining | Clean cohorts |
 |---|---|---|
@@ -386,10 +388,69 @@ What the screening shows:
 
 ### 6.3 Full probe on test and external cohorts
 
-The three encoders with their selected input and the per-channel readout, on 20,000 training and
-5,000 validation recordings of fold 0 (30 windows each), the 7,612 test recordings and the five
-external cohorts (`scripts/external_runs/fm_probe.sh all`). Results are added to this section when
-the run finishes.
+The three encoders with their selected input (Table 6.2) and the per-channel readout, fitted on
+20,000 training recordings of fold 0 with up to 30 windows each (`mean` features, Eq. (6.2)), and
+scored on 5,000 validation recordings, the 7,612 test recordings and the five external cohorts
+(`scripts/external_runs/fm_probe.sh all`). Windows of the external cohorts follow their usual
+scoring: every window, and no trims for the cohorts of short recordings (Dortmund, TDBRAIN, SRM).
+External cohorts are restricted to adults (18 years and older) and scored per recording.
+
+### Table 6.3. Frozen encoders with a ridge probe: MAE and $R^2$ per cohort
+
+MAE in years and $R^2$ (Eq. (6.4)) of the ridge probe (Eq. (6.3)); $n$ recordings. Feature width:
+3,800 for LaBraM and CBraMod, 9,728 for REVE. **Bold**: the lowest MAE of the row. "Overlap" marks
+a cohort an encoder saw during pretraining (Table 2.1): C = CBraMod, R = REVE, L = LaBraM.
+
+| Cohort | $n$ | Overlap | LaBraM MAE | CBraMod MAE | REVE MAE | LaBraM $R^2$ | CBraMod $R^2$ | REVE $R^2$ |
+|---|---|---|---|---|---|---|---|---|
+| Validation (fold 0) | 5,000 | L, C, R on its Temple part | 9.82 | 9.92 | **9.56** | 0.57 | 0.56 | 0.59 |
+| Test, all | 7,612 | L, C, R on its Temple part | 9.72 | 9.59 | **9.30** | 0.62 | 0.63 | 0.65 |
+| Test, Harvard | 7,338 | none | 9.75 | 9.61 | **9.34** | 0.62 | 0.63 | 0.65 |
+| Test, Temple | 274 | L, C, R | 8.79 | 8.89 | **8.32** | 0.59 | 0.61 | 0.65 |
+| LEMON | 214 | none | 10.85 | **8.84** | 9.61 | 0.58 | 0.71 | 0.64 |
+| Dortmund | 3,262 | none | 9.46 | **8.72** | 9.05 | 0.34 | 0.44 | 0.41 |
+| TDBRAIN | 2,222 | R | 9.88 | **9.57** | 9.80 | 0.37 | 0.42 | 0.38 |
+| SRM | 152 | R | 10.14 | **9.96** | 11.32 | 0.08 | 0.11 | −0.12 |
+| CHBP | 250 | none | 15.32 | 11.56 | **10.40** | −3.09 | −1.71 | −1.11 |
+
+### Table 6.4. Frozen CBraMod and REVE against frozen LaBraM, paired
+
+Δ (Eq. (6.5)) on the recordings of Table 6.3, with its 95 % interval; negative when the encoder
+is better than LaBraM. **Bold**: the interval excludes 0.
+
+| Cohort | CBraMod − LaBraM | REVE − LaBraM |
+|---|---|---|
+| Validation (fold 0) | +0.11 [−0.07, +0.28] | **−0.25 [−0.43, −0.07]** |
+| Test, all | −0.13 [−0.27, +0.01] | **−0.42 [−0.55, −0.28]** |
+| Test, Harvard | −0.14 [−0.28, +0.00] | **−0.41 [−0.55, −0.28]** |
+| Test, Temple | +0.10 [−0.64, +0.87] | −0.47 [−1.24, +0.30] |
+| LEMON | **−2.01 [−2.84, −1.20]** | **−1.24 [−2.11, −0.32]** |
+| Dortmund | **−0.74 [−0.98, −0.49]** | **−0.41 [−0.68, −0.15]** |
+| TDBRAIN | −0.31 [−0.63, +0.01] | −0.09 [−0.40, +0.25] |
+| SRM | −0.19 [−1.53, +1.14] | +1.18 [−0.18, +2.58] |
+| CHBP | **−3.76 [−5.15, −2.25]** | **−4.92 [−6.61, −3.27]** |
+
+What the full probe shows:
+
+- **Frozen features stay far from fine-tuning.** With ten times the training recordings of the
+  screening, the validation MAE improves from 11.6–12.4 years to 9.6–9.9. On test the probes
+  reach 9.3–9.7 years, against 6.06 for P4.
+- **In-domain, REVE is ahead.** On Harvard test it is 0.41 years better than LaBraM; CBraMod is
+  0.14 better, with an interval that touches 0 (Table 6.4).
+- **On the external decision cohorts, CBraMod is ahead.** It is 2.0 years better than LaBraM on
+  LEMON and 0.7 on Dortmund; REVE is 1.2 and 0.4 better.
+- **Device shift.** On CHBP frozen LaBraM fails (15.3 years), while CBraMod and REVE reach 11.6
+  and 10.4. All three still have a negative $R^2$ there.
+- **Pretraining overlap did not help REVE.** On TDBRAIN it equals LaBraM, and on SRM it is the
+  worst of the three, although both cohorts were in its pretraining data.
+
+One caveat on reading Table 6.4 as "encoder against encoder": each encoder runs with its own
+selected input. CBraMod's clip and REVE's z-score bound the amplitude, which also makes an input
+more robust across devices; LaBraM was screened with and without the average reference only. Part
+of the external gain may therefore come from the input options and not from the encoder.
+
+Both candidates are at least as good as LaBraM when frozen, and better outside the training
+domain. That is a reason to run the fine-tunes of Section 7, not a result about them.
 
 ## 7. Stage B: fine-tuning on P4's fold 0
 
@@ -428,8 +489,12 @@ ensemble follow as a separate step.
 **Pre-flight of `CB4_L1`.**
 - The P4 recipe ran end to end on a GPU with the released CBraMod and REVE weights under mixed
   precision (synthetic recordings).
+- The `CB4_L1` configuration ran locally on the real cohort and fold 0 in debug mode (a window
+  epoch, a joint bag epoch, validation and test scoring).
 - `ONLY=CB4_L1 FOLD=0 scripts/mil_runs/submit_grid.sh --dry_run` stages the weights as the
   `pretrained` channel from `s3://eeg-data-public/models/cbramod/pretrained_weights.pth`.
+
+**Status.** `CB4_L1` is not submitted yet; `RV4_L1` waits for its result.
 
 ## 8. How to run
 
