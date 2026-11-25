@@ -21,8 +21,8 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
 - **Input per encoder, selected on validation** (Table 6.2): common average reference for all
   three; CBraMod with a 0.3 Hz high-pass and a ±100 µV clip; REVE with a per-window z-score.
 - **Fine-tune (stage B): both runs are in progress and go through P4's full 17 epochs.** No
-  final result yet. At the same epoch, REVE is 0.6 to 0.9 years ahead of P4 and CBraMod about
-  2 years behind (Table 7.3). The CBraMod run was stopped once from outside in epoch 5 and
+  final result yet. At the same epoch, REVE is 0.4 to 1.1 years ahead of P4 (5 of 17 epochs
+  done) and CBraMod about 2 years behind (14 of 17 done) (Table 7.3). The CBraMod run was stopped once from outside in epoch 5 and
   continued from its checkpoint.
 - **Next candidate: REVE with only its last 6 layers trained.** It runs 2.1 times faster and fits
   P4's batch (Table 7.4). The job is prepared and not started.
@@ -520,27 +520,39 @@ optimiser and schedule restored) as its own systemd unit, which that update does
 
 Recording-level MAE in years (Eq. (6.4)) as each run logs it after an epoch (`val_mae`,
 `test_mae`: fold-0 validation recordings and the 7,612 test recordings, first 5 minutes; LEMON
-and TDBRAIN as the runs' standing test sets). All epochs shown are window-level epochs of the
-first phase. **These are not final results:** P4 reached its 6.59 / 6.06 only at the end of the
-joint phase. "–" marks an epoch a run has not reached or a set it did not score at that epoch.
+and TDBRAIN as the runs' standing test sets, scored at some epochs only). Epochs 0–7 are
+window-level epochs, epoch 8 trains the pool only, epochs 9–16 are joint. State of 25 Nov,
+17:30 UTC. **These are not final results.** "–" marks an epoch a run has not reached or a set it
+did not score at that epoch.
 
 | Epoch | P4 val / test | CBraMod val / test | REVE val / test | CBraMod LEMON, TDBRAIN | REVE LEMON, TDBRAIN |
 |---|---|---|---|---|---|
 | 0 | 9.52 / 9.48 | 13.69 / 13.86 | 8.85 / 8.68 | 14.77, 10.77 | 8.29, 7.83 |
 | 1 | 8.85 / 8.84 | 11.56 / 11.73 | 9.00 / 8.97 | 13.99, 9.74 | – |
 | 2 | 8.60 / 8.50 | 10.88 / 11.07 | 8.02 / 7.61 | 13.23, 9.04 | 6.75, 6.45 |
-| 3 | 8.59 / 8.54 | 11.12 / 11.38 | – | – | – |
-| 4 | 8.67 / 8.64 | 10.42 / 10.51 | – | 11.48, 8.26 | – |
+| 3 | 8.59 / 8.54 | 11.12 / 11.38 | 7.72 / 7.40 | – | 6.68, 6.28 |
+| 4 | 8.67 / 8.64 | 10.42 / 10.51 | 8.25 / 8.05 | 11.48, 8.26 | 8.73, 6.68 |
+| 5 | 7.92 / 7.73 | 9.61 / 9.52 | – | 9.51, 7.93 | – |
+| 6 | 7.79 / 7.56 | 9.90 / 9.85 | – | – | – |
+| 7 | 7.69 / 7.49 | 10.05 / 10.12 | – | – | – |
+| 8 | 7.05 / 6.67 | 9.33 / 9.07 | – | 10.49, 7.89 | – |
+| 9 | 6.71 / 6.22 | 8.73 / 8.28 | – | 8.18, 7.26 | – |
+| 10 | 6.69 / 6.19 | 8.56 / 8.19 | – | 7.39, 7.03 | – |
+| 11 | 6.68 / 6.22 | 8.88 / 8.45 | – | – | – |
+| 12 | 6.65 / 6.12 | 8.80 / 8.45 | – | – | – |
+| 13 | 6.63 / 6.09 | 8.74 / 8.34 | – | – | – |
 
-Reading Table 7.3, with the caution that the runs are a third of the way or less:
+Reading Table 7.3:
 
-- **REVE is ahead of LaBraM at the same epoch**, by 0.6 years on validation and 0.9 on test after
-  epoch 2.
-- **CBraMod is about 2 years behind**, and after five epochs still worse than its own frozen
-  ridge probe (9.92 on validation, Table 6.3). The P4 recipe as it stands does not suit it.
-  Candidate reasons, none tested yet: the readout averages over channels (the per-channel readout
-  was 0.6 to 1.5 years better in Table 6.2), the ±100 µV clip removes amplitude a fine-tuned model
-  could use, and CBraMod's own recipe uses a learning rate of 1e-4 without layer decay.
+- **REVE is ahead of LaBraM at every epoch so far**, by 0.4 to 0.9 years on validation and 0.6 to
+  1.1 on test at epochs 2 to 4. Its curve is noisy at the peak learning rate (epoch 4 is worse
+  than epoch 3), and it is still in the window phase, so the size of the final gain is open.
+- **CBraMod stays about 2 years behind** through the joint phase: its best epoch so far is 8.56
+  on validation and 8.19 on test (epoch 10), against 6.69 and 6.19 for P4 at the same epoch. The
+  P4 recipe as it stands does not suit it. Candidate reasons, none tested yet: the readout
+  averages over channels (the per-channel readout was 0.6 to 1.5 years better in Table 6.2), the
+  ±100 µV clip removes amplitude a fine-tuned model could use, and CBraMod's own recipe uses a
+  learning rate of 1e-4 without layer decay.
 
 ### 7.1 Training only the last layers of REVE
 
