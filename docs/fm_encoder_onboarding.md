@@ -20,9 +20,12 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
   LaBraM on LEMON and 0.7 on Dortmund. Both are 4 to 5 years better than frozen LaBraM on CHBP.
 - **Input per encoder, selected on validation** (Table 6.2): common average reference for all
   three; CBraMod with a 0.3 Hz high-pass and a ±100 µV clip; REVE with a per-window z-score.
-- **Fine-tune (stage B): both runs started on 2026-11-24.** `CB4_L1` (P4 recipe with CBraMod,
-  fold 0) runs on the local GPU, about 15 hours. `RV4_L1` (the same with REVE) runs on SageMaker,
-  about 2 days. Their results are added to Section 7 when they finish.
+- **Fine-tune (stage B): both runs are in progress and go through P4's full 17 epochs.** No
+  final result yet. At the same epoch, REVE is 0.6 to 0.9 years ahead of P4 and CBraMod about
+  2 years behind (Table 7.3). The CBraMod run was stopped once from outside in epoch 5 and
+  continued from its checkpoint.
+- **Next candidate: REVE with only its last 6 layers trained.** It runs 2.1 times faster and fits
+  P4's batch (Table 7.4). The job is prepared and not started.
 
 The target of every comparison is the best single model on the same split: **P4_L1 fold 0,
 validation 6.59 years, test 6.06 years** (`docs/mil_stage1_results.md`, Table 13.14).
@@ -499,16 +502,84 @@ ensemble follow as a separate step.
 
 ### Table 7.2. Stage B runs
 
-Both started on 2026-11-24 from commit `d3da8b4`. P4_L1 fold 0 took 12.8 hours on
-`ml.g5.4xlarge`; the durations are estimates from the measured step time (CBraMod: 0.34 s per
-256-window step locally) and from Table 7.1 (REVE).
+Both started on 2026-11-24 from commit `d3da8b4` and run P4's schedule of 17 epochs (8 window
+epochs, 1 epoch that trains the pool only, 8 joint epochs). P4_L1 fold 0 took 12.8 hours on
+`ml.g5.4xlarge`.
 
-| Run | Where | Identifier | Expected duration |
+| Run | Where | Identifier | Duration |
 |---|---|---|---|
-| `CB4_L1` fold 0 | local A10G, `scripts/mil_runs/run_local_fm.sh` | `/data/runs/heedb/fm_encoders/CB4_L1/fold_0`, ClearML [heedb_mil_CB4_L1_fold0_local](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/13a62dc1bc8049669b79af59923e0cfb) | about 15 h |
-| `RV4_L1` fold 0 | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4-l1-f0-fold-0-2026-11-24-22-58-36-692` | about 2 days (cap 72 h) |
+| `CB4_L1` fold 0 | local A10G, `scripts/mil_runs/run_local_fm.sh` | `/data/runs/heedb/fm_encoders/heedb_mil_CB4_L1_fold0_local_cv5/fold_0`; ClearML [epochs 0–4](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/13a62dc1bc8049669b79af59923e0cfb), [epochs 5–16](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/9ebe43f858b64e478889373a45648ce8) | 59 min per window epoch; expected end 25 Nov, about 20:00 UTC |
+| `RV4_L1` fold 0 | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4-l1-f0-fold-0-2026-11-24-22-58-36-692` | 3.2 h per window epoch; expected end 26 Nov, about 18:00 UTC (cap 72 h) |
 
-**Status.** Both runs are in progress (Table 7.2); no fine-tune result yet.
+The CBraMod run was stopped from outside on 25 Nov at 04:19 UTC, in epoch 5: the nightly Claude
+Code update restarted the service the run had been started from, and systemd stopped the run
+with it. It was continued at 11:07 UTC from the epoch-4 checkpoint (`output.auto_resume=true`,
+optimiser and schedule restored) as its own systemd unit, which that update does not touch.
+
+### Table 7.3. Interim results at the same epoch
+
+Recording-level MAE in years (Eq. (6.4)) as each run logs it after an epoch (`val_mae`,
+`test_mae`: fold-0 validation recordings and the 7,612 test recordings, first 5 minutes; LEMON
+and TDBRAIN as the runs' standing test sets). All epochs shown are window-level epochs of the
+first phase. **These are not final results:** P4 reached its 6.59 / 6.06 only at the end of the
+joint phase. "–" marks an epoch a run has not reached or a set it did not score at that epoch.
+
+| Epoch | P4 val / test | CBraMod val / test | REVE val / test | CBraMod LEMON, TDBRAIN | REVE LEMON, TDBRAIN |
+|---|---|---|---|---|---|
+| 0 | 9.52 / 9.48 | 13.69 / 13.86 | 8.85 / 8.68 | 14.77, 10.77 | 8.29, 7.83 |
+| 1 | 8.85 / 8.84 | 11.56 / 11.73 | 9.00 / 8.97 | 13.99, 9.74 | – |
+| 2 | 8.60 / 8.50 | 10.88 / 11.07 | 8.02 / 7.61 | 13.23, 9.04 | 6.75, 6.45 |
+| 3 | 8.59 / 8.54 | 11.12 / 11.38 | – | – | – |
+| 4 | 8.67 / 8.64 | 10.42 / 10.51 | – | 11.48, 8.26 | – |
+
+Reading Table 7.3, with the caution that the runs are a third of the way or less:
+
+- **REVE is ahead of LaBraM at the same epoch**, by 0.6 years on validation and 0.9 on test after
+  epoch 2.
+- **CBraMod is about 2 years behind**, and after five epochs still worse than its own frozen
+  ridge probe (9.92 on validation, Table 6.3). The P4 recipe as it stands does not suit it.
+  Candidate reasons, none tested yet: the readout averages over channels (the per-channel readout
+  was 0.6 to 1.5 years better in Table 6.2), the ±100 µV clip removes amplitude a fine-tuned model
+  could use, and CBraMod's own recipe uses a learning rate of 1e-4 without layer decay.
+
+### 7.1 Training only the last layers of REVE
+
+REVE-base has 12 times LaBraM's parameters (Table 1.1), so training only its top layers is the
+natural way to cut its cost. CBraMod is smaller than LaBraM and fits too slowly already, so the
+option is not planned for it.
+
+### Table 7.4. REVE-base: speed and memory against the number of layers trained
+
+Windows per second for forward, backward and optimiser step at 256 windows of 19 channels × 10 s
+per step, mixed precision, one A10G, compute only. The layers below the trained ones and the
+input stem keep the released weights and need no backward pass. "All 22" does not fit at 256
+windows and is measured at 128.
+
+| Layers trained | Trainable parameters | Windows per second | GPU memory | Relative to all 22 |
+|---|---|---|---|---|
+| all 22 | 69.2 M | 234 | 15.9 GB (128 per step) | 1.0 |
+| last 8 | 25.1 M | 444 | 11.4 GB | 1.9 |
+| last 6 | 18.8 M | 503 | 8.7 GB | 2.1 |
+| last 4 | 12.6 M | 579 | 6.2 GB | 2.5 |
+| last 2 | 6.3 M | 683 | 3.6 GB | 2.9 |
+| none (head and readout norm only) | 1,537 | 819 | 1.6 GB | 3.5 |
+
+- **Gain.** With the last 6 layers a fold takes about 20 hours instead of 42 and runs at P4's
+  256 windows per step without accumulation (Table 7.4), which makes a 5-fold study affordable.
+- **Risk.** Frozen features are weak for age (Table 6.3), and an earlier LaBraM run on TUAB with
+  only the last block trained reached 13.6 years on test against 8.3 for the full fine-tune
+  (`docs/age_training_scenario_D.md`, Section 7; other settings differed too). The full REVE run
+  is already a soft version of the same idea: by Eq. (5.1) with $\gamma = 0.8$, the layers below
+  the top 8 train at under 17 % of the learning rate.
+- **Test.** `RV4T6_L1` = `RV4_L1` with `model.trainable_prefixes` set to the last 6 layers
+  (`backbone.net.transformer.layers.16.` to `.21.`), the readout norm, the head and the pool, and
+  P4's batch without accumulation. It is compared paired with the full `RV4_L1` run on fold 0;
+  within 0.38 years, the partial fine-tune is used for the 5 folds. The job is defined in
+  `scripts/mil_runs/submit_grid.sh`; its dry run and a local debug run on the real fold pass
+  (18.9 M trainable parameters). It is not started.
+
+**Status.** `CB4_L1` and `RV4_L1` are in progress (Table 7.2), with interim results in Table 7.3;
+`RV4T6_L1` is prepared.
 
 ## 8. How to run
 
@@ -529,6 +600,10 @@ ONLY=RV4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh --dry_run
 ONLY=RV4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
 scripts/mil_runs/run_local_fm.sh                             # CBraMod, fold 0
 scripts/mil_runs/run_local_fm.sh output.auto_resume=true     # continue after an interruption
+# from a Claude Code session, start a long local run as its own unit (see the script's header):
+systemd-run --user --unit=labram-cb4-l1-f0 --collect --working-directory=$PWD /bin/bash -c \
+    'scripts/mil_runs/run_local_fm.sh >> /data/runs/heedb/fm_encoders/CB4_L1_fold0.log 2>&1'
+ONLY=RV4T6_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.2xlarge WORKERS=10 scripts/mil_runs/submit_grid.sh --dry_run
 
 # any fine-tune with another encoder
 python -m labram.runs.run_finetune --config labram/configs/defaults/finetune_tuab_age.json \

@@ -135,6 +135,16 @@ CBRAMOD=(model.model=cbramod_base_patch200 labram_plus.band_hz=[0.3,99.0] model.
 REVE=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window optimizer.layer_decay=0.8
   trainer.batch_size=16 trainer.update_freq=2 mil.window_batch_size=128
   finetune_checkpoint.finetune=${REVE_CKPT:-s3://eeg-data-public/models/reve/reve-base/model.safetensors})
+# REVE with only its last 6 of 22 layers trained (RV4T6_L1): the lower 16 layers and the input
+# stem stay at the released weights, the readout norm, head and bag pool train as usual
+# (model.trainable_prefixes -> finetune_setup.freeze_except). No gradient flows below layer 16,
+# so 256 windows per step fit (8.7 GB) and training runs at 503 windows/s instead of 234:
+# about 20 h per fold instead of 42 h. P4's batch, no accumulation.
+#   ONLY=RV4T6_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.2xlarge WORKERS=10 scripts/mil_runs/submit_grid.sh
+REVE_TOP6='model.trainable_prefixes=["head.","mil.","fc_norm.","backbone.net.transformer.layers.16.","backbone.net.transformer.layers.17.","backbone.net.transformer.layers.18.","backbone.net.transformer.layers.19.","backbone.net.transformer.layers.20.","backbone.net.transformer.layers.21."]'
+REVE_T6=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window optimizer.layer_decay=0.8
+  finetune_checkpoint.finetune=${REVE_CKPT:-s3://eeg-data-public/models/reve/reve-base/model.safetensors}
+  "$REVE_TOP6")
 # The window phase streams (FastFile) recording by recording: random single-window
 # reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
 # mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
@@ -178,6 +188,7 @@ declare -A JOBS=(
   # P4 with CBraMod / REVE as the encoder (FOLD=0: the same split as P4_L1 fold 0).
   [CB4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${CBRAMOD[*]}"
   [RV4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE[*]}"
+  [RV4T6_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE_T6[*]}"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"

@@ -7,9 +7,17 @@
 #   ENCODER=reve scripts/mil_runs/run_local_fm.sh         # REVE-base (about 3.5x the time)
 #   scripts/mil_runs/run_local_fm.sh output.auto_resume=true   # continue after an interruption
 #
-# The run writes to /data/runs/heedb/fm_encoders/<JOB>/fold_<FOLD>. About 16 h for CBraMod on
-# one A10G. WORKERS stays at 10: every loader worker copies the cohort's file list, and the
-# machine has 30 GB of RAM.
+# The run writes to /data/runs/heedb/fm_encoders/heedb_mil_<JOB>_fold<FOLD>_local_cv5/fold_<FOLD>
+# (the CV base folder is named after the ClearML task). About 16 h for CBraMod on one A10G.
+# WORKERS stays at 10: every loader worker copies the cohort's file list, and the machine has
+# 30 GB of RAM.
+#
+# Started from a Claude Code session, a run this long must be its own systemd unit: the nightly
+# Claude Code update restarts the Remote Control service, and systemd then stops every process
+# of that service, nohup / setsid or not (it ended the first CBraMod run in epoch 5):
+#   systemd-run --user --unit=labram-cb4-l1-f0 --collect --working-directory=$PWD /bin/bash -c \
+#     'scripts/mil_runs/run_local_fm.sh >> /data/runs/heedb/fm_encoders/CB4_L1_fold0.log 2>&1'
+#   systemctl --user status labram-cb4-l1-f0        # journalctl --user -u labram-cb4-l1-f0
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export OMP_NUM_THREADS=1 PYTHONPATH=.
