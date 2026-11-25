@@ -25,10 +25,11 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
   paired difference of +2.14 years (95 % interval +2.01 to +2.27), and it is 1.4 to 3.2 years
   worse on every external cohort (Table 7.5). It under-fits: its error on training recordings is
   8.3 years.
-- **Fine-tune (stage B), REVE: in progress** (6 of 17 epochs done). It has been ahead of P4 at
-  every epoch so far, by 0.05 to 0.9 years on validation (Table 7.3).
-- **Next candidate: REVE with only its last 6 layers trained.** It runs 2.1 times faster and fits
-  P4's batch (Table 7.4). The job is prepared and not started.
+- **Fine-tune (stage B), REVE: the full fine-tune was stopped after epoch 5 of 17.** It was ahead of
+  P4 at every epoch (Table 7.3) but over-fitted early: 5.5 years on training recordings against
+  7.7 on validation after epoch 3 (Table 7.6). Two runs that limit this are in progress on the
+  same fold: only the last 6 layers trained (`RV4T6_L1`), and the full fine-tune with stochastic
+  depth (`RV4DP_L1`) (Table 7.2).
 
 The target of every comparison is the best single model on the same split: **P4_L1 fold 0,
 validation 6.59 years, test 6.06 years** (`docs/mil_stage1_results.md`, Table 13.14).
@@ -227,7 +228,8 @@ evaluation scripts are untouched.
 - **Selection.** `model.model` stays the single selector (timm registry:
   `cbramod_base_patch200`, `reve_base_patch200`, and tiny random variants for tests).
   `model.encoder` holds the options only these models read: `readout` (`mean`, or `attn` for
-  REVE's pretrained pooling), `input_norm`, `clip_sd`.
+  REVE's pretrained pooling), `input_norm`, `clip_sd`, and `drop_path` (stochastic depth for
+  REVE, Eq. (7.1); off by default).
 - **One factory.** `labram/runs/model_factory.py::build_finetune_model` builds every fine-tune
   model; `run_finetune.get_model` and `labram/eval/loading.py` both call it. It rejects options a
   foreign encoder does not support (`codebook_reg`, `codebook_aux`, `lora`, session features, label
@@ -469,6 +471,9 @@ weights and the input options of Table 6.2 change (`scripts/mil_runs/submit_grid
   `model.encoder.input_norm=zscore_window`, layer decay 0.8 (Eq. (5.1)), and each update as two
   accumulation steps of 16 recordings × 8 windows (`trainer.batch_size=16`,
   `trainer.update_freq=2`, `mil.window_batch_size=128`), so the windows per update stay P4's 256.
+- **`RV4T6_L1`** = `RV4_L1` with only the last 6 of the 22 layers, the readout norm, the head and
+  the pool trained (`model.trainable_prefixes`), at P4's batch without accumulation (Section 7.2).
+- **`RV4DP_L1`** = `RV4_L1` with stochastic depth, `model.encoder.drop_path=0.1` (Section 7.3).
 
 ### Table 7.1. Training and inference throughput on one A10G
 
@@ -505,19 +510,23 @@ ensemble follow as a separate step.
 
 ### Table 7.2. Stage B runs
 
-Both started on 2026-11-24 from commit `d3da8b4` and run P4's schedule of 17 epochs (8 window
-epochs, 1 epoch that trains the pool only, 8 joint epochs). P4_L1 fold 0 took 12.8 hours on
-`ml.g5.4xlarge`.
+All on fold 0 with P4's schedule of 17 epochs (8 window epochs, 1 epoch that trains the pool only,
+8 joint epochs). P4_L1 fold 0 took 12.8 hours on `ml.g5.4xlarge`.
 
-| Run | Where | Identifier | Duration |
+| Run | Where | Identifier | State |
 |---|---|---|---|
-| `CB4_L1` fold 0 | local A10G, `scripts/mil_runs/run_local_fm.sh` | `/data/runs/heedb/fm_encoders/heedb_mil_CB4_L1_fold0_local_cv5/fold_0`; ClearML [epochs 0–4](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/13a62dc1bc8049669b79af59923e0cfb), [epochs 5–16](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/9ebe43f858b64e478889373a45648ce8) | 59 min per window epoch, 33 min per joint epoch; finished 25 Nov, 18:44 UTC |
-| `RV4_L1` fold 0 | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4-l1-f0-fold-0-2026-11-24-22-58-36-692` | 3.2 h per window epoch; expected end 26 Nov, about 18:00 UTC (cap 72 h) |
+| `CB4_L1` | local A10G, `scripts/mil_runs/run_local_fm.sh` | `/data/runs/heedb/fm_encoders/heedb_mil_CB4_L1_fold0_local_cv5/fold_0`; ClearML [epochs 0–4](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/13a62dc1bc8049669b79af59923e0cfb), [epochs 5–16](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/9ebe43f858b64e478889373a45648ce8) | finished 25 Nov, 18:44 UTC (59 min per window epoch, 33 min per joint epoch) |
+| `RV4_L1` | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4-l1-f0-fold-0-2026-11-24-22-58-36-692` | stopped on request on 25 Nov in epoch 6, after 21.3 h (3.2 h per window epoch); epochs 0–5 are scored |
+| `RV4T6_L1` | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4t6-l1-f0-fold-0-2026-11-25-21-19-50-438` | started 25 Nov, 21:20 UTC; about 21 h expected |
+| `RV4DP_L1` | local A10G, systemd unit `labram-rv4dp-l1-f0` | `/data/runs/heedb/fm_encoders/heedb_mil_RV4DP_L1_fold0_local_cv5/fold_0`; [ClearML](https://app.clear.ml/projects/e76a506be53e426aa0d95e90ad79855c/experiments/b2b8c98e12c044a59710f37372e5815c) | started 25 Nov, 21:25 UTC; 2.9 h per window epoch, about 42 h expected |
 
-The CBraMod run was stopped from outside on 25 Nov at 04:19 UTC, in epoch 5: the nightly Claude
-Code update restarted the service the run had been started from, and systemd stopped the run
-with it. It was continued at 11:07 UTC from the epoch-4 checkpoint (`output.auto_resume=true`,
-optimiser and schedule restored) as its own systemd unit, which that update does not touch.
+- The CBraMod run was stopped from outside on 25 Nov at 04:19 UTC, in epoch 5: the nightly Claude
+  Code update restarted the service the run had been started from, and systemd stopped the run
+  with it. It was continued at 11:07 UTC from the epoch-4 checkpoint (`output.auto_resume=true`,
+  optimiser and schedule restored) as its own systemd unit, which that update does not touch.
+- The stopped `RV4_L1` job keeps its checkpoints under
+  `s3://sagemaker-us-east-1-574441342949/labram/checkpoints/labram-mil-rv4-l1-f0-fold-0-20261124T225836/`
+  and can be continued with `RESUME=<that folder> ONLY=RV4_L1 FOLD=0 scripts/mil_runs/submit_grid.sh`.
 
 ### Table 7.3. Results at the same epoch
 
@@ -525,8 +534,9 @@ Recording-level MAE in years (Eq. (6.4)) as each run logs it after an epoch (`va
 `test_mae`: fold-0 validation recordings and the 7,612 test recordings, first 5 minutes; LEMON
 and TDBRAIN as the runs' standing test sets, scored at some epochs only). Epochs 0–7 are
 window-level epochs, epoch 8 trains the pool only, epochs 9–16 are joint. P4 and CBraMod are
-complete; REVE is at its state of 25 Nov, 19:20 UTC, and **its rows are not final**. "–" marks an
-epoch a run has not reached or a set it did not score at that epoch.
+complete; the REVE column is the full fine-tune `RV4_L1`, which was stopped after epoch 5, so
+**it has no final result**. "–" marks an epoch a run did not reach or a set it did not score at
+that epoch.
 
 | Epoch | P4 val / test | CBraMod val / test | REVE val / test | CBraMod LEMON, TDBRAIN | REVE LEMON, TDBRAIN |
 |---|---|---|---|---|---|
@@ -552,13 +562,13 @@ epoch a run has not reached or a set it did not score at that epoch.
 
 Reading Table 7.3:
 
-- **REVE is ahead of LaBraM at every epoch so far**: by 0.4 to 0.9 years on validation at epochs
-  2 to 4, and by 0.05 at epoch 5, where P4 made its largest step. Its curve is noisy at the peak
-  learning rate, and it is still in the window phase, so the size of the final gain is open.
+- **REVE was ahead of LaBraM at every epoch it reached**: by 0.4 to 0.9 years on validation at
+  epochs 2 to 4, and by 0.05 at epoch 5, where P4 made its largest step. Its curve was noisy at
+  the peak learning rate, and it never left the window phase, so its final gain is not known.
 - **CBraMod stays about 2 years behind at every epoch**, in the window phase and in the joint
   phase.
 
-### 7.2 Result: CBraMod with the P4 recipe
+### 7.1 Result: CBraMod with the P4 recipe
 
 ### Table 7.5. CBraMod against P4 on fold 0
 
@@ -593,7 +603,7 @@ both runs scored with `scripts/eval_age_by_cohort.py`. Validation is each run's 
   fine-tuned model could use; CBraMod's own recipe uses a learning rate of 1e-4 without layer
   decay. A second run with these changes is not started.
 
-### 7.1 Training only the last layers of REVE
+### 7.2 Training only the last layers of REVE
 
 REVE-base has 12 times LaBraM's parameters (Table 1.1), so training only its top layers is the
 natural way to cut its cost. CBraMod is smaller than LaBraM and fits too slowly already, so the
@@ -627,10 +637,51 @@ windows and is measured at 128.
   P4's batch without accumulation. It is compared paired with the full `RV4_L1` run on fold 0;
   within 0.38 years, the partial fine-tune is used for the 5 folds. The job is defined in
   `scripts/mil_runs/submit_grid.sh`; its dry run and a local debug run on the real fold pass
-  (18.9 M trainable parameters). It is not started.
+  (18.9 M trainable parameters). It was started on 25 Nov (Table 7.2). With the full run stopped,
+  it is compared with P4 directly, and with `RV4_L1` at epochs 0 to 5.
 
-**Status.** `CB4_L1` is finished (Table 7.5). `RV4_L1` is in progress (Tables 7.2 and 7.3).
-`RV4T6_L1` is prepared and not started.
+### 7.3 Over-fitting and under-fitting: why the two encoders need opposite changes
+
+Every fourth epoch a run scores a fixed sample of its training recordings like the validation
+set (`train_eval_mae`: the first 5 minutes, no mixup). The difference to the validation MAE shows
+whether a model memorises its training data or cannot fit it.
+
+### Table 7.6. Error on training recordings against validation
+
+MAE in years (Eq. (6.4)) on the scored sample of training recordings and on the fold-0 validation
+recordings, at the same epoch of a run; "gap" is validation minus training.
+
+| Run | Epoch | Training recordings | Validation | Gap |
+|---|---|---|---|---|
+| P4 (LaBraM) | 3 | 7.56 | 8.59 | 1.0 |
+| `RV4_L1` (REVE, all layers) | 3 | 5.53 | 7.72 | 2.2 |
+| P4 (LaBraM) | 7 (end of window phase) | 5.84 | 7.69 | 1.9 |
+| `CB4_L1` (CBraMod) | 7 (end of window phase) | 9.01 | 10.05 | 1.0 |
+| P4 (LaBraM) | 16 (end) | 3.71 | 6.60 | 2.9 |
+| `CB4_L1` (CBraMod) | 16 (end) | 8.32 | 8.85 | 0.5 |
+
+- **REVE over-fits early.** After epoch 3 it fits the training recordings 2 years better than
+  LaBraM does at the same epoch, and its gap is already 2.2 years (Table 7.6). With 12 times
+  LaBraM's parameters and no dropout or stochastic depth in its released encoder, it has more
+  room to memorise. The two runs in progress limit that in different ways:
+  - `RV4T6_L1` trains only the last 6 layers (Section 7.2);
+  - `RV4DP_L1` keeps all layers trainable and adds stochastic depth: during training each sample
+    drops the attention or feed-forward branch of layer $l$ with probability
+
+$$
+p_l = 0.1 \cdot \frac{l - 1}{L - 1}, \qquad l = 1, \dots, L = 22
+\tag{7.1}
+$$
+
+    the rule LaBraM's blocks use (`model.encoder.drop_path`,
+    `labram/models/backbones/reve.py::TransformerBackbone`). It adds no weights, so the released
+    file still loads strictly and the port stays identical to upstream when the option is off.
+- **CBraMod under-fits.** It ends at 8.3 years on its own training recordings (Table 7.6), so
+  freezing layers or adding regularisation would not help it. The candidate changes for it go
+  the other way (Section 7.1).
+
+**Status.** `CB4_L1` is finished (Table 7.5). `RV4_L1` was stopped after epoch 5 (Table 7.3).
+`RV4T6_L1` and `RV4DP_L1` are in progress (Table 7.2).
 
 ## 8. How to run
 
@@ -654,7 +705,8 @@ scripts/mil_runs/run_local_fm.sh output.auto_resume=true     # continue after an
 # from a Claude Code session, start a long local run as its own unit (see the script's header):
 systemd-run --user --unit=labram-cb4-l1-f0 --collect --working-directory=$PWD /bin/bash -c \
     'scripts/mil_runs/run_local_fm.sh >> /data/runs/heedb/fm_encoders/CB4_L1_fold0.log 2>&1'
-ONLY=RV4T6_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.2xlarge WORKERS=10 scripts/mil_runs/submit_grid.sh --dry_run
+ONLY=RV4T6_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh          # REVE, last 6 layers
+JOB=RV4DP_L1 ENCODER=reve scripts/mil_runs/run_local_fm.sh model.encoder.drop_path=0.1   # REVE + stochastic depth, local
 
 # any fine-tune with another encoder
 python -m labram.runs.run_finetune --config labram/configs/defaults/finetune_tuab_age.json \
