@@ -20,10 +20,13 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
   LaBraM on LEMON and 0.7 on Dortmund. Both are 4 to 5 years better than frozen LaBraM on CHBP.
 - **Input per encoder, selected on validation** (Table 6.2): common average reference for all
   three; CBraMod with a 0.3 Hz high-pass and a ±100 µV clip; REVE with a per-window z-score.
-- **Fine-tune (stage B): both runs are in progress and go through P4's full 17 epochs.** No
-  final result yet. At the same epoch, REVE is 0.4 to 1.1 years ahead of P4 (5 of 17 epochs
-  done) and CBraMod about 2 years behind (14 of 17 done) (Table 7.3). The CBraMod run was stopped once from outside in epoch 5 and
-  continued from its checkpoint.
+- **Fine-tune (stage B), CBraMod: finished, and it does not replace LaBraM with this recipe.**
+  On the same fold it reaches 8.19 years on the 7,612 test recordings against 6.06 for P4, a
+  paired difference of +2.14 years (95 % interval +2.01 to +2.27), and it is 1.4 to 3.2 years
+  worse on every external cohort (Table 7.5). It under-fits: its error on training recordings is
+  8.3 years.
+- **Fine-tune (stage B), REVE: in progress** (6 of 17 epochs done). It has been ahead of P4 at
+  every epoch so far, by 0.05 to 0.9 years on validation (Table 7.3).
 - **Next candidate: REVE with only its last 6 layers trained.** It runs 2.1 times faster and fits
   P4's batch (Table 7.4). The job is prepared and not started.
 
@@ -508,7 +511,7 @@ epochs, 1 epoch that trains the pool only, 8 joint epochs). P4_L1 fold 0 took 12
 
 | Run | Where | Identifier | Duration |
 |---|---|---|---|
-| `CB4_L1` fold 0 | local A10G, `scripts/mil_runs/run_local_fm.sh` | `/data/runs/heedb/fm_encoders/heedb_mil_CB4_L1_fold0_local_cv5/fold_0`; ClearML [epochs 0–4](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/13a62dc1bc8049669b79af59923e0cfb), [epochs 5–16](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/9ebe43f858b64e478889373a45648ce8) | 59 min per window epoch; expected end 25 Nov, about 20:00 UTC |
+| `CB4_L1` fold 0 | local A10G, `scripts/mil_runs/run_local_fm.sh` | `/data/runs/heedb/fm_encoders/heedb_mil_CB4_L1_fold0_local_cv5/fold_0`; ClearML [epochs 0–4](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/13a62dc1bc8049669b79af59923e0cfb), [epochs 5–16](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/9ebe43f858b64e478889373a45648ce8) | 59 min per window epoch, 33 min per joint epoch; finished 25 Nov, 18:44 UTC |
 | `RV4_L1` fold 0 | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4-l1-f0-fold-0-2026-11-24-22-58-36-692` | 3.2 h per window epoch; expected end 26 Nov, about 18:00 UTC (cap 72 h) |
 
 The CBraMod run was stopped from outside on 25 Nov at 04:19 UTC, in epoch 5: the nightly Claude
@@ -516,14 +519,14 @@ Code update restarted the service the run had been started from, and systemd sto
 with it. It was continued at 11:07 UTC from the epoch-4 checkpoint (`output.auto_resume=true`,
 optimiser and schedule restored) as its own systemd unit, which that update does not touch.
 
-### Table 7.3. Interim results at the same epoch
+### Table 7.3. Results at the same epoch
 
 Recording-level MAE in years (Eq. (6.4)) as each run logs it after an epoch (`val_mae`,
 `test_mae`: fold-0 validation recordings and the 7,612 test recordings, first 5 minutes; LEMON
 and TDBRAIN as the runs' standing test sets, scored at some epochs only). Epochs 0–7 are
-window-level epochs, epoch 8 trains the pool only, epochs 9–16 are joint. State of 25 Nov,
-17:30 UTC. **These are not final results.** "–" marks an epoch a run has not reached or a set it
-did not score at that epoch.
+window-level epochs, epoch 8 trains the pool only, epochs 9–16 are joint. P4 and CBraMod are
+complete; REVE is at its state of 25 Nov, 19:20 UTC, and **its rows are not final**. "–" marks an
+epoch a run has not reached or a set it did not score at that epoch.
 
 | Epoch | P4 val / test | CBraMod val / test | REVE val / test | CBraMod LEMON, TDBRAIN | REVE LEMON, TDBRAIN |
 |---|---|---|---|---|---|
@@ -532,27 +535,63 @@ did not score at that epoch.
 | 2 | 8.60 / 8.50 | 10.88 / 11.07 | 8.02 / 7.61 | 13.23, 9.04 | 6.75, 6.45 |
 | 3 | 8.59 / 8.54 | 11.12 / 11.38 | 7.72 / 7.40 | – | 6.68, 6.28 |
 | 4 | 8.67 / 8.64 | 10.42 / 10.51 | 8.25 / 8.05 | 11.48, 8.26 | 8.73, 6.68 |
-| 5 | 7.92 / 7.73 | 9.61 / 9.52 | – | 9.51, 7.93 | – |
+| 5 | 7.92 / 7.73 | 9.61 / 9.52 | 7.87 / 7.57 | 9.51, 7.93 | – |
 | 6 | 7.79 / 7.56 | 9.90 / 9.85 | – | – | – |
 | 7 | 7.69 / 7.49 | 10.05 / 10.12 | – | – | – |
 | 8 | 7.05 / 6.67 | 9.33 / 9.07 | – | 10.49, 7.89 | – |
 | 9 | 6.71 / 6.22 | 8.73 / 8.28 | – | 8.18, 7.26 | – |
-| 10 | 6.69 / 6.19 | 8.56 / 8.19 | – | 7.39, 7.03 | – |
+| 10 | 6.69 / 6.19 | **8.56 / 8.19** | – | 7.39, 7.03 | – |
 | 11 | 6.68 / 6.22 | 8.88 / 8.45 | – | – | – |
 | 12 | 6.65 / 6.12 | 8.80 / 8.45 | – | – | – |
 | 13 | 6.63 / 6.09 | 8.74 / 8.34 | – | – | – |
+| 14 | 6.61 / 6.07 | 8.90 / 8.54 | – | 8.87, 7.15 | – |
+| 15 | **6.59 / 6.06** | 8.87 / 8.49 | – | – | – |
+| 16 | 6.60 / 6.07 | 8.85 / 8.47 | – | 8.71, 7.13 | – |
+
+**Bold**: the best validation epoch of a finished run, the one its result is taken from.
 
 Reading Table 7.3:
 
-- **REVE is ahead of LaBraM at every epoch so far**, by 0.4 to 0.9 years on validation and 0.6 to
-  1.1 on test at epochs 2 to 4. Its curve is noisy at the peak learning rate (epoch 4 is worse
-  than epoch 3), and it is still in the window phase, so the size of the final gain is open.
-- **CBraMod stays about 2 years behind** through the joint phase: its best epoch so far is 8.56
-  on validation and 8.19 on test (epoch 10), against 6.69 and 6.19 for P4 at the same epoch. The
-  P4 recipe as it stands does not suit it. Candidate reasons, none tested yet: the readout
-  averages over channels (the per-channel readout was 0.6 to 1.5 years better in Table 6.2), the
-  ±100 µV clip removes amplitude a fine-tuned model could use, and CBraMod's own recipe uses a
-  learning rate of 1e-4 without layer decay.
+- **REVE is ahead of LaBraM at every epoch so far**: by 0.4 to 0.9 years on validation at epochs
+  2 to 4, and by 0.05 at epoch 5, where P4 made its largest step. Its curve is noisy at the peak
+  learning rate, and it is still in the window phase, so the size of the final gain is open.
+- **CBraMod stays about 2 years behind at every epoch**, in the window phase and in the joint
+  phase.
+
+### 7.2 Result: CBraMod with the P4 recipe
+
+### Table 7.5. CBraMod against P4 on fold 0
+
+Each run at its best validation epoch (CBraMod epoch 10, P4 epoch 15). MAE in years (Eq. (6.4))
+per recording; Δ = CBraMod − P4 on the same recordings (Eq. (6.5)) with its 95 % interval from
+2,000 bootstrap resamples, positive when CBraMod is worse. Test: the first 5 minutes of the 7,612
+held-out recordings (P4 re-scored with `scripts/eval_age_by_cohort.py`, CBraMod from its test
+bag-weight file). External cohorts: adults, every window, no trims for Dortmund, TDBRAIN and SRM,
+both runs scored with `scripts/eval_age_by_cohort.py`. Validation is each run's logged value.
+
+| Cohort | $n$ | P4 MAE | CBraMod MAE | Δ [95 % interval] |
+|---|---|---|---|---|
+| Validation (fold 0) | 19,071 | 6.59 | 8.56 | +1.97 |
+| Test, all | 7,612 | 6.06 | 8.19 | +2.14 [+2.01, +2.27] |
+| Test, Harvard | 7,338 | 6.05 | 8.20 | +2.15 [+2.03, +2.29] |
+| Test, Temple | 274 | 6.32 | 8.06 | +1.74 [+1.08, +2.38] |
+| LEMON | 214 | 4.73 | 7.44 | +2.71 [+2.05, +3.39] |
+| Dortmund | 3,262 | 5.29 | 6.96 | +1.68 [+1.50, +1.86] |
+| TDBRAIN | 2,222 | 5.48 | 7.03 | +1.55 [+1.31, +1.79] |
+| SRM | 152 | 5.01 | 6.39 | +1.38 [+0.50, +2.21] |
+| CHBP | 250 | 7.45 | 10.65 | +3.20 [+2.10, +4.33] |
+
+- **Verdict.** By the decision rule CBraMod with the P4 recipe does not replace LaBraM: it is worse
+  on Harvard test, on LEMON and on Dortmund, and on every other cohort, with every interval far
+  from 0 (Table 7.5).
+- **It under-fits.** At the last epoch its MAE on the scored sample of training recordings is 8.32
+  years, against 8.85 on validation. A model that cannot fit its training data is limited by what
+  it is given or how it is trained, not by generalisation. The frozen probe pointed the other way
+  for the external cohorts (Table 6.4), so the encoder is not shown to be worse; this recipe is.
+- **Untested candidates for the cause:** the readout averages over channels (the per-channel
+  readout was 0.6 to 1.5 years better in Table 6.2); the ±100 µV clip removes amplitude a
+  fine-tuned model could use; CBraMod's own recipe uses a learning rate of 1e-4 without layer
+  decay. A second run with these changes is not started.
 
 ### 7.1 Training only the last layers of REVE
 
@@ -590,8 +629,8 @@ windows and is measured at 128.
   `scripts/mil_runs/submit_grid.sh`; its dry run and a local debug run on the real fold pass
   (18.9 M trainable parameters). It is not started.
 
-**Status.** `CB4_L1` and `RV4_L1` are in progress (Table 7.2), with interim results in Table 7.3;
-`RV4T6_L1` is prepared.
+**Status.** `CB4_L1` is finished (Table 7.5). `RV4_L1` is in progress (Tables 7.2 and 7.3).
+`RV4T6_L1` is prepared and not started.
 
 ## 8. How to run
 
