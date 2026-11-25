@@ -105,10 +105,16 @@ class EncoderConfig(ConfigBase):
     authors fine-tune on); ``zscore_window`` z-scores every channel over the
     window and clips at ``+-clip_sd`` (REVE's pretraining normalisation,
     computed per window instead of per session).
+
+    ``drop_path``: stochastic depth of the encoder's layers during training
+    (REVE only; its released encoder has none, LaBraM's blocks use
+    ``model.drop_path``). The rate rises linearly from 0 at the first layer to
+    this value at the last. 0 = off.
     """
     readout: str = ""
     input_norm: str = "none"
     clip_sd: float = 15.0
+    drop_path: float = 0.0
 
 
 @dataclass
@@ -282,6 +288,8 @@ class FinetuneModelConfig(ConfigBase):
         if self.encoder.input_norm not in ("none", "zscore_window"):
             raise ValueError("model.encoder.input_norm must be 'none' or 'zscore_window', "
                              f"got {self.encoder.input_norm!r}")
+        if not 0.0 <= self.encoder.drop_path < 1.0:
+            raise ValueError(f"model.encoder.drop_path must be in [0, 1), got {self.encoder.drop_path}")
         if self.foreign_encoder:
             # The foreign-encoder model has the plain readout and heads only.
             unsupported = [name for name, on in (

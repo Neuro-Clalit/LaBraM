@@ -145,6 +145,11 @@ REVE_TOP6='model.trainable_prefixes=["head.","mil.","fc_norm.","backbone.net.tra
 REVE_T6=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window optimizer.layer_decay=0.8
   finetune_checkpoint.finetune=${REVE_CKPT:-s3://eeg-data-public/models/reve/reve-base/model.safetensors}
   "$REVE_TOP6")
+# REVE fully fine-tuned with the regularisation its released encoder lacks (RV4DP_L1): stochastic
+# depth, rising from 0 at the first layer to 0.1 at the last, as LaBraM's blocks use
+# (model.encoder.drop_path). RV4_L1 over-fitted early: 5.5 y on training recordings against
+# 7.7 y on validation after epoch 3 (LaBraM: 7.6 against 8.6).
+REVE_DP=("${REVE[@]}" model.encoder.drop_path=0.1)
 # The window phase streams (FastFile) recording by recording: random single-window
 # reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
 # mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
@@ -189,6 +194,7 @@ declare -A JOBS=(
   [CB4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${CBRAMOD[*]}"
   [RV4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE[*]}"
   [RV4T6_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE_T6[*]}"
+  [RV4DP_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE_DP[*]}"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"

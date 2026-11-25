@@ -63,9 +63,10 @@ def _build_foreign(config):
         encoder=m.encoder, labram_plus=config.labram_plus,
         input_clip=m.input_clip_uv / 100,
     )
-    logger.info("Foreign encoder %s: %d layers, width %d; readout=%s input_norm=%s. LaBraM-only "
-                "model options are not used: %s", m.model, model.get_num_layers(), model.embed_dim,
-                model.readout, model.input_norm, ", ".join(name for name, _ in _LABRAM_ONLY))
+    logger.info("Foreign encoder %s: %d layers, width %d; readout=%s input_norm=%s drop_path=%g. "
+                "LaBraM-only model options are not used: %s", m.model, model.get_num_layers(),
+                model.embed_dim, model.readout, model.input_norm, m.encoder.drop_path,
+                ", ".join(name for name, _ in _LABRAM_ONLY))
     return model
 
 

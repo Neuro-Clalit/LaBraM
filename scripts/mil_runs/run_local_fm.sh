@@ -5,6 +5,8 @@
 #
 #   scripts/mil_runs/run_local_fm.sh                      # CBraMod, fold 0
 #   ENCODER=reve scripts/mil_runs/run_local_fm.sh         # REVE-base (about 3.5x the time)
+#   JOB=RV4DP_L1 ENCODER=reve scripts/mil_runs/run_local_fm.sh model.encoder.drop_path=0.1
+#                                                         # a variant: JOB names its folder and task
 #   scripts/mil_runs/run_local_fm.sh output.auto_resume=true   # continue after an interruption
 #
 # The run writes to /data/runs/heedb/fm_encoders/heedb_mil_<JOB>_fold<FOLD>_local_cv5/fold_<FOLD>
@@ -26,10 +28,10 @@ ENCODER=${ENCODER:-cbramod}
 FOLD=${FOLD:-0}
 SPLIT=${SPLIT:-/data/runs/heedb/mil_phased_cv/P4_L1/fold_0/cv/fold_0/cv_split.json}
 case $ENCODER in
-  cbramod) JOB=CB4_L1
+  cbramod) JOB=${JOB:-CB4_L1}
     ENC=(model.model=cbramod_base_patch200 labram_plus.band_hz=[0.3,99.0] model.input_clip_uv=100
          finetune_checkpoint.finetune=./checkpoints/cbramod-base.pth) ;;
-  reve) JOB=RV4_L1
+  reve) JOB=${JOB:-RV4_L1}
     ENC=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window optimizer.layer_decay=0.8
          trainer.batch_size=16 trainer.update_freq=2 mil.window_batch_size=128
          finetune_checkpoint.finetune=./checkpoints/reve-base.safetensors) ;;

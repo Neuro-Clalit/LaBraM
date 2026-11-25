@@ -219,3 +219,23 @@ def test_factory_builds_foreign_models_and_rejects_labram_only_options():
             run_finetune.get_model(cfg(**over))
     native = run_finetune.get_model(cfg(**{"model.model": "labram_base_patch200_200"}))
     assert not isinstance(native, FoundationRegressor) and not hasattr(native, "layer_id")
+
+
+def test_reve_stochastic_depth_is_optional_and_adds_no_weights():
+    plain = _model("reve_tiny_patch200")
+    reg = _model("reve_tiny_patch200", encoder={"drop_path": 0.5})
+    assert set(reg.state_dict()) == set(plain.state_dict())    # the released weights still load strictly
+    reg.load_state_dict(plain.state_dict())
+    assert reg.backbone.net.transformer.drop_path_rates == [0.0, 0.5]     # linear over the 2 layers
+    assert plain.backbone.net.transformer.drop_path_rates == [0.0, 0.0]
+    x, ci = _x(batch=16), get_channel_indices(NAMES)
+    assert torch.allclose(reg(x, ci), plain(x, ci), atol=1e-6)            # evaluation: no layer is dropped
+    reg.train()
+    torch.manual_seed(0)
+    a = reg.forward_tokens(x, ci)
+    b = reg.forward_tokens(x, ci)
+    assert not torch.allclose(a, b)                                       # training: branches drop per sample
+    plain.train()
+    assert torch.allclose(plain.forward_tokens(x, ci), plain.forward_tokens(x, ci))
+    with pytest.raises(ValueError, match="drop_path"):                    # CBraMod has its own dropout
+        _model("cbramod_tiny_patch200", encoder={"drop_path": 0.1})

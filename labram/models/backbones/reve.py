@@ -10,8 +10,9 @@
 # (huggingface.co/brain-bzh/reve-base, modeling_reve.py). Changes to the upstream
 # code: no `transformers` / `flash_attn` dependency (PyTorch's scaled dot-product
 # attention only), no position noise (pretraining only), the learnable-position
-# variant and the attention-map helpers are dropped. Module and parameter names are
-# upstream's, so the released weights load strictly.
+# variant and the attention-map helpers are dropped; optional stochastic depth on the
+# residual branches (`drop_path`, off by default, no parameters). Module and parameter
+# names are upstream's, so the released weights load strictly.
 #
 # The released WEIGHTS are under the "REVE Responsible Use License v1.0" (see the
 # model card): models derived from them must carry that licence.
@@ -32,6 +33,7 @@ from typing import Dict, Sequence, Set
 import torch
 import torch.nn.functional as F
 from einops import rearrange
+from timm.layers import drop_path as stochastic_depth
 from torch import nn
 
 from labram.models.backbones.base import EncoderBackbone, load_state_strict, read_weight_file
@@ -106,9 +108,14 @@ class Attention(nn.Module):
 
 
 class TransformerBackbone(nn.Module):
-    def __init__(self, dim, depth, heads, head_dim, mlp_dim, geglu):
+    def __init__(self, dim, depth, heads, head_dim, mlp_dim, geglu, drop_path=0.0):
         super().__init__()
         self.dim = dim
+        # Stochastic depth (not in the upstream encoder): during training each
+        # sample drops a layer's attention / feed-forward branch with a
+        # probability that rises linearly from 0 at the first layer to
+        # ``drop_path`` at the last, as in LaBraM's blocks. 0 = off.
+        self.drop_path_rates = [float(r) for r in torch.linspace(0, drop_path, depth)]
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(
@@ -121,9 +128,9 @@ class TransformerBackbone(nn.Module):
             )
 
     def forward(self, x):
-        for attn, ff in self.layers:
-            x = attn(x) + x
-            x = ff(x) + x
+        for (attn, ff), rate in zip(self.layers, self.drop_path_rates):
+            x = stochastic_depth(attn(x), rate, self.training) + x
+            x = stochastic_depth(ff(x), rate, self.training) + x
         return x
 
 
@@ -206,7 +213,7 @@ def mlp_pos_embedding(embed_dim):
 
 class Reve(nn.Module):
     def __init__(self, embed_dim=512, depth=22, heads=8, head_dim=64, mlp_dim_ratio=2.66,
-                 use_geglu=True, freqs=4, patch_size=200, patch_overlap=20):
+                 use_geglu=True, freqs=4, patch_size=200, patch_overlap=20, drop_path=0.0):
         super().__init__()
         self.embed_dim = embed_dim
         self.freqs = freqs
@@ -215,7 +222,7 @@ class Reve(nn.Module):
 
         self.transformer = TransformerBackbone(
             dim=embed_dim, depth=depth, heads=heads, head_dim=head_dim,
-            mlp_dim=int(embed_dim * mlp_dim_ratio), geglu=use_geglu,
+            mlp_dim=int(embed_dim * mlp_dim_ratio), geglu=use_geglu, drop_path=drop_path,
         )
 
         self.to_patch_embedding = patch_embedding(self.embed_dim, self.patch_size)
@@ -272,10 +279,11 @@ class REVEBackbone(EncoderBackbone):
     name = "reve"
 
     def __init__(self, embed_dim: int = 512, depth: int = 22, heads: int = 8, head_dim: int = 64,
-                 mlp_dim_ratio: float = 2.66, freqs: int = 4):
+                 mlp_dim_ratio: float = 2.66, freqs: int = 4, drop_path: float = 0.0):
         super().__init__()
         self.net = Reve(embed_dim=embed_dim, depth=depth, heads=heads, head_dim=head_dim,
-                        mlp_dim_ratio=mlp_dim_ratio, freqs=freqs)
+                        mlp_dim_ratio=mlp_dim_ratio, freqs=freqs, drop_path=drop_path)
+        self.drop_path = float(drop_path)
         self.embed_dim = embed_dim
         self.num_layers = depth
         self._bank = load_positions()

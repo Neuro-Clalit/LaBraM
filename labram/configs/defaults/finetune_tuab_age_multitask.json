@@ -185,7 +185,8 @@
         "encoder": {
             "readout": "",
             "input_norm": "none",
-            "clip_sd": 15.0
+            "clip_sd": 15.0,
+            "drop_path": 0.0
         },
         "codebook_reg": {
             "py/object": "labram.configs.model_config.CodebookRegConfig",

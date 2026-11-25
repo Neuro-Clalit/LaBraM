@@ -118,6 +118,17 @@ def is_foreign_encoder(model_name: str) -> bool:
     return str(model_name).startswith(FOREIGN_ENCODER_PREFIXES)
 
 
+def _encoder_option(kwargs: dict, key: str, default):
+    """One ``model.encoder`` option out of the ``encoder`` kwarg (config, dict or None)."""
+    enc = kwargs.get("encoder")
+    return enc.get(key, default) if isinstance(enc, dict) else getattr(enc, key, default)
+
+
+def _reject_drop_path(kwargs: dict, name: str) -> None:
+    if _encoder_option(kwargs, "drop_path", 0.0):
+        raise ValueError(f"model.encoder.drop_path is not supported for {name}: it has its own dropout")
+
+
 def _foreign_regressor(backbone, kwargs: dict):
     """A :class:`FoundationRegressor` around ``backbone``. Takes the head and
     input options of ``create_model`` and ignores LaBraM-only architecture
@@ -140,6 +151,7 @@ def _foreign_regressor(backbone, kwargs: dict):
 def cbramod_base_patch200(pretrained=False, **kwargs):
     """CBraMod (12 criss-cross layers, width 200, ~4.9 M parameters)."""
     from labram.models.backbones import CBraModBackbone
+    _reject_drop_path(kwargs, "CBraMod")
     return _foreign_regressor(CBraModBackbone(), kwargs)
 
 
@@ -147,6 +159,7 @@ def cbramod_base_patch200(pretrained=False, **kwargs):
 def cbramod_tiny_patch200(pretrained=False, **kwargs):
     """Random-init 2-layer CBraMod for tests (the stem fixes the width at 200)."""
     from labram.models.backbones import CBraModBackbone
+    _reject_drop_path(kwargs, "CBraMod")
     return _foreign_regressor(CBraModBackbone(n_layer=2, dim_feedforward=64), kwargs)
 
 
@@ -154,14 +167,15 @@ def cbramod_tiny_patch200(pretrained=False, **kwargs):
 def reve_base_patch200(pretrained=False, **kwargs):
     """REVE-base (22 layers, width 512, ~69 M parameters)."""
     from labram.models.backbones import REVEBackbone
-    return _foreign_regressor(REVEBackbone(), kwargs)
+    return _foreign_regressor(REVEBackbone(drop_path=_encoder_option(kwargs, "drop_path", 0.0)), kwargs)
 
 
 @register_model
 def reve_tiny_patch200(pretrained=False, **kwargs):
     """Random-init 2-layer REVE for tests."""
     from labram.models.backbones import REVEBackbone
-    return _foreign_regressor(REVEBackbone(embed_dim=64, depth=2, heads=2, head_dim=16), kwargs)
+    return _foreign_regressor(REVEBackbone(embed_dim=64, depth=2, heads=2, head_dim=16,
+                                           drop_path=_encoder_option(kwargs, "drop_path", 0.0)), kwargs)
 
 
 # ---------------------------------------------------------------------------
