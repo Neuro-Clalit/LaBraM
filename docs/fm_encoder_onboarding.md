@@ -715,6 +715,64 @@ Reading Table 7.7:
   7.40) and is 0.9 years ahead of P4 on validation. Its error on training recordings is 5.86
   against 5.53, so the gap falls from 2.2 to 1.8 years.
 
+### 7.4 How the authors fine-tune their models, and what follows for ours
+
+Read from the authors' code and papers: CBraMod (`github.com/wjq-learning/CBraMod`, commit
+`b9e9610`: `finetune_main.py`, `finetune_trainer.py`, `models/model_for_*.py`; paper Appendices
+D.4, E.5, H, J) and REVE (`github.com/elouayas/reve_eeg`, commit `06a7059`: `src/dt.py`,
+`src/models/classifier.py`, `src/configs/`; paper Sections 3.3 and 4, Table 4). Both apply one
+recipe to all their tasks, and both differ from P4's recipe in the same places.
+
+### Table 7.8. The authors' fine-tuning recipes against the recipe of our runs
+
+"Ours" is the P4 recipe as used in `CB4_L1` and `RV4_L1` (Section 7). For REVE the paper and the
+released script disagree on one point: the paper adapts the encoder through LoRA, the script
+unfreezes every weight; both are listed.
+
+| | CBraMod authors | REVE authors | Ours |
+|---|---|---|---|
+| Stages | one: all weights | two: head alone with the encoder frozen (TUAB: up to 20 epochs), then the encoder too | one: all weights from the first step |
+| Encoder update | every layer | paper: LoRA of rank 16 on the attention projections; script: every weight | every layer (`RV4T6_L1`: last 6) |
+| Learning rate | 1e-4 on every encoder layer, 5e-4 on the head; cosine, no warm-up | head stage 5e-3; then 1e-4 on every layer; 5 warm-up epochs, halved on plateau, early stopping | peak 2.8e-4 with layer-wise decay (0.65 CBraMod, 0.8 REVE), 3 warm-up epochs, cosine |
+| Gradient clipping | norm 1 | norm 2 | none |
+| Readout | all channel × patch tokens flattened into a 3-layer MLP | all tokens flattened plus an attention-pooled token, or attention pooling with the pretrained query alone; RMSNorm; linear | mean of all tokens, LayerNorm, linear |
+| Input | µV / 100; no clip, no z-score | one fixed scale per dataset (µV / 100); no clip, no z-score | CAR; CBraMod: 0.3 Hz high-pass and ±100 µV clip; REVE: z-score per window |
+| Regularisation | dropout 0.1, label smoothing; no mixup | mixup with a uniform mixing weight; noise of 0.25 cm on the electrode positions; head dropout; paper: average of at least 5 models (+1.5 %) | mixup with α = 0.4 |
+| Epochs, batch | 50, 64 | TUAB: up to 20 + 50, 16 | 17, 256 windows |
+| Frozen encoder | "cannot currently serve as a fixed-parameter feature extractor" (Appendix J) | strong: TUAB balanced accuracy 0.810 frozen against 0.832 fine-tuned | – |
+| Regression, recording level | one regression task (vigilance, SEED-VIG): same head, MSE loss, $R^2$ 0.34 against 0.24 for LaBraM-base; windows only | none | age; recordings pooled over windows |
+
+What follows for our task:
+
+- **CBraMod was under-trained by our recipe, as its authors' results predict.** With layer decay
+  0.65 its input layers train at 1e-6 and its middle layers at 1.4e-5, against 1e-4 everywhere
+  in the authors' recipe, and they report that a frozen CBraMod does not work. Our run under-fits
+  (Table 7.6). Proposal `CB5_L1`: P4's schedule with the authors' settings: every encoder layer
+  at 1e-4, head 5 times higher, gradient clip 1; a readout over all tokens (their two-layer form:
+  38,000 → 200, feeding our pool); µV / 100 with the average reference and the 0.3 Hz high-pass
+  but no clip; no mixup.
+- **REVE's authors restrict how the encoder moves, not which layers move.** They first fit the
+  head on the frozen encoder, then adapt all layers gently (1e-4, or LoRA), with gradient
+  clipping. Our run adapts every layer from the first step at up to 2.2e-4 in the top layers, and
+  it over-fits early; training only the last 6 layers over-fits more (Table 7.7). Proposal
+  `RV5_L1`: a head-only first epoch, then every layer at 1e-4 without layer decay, gradient
+  clip 2, attention pooling with the pretrained query (`model.encoder.readout=attn`), µV / 100
+  input, position noise and uniform mixup. Proposal `RV5L_L1`: the same with LoRA of rank 16 on
+  the attention projections in place of full updates.
+- **Neither group averages the tokens.** Both keep the channel × patch structure in the readout,
+  or use a learned pooling. Our frozen probe agrees: the per-channel readout was 0.6 to 1.5 years
+  better than the mean (Tables 6.1 and 6.2).
+- **Neither group clips or z-scores the fine-tuning input.** Both feed µV / 100, which keeps the
+  absolute amplitude. CBraMod's pretraining removed large-amplitude segments and never clipped
+  them, so our ±100 µV clip gives it flat-topped waveforms it has not seen.
+- **Averaging models is part of REVE's reported result** (+1.5 % from at least 5 models). For us
+  this is the 5-fold ensemble, and the average of a LaBraM and a REVE model.
+- **Not covered by either group:** age or any recording-level target, pooling over windows, and a
+  labelled set of our size (their largest is TUAB). These parts stay our own design.
+
+The proposals need code that does not exist yet: the all-token readout, a head-only first epoch
+in the window phase, position noise for REVE, and LoRA for REVE's layers. None is started.
+
 **Status.** `CB4_L1` is finished (Table 7.5). `RV4_L1` was stopped after epoch 5 (Table 7.3).
 `RV4T6_L1` and `RV4DP_L1` are in progress (Tables 7.2 and 7.7).
 
