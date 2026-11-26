@@ -64,6 +64,75 @@ Sizes are parameter counts of the encoder alone. "Tokens per 10 s" is channels �
 | Code licence | MIT | MIT | MIT |
 | Weight licence | MIT | Apache-2.0 | REVE Responsible Use License v1.0 |
 
+### 1.1 Published downstream results against LaBraM
+
+Both papers evaluate by fine-tuning on short-window classification tasks; neither has an age
+task or any recording-level target. The CBraMod paper covers 12 datasets in 10 task types and one
+more motor-imagery set in its appendix; the REVE paper covers 9 of the same datasets with the
+same splits (Table 1.2).
+
+### Table 1.2. Results of the two papers against LaBraM-base
+
+Balanced accuracy on the test split after fine-tuning, mean over the authors' runs; for the one
+regression task, Pearson correlation / $R^2$. Read from the papers (CBraMod: Tables 2, 3, 7–15;
+REVE: Table 2). "–": not evaluated.
+
+| Task | Dataset | LaBraM-base | CBraMod | REVE-base |
+|---|---|---|---|---|
+| Abnormal EEG detection | TUAB | 0.8140 | 0.8289 | 0.8315 |
+| Event type classification | TUEV | 0.6409 | 0.6671 | 0.6759 |
+| Motor imagery | PhysioNet-MI | 0.6173 | 0.6417 | 0.6480 |
+| Motor imagery | BCIC-IV-2a | 0.4869 | 0.5138 | 0.6396 |
+| Motor imagery | SHU-MI | 0.6166 | 0.6370 | – |
+| Emotion recognition | FACED | 0.5273 | 0.5509 | 0.5646 |
+| Emotion recognition | SEED-V | 0.3976 | 0.4091 | – |
+| Sleep staging | ISRUC | 0.7633 | 0.7865 | 0.7819 |
+| Seizure detection | CHB-MIT | 0.7075 | 0.7398 | – |
+| Depression diagnosis | Mumtaz2016 | 0.9409 | 0.9560 | 0.9644 |
+| Mental stress detection | MentalArithmetic | 0.6909 | 0.7256 | 0.7660 |
+| Imagined speech | BCIC2020-3 | 0.5060 | 0.5373 | 0.5635 |
+| Vigilance estimation (regression) | SEED-VIG | 0.593 / 0.243 | 0.646 / 0.337 | – |
+| Mean of REVE's 9 datasets | | 0.6653 | 0.6898 | 0.7150 |
+
+Reading Table 1.2:
+
+- **In their own papers both models beat LaBraM-base on every dataset.** CBraMod gains 1.2 to 3.5
+  points of balanced accuracy, REVE 1.8 to 15 points (BCIC-IV-2a); REVE is above CBraMod on 8 of
+  9 datasets and 0.5 points below it on ISRUC, where its preprocessing differs.
+- **The larger LaBraM models close most of the gap on the two Temple tasks.** LaBraM-huge
+  (369 M parameters) reaches 0.8258 on TUAB and 0.6616 on TUEV, within 0.6 points of CBraMod and
+  1.4 of REVE.
+- **The comparison is not independent.** Apart from TUAB and TUEV, every LaBraM number in
+  Table 1.2 comes from the CBraMod authors' own fine-tuning of the released LaBraM-base weights,
+  and the REVE paper copies those numbers.
+- **Frozen encoders.** On PhysioNet-MI with the encoder frozen, REVE-base reaches 0.537, against
+  0.385 for CBraMod and 0.372 for LaBraM (REVE Table 3; CBraMod Table 18).
+
+Independent benchmarks from 2025 and 2026 do not confirm a uniform win. Their table values below
+were read from the papers' web pages by an automated reader and are **not checked cell by cell**;
+check them against the source before citing.
+
+- **EEG-FM-Bench** (arXiv:2508.17742, 14 datasets, one code base). With full fine-tuning per
+  dataset, CBraMod is below LaBraM on PhysioNet-MI and TUAB (78.3 against 79.5), and REVE is below
+  it on PhysioNet-MI (27.9 against 57.3) and one more dataset; on the other datasets both are
+  above. With a frozen encoder, CBraMod is below LaBraM on 10 of 14 datasets and REVE on 3,
+  among them TUAB (63.8 against 75.9).
+- **OmniEEG-Bench** (arXiv:2606.00815, 54 datasets). Under full fine-tuning CBraMod has the best
+  average rank (4.51) and LaBraM the second (4.88); REVE is not in the top three and is below
+  LaBraM on 19 datasets, CBraMod on 18. With a frozen encoder, CBraMod and REVE rank second and
+  third. On age groups of LEMON (4 classes), REVE is above LaBraM when frozen (0.50 against
+  0.44) and below it when fine-tuned (0.46 against 0.52).
+- **NeuroAtlas** (arXiv:2605.14698) has the only age regression: frozen encoders with a ridge
+  probe on 10 cohorts, most of them sleep studies. CBraMod has a higher MAE than LaBraM on all 10
+  cohorts; REVE has a lower MAE on 8 of 10 (for example 6.70 against 7.00 years on SHHS). A
+  model on handcrafted sleep features is better than every foundation model (4.72 years on
+  SHHS). The authors conclude that "pretrained models perform largely on par, with only narrow
+  advantages for a few".
+
+For brain age this agrees with our own results: frozen, REVE is slightly better than LaBraM and
+CBraMod is level with it (Table 6.3); fine-tuned, neither has beaten LaBraM so far (Tables 7.5
+and 7.10).
+
 ## 2. Cohorts
 
 - **Training, validation, in-domain test:** `tuh_heedb_v1`, 103,117 recordings (Temple 31,312,
