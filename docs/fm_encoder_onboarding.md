@@ -29,9 +29,9 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
   P4 at every epoch (Table 7.3) but over-fitted early: 5.5 years on training recordings against
   7.7 on validation after epoch 3 (Table 7.6). Two runs that limit this are in progress on the
   same fold: only the last 6 layers trained (`RV4T6_L1`), and the full fine-tune with stochastic
-  depth (`RV4DP_L1`) (Table 7.2). Interim (Table 7.7): the last-6-layers run is level with P4
-  and behind the full fine-tune; the run with stochastic depth is level with or ahead of the
-  stopped full run.
+  depth (`RV4DP_L1`) (Table 7.2). Interim (Table 7.7): the last-6-layers run is 0.5 years behind P4
+  at the end of the window phase and over-fits more; the run with stochastic depth keeps the
+  full fine-tune's lead over P4 (0.9 years at epoch 3).
 
 The target of every comparison is the best single model on the same split: **P4_L1 fold 0,
 validation 6.59 years, test 6.06 years** (`docs/mil_stage1_results.md`, Table 13.14).
@@ -684,29 +684,36 @@ $$
 
 ### Table 7.7. REVE variants at the same epoch (interim)
 
-Validation / test MAE in years (Eq. (6.4)) after each window-level epoch, as in Table 7.3. State
-of 26 Nov, 07:25 UTC; `RV4DP_L1` and `RV4T6_L1` are still training, so **no row is final**. The
-last line is the error on the scored training recordings after epoch 3 (Table 7.6). "–": not
-reached yet.
+Validation / test MAE in years (Eq. (6.4)) after each window-level epoch, as in Table 7.3, and
+the error on the scored training recordings at the epochs where a run scores them (Table 7.6).
+State of 26 Nov, 11:15 UTC; `RV4DP_L1` and `RV4T6_L1` are still training, so **no row is final**.
+"–": not reached or not scored.
 
 | Epoch | P4 (LaBraM) | `RV4_L1`: all layers (stopped) | `RV4DP_L1`: all layers + stochastic depth | `RV4T6_L1`: last 6 layers |
 |---|---|---|---|---|
 | 0 | 9.52 / 9.48 | 8.85 / 8.68 | 9.05 / 8.92 | 10.33 / 10.44 |
 | 1 | 8.85 / 8.84 | 9.00 / 8.97 | 9.10 / 9.06 | 9.21 / 9.10 |
 | 2 | 8.60 / 8.50 | 8.02 / 7.61 | 7.76 / 7.45 | 8.95 / 8.87 |
-| 3 | 8.59 / 8.54 | 7.72 / 7.40 | – | 8.55 / 8.40 |
+| 3 | 8.59 / 8.54 | 7.72 / 7.40 | 7.67 / 7.39 | 8.55 / 8.40 |
 | 4 | 8.67 / 8.64 | 8.25 / 8.05 | – | 8.74 / 8.61 |
-| Training recordings, epoch 3 | 7.56 | 5.53 | – | 6.76 |
+| 5 | 7.92 / 7.73 | 7.87 / 7.57 | – | 8.61 / 8.38 |
+| 6 | 7.79 / 7.56 | – | – | 8.26 / 8.00 |
+| 7 (end of window phase) | 7.69 / 7.49 | – | – | 8.25 / 8.00 |
+| Training recordings, epoch 3 | 7.56 | 5.53 | 5.86 | 6.76 |
+| Training recordings, epoch 7 | 5.84 | – | – | 4.42 |
 
-Reading Table 7.7, with three to five of 17 epochs done:
+Reading Table 7.7:
 
-- **Training only the last 6 layers costs accuracy so far.** `RV4T6_L1` is level with P4 at epochs
-  3 and 4 and about 0.8 years behind the full REVE fine-tune at epoch 3. Its gap between training
-  recordings and validation is 1.8 years, so the restriction lowers what the model fits more than
-  it lowers the over-fitting.
-- **Stochastic depth does not slow the full fine-tune.** `RV4DP_L1` is level with the stopped run
-  at epochs 0 and 1 and 0.3 years better on validation at epoch 2. Whether it narrows the
-  over-fitting gap shows at epoch 3, its first epoch with scored training recordings.
+- **Training only the last 6 layers is behind LaBraM and over-fits more.** At the end of the
+  window phase `RV4T6_L1` is 0.56 years behind P4 on validation and 0.51 on test, while it fits
+  its training recordings 1.4 years better (4.42 against 5.84). Its gap between training
+  recordings and validation is 3.8 years, against 1.9 for P4. Freezing the lower 16 layers did
+  not stop the memorising; it cost generalisation. The joint phase can still change the final
+  number.
+- **Stochastic depth keeps the full fine-tune's accuracy and narrows the gap a little.** At
+  epoch 3 `RV4DP_L1` equals the stopped run on validation and test (7.67 / 7.39 against 7.72 /
+  7.40) and is 0.9 years ahead of P4 on validation. Its error on training recordings is 5.86
+  against 5.53, so the gap falls from 2.2 to 1.8 years.
 
 **Status.** `CB4_L1` is finished (Table 7.5). `RV4_L1` was stopped after epoch 5 (Table 7.3).
 `RV4T6_L1` and `RV4DP_L1` are in progress (Tables 7.2 and 7.7).
