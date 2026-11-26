@@ -229,9 +229,11 @@ evaluation scripts are untouched.
   nor remote code is needed at run time.
 - **Selection.** `model.model` stays the single selector (timm registry:
   `cbramod_base_patch200`, `reve_base_patch200`, and tiny random variants for tests).
-  `model.encoder` holds the options only these models read: `readout` (`mean`, or `attn` for
-  REVE's pretrained pooling), `input_norm`, `clip_sd`, and `drop_path` (stochastic depth for
-  REVE, Eq. (7.1); off by default).
+  `model.encoder` holds the options only these models read: `readout` (`mean`, `attn` for
+  REVE's pretrained pooling, or `flatten` for CBraMod's all-token readout, Eq. (7.3)),
+  `input_norm`, `clip_sd`, `drop_path` (stochastic depth for REVE, Eq. (7.1)), and the options of
+  the authors' recipes (Section 7.5): `readout_dropout`, `lr_scale` (Eq. (7.2)), `probe_epochs`
+  and `position_noise`. All are off by default.
 - **One factory.** `labram/runs/model_factory.py::build_finetune_model` builds every fine-tune
   model; `run_finetune.get_model` and `labram/eval/loading.py` both call it. It rejects options a
   foreign encoder does not support (`codebook_reg`, `codebook_aux`, `lora`, session features, label
@@ -254,8 +256,10 @@ $$
   $\gamma$ would give $s_0 = 5 \times 10^{-5}$, so its job uses $\gamma = 0.8$ ($s_0 = 0.0059$).
 
 Tests: `tests/test_fm_backbones.py` (call contract, channel layout, layer ids, strict weight
-loading, input options, factory) and `tests/test_fm_finetune.py` (window-level run and the P4
-recipe end to end with both encoders, then re-scoring the run from its folder).
+loading, input options, factory, and the options of the authors' recipes) and
+`tests/test_fm_finetune.py` (window-level run and the P4 recipe end to end with both encoders,
+with our settings and with the authors', then re-scoring the run from its folder; a head-only
+epoch leaves the encoder at the released weights).
 
 ## 6. Stage A: frozen encoders with a ridge probe
 
@@ -476,6 +480,8 @@ weights and the input options of Table 6.2 change (`scripts/mil_runs/submit_grid
 - **`RV4T6_L1`** = `RV4_L1` with only the last 6 of the 22 layers, the readout norm, the head and
   the pool trained (`model.trainable_prefixes`), at P4's batch without accumulation (Section 7.2).
 - **`RV4DP_L1`** = `RV4_L1` with stochastic depth, `model.encoder.drop_path=0.1` (Section 7.3).
+- **`CB5_L1`** = `P4_L1` with CBraMod trained the way its authors fine-tune it, and
+  **`RV5_L1`** = `P4_L1` with REVE and its authors' two-stage protocol (Section 7.5, Table 7.9).
 
 ### Table 7.1. Training and inference throughput on one A10G
 
@@ -521,6 +527,8 @@ All on fold 0 with P4's schedule of 17 epochs (8 window epochs, 1 epoch that tra
 | `RV4_L1` | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4-l1-f0-fold-0-2026-11-24-22-58-36-692` | stopped on request on 25 Nov in epoch 6, after 21.3 h (3.2 h per window epoch); epochs 0–5 are scored |
 | `RV4T6_L1` | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4t6-l1-f0-fold-0-2026-11-25-21-19-50-438` | started 25 Nov, 21:20 UTC; about 21 h expected |
 | `RV4DP_L1` | local A10G, systemd unit `labram-rv4dp-l1-f0` | `/data/runs/heedb/fm_encoders/heedb_mil_RV4DP_L1_fold0_local_cv5/fold_0`; [ClearML](https://app.clear.ml/projects/e76a506be53e426aa0d95e90ad79855c/experiments/b2b8c98e12c044a59710f37372e5815c) | started 25 Nov, 21:25 UTC; 2.9 h per window epoch, about 42 h expected |
+| `CB5_L1` | SageMaker, on-demand `ml.g5.2xlarge` | `labram-mil-cb5-l1-f0-fold-0-2026-11-26-12-51-19-517`; ClearML task `heedb_mil_CB5_L1_fold0` | submitted 26 Nov, 12:51 UTC |
+| `RV5_L1` | SageMaker, on-demand `ml.g5.2xlarge` | `labram-mil-rv5-l1-f0-fold-0-2026-11-26-12-51-36-446`; ClearML task `heedb_mil_RV5_L1_fold0` | submitted 26 Nov, 12:51 UTC |
 
 - The CBraMod run was stopped from outside on 25 Nov at 04:19 UTC, in epoch 5: the nightly Claude
   Code update restarted the service the run had been started from, and systemd stopped the run
@@ -770,11 +778,93 @@ What follows for our task:
 - **Not covered by either group:** age or any recording-level target, pooling over windows, and a
   labelled set of our size (their largest is TUAB). These parts stay our own design.
 
-The proposals need code that does not exist yet: the all-token readout, a head-only first epoch
-in the window phase, position noise for REVE, and LoRA for REVE's layers. None is started.
+`CB5_L1` and `RV5_L1` are implemented and running (Section 7.5). `RV5L_L1` needs LoRA for REVE's
+layers, which does not exist yet; it is not started.
+
+### 7.5 Runs with the authors' settings: `CB5_L1` and `RV5_L1`
+
+Both runs keep everything of P4 that the authors' recipes do not cover: the split, the schedule
+of 17 epochs with 3 warm-up epochs and a cosine, AdamW with weight decay 0.05, the loss, the bags
+and the pool, and the evaluation. They take from the authors the parts of Table 7.8 that differ
+from ours: the learning rate per layer, gradient clipping, the readout, the input scale and the
+regularisation. The authors' epoch counts, batch sizes and early stopping are not taken over.
+
+**Learning rate per layer** (`model.encoder.lr_scale`, `labram/optim_factory.py::layer_scale_values`).
+With the peak rate $\eta$ (`optimizer.lr`), the encoder scale $\rho$ and the layer decay $\gamma$
+of Eq. (5.1), a parameter of layer $i$ trains at the peak rate
+
+$$
+\eta_i =
+\begin{cases}
+\eta \, \rho \, \gamma^{\,L + 1 - i}, & i = 0, \dots, L \quad \text{(input stem and encoder layers)} \\
+\eta, & i = L + 1 \quad \text{(readout, head, pool)}
+\end{cases}
+\tag{7.2}
+$$
+
+Both runs use $\eta = 5 \times 10^{-4}$, $\rho = 0.2$ and $\gamma = 1$: every encoder layer at
+$10^{-4}$, the readout and the head at $5 \times 10^{-4}$, the authors' ratio. $\rho = 1$ gives
+Eq. (5.1), so runs without the option are unchanged. In the bag phase the pool and the head are
+multiplied by `mil.head_lr_scale` $= 2.8$, which gives P4's rate of
+$2.8 \times 5 \times 10^{-4} = 1.4 \times 10^{-3}$.
+
+**All-token readout** (`model.encoder.readout=flatten`, CBraMod). The encoder returns one token per
+channel and second, $Z \in \mathbb{R}^{19 \times 10 \times 200}$. Instead of their mean, the window
+feature is
+
+$$
+h = \mathrm{LN}\big(\mathrm{Dropout}_{0.1}\big(\mathrm{ELU}(W \, \mathrm{vec}(Z) + b)\big)\big),
+\qquad W \in \mathbb{R}^{200 \times 38{,}000}
+\tag{7.3}
+$$
+
+the first layer of the authors' head, followed by our readout norm $\mathrm{LN}$; $h$ then feeds
+the head (window phase) and the pool (bag phase) as before. $W$ adds 7.6 M weights to CBraMod's
+4.9 M. The tokens are always those of the full 19-channel layout in its fixed order, so the
+feature does not depend on the channel order of the input, and a missing channel is a flat slot.
+
+**Head-only first epoch** (`model.encoder.probe_epochs=1`, REVE). In epoch 0 the encoder is frozen
+at the released weights; the pooling query, the readout norm and the head train. From epoch 1 all
+weights train. A head-only step took 0.09 s against 0.22 s for a full step in the debug run
+(16 windows per step, GPU shared with another job).
+
+**Position noise** (`model.encoder.position_noise=0.0025`, REVE). In training mode each forward
+adds one draw of Gaussian noise with a standard deviation of 0.25 cm to the electrode
+coordinates, shared by the batch, as the authors' encoder does. Evaluation uses the exact
+positions.
+
+### Table 7.9. Settings of `CB5_L1` and `RV5_L1` against the first runs
+
+Learning rates are peak values; all follow P4's warm-up and cosine. Layer $i$ as in Eq. (5.1).
+
+| Setting | `CB4_L1` | `CB5_L1` | `RV4_L1` | `RV5_L1` |
+|---|---|---|---|---|
+| Encoder learning rate | $2.8 \times 10^{-4} \cdot 0.65^{13 - i}$: 1.0e-6 (stem) to 1.8e-4 (layer 12) | 1e-4 on every layer (Eq. (7.2)) | $2.8 \times 10^{-4} \cdot 0.8^{23 - i}$: 1.7e-6 (stem) to 2.2e-4 (layer 22) | 1e-4 on every layer (Eq. (7.2)) |
+| Readout and head, window phase | 2.8e-4 | 5e-4 | 2.8e-4 | 5e-4 |
+| Pool and head, bag phase | 1.4e-3 | 1.4e-3 | 1.4e-3 | 1.4e-3 |
+| Epoch 0 | all weights | all weights | all weights | pooling query, readout norm and head only |
+| Gradient clipping | none | norm 1 | none | norm 2 |
+| Readout | mean of all tokens | all 190 tokens, linear + ELU + dropout 0.1 (Eq. (7.3)) | mean of all tokens | attention pooling with the pretrained query |
+| Input after the average reference | 0.3 Hz high-pass, ±100 µV clip | 0.3 Hz high-pass, no clip | z-score per window | µV / 100, no z-score |
+| Mixup | α = 0.4 | none | α = 0.4 | α = 1 (uniform mixing weight) |
+| Noise on electrode positions | – | – | none | 0.25 cm |
+| Weights trained | 4.9 M | 4.9 M + 7.6 M (readout) | 69.2 M | 69.2 M |
+| Windows per update | 256 | 256 | 2 × 128 | 2 × 128 |
+
+**Pre-flight.**
+- Unit tests cover each option: the all-token readout is tied to the layout and not to the input's
+  channel order; Eq. (7.2) reaches the optimiser's parameter groups; after a head-only epoch the
+  saved encoder equals the released weights tensor by tensor (REVE: all but the pooling query),
+  and it differs after the next epoch; position noise is applied in training mode only.
+- Each configuration ran locally on the real cohort and fold 0 in debug mode with the released
+  weights under mixed precision: `CB5_L1` through a window epoch and a joint bag epoch, `RV5_L1`
+  through the head-only epoch, a released window epoch and a joint bag epoch, each with
+  validation and test scoring.
+- The dry runs stage the same weight files as `CB4_L1` and `RV4_L1`.
 
 **Status.** `CB4_L1` is finished (Table 7.5). `RV4_L1` was stopped after epoch 5 (Table 7.3).
-`RV4T6_L1` and `RV4DP_L1` are in progress (Tables 7.2 and 7.7).
+`RV4T6_L1` and `RV4DP_L1` are in progress (Tables 7.2 and 7.7). `CB5_L1` and `RV5_L1` were
+submitted on 26 Nov (Table 7.2); no result yet.
 
 ## 8. How to run
 
@@ -800,6 +890,9 @@ systemd-run --user --unit=labram-cb4-l1-f0 --collect --working-directory=$PWD /b
     'scripts/mil_runs/run_local_fm.sh >> /data/runs/heedb/fm_encoders/CB4_L1_fold0.log 2>&1'
 ONLY=RV4T6_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh          # REVE, last 6 layers
 JOB=RV4DP_L1 ENCODER=reve scripts/mil_runs/run_local_fm.sh model.encoder.drop_path=0.1   # REVE + stochastic depth, local
+# the authors' settings (Section 7.5)
+ONLY=CB5_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.2xlarge WORKERS=10 scripts/mil_runs/submit_grid.sh
+ONLY=RV5_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.2xlarge WORKERS=10 scripts/mil_runs/submit_grid.sh
 
 # any fine-tune with another encoder
 python -m labram.runs.run_finetune --config labram/configs/defaults/finetune_tuab_age.json \
