@@ -33,6 +33,17 @@ class EncoderBackbone(nn.Module):
         tokens ``[B, C, P, embed_dim]``."""
         raise NotImplementedError
 
+    def token_grid(self, window_patches: int):
+        """``(channels, patches)`` of the fixed token grid :meth:`encode_grid`
+        returns for a window of ``window_patches`` one-second patches; only for
+        an encoder with a fixed channel layout (``model.encoder.readout=flatten``)."""
+        raise NotImplementedError(f"{self.name}: no fixed token grid; use encoder.readout=mean or attn")
+
+    def encode_grid(self, x: torch.Tensor, ch_names: Sequence[str]) -> torch.Tensor:
+        """Tokens of the whole fixed layout, in layout order, whatever channels
+        and order ``x`` has (a slot without a channel is a flat input)."""
+        raise NotImplementedError(f"{self.name}: no fixed token grid; use encoder.readout=mean or attn")
+
     def pool(self, tokens: torch.Tensor) -> torch.Tensor:
         """The encoder's own pretrained pooling of ``tokens`` ``[B, C, P, D]``
         -> ``[B, D]`` (``model.encoder.readout=attn``); not every encoder has one."""

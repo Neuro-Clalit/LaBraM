@@ -294,7 +294,8 @@ class CBraModBackbone(EncoderBackbone):
             raise ValueError(f"duplicate channel names: {names}")
         return [self._slot[c] for c in names]
 
-    def encode(self, x: torch.Tensor, ch_names: Sequence[str], mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def _layout_tokens(self, x, ch_names, mask=None):
+        """(tokens of all 19 slots in layout order, the given channels' slots, all present in order)."""
         slots = self.slots(ch_names)
         x = x.float()                     # the spectral branch takes an FFT of the input
         full = slots == list(range(len(CBRAMOD_CHANNELS)))
@@ -306,8 +307,17 @@ class CBraModBackbone(EncoderBackbone):
                 wide_mask = mask.new_zeros(mask.shape[0], len(CBRAMOD_CHANNELS), *mask.shape[2:])
                 wide_mask[:, slots] = mask
                 mask = wide_mask
-        tokens = self.net(x, mask)
+        return self.net(x, mask), slots, full
+
+    def encode(self, x: torch.Tensor, ch_names: Sequence[str], mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        tokens, slots, full = self._layout_tokens(x, ch_names, mask)
         return tokens if full else tokens[:, slots]
+
+    def token_grid(self, window_patches: int):
+        return len(CBRAMOD_CHANNELS), int(window_patches)
+
+    def encode_grid(self, x: torch.Tensor, ch_names: Sequence[str]) -> torch.Tensor:
+        return self._layout_tokens(x, ch_names)[0]
 
     def layer_id(self, name: str) -> int:
         if name.startswith("net.patch_embedding."):

@@ -62,10 +62,14 @@ def _build_foreign(config):
         multitask_head=m.multitask_head, init_scale=m.init_scale,
         encoder=m.encoder, labram_plus=config.labram_plus,
         input_clip=m.input_clip_uv / 100,
+        window_patches=int(getattr(config.data, 'window_sec', 10) or 10),
     )
-    logger.info("Foreign encoder %s: %d layers, width %d; readout=%s input_norm=%s drop_path=%g. "
+    e = m.encoder
+    logger.info("Foreign encoder %s: %d layers, width %d; readout=%s input_norm=%s drop_path=%g "
+                "readout_dropout=%g lr_scale=%g probe_epochs=%d position_noise=%g. "
                 "LaBraM-only model options are not used: %s", m.model, model.get_num_layers(),
-                model.embed_dim, model.readout, model.input_norm, m.encoder.drop_path,
+                model.embed_dim, model.readout, model.input_norm, e.drop_path, e.readout_dropout,
+                e.lr_scale, e.probe_epochs, e.position_noise,
                 ", ".join(name for name, _ in _LABRAM_ONLY))
     return model
 

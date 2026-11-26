@@ -9,10 +9,12 @@
 # src/models/encoder.py, in the form released with the weights
 # (huggingface.co/brain-bzh/reve-base, modeling_reve.py). Changes to the upstream
 # code: no `transformers` / `flash_attn` dependency (PyTorch's scaled dot-product
-# attention only), no position noise (pretraining only), the learnable-position
-# variant and the attention-map helpers are dropped; optional stochastic depth on the
-# residual branches (`drop_path`, off by default, no parameters). Module and parameter
-# names are upstream's, so the released weights load strictly.
+# attention only), the learnable-position variant and the attention-map helpers are
+# dropped; the noise on the electrode positions, which the authors' training code adds
+# in training mode, is an option of the adapter (`position_noise`, off by default);
+# optional stochastic depth on the residual branches (`drop_path`, off by default, no
+# parameters). Module and parameter names are upstream's, so the released weights load
+# strictly.
 #
 # The released WEIGHTS are under the "REVE Responsible Use License v1.0" (see the
 # model card): models derived from them must carry that licence.
@@ -279,11 +281,15 @@ class REVEBackbone(EncoderBackbone):
     name = "reve"
 
     def __init__(self, embed_dim: int = 512, depth: int = 22, heads: int = 8, head_dim: int = 64,
-                 mlp_dim_ratio: float = 2.66, freqs: int = 4, drop_path: float = 0.0):
+                 mlp_dim_ratio: float = 2.66, freqs: int = 4, drop_path: float = 0.0,
+                 position_noise: float = 0.0):
         super().__init__()
         self.net = Reve(embed_dim=embed_dim, depth=depth, heads=heads, head_dim=head_dim,
                         mlp_dim_ratio=mlp_dim_ratio, freqs=freqs, drop_path=drop_path)
         self.drop_path = float(drop_path)
+        # Gaussian noise on the electrode coordinates in training mode, one draw
+        # per forward shared by the batch, as in the authors' encoder (0 = off).
+        self.position_noise = float(position_noise)
         self.embed_dim = embed_dim
         self.num_layers = depth
         self._bank = load_positions()
@@ -302,8 +308,10 @@ class REVEBackbone(EncoderBackbone):
     def encode(self, x: torch.Tensor, ch_names: Sequence[str]) -> torch.Tensor:
         b, c, a, t = x.shape
         eeg = x.reshape(b, c, a * t).float()
-        pos = self.positions(ch_names).to(eeg.device).unsqueeze(0).expand(b, -1, -1)
-        return self.net(eeg, pos)
+        pos = self.positions(ch_names).to(eeg.device)
+        if self.training and self.position_noise > 0:
+            pos = pos + torch.randn_like(pos) * self.position_noise
+        return self.net(eeg, pos.unsqueeze(0).expand(b, -1, -1))
 
     def pool(self, tokens: torch.Tensor) -> torch.Tensor:
         return self.net.attention_pooling(tokens)

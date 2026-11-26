@@ -40,7 +40,7 @@ from labram.runs.finetune_setup import (
 )
 from labram.runs.model_factory import build_finetune_model
 from labram.optim_factory import (
-    LayerDecayValueAssigner, create_optimizer, get_parameter_groups,
+    LayerDecayValueAssigner, create_optimizer, get_parameter_groups, layer_scale_values,
     log_trainable_parameters,
 )
 from labram.utils import NativeScalerWithGradNormCount as NativeScaler
@@ -424,15 +424,17 @@ def main(config: FinetuneRunConfig, bundle=None):
 
     num_layers = model_without_ddp.get_num_layers()
     assigner = None
+    encoder_lr_scale = float(config.model.encoder.lr_scale) if config.model.foreign_encoder else 1.0
     if config.model.codebook_reg.enabled:
         # Per-component LR scales (encoder/decoder slower than the head),
         # with optional layer-wise decay folded into the encoder group.
         assigner = CodebookRegLayerAssigner(config.model.codebook_reg, num_layers, config.optimizer.layer_decay)
-    elif config.optimizer.layer_decay < 1.0:
+    elif config.optimizer.layer_decay < 1.0 or encoder_lr_scale != 1.0:
         # A foreign encoder names its own layers (model.layer_id); LaBraM's are
-        # read off the parameter names.
+        # read off the parameter names. model.encoder.lr_scale puts every
+        # encoder layer below the rate of the readout, head and pool.
         assigner = LayerDecayValueAssigner(
-            [config.optimizer.layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 2)],
+            layer_scale_values(num_layers, config.optimizer.layer_decay, encoder_lr_scale),
             layer_id_fn=getattr(model_without_ddp, 'layer_id', None))
 
     skip_weight_decay_list = model.no_weight_decay()

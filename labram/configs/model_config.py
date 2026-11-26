@@ -110,11 +110,35 @@ class EncoderConfig(ConfigBase):
     (REVE only; its released encoder has none, LaBraM's blocks use
     ``model.drop_path``). The rate rises linearly from 0 at the first layer to
     this value at the last. 0 = off.
+
+    The options below reproduce parts of the encoders' own fine-tuning recipes
+    (docs/fm_encoder_onboarding.md, Section 7.4); all default to off.
+
+    ``readout=flatten`` (CBraMod): every channel x patch token of the fixed
+    19-slot layout is flattened and projected by one linear layer + ELU to the
+    window feature, as the authors' heads do, instead of averaging the tokens.
+    ``readout_dropout``: dropout on the window feature (any readout).
+
+    ``lr_scale``: learning-rate multiplier of every encoder layer relative to
+    ``optimizer.lr``, which the readout, head and pool keep (the authors train
+    the head above the encoder's rate). Combines with ``optimizer.layer_decay``.
+
+    ``probe_epochs``: for the first N epochs the encoder stays frozen and only
+    the readout, head (and REVE's pooling query) train, REVE's linear-probe
+    stage before fine-tuning.
+
+    ``position_noise`` (REVE): standard deviation of the Gaussian noise added
+    to the electrode coordinates during training, in the position table's unit
+    (metres; the authors use 0.0025).
     """
     readout: str = ""
     input_norm: str = "none"
     clip_sd: float = 15.0
     drop_path: float = 0.0
+    readout_dropout: float = 0.0
+    lr_scale: float = 1.0
+    probe_epochs: int = 0
+    position_noise: float = 0.0
 
 
 @dataclass
@@ -283,8 +307,13 @@ class FinetuneModelConfig(ConfigBase):
         if self.task not in ("classification", "regression"):
             raise ValueError(
                 f"model.task must be 'classification' or 'regression', got {self.task!r}")
-        if self.encoder.readout not in ("", "mean", "attn"):
-            raise ValueError(f"model.encoder.readout must be '', 'mean' or 'attn', got {self.encoder.readout!r}")
+        if self.encoder.readout not in ("", "mean", "attn", "flatten"):
+            raise ValueError("model.encoder.readout must be '', 'mean', 'attn' or 'flatten', "
+                             f"got {self.encoder.readout!r}")
+        if (not 0.0 <= self.encoder.readout_dropout < 1.0 or self.encoder.lr_scale <= 0
+                or self.encoder.probe_epochs < 0 or self.encoder.position_noise < 0):
+            raise ValueError("model.encoder needs readout_dropout in [0, 1), lr_scale > 0, "
+                             "probe_epochs >= 0 and position_noise >= 0")
         if self.encoder.input_norm not in ("none", "zscore_window"):
             raise ValueError("model.encoder.input_norm must be 'none' or 'zscore_window', "
                              f"got {self.encoder.input_norm!r}")

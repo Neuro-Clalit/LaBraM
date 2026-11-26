@@ -127,6 +127,14 @@ def _encoder_option(kwargs: dict, key: str, default):
 def _reject_drop_path(kwargs: dict, name: str) -> None:
     if _encoder_option(kwargs, "drop_path", 0.0):
         raise ValueError(f"model.encoder.drop_path is not supported for {name}: it has its own dropout")
+    if _encoder_option(kwargs, "position_noise", 0.0):
+        raise ValueError(f"model.encoder.position_noise is not supported for {name}: it has no electrode positions")
+
+
+def _reve_backbone(kwargs: dict, **arch):
+    from labram.models.backbones import REVEBackbone
+    return REVEBackbone(drop_path=_encoder_option(kwargs, "drop_path", 0.0),
+                        position_noise=_encoder_option(kwargs, "position_noise", 0.0), **arch)
 
 
 def _foreign_regressor(backbone, kwargs: dict):
@@ -142,7 +150,8 @@ def _foreign_regressor(backbone, kwargs: dict):
         mlp_head=kw.get("mlp_head"), multitask_head=kw.get("multitask_head"),
         init_scale=kw.get("init_scale", 1.0),
         readout=get("readout", ""), input_norm=get("input_norm", "none"), clip_sd=get("clip_sd", 15.0),
-        labram_plus=_coerce_labram_plus(kw.get("labram_plus")), input_clip=kw.get("input_clip", 0.0))
+        labram_plus=_coerce_labram_plus(kw.get("labram_plus")), input_clip=kw.get("input_clip", 0.0),
+        window_patches=kw.get("window_patches", 10), readout_dropout=get("readout_dropout", 0.0))
     model.default_cfg = _cfg()
     return model
 
@@ -166,16 +175,13 @@ def cbramod_tiny_patch200(pretrained=False, **kwargs):
 @register_model
 def reve_base_patch200(pretrained=False, **kwargs):
     """REVE-base (22 layers, width 512, ~69 M parameters)."""
-    from labram.models.backbones import REVEBackbone
-    return _foreign_regressor(REVEBackbone(drop_path=_encoder_option(kwargs, "drop_path", 0.0)), kwargs)
+    return _foreign_regressor(_reve_backbone(kwargs), kwargs)
 
 
 @register_model
 def reve_tiny_patch200(pretrained=False, **kwargs):
     """Random-init 2-layer REVE for tests."""
-    from labram.models.backbones import REVEBackbone
-    return _foreign_regressor(REVEBackbone(embed_dim=64, depth=2, heads=2, head_dim=16,
-                                           drop_path=_encoder_option(kwargs, "drop_path", 0.0)), kwargs)
+    return _foreign_regressor(_reve_backbone(kwargs, embed_dim=64, depth=2, heads=2, head_dim=16), kwargs)
 
 
 # ---------------------------------------------------------------------------

@@ -46,6 +46,14 @@ def get_num_layer_for_vit(var_name, num_max_layer):
         return num_max_layer - 1
 
 
+def layer_scale_values(num_layers: int, layer_decay: float, encoder_scale: float = 1.0):
+    """LR scale per layer id ``0 .. num_layers + 1``: encoder layer ``i`` (0 = input
+    stem) gets ``encoder_scale * layer_decay ** (num_layers + 1 - i)``; the last id
+    (readout, head, pool) keeps 1. ``encoder_scale = 1`` is the usual layer-wise
+    decay; ``layer_decay = 1`` puts every encoder layer at ``encoder_scale``."""
+    return [encoder_scale * layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 1)] + [1.0]
+
+
 class LayerDecayValueAssigner(object):
     """LR scale per layer: ``values[i]`` for layer id ``i`` (0 = input stem,
     ``k`` = block ``k``, ``len(values) - 1`` = head and everything after the

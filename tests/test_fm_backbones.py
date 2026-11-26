@@ -239,3 +239,84 @@ def test_reve_stochastic_depth_is_optional_and_adds_no_weights():
     assert torch.allclose(plain.forward_tokens(x, ci), plain.forward_tokens(x, ci))
     with pytest.raises(ValueError, match="drop_path"):                    # CBraMod has its own dropout
         _model("cbramod_tiny_patch200", encoder={"drop_path": 0.1})
+
+
+def test_cbramod_flatten_readout_projects_every_token_of_the_layout():
+    m = _model("cbramod_tiny_patch200", encoder={"readout": "flatten", "readout_dropout": 0.5}, window_patches=2)
+    x, ci = _x(), get_channel_indices(NAMES)
+    assert m.token_grid == (19, 2) and m.readout_proj.in_features == 19 * 2 * m.embed_dim
+    out, feat = m(x, ci, return_features=True)
+    assert out.shape == (3, 1) and feat.shape == (3, m.embed_dim)
+    assert m.layer_id("readout_proj.weight") == m.get_num_layers() + 1          # trains at the head's rate
+    # The feature is tied to the layout, not to the caller's channel order ...
+    perm = torch.randperm(19, generator=torch.Generator().manual_seed(2)).tolist()
+    assert torch.allclose(m(x[:, perm], [ci[0]] + [ci[i + 1] for i in perm]), out, atol=1e-5)
+    # ... and a missing channel is a flat slot.
+    keep = [0, 3, 18]
+    zeroed = torch.zeros_like(x)
+    zeroed[:, keep] = x[:, keep]
+    assert torch.allclose(m(x[:, keep], [ci[0]] + [ci[i + 1] for i in keep]), m(zeroed, ci), atol=1e-5)
+    assert m.forward_features(x, ci, return_patch_tokens=True).shape == (3, 19 * 2, m.embed_dim)
+    with pytest.raises(ValueError, match="window_sec"):                         # built for 2 patches
+        m(_x(patches=3), ci)
+    m.train()
+    assert not torch.allclose(m(x, ci), m(x, ci))                               # readout dropout
+    plain = _model("cbramod_tiny_patch200")
+    assert plain.readout_proj is None and "readout_proj.weight" not in plain.state_dict()
+    with pytest.raises(NotImplementedError, match="fixed token grid"):          # REVE has no fixed layout
+        _model("reve_tiny_patch200", encoder={"readout": "flatten"})
+
+
+def test_encoder_lr_scale_puts_every_layer_below_the_head():
+    from labram.optim_factory import LayerDecayValueAssigner, get_parameter_groups, layer_scale_values
+    assert layer_scale_values(2, 0.5) == [0.5 ** (3 - i) for i in range(4)]     # the usual layer decay
+    assert layer_scale_values(2, 1.0, 0.2) == [0.2, 0.2, 0.2, 1.0]
+    assert layer_scale_values(2, 0.5, 0.2) == pytest.approx([0.025, 0.05, 0.1, 1.0])
+    m = _model("reve_tiny_patch200", encoder={"readout": "attn"})
+    assigner = LayerDecayValueAssigner(layer_scale_values(m.get_num_layers(), 1.0, 0.2), layer_id_fn=m.layer_id)
+    groups = get_parameter_groups(m, 0.05, m.no_weight_decay(), assigner.get_layer_id, assigner.get_scale)
+    by_param = {id(p): g["lr_scale"] for g in groups for p in g["params"]}
+    for n, p in m.named_parameters():
+        encoder = n.startswith("backbone.") and n != "backbone.net.cls_query_token"
+        assert by_param[id(p)] == (0.2 if encoder else 1.0), n
+
+
+@pytest.mark.parametrize("readout", ["attn", "mean"])
+def test_probe_stage_freezes_the_encoder_and_releases_it(readout):
+    m = _model("reve_tiny_patch200", encoder={"readout": readout})
+    before = {n: p.requires_grad for n, p in m.named_parameters()}
+    assert before["backbone.net.cls_query_token"] == (readout == "attn")
+    m.set_encoder_trainable(False)
+    frozen = {n for n, p in m.named_parameters() if not p.requires_grad}
+    assert {n for n in before if n.startswith(("head.", "fc_norm."))}.isdisjoint(frozen)
+    assert all(n in frozen for n in before if n.startswith("backbone.net.transformer."))
+    # The pooling query is part of the probe when it is the readout.
+    assert ("backbone.net.cls_query_token" in frozen) == (readout == "mean")
+    m.set_encoder_trainable(True)
+    assert {n: p.requires_grad for n, p in m.named_parameters()} == before
+
+
+def test_reve_position_noise_only_in_training():
+    plain = _model("reve_tiny_patch200")
+    noisy = _model("reve_tiny_patch200", encoder={"position_noise": 0.0025})
+    assert set(noisy.state_dict()) == set(plain.state_dict())
+    noisy.load_state_dict(plain.state_dict())
+    x, ci = _x(), get_channel_indices(NAMES)
+    assert torch.allclose(noisy(x, ci), plain(x, ci), atol=1e-6)                # evaluation: exact positions
+    noisy.train()
+    a, b = noisy.forward_tokens(x, ci), noisy.forward_tokens(x, ci)
+    assert not torch.allclose(a, b)                                             # a new draw per forward
+    assert torch.equal(noisy.backbone.positions(NAMES), plain.backbone.positions(NAMES))   # the table is untouched
+    with pytest.raises(ValueError, match="position_noise"):
+        _model("cbramod_tiny_patch200", encoder={"position_noise": 0.0025})
+
+
+def test_encoder_options_are_validated():
+    from labram.configs.run_configs import FinetuneRunConfig
+    base = {"model.nb_classes": 1, "model.task": "regression", "model.model": "cbramod_tiny_patch200"}
+    for over in ({"model.encoder.readout": "max"}, {"model.encoder.readout_dropout": 1.0},
+                 {"model.encoder.lr_scale": 0.0}, {"model.encoder.probe_epochs": -1},
+                 {"model.encoder.position_noise": -0.1}):
+        cfg = FinetuneRunConfig.load_config("labram/configs/defaults/finetune_tuab_age.json", **{**base, **over})
+        with pytest.raises(ValueError, match="model.encoder"):
+            cfg.model.validate()

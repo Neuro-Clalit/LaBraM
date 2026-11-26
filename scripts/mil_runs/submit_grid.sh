@@ -150,6 +150,31 @@ REVE_T6=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window o
 # (model.encoder.drop_path). RV4_L1 over-fitted early: 5.5 y on training recordings against
 # 7.7 y on validation after epoch 3 (LaBraM: 7.6 against 8.6).
 REVE_DP=("${REVE[@]}" model.encoder.drop_path=0.1)
+# The two encoders trained the way their authors fine-tune them (docs/fm_encoder_onboarding.md,
+# Sections 7.4 and 7.5, Tables 7.8 and 7.9), on P4's schedule, split, bags and evaluation. Common to both: no
+# layer-wise decay, every encoder layer at 1e-4 (model.encoder.lr_scale=0.2 of optimizer.lr=5e-4),
+# readout and head at 5e-4, gradient clipping, the input as uV / 100 after the average reference
+# (no amplitude clip, no z-score). In the bag phase the pool and head keep P4's rate
+# (mil.head_lr_scale=2.8: 2.8 x 5e-4 = P4's 5 x 2.8e-4).
+#   CB5_L1 (CBraMod): gradient clip 1; all 19 x 10 tokens of a window flattened into one linear
+#     layer + ELU + dropout 0.1 (38,000 -> 200) in place of their mean; 0.3 Hz high-pass; no mixup.
+#   RV5_L1 (REVE): first epoch head-only (encoder frozen; readout norm, head and the pooling
+#     query train), then all layers; gradient clip 2; attention pooling with the pretrained
+#     query; noise of 0.25 cm on the electrode positions; mixup with a uniform mixing weight.
+#     Two accumulation steps of 128 windows per update, as RV4_L1.
+#   ONLY=CB5_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
+#   ONLY=RV5_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.2xlarge WORKERS=10 scripts/mil_runs/submit_grid.sh
+AUTHORS_LR=(optimizer.lr=0.0005 optimizer.layer_decay=1.0 model.encoder.lr_scale=0.2 mil.head_lr_scale=2.8)
+CBRAMOD5=(model.model=cbramod_base_patch200 labram_plus.band_hz=[0.3,99.0] "${AUTHORS_LR[@]}"
+  optimizer.clip_grad=1.0 model.encoder.readout=flatten model.encoder.readout_dropout=0.1 mixup.enabled=false
+  finetune_checkpoint.finetune=${CBRAMOD_CKPT:-s3://eeg-data-public/models/cbramod/pretrained_weights.pth})
+# (model.encoder.input_norm stays at its default "none": the override parser reads a bare
+# none as null.)
+REVE5=(model.model=reve_base_patch200 "${AUTHORS_LR[@]}"
+  optimizer.clip_grad=2.0 model.encoder.readout=attn model.encoder.probe_epochs=1
+  model.encoder.position_noise=0.0025 mixup.alpha=1.0
+  trainer.batch_size=16 trainer.update_freq=2 mil.window_batch_size=128
+  finetune_checkpoint.finetune=${REVE_CKPT:-s3://eeg-data-public/models/reve/reve-base/model.safetensors})
 # The window phase streams (FastFile) recording by recording: random single-window
 # reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
 # mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
@@ -195,6 +220,9 @@ declare -A JOBS=(
   [RV4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE[*]}"
   [RV4T6_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE_T6[*]}"
   [RV4DP_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE_DP[*]}"
+  # ... and with the settings of each encoder's own fine-tuning recipe.
+  [CB5_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${CBRAMOD5[*]}"
+  [RV5_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE5[*]}"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"

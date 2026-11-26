@@ -26,7 +26,9 @@ evaluation path see the same signal:
 
 Readout (``model.encoder.readout``): ``mean`` averages all channel x patch
 tokens; ``attn`` uses the encoder's own pretrained pooling (REVE's query
-attention). Both are followed by a LayerNorm (``fc_norm``), then the head.
+attention); ``flatten`` projects all tokens of the encoder's fixed layout with
+one linear layer + ELU (CBraMod's authors' head). Each is followed by an
+optional dropout and a LayerNorm (``fc_norm``), then the head.
 """
 from typing import Dict, List, Optional, Sequence, Set
 
@@ -40,7 +42,7 @@ from labram.layers import MLPHead, MultiTaskHead
 from labram.models.backbones.base import EncoderBackbone
 from labram.models.bag_forward import BagForwardMixin
 
-READOUTS = ("mean", "attn")
+READOUTS = ("mean", "attn", "flatten")
 INPUT_NORMS = ("none", "zscore_window")
 HEAD_TYPES = ("linear", "mlp", "multitask")
 
@@ -87,7 +89,8 @@ class FoundationRegressor(BagForwardMixin, nn.Module):
     def __init__(self, backbone: EncoderBackbone, *, num_classes: int = 1, head_type: str = "linear",
                  mlp_head=None, multitask_head=None, init_scale: float = 1.0,
                  readout: str = "", input_norm: str = "none", clip_sd: float = 15.0,
-                 labram_plus=None, input_clip: float = 0.0):
+                 labram_plus=None, input_clip: float = 0.0, window_patches: int = 10,
+                 readout_dropout: float = 0.0):
         super().__init__()
         readout = readout or "mean"
         if readout not in READOUTS:
@@ -106,6 +109,14 @@ class FoundationRegressor(BagForwardMixin, nn.Module):
         self.num_classes = num_classes
         self.head_type = head_type
 
+        self.readout_proj = None
+        if readout == "flatten":
+            # All tokens of the encoder's fixed channel x patch layout -> window feature.
+            self.token_grid = backbone.token_grid(window_patches)
+            self.readout_proj = nn.Linear(self.token_grid[0] * self.token_grid[1] * self.embed_dim,
+                                          self.embed_dim)
+        self.readout_drop = nn.Dropout(readout_dropout)
+        self._encoder_params = None           # set_encoder_trainable: what it toggles
         self.fc_norm = nn.LayerNorm(self.embed_dim, eps=1e-6)
         self.head = _build_head(self.num_features, num_classes, head_type, mlp_head, multitask_head)
         self.head.apply(_init_head)
@@ -141,6 +152,18 @@ class FoundationRegressor(BagForwardMixin, nn.Module):
             return self.backbone.layer_id(name[len("backbone."):])
         return self.backbone.num_layers + 1
 
+    def set_encoder_trainable(self, trainable: bool) -> None:
+        """Freeze or release the encoder (``model.encoder.probe_epochs``): the
+        readout, head and pool keep training, and so does the encoder's pooling
+        query under ``readout=attn``. Parameters frozen for another reason
+        (``model.trainable_prefixes``) are left alone."""
+        if self._encoder_params is None:
+            pool = {id(p) for p in self.backbone.pool_parameters()}
+            self._encoder_params = [p for p in self.backbone.parameters()
+                                    if p.requires_grad and id(p) not in pool]
+        for p in self._encoder_params:
+            p.requires_grad_(trainable)
+
     def get_classifier(self):
         return self.head
 
@@ -170,20 +193,33 @@ class FoundationRegressor(BagForwardMixin, nn.Module):
         return x
 
     # -------------------------------------------------------------- forward
-    def forward_tokens(self, x, channel_indices=None):
-        """Encoder tokens ``[B, C, P, D]`` of ``x`` ``[B, C, A, 200]``."""
+    def _encoder_input(self, x, channel_indices):
+        """(preprocessed ``x``, its channel names)."""
         names = self.channel_names(channel_indices)
         if x.shape[1] != len(names):
             raise ValueError(f"{x.shape[1]} channels in the input, {len(names)} channel indices")
-        return self.backbone.encode(self.maybe_preprocess_input(x), names)
+        return self.maybe_preprocess_input(x), names
+
+    def forward_tokens(self, x, channel_indices=None):
+        """Encoder tokens ``[B, C, P, D]`` of ``x`` ``[B, C, A, 200]``."""
+        return self.backbone.encode(*self._encoder_input(x, channel_indices))
 
     def forward_features(self, x, channel_indices=None, return_patch_tokens=False,
                          return_all_tokens=False, **kwargs):
+        if self.readout == "flatten" and not (return_patch_tokens or return_all_tokens):
+            # Every slot of the encoder's layout, in layout order: a channel the
+            # input lacks (channel drop) is a flat slot, not a shorter vector.
+            grid = self.backbone.encode_grid(*self._encoder_input(x, channel_indices))
+            if tuple(grid.shape[1:3]) != tuple(self.token_grid):
+                raise ValueError(f"readout=flatten was built for {self.token_grid} channel x patch tokens, "
+                                 f"got {tuple(grid.shape[1:3])} (data.window_sec changed?)")
+            pooled = torch.nn.functional.elu(self.readout_proj(grid.flatten(1)))
+            return self.fc_norm(self.readout_drop(pooled))
         tokens = self.forward_tokens(x, channel_indices)
         if return_patch_tokens or return_all_tokens:
             return tokens.flatten(1, 2)
         pooled = self.backbone.pool(tokens) if self.readout == "attn" else tokens.flatten(1, 2).mean(1)
-        return self.fc_norm(pooled)
+        return self.fc_norm(self.readout_drop(pooled))
 
     def forward(self, x, channel_indices=None, **kwargs):
         """``x``: ``[B, C, A, 200]`` (µV / 100). ``bag=`` -> the recording-level
