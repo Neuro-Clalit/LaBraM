@@ -140,7 +140,7 @@ REVE=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window opti
 # (model.trainable_prefixes -> finetune_setup.freeze_except). No gradient flows below layer 16,
 # so 256 windows per step fit (8.7 GB) and training runs at 503 windows/s instead of 234:
 # about 20 h per fold instead of 42 h. P4's batch, no accumulation.
-#   ONLY=RV4T6_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.2xlarge WORKERS=10 scripts/mil_runs/submit_grid.sh
+#   ONLY=RV4T6_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
 REVE_TOP6='model.trainable_prefixes=["head.","mil.","fc_norm.","backbone.net.transformer.layers.16.","backbone.net.transformer.layers.17.","backbone.net.transformer.layers.18.","backbone.net.transformer.layers.19.","backbone.net.transformer.layers.20.","backbone.net.transformer.layers.21."]'
 REVE_T6=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window optimizer.layer_decay=0.8
   finetune_checkpoint.finetune=${REVE_CKPT:-s3://eeg-data-public/models/reve/reve-base/model.safetensors}
@@ -162,8 +162,11 @@ REVE_DP=("${REVE[@]}" model.encoder.drop_path=0.1)
 #     query train), then all layers; gradient clip 2; attention pooling with the pretrained
 #     query; noise of 0.25 cm on the electrode positions; mixup with a uniform mixing weight.
 #     Two accumulation steps of 128 windows per update, as RV4_L1.
-#   ONLY=CB5_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
-#   ONLY=RV5_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.2xlarge WORKERS=10 scripts/mil_runs/submit_grid.sh
+#   ONLY=CB5_L1 FOLD=0 SPOT=false WORKERS=24 scripts/mil_runs/submit_grid.sh
+#   ONLY=RV5_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.8xlarge WORKERS=16 scripts/mil_runs/submit_grid.sh
+# Host memory: ml.g5.2xlarge (32 GB) is too little for this cohort -- both jobs were killed there
+# within hours (10 workers), and RV4T6_L1 was killed after 20.7 h on ml.g5.4xlarge (64 GB) with
+# 32 workers. A killed job continues from its checkpoints with RESUME=<its checkpoint folder>.
 AUTHORS_LR=(optimizer.lr=0.0005 optimizer.layer_decay=1.0 model.encoder.lr_scale=0.2 mil.head_lr_scale=2.8)
 CBRAMOD5=(model.model=cbramod_base_patch200 labram_plus.band_hz=[0.3,99.0] "${AUTHORS_LR[@]}"
   optimizer.clip_grad=1.0 model.encoder.readout=flatten model.encoder.readout_dropout=0.1 mixup.enabled=false
