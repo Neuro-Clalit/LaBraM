@@ -527,8 +527,8 @@ All on fold 0 with P4's schedule of 17 epochs (8 window epochs, 1 epoch that tra
 | `RV4_L1` | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4-l1-f0-fold-0-2026-11-24-22-58-36-692` | stopped on request on 25 Nov in epoch 6, after 21.3 h (3.2 h per window epoch); epochs 0–5 are scored |
 | `RV4T6_L1` | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4t6-l1-f0-fold-0-2026-11-25-21-19-50-438` | started 25 Nov, 21:20 UTC; about 21 h expected |
 | `RV4DP_L1` | local A10G, systemd unit `labram-rv4dp-l1-f0` | `/data/runs/heedb/fm_encoders/heedb_mil_RV4DP_L1_fold0_local_cv5/fold_0`; [ClearML](https://app.clear.ml/projects/e76a506be53e426aa0d95e90ad79855c/experiments/b2b8c98e12c044a59710f37372e5815c) | started 25 Nov, 21:25 UTC; 2.9 h per window epoch, about 42 h expected |
-| `CB5_L1` | SageMaker, on-demand `ml.g5.2xlarge` | `labram-mil-cb5-l1-f0-fold-0-2026-11-26-12-51-19-517`; ClearML task `heedb_mil_CB5_L1_fold0` | submitted 26 Nov, 12:51 UTC |
-| `RV5_L1` | SageMaker, on-demand `ml.g5.2xlarge` | `labram-mil-rv5-l1-f0-fold-0-2026-11-26-12-51-36-446`; ClearML task `heedb_mil_RV5_L1_fold0` | submitted 26 Nov, 12:51 UTC |
+| `CB5_L1` | SageMaker, on-demand `ml.g5.2xlarge` | `labram-mil-cb5-l1-f0-fold-0-2026-11-26-12-51-19-517`; ClearML task `heedb_mil_CB5_L1_fold0` | submitted 26 Nov, 12:51 UTC; waited 33 min for an instance; training since 13:24 UTC; about 1.65 h per window epoch (0.62 s per step, of which 0.34 s compute: data loading on 8 CPUs is the limit), about 24 h expected |
+| `RV5_L1` | SageMaker, on-demand `ml.g5.2xlarge` | `labram-mil-rv5-l1-f0-fold-0-2026-11-26-12-51-36-446`; ClearML task `heedb_mil_RV5_L1_fold0` | submitted 26 Nov, 12:51 UTC; waited 45 min for an instance; training since 13:39 UTC; head-only epoch 0 about 1.9 h, about 40 h expected in total |
 
 - The CBraMod run was stopped from outside on 25 Nov at 04:19 UTC, in epoch 5: the nightly Claude
   Code update restarted the service the run had been started from, and systemd stopped the run
@@ -692,9 +692,9 @@ $$
 
 ### Table 7.7. REVE variants at the same epoch (interim)
 
-Validation / test MAE in years (Eq. (6.4)) after each window-level epoch, as in Table 7.3, and
+Validation / test MAE in years (Eq. (6.4)) after each epoch, as in Table 7.3, and
 the error on the scored training recordings at the epochs where a run scores them (Table 7.6).
-State of 26 Nov, 11:15 UTC; `RV4DP_L1` and `RV4T6_L1` are still training, so **no row is final**.
+State of 26 Nov, 13:40 UTC; `RV4DP_L1` and `RV4T6_L1` are still training, so **no row is final**.
 "–": not reached or not scored.
 
 | Epoch | P4 (LaBraM) | `RV4_L1`: all layers (stopped) | `RV4DP_L1`: all layers + stochastic depth | `RV4T6_L1`: last 6 layers |
@@ -703,10 +703,12 @@ State of 26 Nov, 11:15 UTC; `RV4DP_L1` and `RV4T6_L1` are still training, so **n
 | 1 | 8.85 / 8.84 | 9.00 / 8.97 | 9.10 / 9.06 | 9.21 / 9.10 |
 | 2 | 8.60 / 8.50 | 8.02 / 7.61 | 7.76 / 7.45 | 8.95 / 8.87 |
 | 3 | 8.59 / 8.54 | 7.72 / 7.40 | 7.67 / 7.39 | 8.55 / 8.40 |
-| 4 | 8.67 / 8.64 | 8.25 / 8.05 | – | 8.74 / 8.61 |
+| 4 | 8.67 / 8.64 | 8.25 / 8.05 | 8.08 / 7.89 | 8.74 / 8.61 |
 | 5 | 7.92 / 7.73 | 7.87 / 7.57 | – | 8.61 / 8.38 |
 | 6 | 7.79 / 7.56 | – | – | 8.26 / 8.00 |
 | 7 (end of window phase) | 7.69 / 7.49 | – | – | 8.25 / 8.00 |
+| 8 (pool only) | 7.05 / 6.67 | – | – | 7.58 / 7.12 |
+| 9 (first joint epoch) | 6.71 / 6.22 | – | – | 7.34 / 6.83 |
 | Training recordings, epoch 3 | 7.56 | 5.53 | 5.86 | 6.76 |
 | Training recordings, epoch 7 | 5.84 | – | – | 4.42 |
 
@@ -716,12 +718,13 @@ Reading Table 7.7:
   window phase `RV4T6_L1` is 0.56 years behind P4 on validation and 0.51 on test, while it fits
   its training recordings 1.4 years better (4.42 against 5.84). Its gap between training
   recordings and validation is 3.8 years, against 1.9 for P4. Freezing the lower 16 layers did
-  not stop the memorising; it cost generalisation. The joint phase can still change the final
-  number.
+  not stop the memorising; it cost generalisation. The bag phase has not closed the distance so
+  far: after the first joint epoch it is 0.63 years behind P4 on validation and 0.61 on test.
 - **Stochastic depth keeps the full fine-tune's accuracy and narrows the gap a little.** At
   epoch 3 `RV4DP_L1` equals the stopped run on validation and test (7.67 / 7.39 against 7.72 /
   7.40) and is 0.9 years ahead of P4 on validation. Its error on training recordings is 5.86
-  against 5.53, so the gap falls from 2.2 to 1.8 years.
+  against 5.53, so the gap falls from 2.2 to 1.8 years. At epoch 4, where every run has a worse
+  epoch, it is 8.08 / 7.89 against 8.25 / 8.05 for the stopped run and 8.67 / 8.64 for P4.
 
 ### 7.4 How the authors fine-tune their models, and what follows for ours
 
@@ -863,8 +866,9 @@ Learning rates are peak values; all follow P4's warm-up and cosine. Layer $i$ as
 - The dry runs stage the same weight files as `CB4_L1` and `RV4_L1`.
 
 **Status.** `CB4_L1` is finished (Table 7.5). `RV4_L1` was stopped after epoch 5 (Table 7.3).
-`RV4T6_L1` and `RV4DP_L1` are in progress (Tables 7.2 and 7.7). `CB5_L1` and `RV5_L1` were
-submitted on 26 Nov (Table 7.2); no result yet.
+`RV4T6_L1` and `RV4DP_L1` are in progress (Tables 7.2 and 7.7). `CB5_L1` and `RV5_L1` have been
+training since 26 Nov, 13:24 and 13:39 UTC (Table 7.2): the first steps show a falling loss and
+no numerical problem under mixed precision; no epoch is scored yet.
 
 ## 8. How to run
 
