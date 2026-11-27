@@ -1129,7 +1129,7 @@ protocol (Table 7.12).
 
 Recording-level MAE in years (Eq. (6.4)) as each run logs it at its best validation epoch so far:
 the fold-0 validation recordings and the 7,612 held-out test recordings (first 5 minutes), split
-by source dataset and by report status, and the two standing external test sets as scored
+by source dataset (by report status: Table 7.14), and the two standing external test sets as scored
 during training: LEMON with the run's window selection (60 s trims, first 5 minutes, so it
 differs from the all-window LEMON row of Table 7.5), and TDBRAIN adults with every window and no
 trims (the protocol of Table 7.5). P4 did not have TDBRAIN as a test set during training; its
@@ -1148,8 +1148,6 @@ scored by that run.
 | Test, all | 7,612 | 6.06 | 8.19 | 6.72 | 6.63 | **5.94** | 7.95 |
 | Test, Harvard | 7,338 | 6.05 | 8.20 | 6.71 | 6.61 | **5.94** | 7.96 |
 | Test, Temple | 274 | 6.32 | 8.06 | 6.97 | 7.15 | **6.17** | 7.75 |
-| Test, normal report | 1,667 | 5.62 | 8.17 | 6.35 | 6.43 | **5.59** | 8.10 |
-| Test, abnormal report | 2,378 | 6.71 | 8.56 | 7.43 | 7.32 | **6.68** | 8.47 |
 | Test, all: $R^2$ | 7,612 | 0.83 | 0.72 | 0.79 | 0.80 | 0.83 | 0.75 |
 | LEMON, first 5 minutes | 214 | **4.87** | 7.39 | 5.31 | 6.62 | 5.24 | 8.81 |
 | TDBRAIN adults, all windows | 2,222 | **5.48** | 7.03 | 5.90 | 6.58 | 5.68 | 6.58 |
@@ -1167,11 +1165,57 @@ Reading Table 7.12:
 - **`CB5_L1` and `RV4T6_L1` are 0.6 to 0.8 years behind P4 on test**, on the Harvard part and on
   the Temple part. `CB5_L1` is the better of the two outside the training data: 5.31 against 6.62
   years on LEMON, 5.90 against 6.58 on TDBRAIN.
-- **Every run is worse on abnormal reports than on normal ones**, by 0.4 to 1.1 years, as P4 is.
 - **Still missing** for the four newer runs: Dortmund, SRM, CHBP and the all-window LEMON, and
   the paired intervals on LEMON and TDBRAIN, which need each run's per-recording predictions
   (Table 7.5 has all of these for P4 and `CB4_L1`). They need the local GPU, which `RV4DP_L1`
   uses until about 15:00 UTC on 27 Nov.
+
+### Table 7.14. Stage B runs by report status
+
+The cohorts of Table 7.12 split by the report verdict of a recording: normal, abnormal, or
+unlabelled (no verdict in the source data). Same runs, epochs, scoring and state as Table 7.12;
+MAE in years (Eq. (6.4)). All 214 LEMON recordings are healthy volunteers. In TDBRAIN "normal"
+are the 354 recordings of healthy participants and "unlabelled" all others; P4's TDBRAIN values
+are computed from its saved predictions as in Table 7.12.
+
+| Cohort | Report | $n$ | P4 (LaBraM) | `CB4_L1` | `CB5_L1` | `RV4T6_L1` | `RV4DP_L1` | `RV5_L1` |
+|---|---|---|---|---|---|---|---|---|
+| Validation | normal | 4,927 | **6.01** | 8.01 | 6.54 | 6.77 | **6.01** | 7.89 |
+| Validation | abnormal | 7,320 | 7.42 | 9.15 | 7.99 | 7.84 | **7.40** | 8.42 |
+| Validation | unlabelled | 6,824 | 6.12 | 8.33 | 6.77 | 6.74 | **6.03** | 7.83 |
+| Validation, Harvard | normal | 2,632 | 5.54 | 8.16 | 6.11 | 6.29 | **5.50** | 8.25 |
+| Validation, Harvard | abnormal | 4,000 | **6.77** | 8.81 | 7.38 | 7.27 | **6.77** | 8.37 |
+| Validation, Harvard | unlabelled | 6,331 | 5.99 | 8.24 | 6.59 | 6.56 | **5.85** | 7.73 |
+| Validation, Temple | normal | 2,295 | **6.55** | 7.83 | 7.03 | 7.33 | 6.59 | 7.47 |
+| Validation, Temple | abnormal | 3,320 | 8.21 | 9.56 | 8.73 | 8.52 | **8.16** | 8.48 |
+| Validation, Temple | unlabelled | 493 | **7.85** | 9.46 | 9.08 | 9.06 | 8.39 | 9.10 |
+| Test | normal | 1,667 | 5.62 | 8.17 | 6.35 | 6.43 | **5.59** | 8.10 |
+| Test | abnormal | 2,378 | 6.71 | 8.56 | 7.43 | 7.32 | **6.68** | 8.47 |
+| Test | unlabelled | 3,567 | 5.82 | 7.96 | 6.42 | 6.26 | **5.62** | 7.54 |
+| Test, Harvard | normal | 1,518 | 5.71 | 8.33 | 6.43 | 6.53 | **5.70** | 8.29 |
+| Test, Harvard | abnormal | 2,253 | 6.62 | 8.48 | 7.36 | 7.21 | **6.59** | 8.41 |
+| Test, Harvard | unlabelled | 3,567 | 5.82 | 7.96 | 6.42 | 6.26 | **5.62** | 7.54 |
+| Test, Temple | normal | 149 | 4.65 | 6.49 | 5.53 | 5.36 | **4.39** | 6.14 |
+| Test, Temple | abnormal | 125 | 8.31 | 9.93 | 8.68 | 9.28 | **8.28** | 9.67 |
+| LEMON, first 5 minutes | normal | 214 | **4.87** | 7.39 | 5.31 | 6.62 | 5.24 | 8.81 |
+| TDBRAIN adults, all windows | normal | 354 | **5.43** | 7.31 | 6.33 | 7.30 | 6.09 | 7.18 |
+| TDBRAIN adults, all windows | unlabelled | 1,868 | **5.49** | 6.98 | 5.81 | 6.45 | 5.61 | 6.47 |
+
+**Bold**: the lowest MAE of a row.
+
+Reading Table 7.14:
+
+- **`RV4DP_L1`'s lead over P4 comes from the unlabelled Harvard recordings.** On test it is 0.20
+  years below P4 on the 3,567 unlabelled recordings (5.62 against 5.82) and 0.03 below on the
+  normal and on the abnormal ones. Validation shows the same: 0.09 on unlabelled, 0.00 and 0.02
+  on normal and abnormal.
+- **Abnormal recordings are harder for every model.** On test the abnormal group is 0.4 to 1.1
+  years above the normal one in every run (P4 1.09, `RV4DP_L1` 1.09). The difference is largest
+  on Temple test, 3.7 years for P4 (4.65 against 8.31), on 149 and 125 recordings.
+- **Outside the training data P4 is the best in every group.** On the healthy TDBRAIN
+  participants it has 5.43 years, `RV4DP_L1` 6.09 and `CB5_L1` 6.33. The foreign encoders are
+  0.3 to 0.9 years worse on the healthy TDBRAIN group than on the unlabelled one, while P4 has
+  the same error on both (5.43 and 5.49).
 
 ## 8. How to run
 
