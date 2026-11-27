@@ -1109,10 +1109,10 @@ external rows of Table 7.5). State of 27 Nov, 08:20 UTC. **Final:** P4, `CB4_L1`
 
 Reading Table 7.12:
 
-- **`RV4DP_L1` is the only run at LaBraM's level.** It is 0.04 to 0.15 years below P4 on every
+- **`RV4DP_L1` is the only run at LaBraM's level.** It is 0.03 to 0.15 years below P4 on every
   in-domain row except validation Temple, and 0.37 years above it on LEMON. The differences are
   inside the 0.38-year threshold; the run is not finished.
-- **`CB5_L1` and `RV4T6_L1` are 0.6 to 0.7 years behind P4 on test**, on the Harvard part and on
+- **`CB5_L1` and `RV4T6_L1` are 0.6 to 0.8 years behind P4 on test**, on the Harvard part and on
   the Temple part. `CB5_L1` is the better of the two outside the training data: 5.31 against 6.62
   years on LEMON, 5.90 against 6.58 on TDBRAIN.
 - **Every run is worse on abnormal reports than on normal ones**, by 0.4 to 1.1 years, as P4 is.
