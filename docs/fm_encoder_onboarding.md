@@ -31,16 +31,19 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
   - **Only the last 6 layers trained (`RV4T6_L1`): finished, and it does not replace LaBraM.**
     Test MAE 6.63 years against 6.06 for P4, a paired difference of +0.57 years (95 % interval
     +0.48 to +0.67); it over-fits more than the full fine-tune (Table 7.10).
-  - **The full fine-tune with stochastic depth (`RV4DP_L1`) is in progress and level with P4.**
-    Interim at epoch 10 of 0–16: validation 6.57 and test 5.96 years, against 6.59 and 6.06 for
-    P4's best epoch; paired on test −0.10 years (95 % interval −0.19 to −0.00). The mean of its
-    predictions and P4's reaches 5.77 years (Table 7.7).
-- **Fine-tune (stage B) with each encoder's own recipe: in progress** (Section 7.5).
-  - **CBraMod (`CB5_L1`): the authors' settings remove the under-fitting, but it stays behind
-    LaBraM.** Interim at epoch 13 of 0–16: validation 7.22 and test 6.68 years, 1.5 years better
-    than CBraMod with the P4 recipe at the same epoch and 0.6 behind P4 (Table 7.11).
-  - **REVE (`RV5_L1`):** in epoch 4; at epoch 3 it is 0.5 years ahead of P4 and 0.4 to 0.6 behind
-    the REVE runs with our recipe (Table 7.7).
+  - **The full fine-tune with stochastic depth (`RV4DP_L1`) is in its last epoch and level with
+    P4.** At its best epoch so far (12): validation 6.55 and test 5.94 years, against 6.59 and
+    6.06 for P4; paired on test −0.11 years (95 % interval −0.20 to −0.01), inside the 0.38-year
+    threshold. The mean of its predictions and P4's reaches 5.75 years, 0.31 below P4 alone
+    (Table 7.7). External cohorts are not scored yet.
+- **Fine-tune (stage B) with each encoder's own recipe** (Section 7.5).
+  - **CBraMod (`CB5_L1`): finished. The authors' settings remove the under-fitting, but it does
+    not replace LaBraM.** Test MAE 6.72 years against 6.06 for P4, a paired difference of +0.66
+    years (95 % interval +0.56 to +0.76); 1.5 years better than CBraMod with the P4 recipe
+    (Tables 7.11 and 7.13).
+  - **REVE (`RV5_L1`): in epoch 6 of 0–16, and behind.** Its validation error rose over the last
+    two scored epochs (8.07, 8.33, 8.61 years at epochs 3 to 5); at epoch 5 it is 0.7 years
+    behind P4 and 1.0 behind `RV4DP_L1` (Table 7.7).
 
 The target of every comparison is the best single model on the same split: **P4_L1 fold 0,
 validation 6.59 years, test 6.06 years** (`docs/mil_stage1_results.md`, Table 13.14).
@@ -604,9 +607,9 @@ All on fold 0 with P4's schedule of 17 epochs (8 window epochs, 1 epoch that tra
 | `CB4_L1` | local A10G, `scripts/mil_runs/run_local_fm.sh` | `/data/runs/heedb/fm_encoders/heedb_mil_CB4_L1_fold0_local_cv5/fold_0`; ClearML [epochs 0–4](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/13a62dc1bc8049669b79af59923e0cfb), [epochs 5–16](https://app.clear.ml/projects/41a5515610ed449d9831ac7c2c8020c7/experiments/9ebe43f858b64e478889373a45648ce8) | finished 25 Nov, 18:44 UTC (59 min per window epoch, 33 min per joint epoch) |
 | `RV4_L1` | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4-l1-f0-fold-0-2026-11-24-22-58-36-692` | stopped on request on 25 Nov in epoch 6, after 21.3 h (3.2 h per window epoch); epochs 0–5 are scored |
 | `RV4T6_L1` | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4t6-l1-f0-fold-0-2026-11-25-21-19-50-438`; results in `/data/runs/heedb/fm_encoders/RV4T6_L1/fold_0` | ended 26 Nov, 18:29 UTC after 20.7 h, killed for host memory while scoring epoch 15 of 0–16; best epoch 10 (Table 7.10) |
-| `RV4DP_L1` | local A10G, systemd unit `labram-rv4dp-l1-f0` | `/data/runs/heedb/fm_encoders/heedb_mil_RV4DP_L1_fold0_local_cv5/fold_0`; [ClearML](https://app.clear.ml/projects/e76a506be53e426aa0d95e90ad79855c/experiments/b2b8c98e12c044a59710f37372e5815c) | started 25 Nov, 21:25 UTC; 2.9 h per window epoch, 1.9 h per joint epoch; in epoch 12 of 0–16 on 27 Nov, 07:00 UTC; end expected about 27 Nov, 15:00 UTC |
-| `CB5_L1` | SageMaker, on-demand `ml.g5.4xlarge`, 24 loader workers | `labram-mil-cb5-l1-f0-fold-0-2026-11-26-19-26-48-628`; ClearML task `heedb_mil_CB5_L1_fold0` | submitted 26 Nov, 19:27 UTC, from the start; 59 min per window epoch, 33 min per joint epoch; in epoch 14 of 0–16 on 27 Nov, 07:00 UTC; end expected about 08:45 UTC. A first job on `ml.g5.2xlarge` (`…-12-51-19-517`) was killed for host memory after 1.3 h, before the end of epoch 0 |
-| `RV5_L1` | SageMaker, on-demand `ml.g5.8xlarge`, 16 loader workers | `labram-mil-rv5-l1-f0-fold-0-2026-11-26-19-05-37-271`; ClearML task `heedb_mil_RV5_L1_fold0` | training since 26 Nov, 19:16 UTC from epoch 1; 3.2 h per window epoch with scoring; in epoch 4 of 0–16 on 27 Nov, 07:00 UTC; end expected about 28 Nov, 09:00 UTC. A first job on `ml.g5.2xlarge` (`…-12-51-36-446`) finished the head-only epoch 0 in 1.6 h and was killed for host memory in epoch 1 after 4.1 h; this job continues from its epoch-0 checkpoint |
+| `RV4DP_L1` | local A10G, systemd unit `labram-rv4dp-l1-f0` | `/data/runs/heedb/fm_encoders/heedb_mil_RV4DP_L1_fold0_local_cv5/fold_0`; [ClearML](https://app.clear.ml/projects/e76a506be53e426aa0d95e90ad79855c/experiments/b2b8c98e12c044a59710f37372e5815c) | started 25 Nov, 21:25 UTC; 2.9 h per window epoch, 1.9 h per joint epoch; in epoch 16, the last, on 27 Nov, 13:50 UTC |
+| `CB5_L1` | SageMaker, on-demand `ml.g5.4xlarge`, 24 loader workers | `labram-mil-cb5-l1-f0-fold-0-2026-11-26-19-26-48-628`; ClearML task `heedb_mil_CB5_L1_fold0` | finished: all 17 epochs trained and scored by 27 Nov, 08:30 UTC (59 min per window epoch, 33 min per joint epoch); the job then spent 2.7 h in SageMaker's final upload, 15.7 h billed; results in `/data/runs/heedb/fm_encoders/CB5_L1/fold_0` (Table 7.13). A first job on `ml.g5.2xlarge` (`…-12-51-19-517`) was killed for host memory after 1.3 h, before the end of epoch 0 |
+| `RV5_L1` | SageMaker, on-demand `ml.g5.8xlarge`, 16 loader workers | `labram-mil-rv5-l1-f0-fold-0-2026-11-26-19-05-37-271`; ClearML task `heedb_mil_RV5_L1_fold0` | training since 26 Nov, 19:16 UTC from epoch 1; 3.2 h per window epoch with scoring; in epoch 6 of 0–16 on 27 Nov, 13:50 UTC; end expected about 28 Nov, 09:00 UTC. A first job on `ml.g5.2xlarge` (`…-12-51-36-446`) finished the head-only epoch 0 in 1.6 h and was killed for host memory in epoch 1 after 4.1 h; this job continues from its epoch-0 checkpoint |
 
 - The CBraMod run was stopped from outside on 25 Nov at 04:19 UTC, in epoch 5: the nightly Claude
   Code update restarted the service the run had been started from, and systemd stopped the run
@@ -766,8 +769,11 @@ recordings, at the same epoch of a run; "gap" is validation minus training.
 | `CB5_L1` (CBraMod, authors' settings) | 11 | 4.64 | 7.31 | 2.7 |
 | `RV4T6_L1` (REVE, last 6 layers) | 11 | 2.28 | 7.30 | 5.0 |
 | `RV4DP_L1` (REVE, all layers + stochastic depth) | 11 | 2.79 | 6.61 | 3.8 |
+| P4 (LaBraM) | 15 | 3.72 | 6.59 | 2.9 |
+| `RV4DP_L1` (REVE, all layers + stochastic depth) | 15 | 2.34 | 6.59 | 4.3 |
 | P4 (LaBraM) | 16 (end) | 3.71 | 6.60 | 2.9 |
 | `CB4_L1` (CBraMod) | 16 (end) | 8.32 | 8.85 | 0.5 |
+| `CB5_L1` (CBraMod, authors' settings) | 16 (end) | 4.16 | 7.26 | 3.1 |
 
 - **REVE over-fits early.** After epoch 3 it fits the training recordings 2 years better than
   LaBraM does at the same epoch, and its gap is already 2.2 years (Table 7.6). With 12 times
@@ -793,7 +799,7 @@ $$
 
 Validation / test MAE in years (Eq. (6.4)) after each epoch, as in Table 7.3, and
 the error on the scored training recordings at the epochs where a run scores them (Table 7.6).
-State of 27 Nov, 08:20 UTC. `RV4T6_L1` is final (it ended while scoring epoch 15); `RV4DP_L1`
+State of 27 Nov, 13:50 UTC. `RV4T6_L1` is final (it ended while scoring epoch 15); `RV4DP_L1`
 and `RV5_L1` are still training, so their columns are interim. "–": not reached or not scored.
 `RV5_L1`'s epoch 0 trains the head only (Section 7.5), so its first row is not comparable.
 
@@ -804,21 +810,22 @@ and `RV5_L1` are still training, so their columns are interim. "–": not reache
 | 2 | 8.60 / 8.50 | 8.02 / 7.61 | 7.76 / 7.45 | 8.95 / 8.87 | 8.54 / 8.47 |
 | 3 | 8.59 / 8.54 | 7.72 / 7.40 | 7.67 / 7.39 | 8.55 / 8.40 | 8.07 / 7.95 |
 | 4 | 8.67 / 8.64 | 8.25 / 8.05 | 8.08 / 7.89 | 8.74 / 8.61 | 8.33 / 8.20 |
-| 5 | 7.92 / 7.73 | 7.87 / 7.57 | 7.59 / 7.31 | 8.61 / 8.38 | – |
+| 5 | 7.92 / 7.73 | 7.87 / 7.57 | 7.59 / 7.31 | 8.61 / 8.38 | 8.61 / 8.56 |
 | 6 | 7.79 / 7.56 | – | 7.43 / 7.10 | 8.26 / 8.00 | – |
 | 7 (end of window phase) | 7.69 / 7.49 | – | 7.63 / 7.33 | 8.25 / 8.00 | – |
 | 8 (pool only) | 7.05 / 6.67 | – | 6.91 / 6.44 | 7.58 / 7.12 | – |
 | 9 (first joint epoch) | 6.71 / 6.22 | – | 6.68 / 6.11 | 7.34 / 6.83 | – |
 | 10 | 6.69 / 6.19 | – | 6.57 / 5.96 | **7.17 / 6.63** (best) | – |
 | 11 | 6.68 / 6.22 | – | 6.61 / 6.02 | 7.30 / 6.73 | – |
-| 12 | 6.65 / 6.12 | – | 6.55 / 5.94 | 7.23 / 6.65 | – |
-| 13 | 6.63 / 6.09 | – | – | 7.25 / 6.63 | – |
-| 14 | 6.61 / 6.07 | – | – | 7.25 / 6.65 | – |
-| 15 | **6.59 / 6.06** (best) | – | – | 7.25 / 6.67 | – |
+| 12 | 6.65 / 6.12 | – | **6.55 / 5.94** (best so far) | 7.23 / 6.65 | – |
+| 13 | 6.63 / 6.09 | – | 6.59 / 5.98 | 7.25 / 6.63 | – |
+| 14 | 6.61 / 6.07 | – | 6.59 / 5.98 | 7.25 / 6.65 | – |
+| 15 | **6.59 / 6.06** (best) | – | 6.59 / 5.99 | 7.25 / 6.67 | – |
 | 16 (end) | 6.60 / 6.07 | – | – | not run | – |
 | Training recordings, epoch 3 | 7.56 | 5.53 | 5.86 | 6.76 | 6.46 |
 | Training recordings, epoch 7 | 5.84 | – | 4.47 | 4.42 | – |
 | Training recordings, epoch 11 | 4.27 | – | 2.79 | 2.28 | – |
+| Training recordings, epoch 15 | 3.72 | – | 2.34 | – | – |
 
 Reading Table 7.7:
 
@@ -834,25 +841,29 @@ Reading Table 7.7:
   against 5.53, so the gap falls from 2.2 to 1.8 years. At epoch 4, where every run has a worse
   epoch, it is 8.08 / 7.89 against 8.25 / 8.05 for the stopped run and 8.67 / 8.64 for P4. At
   epoch 5 it is 7.59 / 7.31, ahead of the stopped run (7.87 / 7.57) and of P4 (7.92 / 7.73).
-- **In the bag phase the full fine-tune with stochastic depth is level with P4 (interim).** From
-  epoch 8 to 11 `RV4DP_L1` is 0.03 to 0.14 years ahead of P4 on validation and 0.11 to 0.23 on
-  test at the same epoch. At epoch 10 it has 6.57 / 5.96 against 6.59 / 6.06 for P4's best
-  epoch. Paired on the 7,612 test recordings (Eq. (6.5)) that is −0.10 years with a 95 %
-  interval of −0.19 to −0.00 (Harvard −0.11, Temple +0.16 with an interval of −0.41 to +0.70),
-  inside the 0.38-year threshold. On LEMON, as logged during training, it has 5.10 years at
-  epoch 10 against 4.99 for P4. It memorises more: 2.79 years on training recordings against
-  6.61 on validation at epoch 11 (Table 7.6). Five epochs remain.
-- **The two models differ enough to help each other.** The mean of `RV4DP_L1`'s epoch-10
-  predictions and P4's has a test MAE of 5.77 years, 0.29 years below P4 alone (interval −0.34
-  to −0.24), with the two predictions correlated at 0.97. The last-6-layers model gave no such
-  gain (Section 7.6).
+- **In the bag phase the full fine-tune with stochastic depth is level with P4 (interim, last
+  epoch in progress).** From epoch 8 to 12 `RV4DP_L1` is 0.03 to 0.14 years ahead of P4 on
+  validation and 0.11 to 0.23 on test at the same epoch; from epoch 13 it is flat at 6.59 /
+  5.98. At its best epoch (12) it has 6.55 / 5.94 against 6.59 / 6.06 for P4's best epoch.
+  Paired on the 7,612 test recordings (Eq. (6.5)) that is −0.11 years with a 95 % interval of
+  −0.20 to −0.01 (Harvard −0.11, interval −0.20 to −0.01; Temple −0.15, interval −0.70 to
+  +0.40), inside the 0.38-year threshold. On LEMON, as logged during training, it has 5.24
+  years at epoch 12 against 4.87 for P4's best epoch. It memorises more: 2.34 years on training
+  recordings against 6.59 on validation at epoch 15, where P4 has 3.72 against 6.59
+  (Table 7.6).
+- **The two models differ enough to help each other.** The mean of `RV4DP_L1`'s epoch-12
+  predictions and P4's has a test MAE of 5.75 years, 0.31 years below P4 alone (interval −0.36
+  to −0.26), with the two predictions correlated at 0.97. The last-6-layers model and CBraMod
+  gave no such gain (Sections 7.5 and 7.6).
 - **The authors' protocol starts slower (interim).** At epoch 3 `RV5_L1` has 8.07 / 7.95: 0.5
   years ahead of P4 and 0.4 to 0.6 behind the two full fine-tunes with our recipe. It spent
   epoch 0 on the head alone, so it has had one encoder epoch less; against `RV4DP_L1` at epoch 2
   (7.76 / 7.45) it is still 0.3 to 0.5 behind. Its gap between training recordings and
   validation is the smallest of the REVE runs (1.6 years, Table 7.6). On LEMON it logs 8.24 and
   8.81 years at epochs 1 and 3, where `RV4_L1` had 6.75 and 6.68 at epochs 2 and 3; one possible
-  cause is its input, µV / 100 without the per-window z-score (not tested).
+  cause is its input, µV / 100 without the per-window z-score (not tested). At epochs 4 and 5,
+  at its peak learning rate, its validation error rose to 8.33 and 8.61 while its training loss
+  kept falling; at epoch 5 it is 0.7 years behind P4 and 1.0 behind `RV4DP_L1`.
 
 ### 7.4 How the authors fine-tune their models, and what follows for ours
 
@@ -996,16 +1007,16 @@ Learning rates are peak values; all follow P4's warm-up and cosine. Layer $i$ as
 **Status.** `CB4_L1` is finished (Table 7.5). `RV4_L1` was stopped after epoch 5 (Table 7.3).
 `RV4T6_L1` is finished (Section 7.6). `RV4DP_L1` is in progress (Tables 7.2 and 7.7). `CB5_L1`
 and `RV5_L1` were restarted on 26 Nov after their first jobs were killed for host memory
-(Table 7.2) and are in progress: `CB5_L1` in epoch 14 (Table 7.11), `RV5_L1` in epoch 4
-(Table 7.7). Neither shows a numerical problem under mixed precision; reported host memory
-stays at 74 to 83 % of 64 GB for `CB5_L1` and at 26 to 32 % of 128 GB for `RV5_L1`.
+(Table 7.2). `CB5_L1` is finished (Tables 7.11 and 7.13). `RV5_L1` is in epoch 6 (Table 7.7).
+Neither showed a numerical problem under mixed precision; reported host memory stayed at 74 to
+83 % of 64 GB for `CB5_L1` and stays at 26 to 32 % of 128 GB for `RV5_L1`.
 
-### Table 7.11. CBraMod with its authors' settings at the same epoch (interim)
+### Table 7.11. CBraMod with its authors' settings at the same epoch
 
 Validation / test MAE in years (Eq. (6.4)) after each epoch, as in Table 7.3; LEMON and TDBRAIN
 as `CB5_L1` logs them during training at the epochs where it scores them; the last rows are the
-error on the scored training recordings (Table 7.6). State of 27 Nov, 08:20 UTC: `CB5_L1` is in
-epoch 16, the last, so **its column is not final**. "–": not scored at that epoch.
+error on the scored training recordings (Table 7.6). All three runs are complete. "–": not
+scored at that epoch.
 
 | Epoch | P4 (LaBraM) | `CB4_L1`: P4 recipe | `CB5_L1`: authors' settings | `CB5_L1` LEMON, TDBRAIN |
 |---|---|---|---|---|
@@ -1019,18 +1030,21 @@ epoch 16, the last, so **its column is not final**. "–": not scored at that ep
 | 7 (end of window phase) | 7.69 / 7.49 | 10.05 / 10.12 | 8.07 / 7.75 | 6.50, 6.14 |
 | 8 (pool only) | 7.05 / 6.67 | 9.33 / 9.07 | 7.52 / 7.09 | 5.71, 6.09 |
 | 9 (first joint epoch) | 6.71 / 6.22 | 8.73 / 8.28 | 7.45 / 6.98 | 5.08, 6.02 |
-| 10 | 6.69 / 6.19 | 8.56 / 8.19 | 7.29 / 6.83 | 5.39, 6.17 |
+| 10 | 6.69 / 6.19 | **8.56 / 8.19** | 7.29 / 6.83 | 5.39, 6.17 |
 | 11 | 6.68 / 6.22 | 8.88 / 8.45 | 7.31 / 6.84 | – |
-| 12 | 6.65 / 6.12 | 8.80 / 8.45 | 7.18 / 6.72 | 5.31, 5.90 |
+| 12 | 6.65 / 6.12 | 8.80 / 8.45 | **7.18 / 6.72** | 5.31, 5.90 |
 | 13 | 6.63 / 6.09 | 8.74 / 8.34 | 7.22 / 6.68 | – |
 | 14 | 6.61 / 6.07 | 8.90 / 8.54 | 7.27 / 6.75 | 5.24, 5.96 |
-| 15 | 6.59 / 6.06 | 8.87 / 8.49 | 7.28 / 6.80 | – |
+| 15 | **6.59 / 6.06** | 8.87 / 8.49 | 7.28 / 6.80 | – |
+| 16 (end) | 6.60 / 6.07 | 8.85 / 8.47 | 7.26 / 6.76 | 5.28, 5.86 |
 | Training recordings, epoch 3 | 7.56 | 10.13 | 7.41 | |
 | Training recordings, epoch 7 | 5.84 | 9.01 | 6.05 | |
 | Training recordings, epoch 11 | 4.27 | 8.50 | 4.64 | |
 | Training recordings, epoch 15 | 3.72 | 8.32 | 4.20 | |
 
-Reading Table 7.11 (interim):
+**Bold**: each run's best validation epoch.
+
+Reading Table 7.11:
 
 - **The authors' settings remove CBraMod's under-fitting.** `CB5_L1` is 1.3 to 3.9 years better
   than `CB4_L1` on validation at every epoch, and at epoch 11 it fits its training recordings at
@@ -1039,8 +1053,34 @@ Reading Table 7.11 (interim):
 - **It is still behind LaBraM.** In the bag phase it stays 0.4 to 0.8 years behind P4 at the
   same epoch on validation and on test (7.22 / 6.68 against 6.63 / 6.09 at epoch 13). It was
   ahead of P4 at epochs 2 and 4, before P4's step at epoch 5.
-- **On LEMON it is close to LaBraM.** It logs 5.08 to 5.39 years from epoch 9 on; P4 logs 4.99
+- **On LEMON it is close to LaBraM.** It logs 5.08 to 5.39 years from epoch 9 on; P4 logs 4.86
   to 5.33 at the same epochs. `CB4_L1` had 7.39 at its best epoch (Table 7.3).
+
+### Table 7.13. `CB5_L1` against P4 on fold 0
+
+Each run at its best validation epoch (`CB5_L1` epoch 12, P4 epoch 15). MAE in years (Eq. (6.4))
+per recording; Δ = `CB5_L1` − P4 on the same recordings (Eq. (6.5)) with its 95 % interval from
+2,000 bootstrap resamples, positive when `CB5_L1` is worse. Test: the first 5 minutes of the
+7,612 held-out recordings (P4 re-scored with `scripts/eval_age_by_cohort.py`, `CB5_L1` from its
+test bag-weight file). Validation, LEMON and TDBRAIN are each run's values logged during
+training. The external cohorts with the protocol of Table 7.5 are not scored yet.
+
+| Cohort | $n$ | P4 MAE | `CB5_L1` MAE | Δ [95 % interval] | `CB4_L1` MAE |
+|---|---|---|---|---|---|
+| Validation (fold 0) | 19,071 | 6.59 | 7.18 | +0.59 | 8.56 |
+| Test, all | 7,612 | 6.06 | 6.72 | +0.66 [+0.56, +0.76] | 8.19 |
+| Test, Harvard | 7,338 | 6.05 | 6.71 | +0.66 [+0.57, +0.76] | 8.20 |
+| Test, Temple | 274 | 6.32 | 6.97 | +0.64 [+0.13, +1.15] | 8.06 |
+| LEMON, as logged during training | – | 4.87 | 5.31 | +0.44 | 7.39 |
+| TDBRAIN adults, as logged during training | – | – | 5.90 | – | 7.03 |
+
+- **Verdict.** By the decision rule CBraMod with its authors' settings does not replace LaBraM:
+  it is 0.66 years worse on Harvard test, above the 0.38-year threshold and with an interval
+  far from 0, and it is worse on Temple test and on LEMON (Table 7.13).
+- **The authors' settings are worth 1.5 years for CBraMod** on test (6.72 against 8.19) and 2.1
+  on LEMON; the encoder was held back by our recipe, not by its capacity.
+- **Averaging it with P4 gives nothing.** The mean of the two models' predictions has a test MAE
+  of 6.12 years against 6.06 for P4 alone (Δ +0.06, interval +0.01 to +0.12).
 
 ### 7.6 Result: REVE with only its last 6 layers trained
 
@@ -1086,9 +1126,9 @@ Recording-level MAE in years (Eq. (6.4)) as each run logs it at its best validat
 the fold-0 validation recordings and the 7,612 held-out test recordings (first 5 minutes), split
 by source dataset and by report status, and the two standing external test sets LEMON and TDBRAIN
 adults as scored during training (the run's window selection, so these two rows differ from the
-external rows of Table 7.5). State of 27 Nov, 08:20 UTC. **Final:** P4, `CB4_L1`, `RV4T6_L1`.
-**Interim:** `CB5_L1` (in its last epoch), `RV4DP_L1` (epoch 13 of 0–16), `RV5_L1` (epoch 5 of
-0–16). "–": not scored by that run.
+external rows of Table 7.5). State of 27 Nov, 13:50 UTC. **Final:** P4, `CB4_L1`, `CB5_L1`,
+`RV4T6_L1`. **Interim:** `RV4DP_L1` (in its last epoch), `RV5_L1` (epoch 6 of 0–16). "–": not
+scored by that run.
 
 | Cohort | $n$ | P4 (LaBraM) | `CB4_L1` | `CB5_L1` | `RV4T6_L1` | `RV4DP_L1` | `RV5_L1` |
 |---|---|---|---|---|---|---|---|
