@@ -39,8 +39,8 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
     (it loses on Dortmund).
   - **As one more ensemble member REVE helps.** Added to the P4 ensemble with equal weight per
     model, `RV4DP_L1` lowers the MAE by 0.15 years on test, 0.11 on Dortmund, 0.15 on TDBRAIN
-    and 0.44 on CHBP, and changes nothing on LEMON and SRM (Table 7.16). A second LaBraM fold
-    gives a third of that.
+    and 0.44 on CHBP, and changes nothing on LEMON and SRM (Table 7.16). Averaged with P4 fold 0
+    alone, REVE lowers the test MAE by 0.31 years, a second LaBraM fold by 0.08.
 - **Fine-tune (stage B) with each encoder's own recipe** (Section 7.5).
   - **CBraMod (`CB5_L1`): finished. The authors' settings remove the under-fitting, but it does
     not replace LaBraM.** Test MAE 6.72 years against 6.06 for P4, a paired difference of +0.66
