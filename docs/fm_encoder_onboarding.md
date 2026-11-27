@@ -793,7 +793,7 @@ $$
 
 Validation / test MAE in years (Eq. (6.4)) after each epoch, as in Table 7.3, and
 the error on the scored training recordings at the epochs where a run scores them (Table 7.6).
-State of 27 Nov, 07:00 UTC. `RV4T6_L1` is final (it ended while scoring epoch 15); `RV4DP_L1`
+State of 27 Nov, 08:20 UTC. `RV4T6_L1` is final (it ended while scoring epoch 15); `RV4DP_L1`
 and `RV5_L1` are still training, so their columns are interim. "–": not reached or not scored.
 `RV5_L1`'s epoch 0 trains the head only (Section 7.5), so its first row is not comparable.
 
@@ -803,7 +803,7 @@ and `RV5_L1` are still training, so their columns are interim. "–": not reache
 | 1 | 8.85 / 8.84 | 9.00 / 8.97 | 9.10 / 9.06 | 9.21 / 9.10 | 8.51 / 8.30 |
 | 2 | 8.60 / 8.50 | 8.02 / 7.61 | 7.76 / 7.45 | 8.95 / 8.87 | 8.54 / 8.47 |
 | 3 | 8.59 / 8.54 | 7.72 / 7.40 | 7.67 / 7.39 | 8.55 / 8.40 | 8.07 / 7.95 |
-| 4 | 8.67 / 8.64 | 8.25 / 8.05 | 8.08 / 7.89 | 8.74 / 8.61 | – |
+| 4 | 8.67 / 8.64 | 8.25 / 8.05 | 8.08 / 7.89 | 8.74 / 8.61 | 8.33 / 8.20 |
 | 5 | 7.92 / 7.73 | 7.87 / 7.57 | 7.59 / 7.31 | 8.61 / 8.38 | – |
 | 6 | 7.79 / 7.56 | – | 7.43 / 7.10 | 8.26 / 8.00 | – |
 | 7 (end of window phase) | 7.69 / 7.49 | – | 7.63 / 7.33 | 8.25 / 8.00 | – |
@@ -811,7 +811,7 @@ and `RV5_L1` are still training, so their columns are interim. "–": not reache
 | 9 (first joint epoch) | 6.71 / 6.22 | – | 6.68 / 6.11 | 7.34 / 6.83 | – |
 | 10 | 6.69 / 6.19 | – | 6.57 / 5.96 | **7.17 / 6.63** (best) | – |
 | 11 | 6.68 / 6.22 | – | 6.61 / 6.02 | 7.30 / 6.73 | – |
-| 12 | 6.65 / 6.12 | – | – | 7.23 / 6.65 | – |
+| 12 | 6.65 / 6.12 | – | 6.55 / 5.94 | 7.23 / 6.65 | – |
 | 13 | 6.63 / 6.09 | – | – | 7.25 / 6.63 | – |
 | 14 | 6.61 / 6.07 | – | – | 7.25 / 6.65 | – |
 | 15 | **6.59 / 6.06** (best) | – | – | 7.25 / 6.67 | – |
@@ -1004,8 +1004,8 @@ stays at 74 to 83 % of 64 GB for `CB5_L1` and at 26 to 32 % of 128 GB for `RV5_L
 
 Validation / test MAE in years (Eq. (6.4)) after each epoch, as in Table 7.3; LEMON and TDBRAIN
 as `CB5_L1` logs them during training at the epochs where it scores them; the last rows are the
-error on the scored training recordings (Table 7.6). State of 27 Nov, 07:00 UTC: `CB5_L1` is in
-epoch 14 of 0–16, so **its column is not final**. "–": not scored at that epoch.
+error on the scored training recordings (Table 7.6). State of 27 Nov, 08:20 UTC: `CB5_L1` is in
+epoch 16, the last, so **its column is not final**. "–": not scored at that epoch.
 
 | Epoch | P4 (LaBraM) | `CB4_L1`: P4 recipe | `CB5_L1`: authors' settings | `CB5_L1` LEMON, TDBRAIN |
 |---|---|---|---|---|
@@ -1023,9 +1023,12 @@ epoch 14 of 0–16, so **its column is not final**. "–": not scored at that ep
 | 11 | 6.68 / 6.22 | 8.88 / 8.45 | 7.31 / 6.84 | – |
 | 12 | 6.65 / 6.12 | 8.80 / 8.45 | 7.18 / 6.72 | 5.31, 5.90 |
 | 13 | 6.63 / 6.09 | 8.74 / 8.34 | 7.22 / 6.68 | – |
+| 14 | 6.61 / 6.07 | 8.90 / 8.54 | 7.27 / 6.75 | 5.24, 5.96 |
+| 15 | 6.59 / 6.06 | 8.87 / 8.49 | 7.28 / 6.80 | – |
 | Training recordings, epoch 3 | 7.56 | 10.13 | 7.41 | |
 | Training recordings, epoch 7 | 5.84 | 9.01 | 6.05 | |
 | Training recordings, epoch 11 | 4.27 | 8.50 | 4.64 | |
+| Training recordings, epoch 15 | 3.72 | 8.32 | 4.20 | |
 
 Reading Table 7.11 (interim):
 
@@ -1074,6 +1077,48 @@ during training (LEMON with the run's window selection, so it differs from Table
   that epoch would not change the result. The full external scoring of Table 7.5 was not run
   for this model: the test split already decides, and the best checkpoint stays on S3
   (`…/labram/checkpoints/labram-mil-rv4t6-l1-f0-fold-0-20261125T211950/cv/fold_0/checkpoint-best.pth`).
+
+### 7.7 All runs per cohort
+
+### Table 7.12. Stage B runs per cohort at their best validation epoch
+
+Recording-level MAE in years (Eq. (6.4)) as each run logs it at its best validation epoch so far:
+the fold-0 validation recordings and the 7,612 held-out test recordings (first 5 minutes), split
+by source dataset and by report status, and the two standing external test sets LEMON and TDBRAIN
+adults as scored during training (the run's window selection, so these two rows differ from the
+external rows of Table 7.5). State of 27 Nov, 08:20 UTC. **Final:** P4, `CB4_L1`, `RV4T6_L1`.
+**Interim:** `CB5_L1` (in its last epoch), `RV4DP_L1` (epoch 13 of 0–16), `RV5_L1` (epoch 5 of
+0–16). "–": not scored by that run.
+
+| Cohort | $n$ | P4 (LaBraM) | `CB4_L1` | `CB5_L1` | `RV4T6_L1` | `RV4DP_L1` | `RV5_L1` |
+|---|---|---|---|---|---|---|---|
+| Best validation epoch | | 15 | 10 | 12 | 10 | 12 | 3 |
+| Validation, all | 19,071 | 6.59 | 8.56 | 7.18 | 7.17 | **6.55** | 8.07 |
+| Validation, Harvard | | 6.14 | 8.40 | 6.74 | 6.73 | **6.07** | 8.03 |
+| Validation, Temple | | **7.55** | 8.90 | 8.12 | 8.12 | 7.59 | 8.15 |
+| Test, all | 7,612 | 6.06 | 8.19 | 6.72 | 6.63 | **5.94** | 7.95 |
+| Test, Harvard | 7,338 | 6.05 | 8.20 | 6.71 | 6.61 | **5.94** | 7.96 |
+| Test, Temple | 274 | 6.32 | 8.06 | 6.97 | 7.15 | **6.17** | 7.75 |
+| Test, normal report | 1,667 | 5.62 | 8.17 | 6.35 | 6.43 | **5.59** | 8.10 |
+| Test, abnormal report | 2,378 | 6.71 | 8.56 | 7.43 | 7.32 | **6.68** | 8.47 |
+| Test, all: $R^2$ | 7,612 | 0.83 | 0.72 | 0.79 | 0.80 | 0.83 | 0.75 |
+| LEMON, during training | | **4.87** | 7.39 | 5.31 | 6.62 | 5.24 | 8.81 |
+| TDBRAIN adults, during training | | – | 7.03 | 5.90 | 6.58 | **5.68** | 6.58 |
+
+**Bold**: the lowest MAE of a row.
+
+Reading Table 7.12:
+
+- **`RV4DP_L1` is the only run at LaBraM's level.** It is 0.04 to 0.15 years below P4 on every
+  in-domain row except validation Temple, and 0.37 years above it on LEMON. The differences are
+  inside the 0.38-year threshold; the run is not finished.
+- **`CB5_L1` and `RV4T6_L1` are 0.6 to 0.7 years behind P4 on test**, on the Harvard part and on
+  the Temple part. `CB5_L1` is the better of the two outside the training data: 5.31 against 6.62
+  years on LEMON, 5.90 against 6.58 on TDBRAIN.
+- **Every run is worse on abnormal reports than on normal ones**, by 0.4 to 1.1 years, as P4 is.
+- **Still missing:** the paired comparison on Dortmund, SRM, CHBP and the full-protocol LEMON
+  and TDBRAIN for the four new runs (Table 7.5 has them for P4 and `CB4_L1`). They need the
+  local GPU, which `RV4DP_L1` uses until about 15:00 UTC on 27 Nov.
 
 ## 8. How to run
 
