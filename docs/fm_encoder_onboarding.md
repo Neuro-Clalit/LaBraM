@@ -38,9 +38,9 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
     SRM, level on LEMON and CHBP (Table 7.15). By the decision rule it does not replace LaBraM
     (it loses on Dortmund).
   - **As one more ensemble member REVE helps.** Added to the P4 ensemble with equal weight per
-    model, `RV4DP_L1` lowers the MAE by 0.15 years on test, 0.11 on Dortmund, 0.15 on TDBRAIN
-    and 0.44 on CHBP, and changes nothing on LEMON and SRM (Table 7.16). Averaged with P4 fold 0
-    alone, REVE lowers the test MAE by 0.31 years, a second LaBraM fold by 0.08.
+    model, `RV4DP_L1` lowers the MAE by 0.13 years on test, 0.11 on Dortmund, 0.15 on TDBRAIN
+    and 0.44 on CHBP, and changes nothing on LEMON and SRM (Tables 7.16 and 7.17). Averaged with P4 fold 0
+    alone, REVE lowers the test MAE by 0.31 years, a second LaBraM fold by 0.07.
 - **Fine-tune (stage B) with each encoder's own recipe** (Section 7.5).
   - **CBraMod (`CB5_L1`): finished. The authors' settings remove the under-fitting, but it does
     not replace LaBraM.** Test MAE 6.72 years against 6.06 for P4, a paired difference of +0.66
@@ -1273,14 +1273,15 @@ window, no trims for Dortmund, TDBRAIN and SRM (`scripts/external_runs/fm_extern
 MAE in years of the mean of the predictions of several models, on the cohorts of Table 7.15.
 "Two models": P4 fold 0 averaged with one other model; Δ against P4 fold 0 alone. The other
 model is another P4 fold (the control: what a second LaBraM model gives; the mean over the other
-folds), `RV4DP_L1` or `CB5_L1`. "P4 ensemble": the mean of the P4 folds (all 5 on the external
-cohorts; folds 0, 1, 2 and 4 on test, since fold 3's test predictions are not on this machine);
-"+ run": that ensemble with the run as one more member of equal weight, Δ against the ensemble.
+folds), `RV4DP_L1` or `CB5_L1`. "P4 ensemble": the mean of the 5 P4 folds, each at its best
+validation epoch (fold 3 on test at epoch 15 instead of 16: the predictions of its last epoch
+were not saved, and its test MAE is 6.12 at both); "+ run": that ensemble with the run as one
+more member of equal weight, Δ against the ensemble.
 Intervals: 95 %, 2,000 bootstrap resamples over recordings (`scripts/fm_external_compare.py`).
 
 | Cohort | P4 fold 0 | + another P4 fold | + `RV4DP_L1` (Δ) | + `CB5_L1` (Δ) | P4 ensemble | + `RV4DP_L1` (Δ) | + `CB5_L1` (Δ) |
 |---|---|---|---|---|---|---|---|
-| Test, all | 6.06 | 5.98 | 5.75 (−0.31 [−0.36, −0.26]) | 6.12 (+0.06 [+0.01, +0.12]) | 5.94 | 5.79 (−0.15 [−0.17, −0.13]) | 5.95 (+0.01 [−0.01, +0.03]) |
+| Test, all | 6.06 | 5.99 | 5.75 (−0.31 [−0.36, −0.26]) | 6.12 (+0.06 [+0.01, +0.12]) | 5.94 | 5.82 (−0.13 [−0.14, −0.11]) | 5.94 (−0.00 [−0.02, +0.02]) |
 | LEMON | 4.73 | 4.70 | 4.70 (−0.03 [−0.25, +0.20]) | 4.83 (+0.09 [−0.13, +0.34]) | 4.67 | 4.63 (−0.04 [−0.12, +0.04]) | 4.69 (+0.02 [−0.06, +0.11]) |
 | Dortmund | 5.29 | 5.21 | 5.17 (−0.12 [−0.21, −0.03]) | 5.18 (−0.11 [−0.19, −0.03]) | 5.16 | 5.05 (−0.11 [−0.14, −0.08]) | 5.08 (−0.08 [−0.11, −0.05]) |
 | TDBRAIN | 5.48 | 5.40 | 5.19 (−0.29 [−0.39, −0.18]) | 5.32 (−0.16 [−0.26, −0.06]) | 5.36 | 5.21 (−0.15 [−0.19, −0.12]) | 5.28 (−0.08 [−0.11, −0.05]) |
@@ -1290,11 +1291,11 @@ Intervals: 95 %, 2,000 bootstrap resamples over recordings (`scripts/fm_external
 Reading Table 7.16:
 
 - **REVE adds more to P4 than a second LaBraM model does.** Averaged with P4 fold 0, `RV4DP_L1`
-  lowers the test MAE by 0.31 years; another P4 fold lowers it by 0.08 (5.98). The same holds on
+  lowers the test MAE by 0.31 years; another P4 fold lowers it by 0.07 (5.99). The same holds on
   TDBRAIN (0.29 against 0.08) and CHBP (0.78 against a rise of 0.27). Its predictions correlate
   with P4's at 0.97, two P4 folds at 0.99.
 - **As a sixth member it improves the P4 ensemble on four of six cohorts and harms none.** With
-  equal weight per model the MAE falls by 0.15 years on test, 0.11 on Dortmund, 0.15 on TDBRAIN
+  equal weight per model the MAE falls by 0.13 years on test, 0.11 on Dortmund, 0.15 on TDBRAIN
   and 0.44 on CHBP, each with an interval that excludes 0; LEMON and SRM do not change (−0.04,
   intervals include 0).
 - **The weight matters on SRM.** With half the weight on the single REVE model, SRM gets worse
@@ -1304,6 +1305,34 @@ Reading Table 7.16:
 - **What this does not show.** One REVE model on one fold: whether five REVE folds would add more
   than one, and how much of the gain a sixth LaBraM model with another seed would give, is not
   tested. The control uses a P4 model of another fold, which also saw other training recordings.
+
+### Table 7.17. The P4 cross-validation ensemble with and without the REVE model
+
+The short form of Table 7.16. "P4 ensemble (LaBraM CrossValid)": the mean of the predictions of
+the 5 P4 models, one per cross-validation fold. "+ `RV4DP_L1`": the same ensemble with the one
+REVE model as a sixth member of equal weight. MAE in years (Eq. (6.4)) per recording; Δ against
+the P4 ensemble with its 95 % bootstrap interval (Eq. (6.5)), negative when the REVE model
+helps. The first row is the number of weights of all models of an ensemble: a P4 model has
+5.8 M, the REVE model 69.3 M.
+
+| Cohort | $n$ | P4 ensemble (LaBraM CrossValid) | + `RV4DP_L1` (REVE) | Δ [95 % interval] |
+|---|---|---|---|---|
+| Parameters | | 29.2 M | 98.5 M | +69.3 M |
+| Test, all | 7,612 | 5.94 | 5.82 | −0.13 [−0.14, −0.11] |
+| Test, Harvard | 7,338 | 5.94 | 5.81 | −0.13 [−0.15, −0.11] |
+| Test, Temple | 274 | 6.02 | 5.92 | −0.10 [−0.20, −0.01] |
+| LEMON | 214 | 4.67 | 4.63 | −0.04 [−0.12, +0.04] |
+| Dortmund | 3,262 | 5.16 | 5.05 | −0.11 [−0.14, −0.08] |
+| TDBRAIN | 2,222 | 5.36 | 5.21 | −0.15 [−0.19, −0.12] |
+| SRM | 152 | 4.84 | 4.81 | −0.04 [−0.23, +0.15] |
+| CHBP | 250 | 7.95 | 7.52 | −0.44 [−0.60, −0.27] |
+
+- **The REVE model lowers the ensemble's error on six of eight rows and raises none.** The gain
+  is 0.10 to 0.15 years on the test recordings, on both source datasets, and on Dortmund and
+  TDBRAIN, and 0.44 years on CHBP; LEMON and SRM do not change.
+- **The cost is weights and compute.** The ensemble grows from 29.2 M to 98.5 M weights, and the
+  REVE model takes 3.3 times a P4 model's inference time (Table 7.1) and 41 hours to train
+  against 13 for one P4 fold (Table 7.2).
 
 ## 8. How to run
 

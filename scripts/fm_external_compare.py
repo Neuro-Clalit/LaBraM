@@ -41,6 +41,27 @@ def _predictions(path, prefix):
             for k, v in json.load(open(path)).items() if k.startswith(prefix)}
 
 
+def _p4_test_file(fold_dir):
+    """The test bag-weight file of a P4 fold at its best validation epoch (``fold_metrics.json``,
+    else ``train_state.json``). A fold whose file of that epoch was not saved (fold 3: its last
+    epoch) falls back to the latest saved epoch, with a note."""
+    best = None
+    for name in ("fold_metrics.json", "train_state.json"):
+        try:
+            best = json.load(open(os.path.join(fold_dir, name)))["best_epoch"]
+            break
+        except (OSError, KeyError):
+            continue
+    files = sorted(glob.glob(os.path.join(fold_dir, "analysis", "test_bag_weights_epoch*.parquet")))
+    if best is None or not files:
+        return None
+    exact = os.path.join(fold_dir, "analysis", f"test_bag_weights_epoch{best:02d}.parquet")
+    if exact in files:
+        return exact
+    print(f"note: {fold_dir}: no test predictions of its best epoch {best}; using {os.path.basename(files[-1])}")
+    return files[-1]
+
+
 def _delta(pred, ref, age):
     b = bootstrap_delta_mae(pred - age, ref - age)
     return float((pred - age).abs().mean()), b["dMAE"], b["lo"], b["hi"]
@@ -80,12 +101,9 @@ def main():
         run = recording_predictions(args.test_parquet)
         folds = {"P4_L1_f0": _predictions(args.p4_test, "P4_L1_f0")["P4_L1_f0"]}
         for d in sorted(glob.glob(os.path.join(args.p4_cv, "fold_[1-9]", "cv", "fold_*"))):
-            try:
-                best = json.load(open(os.path.join(d, "fold_metrics.json")))["best_epoch"]
-                folds[f"P4_L1_f{d[-1]}"] = recording_predictions(
-                    os.path.join(d, "analysis", f"test_bag_weights_epoch{best:02d}.parquet")).pred
-            except (OSError, KeyError):
-                continue                      # a fold whose test predictions are not on this machine
+            path = _p4_test_file(d)
+            if path:                          # else: a fold whose test predictions are not on this machine
+                folds[f"P4_L1_f{d[-1]}"] = recording_predictions(path).pred
         p4 = pd.DataFrame(folds).reindex(run.index)
         if p4.isna().any().any():
             raise ValueError("the run and P4 were not scored on the same test recordings")
