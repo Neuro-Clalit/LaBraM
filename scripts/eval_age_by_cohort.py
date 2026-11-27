@@ -387,6 +387,12 @@ def main():
     ap.add_argument("--bag-batch-size", type=int, default=None,
                     help="recordings per batch for bag runs (default 12, 2 with --eval-minutes 0)")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--gpu-memory-fraction", type=float, default=0.0,
+                    help="cap this process at that share of the GPU's memory (0 = no cap): for scoring "
+                         "next to a training run, so that an out-of-memory error hits the scoring")
+    ap.add_argument("--bag-encode-chunk", type=int, default=0,
+                    help="windows encoded per pass for bag runs (0 = the model's default, 256); "
+                         "windows are encoded independently, so the result does not change")
     ap.add_argument("--nproc-per-node", type=int, default=1,
                     help="GPUs to predict on (one DDP process each; -1 = all visible GPUs). "
                          "Windows are sharded across processes and gathered on rank 0.")
@@ -400,6 +406,11 @@ def main():
         device = torch.device("cuda", ns.gpu)
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if args.gpu_memory_fraction > 0 and device.type == "cuda":
+        torch.cuda.set_per_process_memory_fraction(args.gpu_memory_fraction)   # the current device
+    if args.bag_encode_chunk > 0:
+        from labram.models.bag_forward import BagForwardMixin
+        BagForwardMixin.BAG_ENCODE_CHUNK = args.bag_encode_chunk
     results = {}
     for item in args.run:
         name, run_dir = item.split("=", 1)

@@ -34,13 +34,18 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
   - **The full fine-tune with stochastic depth (`RV4DP_L1`) is finished and level with P4.** At
     its best epoch (12): validation 6.55 and test 5.94 years, against 6.59 and 6.06 for P4;
     paired on test −0.11 years (95 % interval −0.20 to −0.01), inside the 0.38-year threshold.
-    The mean of its predictions and P4's reaches 5.75 years, 0.31 below P4 alone (Table 7.7). On
-    LEMON and TDBRAIN it is 0.2 to 0.4 years behind P4 (Table 7.12); Dortmund, SRM and CHBP are
-    not scored yet.
+    Outside the training data it is behind: +0.55 years on Dortmund, +0.21 on TDBRAIN, +1.97 on
+    SRM, level on LEMON and CHBP (Table 7.15). By the decision rule it does not replace LaBraM
+    (it loses on Dortmund).
+  - **As one more ensemble member REVE helps.** Added to the P4 ensemble with equal weight per
+    model, `RV4DP_L1` lowers the MAE by 0.15 years on test, 0.11 on Dortmund, 0.15 on TDBRAIN
+    and 0.44 on CHBP, and changes nothing on LEMON and SRM (Table 7.16). A second LaBraM fold
+    gives a third of that.
 - **Fine-tune (stage B) with each encoder's own recipe** (Section 7.5).
   - **CBraMod (`CB5_L1`): finished. The authors' settings remove the under-fitting, but it does
     not replace LaBraM.** Test MAE 6.72 years against 6.06 for P4, a paired difference of +0.66
-    years (95 % interval +0.56 to +0.76); 1.5 years better than CBraMod with the P4 recipe
+    years (95 % interval +0.56 to +0.76); 1.5 years better than CBraMod with the P4 recipe. It
+    is 0.4 to 0.5 years behind P4 on LEMON, Dortmund and TDBRAIN and 2.9 behind on CHBP
     (Tables 7.11 and 7.13).
   - **REVE (`RV5_L1`): in epoch 7 of 0–16, now on the local GPU.** After two worse epochs (8.33
     and 8.61 years on validation at epochs 4 and 5) it reached 7.60 / 7.34 at epoch 6: 0.2 years
@@ -1066,10 +1071,9 @@ Each run at its best validation epoch (`CB5_L1` epoch 12, P4 epoch 15). MAE in y
 per recording; Δ = `CB5_L1` − P4 on the same recordings (Eq. (6.5)) with its 95 % interval from
 2,000 bootstrap resamples, positive when `CB5_L1` is worse. Test: the first 5 minutes of the
 7,612 held-out recordings (P4 re-scored with `scripts/eval_age_by_cohort.py`, `CB5_L1` from its
-test bag-weight file). Validation, LEMON (first 5 minutes) and TDBRAIN (adults, all windows) are
-each run's values logged during training; P4's TDBRAIN value is computed from its saved
-predictions with the same protocol (Table 7.12). Dortmund, SRM, CHBP and the paired intervals on
-LEMON and TDBRAIN are not scored yet.
+test bag-weight file). External cohorts as in Table 7.5: adults, every window, no trims for
+Dortmund, TDBRAIN and SRM, all runs scored with `scripts/eval_age_by_cohort.py`
+(`scripts/external_runs/fm_external.sh`). Validation is each run's logged value.
 
 | Cohort | $n$ | P4 MAE | `CB5_L1` MAE | Δ [95 % interval] | `CB4_L1` MAE |
 |---|---|---|---|---|---|
@@ -1077,16 +1081,24 @@ LEMON and TDBRAIN are not scored yet.
 | Test, all | 7,612 | 6.06 | 6.72 | +0.66 [+0.56, +0.76] | 8.19 |
 | Test, Harvard | 7,338 | 6.05 | 6.71 | +0.66 [+0.57, +0.76] | 8.20 |
 | Test, Temple | 274 | 6.32 | 6.97 | +0.64 [+0.13, +1.15] | 8.06 |
-| LEMON, first 5 minutes | 214 | 4.87 | 5.31 | +0.44 | 7.39 |
-| TDBRAIN adults, all windows | 2,222 | 5.48 | 5.90 | +0.42 | 7.03 |
+| LEMON | 214 | 4.73 | 5.14 | +0.40 [−0.04, +0.89] | 7.44 |
+| Dortmund | 3,262 | 5.29 | 5.75 | +0.46 [+0.32, +0.62] | 6.96 |
+| TDBRAIN | 2,222 | 5.48 | 5.90 | +0.42 [+0.24, +0.60] | 7.03 |
+| SRM | 152 | 5.01 | 6.20 | +1.20 [+0.32, +2.11] | 6.39 |
+| CHBP | 250 | 7.45 | 10.38 | +2.93 [+2.00, +3.95] | 10.65 |
 
 - **Verdict.** By the decision rule CBraMod with its authors' settings does not replace LaBraM:
   it is 0.66 years worse on Harvard test, above the 0.38-year threshold and with an interval
-  far from 0, and it is worse on Temple test, on LEMON and on TDBRAIN (Table 7.13).
-- **The authors' settings are worth 1.5 years for CBraMod** on test (6.72 against 8.19) and 2.1
-  on LEMON: with our recipe the encoder was under-trained.
-- **Averaging it with P4 gives nothing.** The mean of the two models' predictions has a test MAE
-  of 6.12 years against 6.06 for P4 alone (Δ +0.06, interval +0.01 to +0.12).
+  far from 0, and it loses on Dortmund (+0.46). On LEMON the difference is +0.40 with an
+  interval that includes 0 (Table 7.13).
+- **The authors' settings are worth 1.5 years for CBraMod** on test (6.72 against 8.19), 2.3 on
+  LEMON, 1.2 on Dortmund and 1.1 on TDBRAIN: with our recipe the encoder was under-trained.
+- **CHBP stays out of reach for CBraMod.** It has 10.4 years with either recipe, against 7.45
+  for P4; the device shift of that cohort (`docs/chbp_domain_shift.md`) is not helped by its
+  training settings.
+- **Averaging it with P4 gives nothing on test.** The mean of the two models' predictions has a
+  test MAE of 6.12 years against 6.06 for P4 alone (Δ +0.06, interval +0.01 to +0.12);
+  Table 7.16 has the external cohorts.
 
 ### 7.6 Result: REVE with only its last 6 layers trained
 
@@ -1169,10 +1181,9 @@ Reading Table 7.12:
 - **`CB5_L1` and `RV4T6_L1` are 0.6 to 0.8 years behind P4 on test**, on the Harvard part and on
   the Temple part. `CB5_L1` is the better of the two outside the training data: 5.31 against 6.62
   years on LEMON, 5.90 against 6.58 on TDBRAIN.
-- **Still missing** for the four newer runs: Dortmund, SRM, CHBP and the all-window LEMON, and
-  the paired intervals on LEMON and TDBRAIN, which need each run's per-recording predictions
-  (Table 7.5 has all of these for P4 and `CB4_L1`). They need the local GPU, which `RV4DP_L1`
-  uses until about 15:00 UTC on 27 Nov.
+- **The external cohorts with the protocol of Table 7.5** (all windows, Dortmund, SRM, CHBP,
+  paired intervals) are in Table 7.13 for `CB5_L1` and in Table 7.15 for `RV4DP_L1`. `RV4T6_L1`
+  was not scored on them (Section 7.6); `RV5_L1` is still training.
 
 ### Table 7.14. Stage B runs by report status
 
@@ -1221,6 +1232,79 @@ Reading Table 7.14:
   0.3 to 0.9 years worse on the healthy TDBRAIN group than on the unlabelled one, while P4 has
   the same error on both (5.43 and 5.49).
 
+### 7.8 Result: REVE fully trained with stochastic depth, alone and in an ensemble
+
+### Table 7.15. `RV4DP_L1` against P4 on fold 0
+
+Each run at its best validation epoch (`RV4DP_L1` epoch 12, P4 epoch 15). MAE in years
+(Eq. (6.4)) per recording; Δ = `RV4DP_L1` − P4 on the same recordings (Eq. (6.5)) with its 95 %
+interval from 2,000 bootstrap resamples, positive when `RV4DP_L1` is worse. Test: the first
+5 minutes of the 7,612 held-out recordings (P4 re-scored with `scripts/eval_age_by_cohort.py`,
+`RV4DP_L1` from its test bag-weight file). External cohorts as in Table 7.5: adults, every
+window, no trims for Dortmund, TDBRAIN and SRM (`scripts/external_runs/fm_external.sh`,
+`scripts/fm_external_compare.py`). Validation is each run's logged value.
+
+| Cohort | $n$ | P4 MAE | `RV4DP_L1` MAE | Δ [95 % interval] |
+|---|---|---|---|---|
+| Validation (fold 0) | 19,071 | 6.59 | 6.55 | −0.04 |
+| Test, all | 7,612 | 6.06 | 5.94 | −0.11 [−0.20, −0.01] |
+| Test, Harvard | 7,338 | 6.05 | 5.94 | −0.11 [−0.20, −0.01] |
+| Test, Temple | 274 | 6.32 | 6.17 | −0.15 [−0.70, +0.40] |
+| LEMON | 214 | 4.73 | 5.05 | +0.31 [−0.11, +0.75] |
+| Dortmund | 3,262 | 5.29 | 5.84 | +0.55 [+0.39, +0.71] |
+| TDBRAIN | 2,222 | 5.48 | 5.68 | +0.21 [+0.02, +0.39] |
+| SRM | 152 | 5.01 | 6.98 | +1.97 [+0.89, +3.02] |
+| CHBP | 250 | 7.45 | 7.21 | −0.24 [−1.14, +0.62] |
+
+- **Verdict.** By the decision rule REVE with stochastic depth does not replace LaBraM. It wins
+  on Harvard test (−0.11 years, interval excludes 0) and does not lose on LEMON (+0.31, interval
+  includes 0, below the 0.38-year threshold), but it loses on Dortmund: +0.55 years with an
+  interval far from 0 (Table 7.15).
+- **In the training domain it is level or slightly better; outside it is behind.** It is 0.11
+  years better on the Harvard and Temple test recordings and 0.2 to 2.0 years worse on Dortmund,
+  TDBRAIN and SRM. The largest loss is on SRM, the smallest cohort (152 recordings).
+- **On CHBP it is level with P4** (7.21 against 7.45, interval −1.14 to +0.62), where CBraMod has
+  10.4 years (Table 7.13).
+- **It is the best foreign-encoder run on every cohort but SRM and Dortmund**, where `CB5_L1` is
+  0.8 and 0.1 years better (Tables 7.13 and 7.15).
+
+### Table 7.16. Averages of models against P4
+
+MAE in years of the mean of the predictions of several models, on the cohorts of Table 7.15.
+"Two models": P4 fold 0 averaged with one other model; Δ against P4 fold 0 alone. The other
+model is another P4 fold (the control: what a second LaBraM model gives; the mean over the other
+folds), `RV4DP_L1` or `CB5_L1`. "P4 ensemble": the mean of the P4 folds (all 5 on the external
+cohorts; folds 0, 1, 2 and 4 on test, since fold 3's test predictions are not on this machine);
+"+ run": that ensemble with the run as one more member of equal weight, Δ against the ensemble.
+Intervals: 95 %, 2,000 bootstrap resamples over recordings (`scripts/fm_external_compare.py`).
+
+| Cohort | P4 fold 0 | + another P4 fold | + `RV4DP_L1` (Δ) | + `CB5_L1` (Δ) | P4 ensemble | + `RV4DP_L1` (Δ) | + `CB5_L1` (Δ) |
+|---|---|---|---|---|---|---|---|
+| Test, all | 6.06 | 5.98 | 5.75 (−0.31 [−0.36, −0.26]) | 6.12 (+0.06 [+0.01, +0.12]) | 5.94 | 5.79 (−0.15 [−0.17, −0.13]) | 5.95 (+0.01 [−0.01, +0.03]) |
+| LEMON | 4.73 | 4.70 | 4.70 (−0.03 [−0.25, +0.20]) | 4.83 (+0.09 [−0.13, +0.34]) | 4.67 | 4.63 (−0.04 [−0.12, +0.04]) | 4.69 (+0.02 [−0.06, +0.11]) |
+| Dortmund | 5.29 | 5.21 | 5.17 (−0.12 [−0.21, −0.03]) | 5.18 (−0.11 [−0.19, −0.03]) | 5.16 | 5.05 (−0.11 [−0.14, −0.08]) | 5.08 (−0.08 [−0.11, −0.05]) |
+| TDBRAIN | 5.48 | 5.40 | 5.19 (−0.29 [−0.39, −0.18]) | 5.32 (−0.16 [−0.26, −0.06]) | 5.36 | 5.21 (−0.15 [−0.19, −0.12]) | 5.28 (−0.08 [−0.11, −0.05]) |
+| SRM | 5.01 | 4.92 | 5.54 (+0.53 [−0.05, +1.07]) | 5.04 (+0.03 [−0.46, +0.51]) | 4.84 | 4.81 (−0.04 [−0.23, +0.15]) | 4.67 (−0.17 [−0.35, +0.01]) |
+| CHBP | 7.45 | 7.72 | 6.67 (−0.78 [−1.27, −0.31]) | 8.11 (+0.66 [+0.14, +1.20]) | 7.95 | 7.52 (−0.44 [−0.60, −0.27]) | 7.81 (−0.14 [−0.35, +0.06]) |
+
+Reading Table 7.16:
+
+- **REVE adds more to P4 than a second LaBraM model does.** Averaged with P4 fold 0, `RV4DP_L1`
+  lowers the test MAE by 0.31 years; another P4 fold lowers it by 0.08 (5.98). The same holds on
+  TDBRAIN (0.29 against 0.08) and CHBP (0.78 against a rise of 0.27). Its predictions correlate
+  with P4's at 0.97, two P4 folds at 0.99.
+- **As a sixth member it improves the P4 ensemble on four of six cohorts and harms none.** With
+  equal weight per model the MAE falls by 0.15 years on test, 0.11 on Dortmund, 0.15 on TDBRAIN
+  and 0.44 on CHBP, each with an interval that excludes 0; LEMON and SRM do not change (−0.04,
+  intervals include 0).
+- **The weight matters on SRM.** With half the weight on the single REVE model, SRM gets worse
+  (5.54 against 5.01 for P4 fold 0); with one sixth it does not (4.81 against 4.84).
+- **CBraMod adds less.** As a sixth member `CB5_L1` lowers the MAE by 0.08 years on Dortmund and
+  TDBRAIN and changes nothing on test.
+- **What this does not show.** One REVE model on one fold: whether five REVE folds would add more
+  than one, and how much of the gain a sixth LaBraM model with another seed would give, is not
+  tested. The control uses a P4 model of another fold, which also saw other training recordings.
+
 ## 8. How to run
 
 ```bash
@@ -1248,6 +1332,10 @@ JOB=RV4DP_L1 ENCODER=reve scripts/mil_runs/run_local_fm.sh model.encoder.drop_pa
 # the authors' settings (Section 7.5)
 ONLY=CB5_L1 FOLD=0 SPOT=false WORKERS=24 scripts/mil_runs/submit_grid.sh             # ml.g5.4xlarge, 64 GB
 ONLY=RV5_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.8xlarge WORKERS=16 scripts/mil_runs/submit_grid.sh
+# a finished run on the external cohorts, paired against P4 (Tables 7.13, 7.15, 7.16); next to a
+# training run on the same GPU add GPU_FRACTION=0.17 BAG_CHUNK=128
+scripts/external_runs/fm_external.sh score rv4dp RV4DP_L1_f0=<run dir>
+scripts/external_runs/fm_external.sh table rv4dp RV4DP_L1_f0 <run dir>/analysis/test_bag_weights_epoch12.parquet
 # move a SageMaker job to the local GPU at an epoch boundary: fetch its checkpoint folder, start the
 # local run as its own unit, check that it trains, then stop the SageMaker job
 AWS_PROFILE=mfa scripts/mil_runs/resume_local_from_sagemaker.sh fetch RV5_L1 \
