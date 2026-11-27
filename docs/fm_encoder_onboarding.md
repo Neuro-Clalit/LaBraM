@@ -1306,33 +1306,38 @@ Reading Table 7.16:
   than one, and how much of the gain a sixth LaBraM model with another seed would give, is not
   tested. The control uses a P4 model of another fold, which also saw other training recordings.
 
-### Table 7.17. The P4 cross-validation ensemble with and without the REVE model
+### Table 7.17. The P4 cross-validation ensemble with one more model
 
 The short form of Table 7.16. "P4 ensemble (LaBraM CrossValid)": the mean of the predictions of
-the 5 P4 models, one per cross-validation fold. "+ `RV4DP_L1`": the same ensemble with the one
-REVE model as a sixth member of equal weight. MAE in years (Eq. (6.4)) per recording; Δ against
-the P4 ensemble with its 95 % bootstrap interval (Eq. (6.5)), negative when the REVE model
-helps. The first row is the number of weights of all models of an ensemble: a P4 model has
-5.8 M, the REVE model 69.3 M.
+the 5 P4 models, one per cross-validation fold. "+ `RV4DP_L1`" and "+ `CB5_L1`": the same
+ensemble with the one REVE model, or the one CBraMod model, as a sixth member of equal weight.
+MAE in years (Eq. (6.4)) per recording; Δ against the P4 ensemble with its 95 % bootstrap
+interval (Eq. (6.5)), negative when the added model helps. The first row is the number of
+weights of all models of an ensemble: a P4 model has 5.8 M, the REVE model 69.3 M, the CBraMod
+model 12.5 M (4.9 M encoder and 7.6 M all-token readout).
 
-| Cohort | $n$ | P4 ensemble (LaBraM CrossValid) | + `RV4DP_L1` (REVE) | Δ [95 % interval] |
-|---|---|---|---|---|
-| Parameters | | 29.2 M | 98.5 M | +69.3 M |
-| Test, all | 7,612 | 5.94 | 5.82 | −0.13 [−0.14, −0.11] |
-| Test, Harvard | 7,338 | 5.94 | 5.81 | −0.13 [−0.15, −0.11] |
-| Test, Temple | 274 | 6.02 | 5.92 | −0.10 [−0.20, −0.01] |
-| LEMON | 214 | 4.67 | 4.63 | −0.04 [−0.12, +0.04] |
-| Dortmund | 3,262 | 5.16 | 5.05 | −0.11 [−0.14, −0.08] |
-| TDBRAIN | 2,222 | 5.36 | 5.21 | −0.15 [−0.19, −0.12] |
-| SRM | 152 | 4.84 | 4.81 | −0.04 [−0.23, +0.15] |
-| CHBP | 250 | 7.95 | 7.52 | −0.44 [−0.60, −0.27] |
+| Cohort | $n$ | P4 ensemble (LaBraM CrossValid) | + `RV4DP_L1` (REVE) | Δ [95 % interval] | + `CB5_L1` (CBraMod) | Δ [95 % interval] |
+|---|---|---|---|---|---|---|
+| Parameters | | 29.2 M | 98.5 M | +69.3 M | 41.7 M | +12.5 M |
+| Test, all | 7,612 | 5.94 | 5.82 | −0.13 [−0.14, −0.11] | 5.94 | −0.00 [−0.02, +0.02] |
+| Test, Harvard | 7,338 | 5.94 | 5.81 | −0.13 [−0.15, −0.11] | 5.94 | −0.00 [−0.02, +0.02] |
+| Test, Temple | 274 | 6.02 | 5.92 | −0.10 [−0.20, −0.01] | 6.00 | −0.02 [−0.11, +0.08] |
+| LEMON | 214 | 4.67 | 4.63 | −0.04 [−0.12, +0.04] | 4.69 | +0.02 [−0.06, +0.11] |
+| Dortmund | 3,262 | 5.16 | 5.05 | −0.11 [−0.14, −0.08] | 5.08 | −0.08 [−0.11, −0.05] |
+| TDBRAIN | 2,222 | 5.36 | 5.21 | −0.15 [−0.19, −0.12] | 5.28 | −0.08 [−0.11, −0.05] |
+| SRM | 152 | 4.84 | 4.81 | −0.04 [−0.23, +0.15] | 4.67 | −0.17 [−0.35, +0.01] |
+| CHBP | 250 | 7.95 | 7.52 | −0.44 [−0.60, −0.27] | 7.81 | −0.14 [−0.35, +0.06] |
 
 - **The REVE model lowers the ensemble's error on six of eight rows and raises none.** The gain
   is 0.10 to 0.15 years on the test recordings, on both source datasets, and on Dortmund and
   TDBRAIN, and 0.44 years on CHBP; LEMON and SRM do not change.
-- **The cost is weights and compute.** The ensemble grows from 29.2 M to 98.5 M weights, and the
-  REVE model takes 3.3 times a P4 model's inference time (Table 7.1) and 41 hours to train
-  against 13 for one P4 fold (Table 7.2).
+- **The CBraMod model helps on two rows only.** It lowers the error by 0.08 years on Dortmund
+  and on TDBRAIN and leaves the test recordings unchanged. On SRM its −0.17 years is the largest
+  change of either model there, with an interval that just includes 0.
+- **The cost is weights and compute.** With the REVE model the ensemble grows from 29.2 M to
+  98.5 M weights, and that model takes 3.3 times a P4 model's inference time (Table 7.1) and 41
+  hours to train against 13 for one P4 fold (Table 7.2). The CBraMod model adds 12.5 M weights
+  and trains in 13 hours.
 
 ## 8. How to run
 
