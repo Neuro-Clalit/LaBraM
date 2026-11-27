@@ -47,10 +47,12 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
     years (95 % interval +0.56 to +0.76); 1.5 years better than CBraMod with the P4 recipe. It
     is 0.4 to 0.5 years behind P4 on LEMON, Dortmund and TDBRAIN and 2.9 behind on CHBP
     (Tables 7.11 and 7.13).
-  - **REVE (`RV5_L1`): in epoch 7 of 0–16, now on the local GPU.** After two worse epochs (8.33
-    and 8.61 years on validation at epochs 4 and 5) it reached 7.60 / 7.34 at epoch 6: 0.2 years
-    ahead of P4 and 0.2 behind `RV4DP_L1` at the same epoch (Table 7.7). The run was moved from
-    SageMaker to the local GPU at the start of epoch 7 (Table 7.2).
+  - **REVE (`RV5_L1`): in epoch 11 of 0–16 on the local GPU, and ahead of every other run
+    (interim).** At epoch 10 it has 6.43 years on validation and 5.81 on test, against 6.59 and
+    6.06 for P4's best epoch and 6.55 and 5.94 for `RV4DP_L1`'s; paired on test −0.24 years
+    against P4 (95 % interval −0.33 to −0.16). On LEMON and TDBRAIN, as logged during training,
+    it has 4.97 and 5.37 years, against 4.87 and 5.48 for P4 (Table 7.7). Six epochs remain; the
+    run was moved from SageMaker to the local GPU at the start of epoch 7 (Table 7.2).
 
 The target of every comparison is the best single model on the same split: **P4_L1 fold 0,
 validation 6.59 years, test 6.06 years** (`docs/mil_stage1_results.md`, Table 13.14).
@@ -616,7 +618,7 @@ All on fold 0 with P4's schedule of 17 epochs (8 window epochs, 1 epoch that tra
 | `RV4T6_L1` | SageMaker, on-demand `ml.g5.4xlarge` | `labram-mil-rv4t6-l1-f0-fold-0-2026-11-25-21-19-50-438`; results in `/data/runs/heedb/fm_encoders/RV4T6_L1/fold_0` | ended 26 Nov, 18:29 UTC after 20.7 h, killed for host memory while scoring epoch 15 of 0–16; best epoch 10 (Table 7.10) |
 | `RV4DP_L1` | local A10G, systemd unit `labram-rv4dp-l1-f0` | `/data/runs/heedb/fm_encoders/heedb_mil_RV4DP_L1_fold0_local_cv5/fold_0`; [ClearML](https://app.clear.ml/projects/e76a506be53e426aa0d95e90ad79855c/experiments/b2b8c98e12c044a59710f37372e5815c) | finished 27 Nov, 14:15 UTC after 40.8 h (2.9 h per window epoch, 1.9 h per joint epoch); best epoch 12 (Tables 7.7 and 7.12) |
 | `CB5_L1` | SageMaker, on-demand `ml.g5.4xlarge`, 24 loader workers | `labram-mil-cb5-l1-f0-fold-0-2026-11-26-19-26-48-628`; ClearML task `heedb_mil_CB5_L1_fold0` | finished: all 17 epochs trained and scored by 27 Nov, 08:30 UTC (59 min per window epoch, 33 min per joint epoch); the job then spent 2.7 h in SageMaker's final upload, 15.7 h billed; results in `/data/runs/heedb/fm_encoders/CB5_L1/fold_0` (Table 7.13). A first job on `ml.g5.2xlarge` (`…-12-51-19-517`) was killed for host memory after 1.3 h, before the end of epoch 0 |
-| `RV5_L1` | SageMaker, on-demand `ml.g5.8xlarge`, for epochs 1–6; then local A10G, systemd unit `labram-rv5-l1-f0` | SageMaker `labram-mil-rv5-l1-f0-fold-0-2026-11-26-19-05-37-271` (ClearML task `heedb_mil_RV5_L1_fold0`); local `/data/runs/heedb/fm_encoders/heedb_mil_RV5_L1_fold0_local_cv5/fold_0` (ClearML task `heedb_mil_RV5_L1_fold0_local`), log `/data/runs/heedb/fm_encoders/RV5_L1_fold0.log` | moved to the local GPU on 27 Nov, 14:29 UTC at the start of epoch 7, from the SageMaker job's epoch-6 checkpoint and with its saved configuration (`scripts/mil_runs/resume_local_from_sagemaker.sh`); the SageMaker job was stopped at 14:31 UTC after 19.4 h billed. Same step time on both (0.54 s); end expected about 28 Nov, 10:00 UTC. A first job on `ml.g5.2xlarge` (`…-12-51-36-446`) finished the head-only epoch 0 in 1.6 h and was killed for host memory in epoch 1 |
+| `RV5_L1` | SageMaker, on-demand `ml.g5.8xlarge`, for epochs 1–6; then local A10G, systemd unit `labram-rv5-l1-f0` | SageMaker `labram-mil-rv5-l1-f0-fold-0-2026-11-26-19-05-37-271` (ClearML task `heedb_mil_RV5_L1_fold0`); local `/data/runs/heedb/fm_encoders/heedb_mil_RV5_L1_fold0_local_cv5/fold_0` (ClearML task `heedb_mil_RV5_L1_fold0_local`), log `/data/runs/heedb/fm_encoders/RV5_L1_fold0.log` | moved to the local GPU on 27 Nov, 14:29 UTC at the start of epoch 7, from the SageMaker job's epoch-6 checkpoint and with its saved configuration (`scripts/mil_runs/resume_local_from_sagemaker.sh`); the SageMaker job was stopped at 14:31 UTC after 19.4 h billed. Same step time on both (0.54 s); in epoch 11 of 0–16 on 27 Nov, 23:30 UTC (1.9 h per joint epoch); end expected about 28 Nov, 10:00 UTC. A first job on `ml.g5.2xlarge` (`…-12-51-36-446`) finished the head-only epoch 0 in 1.6 h and was killed for host memory in epoch 1 |
 
 - The CBraMod run was stopped from outside on 25 Nov at 04:19 UTC, in epoch 5: the nightly Claude
   Code update restarted the service the run had been started from, and systemd stopped the run
@@ -806,8 +808,8 @@ $$
 
 Validation / test MAE in years (Eq. (6.4)) after each epoch, as in Table 7.3, and
 the error on the scored training recordings at the epochs where a run scores them (Table 7.6).
-State of 27 Nov, 14:30 UTC. `RV4T6_L1` (it ended while scoring epoch 15) and `RV4DP_L1` are
-final; `RV5_L1` is still training, so its column is interim. "–": not reached or not scored.
+State of 27 Nov, 23:30 UTC. `RV4T6_L1` (it ended while scoring epoch 15) and `RV4DP_L1` are
+final; `RV5_L1` is still training (epoch 11), so its column is interim. "–": not reached or not scored.
 `RV5_L1`'s epoch 0 trains the head only (Section 7.5), so its first row is not comparable.
 
 | Epoch | P4 (LaBraM) | `RV4_L1`: all layers (stopped) | `RV4DP_L1`: all layers + stochastic depth | `RV4T6_L1`: last 6 layers | `RV5_L1`: authors' protocol |
@@ -819,10 +821,10 @@ final; `RV5_L1` is still training, so its column is interim. "–": not reached 
 | 4 | 8.67 / 8.64 | 8.25 / 8.05 | 8.08 / 7.89 | 8.74 / 8.61 | 8.33 / 8.20 |
 | 5 | 7.92 / 7.73 | 7.87 / 7.57 | 7.59 / 7.31 | 8.61 / 8.38 | 8.61 / 8.56 |
 | 6 | 7.79 / 7.56 | – | 7.43 / 7.10 | 8.26 / 8.00 | 7.60 / 7.34 |
-| 7 (end of window phase) | 7.69 / 7.49 | – | 7.63 / 7.33 | 8.25 / 8.00 | – |
-| 8 (pool only) | 7.05 / 6.67 | – | 6.91 / 6.44 | 7.58 / 7.12 | – |
-| 9 (first joint epoch) | 6.71 / 6.22 | – | 6.68 / 6.11 | 7.34 / 6.83 | – |
-| 10 | 6.69 / 6.19 | – | 6.57 / 5.96 | **7.17 / 6.63** (best) | – |
+| 7 (end of window phase) | 7.69 / 7.49 | – | 7.63 / 7.33 | 8.25 / 8.00 | 7.48 / 7.16 |
+| 8 (pool only) | 7.05 / 6.67 | – | 6.91 / 6.44 | 7.58 / 7.12 | 6.87 / 6.37 |
+| 9 (first joint epoch) | 6.71 / 6.22 | – | 6.68 / 6.11 | 7.34 / 6.83 | 6.53 / 5.97 |
+| 10 | 6.69 / 6.19 | – | 6.57 / 5.96 | **7.17 / 6.63** (best) | 6.43 / 5.81 |
 | 11 | 6.68 / 6.22 | – | 6.61 / 6.02 | 7.30 / 6.73 | – |
 | 12 | 6.65 / 6.12 | – | **6.55 / 5.94** (best) | 7.23 / 6.65 | – |
 | 13 | 6.63 / 6.09 | – | 6.59 / 5.98 | 7.25 / 6.63 | – |
@@ -830,7 +832,7 @@ final; `RV5_L1` is still training, so its column is interim. "–": not reached 
 | 15 | **6.59 / 6.06** (best) | – | 6.59 / 5.99 | 7.25 / 6.67 | – |
 | 16 (end) | 6.60 / 6.07 | – | 6.59 / 5.99 | not run | – |
 | Training recordings, epoch 3 | 7.56 | 5.53 | 5.86 | 6.76 | 6.46 |
-| Training recordings, epoch 7 | 5.84 | – | 4.47 | 4.42 | – |
+| Training recordings, epoch 7 | 5.84 | – | 4.47 | 4.42 | 4.58 |
 | Training recordings, epoch 11 | 4.27 | – | 2.79 | 2.28 | – |
 | Training recordings, epoch 15 | 3.72 | – | 2.34 | – | – |
 | Training recordings, epoch 16 | 3.71 | – | 2.30 | – | – |
@@ -872,6 +874,15 @@ Reading Table 7.7:
   at its peak learning rate, its validation error rose to 8.33 and 8.61 while its training loss
   kept falling; at epoch 5 it is 0.7 years behind P4 and 1.0 behind `RV4DP_L1`. At epoch 6 it
   fell to 7.60 / 7.34, 0.2 years ahead of P4 and 0.2 behind `RV4DP_L1` at the same epoch.
+- **From the end of the window phase the authors' protocol is ahead of both (interim).** At
+  epochs 7 to 10 `RV5_L1` is 0.04 to 0.15 years below `RV4DP_L1` on validation and 0.07 to 0.17
+  on test at the same epoch, and 0.18 to 0.26 and 0.25 to 0.38 below P4. At epoch 10 it has
+  6.43 / 5.81; paired on the 7,612 test recordings that is −0.24 years against P4's best epoch
+  (95 % interval −0.33 to −0.16; Harvard −0.26, Temple +0.15 with an interval of −0.39 to
+  +0.66) and −0.13 against `RV4DP_L1`'s best epoch (−0.21 to −0.05). Its LEMON error, high in
+  the window phase, fell to 4.97 years at epoch 10 (P4: 4.99 at that epoch, 4.87 at its best),
+  and on TDBRAIN adults it logs 5.37 years, below P4's 5.48. Its error on training recordings
+  at epoch 7 is 4.58 years, as `RV4DP_L1`'s (4.47). The run has six epochs left.
 
 ### 7.4 How the authors fine-tune their models, and what follows for ours
 
