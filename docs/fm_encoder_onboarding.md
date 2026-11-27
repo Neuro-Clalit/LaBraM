@@ -1062,8 +1062,10 @@ Each run at its best validation epoch (`CB5_L1` epoch 12, P4 epoch 15). MAE in y
 per recording; Δ = `CB5_L1` − P4 on the same recordings (Eq. (6.5)) with its 95 % interval from
 2,000 bootstrap resamples, positive when `CB5_L1` is worse. Test: the first 5 minutes of the
 7,612 held-out recordings (P4 re-scored with `scripts/eval_age_by_cohort.py`, `CB5_L1` from its
-test bag-weight file). Validation, LEMON and TDBRAIN are each run's values logged during
-training. The external cohorts with the protocol of Table 7.5 are not scored yet.
+test bag-weight file). Validation, LEMON (first 5 minutes) and TDBRAIN (adults, all windows) are
+each run's values logged during training; P4's TDBRAIN value is computed from its saved
+predictions with the same protocol (Table 7.12). Dortmund, SRM, CHBP and the paired intervals on
+LEMON and TDBRAIN are not scored yet.
 
 | Cohort | $n$ | P4 MAE | `CB5_L1` MAE | Δ [95 % interval] | `CB4_L1` MAE |
 |---|---|---|---|---|---|
@@ -1071,12 +1073,12 @@ training. The external cohorts with the protocol of Table 7.5 are not scored yet
 | Test, all | 7,612 | 6.06 | 6.72 | +0.66 [+0.56, +0.76] | 8.19 |
 | Test, Harvard | 7,338 | 6.05 | 6.71 | +0.66 [+0.57, +0.76] | 8.20 |
 | Test, Temple | 274 | 6.32 | 6.97 | +0.64 [+0.13, +1.15] | 8.06 |
-| LEMON, as logged during training | – | 4.87 | 5.31 | +0.44 | 7.39 |
-| TDBRAIN adults, as logged during training | – | – | 5.90 | – | 7.03 |
+| LEMON, first 5 minutes | 214 | 4.87 | 5.31 | +0.44 | 7.39 |
+| TDBRAIN adults, all windows | 2,222 | 5.48 | 5.90 | +0.42 | 7.03 |
 
 - **Verdict.** By the decision rule CBraMod with its authors' settings does not replace LaBraM:
   it is 0.66 years worse on Harvard test, above the 0.38-year threshold and with an interval
-  far from 0, and it is worse on Temple test and on LEMON (Table 7.13).
+  far from 0, and it is worse on Temple test, on LEMON and on TDBRAIN (Table 7.13).
 - **The authors' settings are worth 1.5 years for CBraMod** on test (6.72 against 8.19) and 2.1
   on LEMON: with our recipe the encoder was under-trained.
 - **Averaging it with P4 gives nothing.** The mean of the two models' predictions has a test MAE
@@ -1090,8 +1092,10 @@ Each run at its best validation epoch (`RV4T6_L1` epoch 10, P4 epoch 15). MAE in
 (Eq. (6.4)) per recording; Δ = `RV4T6_L1` − P4 on the same recordings (Eq. (6.5)) with its 95 %
 interval from 2,000 bootstrap resamples, positive when `RV4T6_L1` is worse. Test: the first
 5 minutes of the 7,612 held-out recordings (P4 re-scored with `scripts/eval_age_by_cohort.py`,
-`RV4T6_L1` from its test bag-weight file). Validation and LEMON are each run's values logged
-during training (LEMON with the run's window selection, so it differs from Table 7.5's LEMON row).
+`RV4T6_L1` from its test bag-weight file). Validation, LEMON (first 5 minutes, so it differs
+from Table 7.5's all-window LEMON row) and TDBRAIN (adults, all windows) are each run's values
+logged during training; P4's TDBRAIN value is computed from its saved predictions with the same
+protocol (Table 7.12).
 
 | Cohort | $n$ | P4 MAE | `RV4T6_L1` MAE | Δ [95 % interval] |
 |---|---|---|---|---|
@@ -1099,11 +1103,12 @@ during training (LEMON with the run's window selection, so it differs from Table
 | Test, all | 7,612 | 6.06 | 6.63 | +0.57 [+0.48, +0.67] |
 | Test, Harvard | 7,338 | 6.05 | 6.61 | +0.56 [+0.46, +0.67] |
 | Test, Temple | 274 | 6.32 | 7.15 | +0.83 [+0.23, +1.41] |
-| LEMON, as logged during training | – | 4.87 | 6.62 | +1.75 |
+| LEMON, first 5 minutes | 214 | 4.87 | 6.62 | +1.75 |
+| TDBRAIN adults, all windows | 2,222 | 5.48 | 6.58 | +1.10 |
 
 - **Verdict.** By the decision rule REVE with only its last 6 layers trained does not replace
   LaBraM: it is 0.56 years worse on Harvard test, above the 0.38-year threshold and with an
-  interval far from 0, and it is worse on Temple test and on LEMON (Table 7.10). It is far
+  interval far from 0, and it is worse on Temple test, on LEMON and on TDBRAIN (Table 7.10). It is far
   better than CBraMod with the same recipe (+2.14 years, Table 7.5).
 - **It memorises the training recordings.** At epoch 11 its MAE on the scored training
   recordings is 2.28 years against 7.30 on validation, a gap of 5.0 years; P4 has 4.27 against
@@ -1124,9 +1129,13 @@ during training (LEMON with the run's window selection, so it differs from Table
 
 Recording-level MAE in years (Eq. (6.4)) as each run logs it at its best validation epoch so far:
 the fold-0 validation recordings and the 7,612 held-out test recordings (first 5 minutes), split
-by source dataset and by report status, and the two standing external test sets LEMON and TDBRAIN
-adults as scored during training (the run's window selection, so these two rows differ from the
-external rows of Table 7.5). State of 27 Nov, 13:50 UTC. **Final:** P4, `CB4_L1`, `CB5_L1`,
+by source dataset and by report status, and the two standing external test sets as scored
+during training: LEMON with the run's window selection (60 s trims, first 5 minutes, so it
+differs from the all-window LEMON row of Table 7.5), and TDBRAIN adults with every window and no
+trims (the protocol of Table 7.5). P4 did not have TDBRAIN as a test set during training; its
+value is computed from its saved per-recording predictions with the same protocol
+(`/data/runs/heedb/external_eval/tdbrain_all_p34.json`, the 2,222 recordings of adults). The two
+ways of scoring agree: `CB4_L1` has 7.03 years both ways. State of 27 Nov, 13:50 UTC. **Final:** P4, `CB4_L1`, `CB5_L1`,
 `RV4T6_L1`. **Interim:** `RV4DP_L1` (in its last epoch), `RV5_L1` (epoch 6 of 0–16). "–": not
 scored by that run.
 
@@ -1142,23 +1151,27 @@ scored by that run.
 | Test, normal report | 1,667 | 5.62 | 8.17 | 6.35 | 6.43 | **5.59** | 8.10 |
 | Test, abnormal report | 2,378 | 6.71 | 8.56 | 7.43 | 7.32 | **6.68** | 8.47 |
 | Test, all: $R^2$ | 7,612 | 0.83 | 0.72 | 0.79 | 0.80 | 0.83 | 0.75 |
-| LEMON, during training | | **4.87** | 7.39 | 5.31 | 6.62 | 5.24 | 8.81 |
-| TDBRAIN adults, during training | | – | 7.03 | 5.90 | 6.58 | **5.68** | 6.58 |
+| LEMON, first 5 minutes | 214 | **4.87** | 7.39 | 5.31 | 6.62 | 5.24 | 8.81 |
+| TDBRAIN adults, all windows | 2,222 | **5.48** | 7.03 | 5.90 | 6.58 | 5.68 | 6.58 |
 
 **Bold**: the lowest MAE of a row.
 
 Reading Table 7.12:
 
 - **`RV4DP_L1` is the only run at LaBraM's level.** It is 0.03 to 0.15 years below P4 on every
-  in-domain row except validation Temple, and 0.37 years above it on LEMON. The differences are
-  inside the 0.38-year threshold; the run is not finished.
+  in-domain row except validation Temple, and above it on the two external sets: by 0.37 years
+  on LEMON and by 0.20 on TDBRAIN. The differences are inside the 0.38-year threshold; the run
+  is not finished.
+- **P4 is the best model on both external sets.** No foreign encoder is below it on LEMON
+  (4.87 years) or on TDBRAIN (5.48 years).
 - **`CB5_L1` and `RV4T6_L1` are 0.6 to 0.8 years behind P4 on test**, on the Harvard part and on
   the Temple part. `CB5_L1` is the better of the two outside the training data: 5.31 against 6.62
   years on LEMON, 5.90 against 6.58 on TDBRAIN.
 - **Every run is worse on abnormal reports than on normal ones**, by 0.4 to 1.1 years, as P4 is.
-- **Still missing:** the paired comparison on Dortmund, SRM, CHBP and the full-protocol LEMON
-  and TDBRAIN for the four new runs (Table 7.5 has them for P4 and `CB4_L1`). They need the
-  local GPU, which `RV4DP_L1` uses until about 15:00 UTC on 27 Nov.
+- **Still missing** for the four newer runs: Dortmund, SRM, CHBP and the all-window LEMON, and
+  the paired intervals on LEMON and TDBRAIN, which need each run's per-recording predictions
+  (Table 7.5 has all of these for P4 and `CB4_L1`). They need the local GPU, which `RV4DP_L1`
+  uses until about 15:00 UTC on 27 Nov.
 
 ## 8. How to run
 
