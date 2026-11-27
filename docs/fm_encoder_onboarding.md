@@ -1053,7 +1053,7 @@ Reading Table 7.11:
 - **It is still behind LaBraM.** In the bag phase it stays 0.4 to 0.8 years behind P4 at the
   same epoch on validation and on test (7.22 / 6.68 against 6.63 / 6.09 at epoch 13). It was
   ahead of P4 at epochs 2 and 4, before P4's step at epoch 5.
-- **On LEMON it is close to LaBraM.** It logs 5.08 to 5.39 years from epoch 9 on; P4 logs 4.86
+- **On LEMON it is close to LaBraM.** It logs 5.08 to 5.39 years from epoch 9 on; P4 logs 4.83
   to 5.33 at the same epochs. `CB4_L1` had 7.39 at its best epoch (Table 7.3).
 
 ### Table 7.13. `CB5_L1` against P4 on fold 0
@@ -1078,7 +1078,7 @@ training. The external cohorts with the protocol of Table 7.5 are not scored yet
   it is 0.66 years worse on Harvard test, above the 0.38-year threshold and with an interval
   far from 0, and it is worse on Temple test and on LEMON (Table 7.13).
 - **The authors' settings are worth 1.5 years for CBraMod** on test (6.72 against 8.19) and 2.1
-  on LEMON; the encoder was held back by our recipe, not by its capacity.
+  on LEMON: with our recipe the encoder was under-trained.
 - **Averaging it with P4 gives nothing.** The mean of the two models' predictions has a test MAE
   of 6.12 years against 6.06 for P4 alone (Δ +0.06, interval +0.01 to +0.12).
 
