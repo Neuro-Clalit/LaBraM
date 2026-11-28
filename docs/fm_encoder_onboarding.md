@@ -5,8 +5,9 @@ brain-age model? The review "Replacing LaBraM for EEG Brain-Age Regression" rank
 CBraMod second. This document covers what each model needs as input, how our train and test
 cohorts supply it, the code that makes the encoder a configuration choice, and the first results.
 
-A short report comparing P4 with the best CBraMod and REVE models, with brain age per pathology
-group: **`docs/fm_encoder_summary.md`** ([PDF](fm_encoder_summary.pdf)).
+A short report comparing P4 (LaBraM) with the best CBraMod and REVE models, per cohort, age band,
+report status and pathology group: the notebook **`notebooks/fm_encoder_summary.ipynb`**
+([PDF](../notebooks/fm_encoder_summary.pdf)), also as Markdown in `docs/fm_encoder_summary.md`.
 
 **Status.**
 
@@ -590,9 +591,11 @@ step do not fit a 24 GB GPU. At 128 windows per accumulation step REVE takes 15.
 
 **Decision rule.** Paired comparison with P4_L1 fold 0 on the same 7,612 test recordings
 (`scripts/paired_bag_mae.py`) and on the external cohorts (`scripts/eval_age_by_cohort.py`). A
-difference counts when its bootstrap interval excludes 0 or it exceeds 0.38 years, the
-single-pair threshold of `labram/eval/research_summary.py`. An encoder replaces LaBraM only if it
-wins on Harvard test and does not lose on LEMON and Dortmund; 5-fold cross-validation and the
+difference counts when its 95 % bootstrap interval excludes 0; a difference without an interval
+(a single logged value) counts when it exceeds 0.38 years, the smallest difference between two
+single runs that seed-to-seed variation of an identical recipe does not explain
+(`labram/eval/research_summary.py::pair_threshold`, `verdict`). An encoder replaces LaBraM only if
+it wins on Harvard test and does not lose on LEMON and Dortmund; 5-fold cross-validation and the
 ensemble follow as a separate step.
 
 **Pre-flight.**
@@ -1325,14 +1328,14 @@ Reading Table 7.16:
 
 ### Table 7.17. The P4 cross-validation ensemble with one more model
 
-The short form of Table 7.16. "P4 ensemble (LaBraM CrossValid)": the mean of the predictions of
+The short form of Table 7.16. "P4ens (LaBraM)": the mean of the predictions of
 the 5 P4 models, one per cross-validation fold. "+ run": the same ensemble with that one model
 as a sixth member of equal weight. MAE in years (Eq. (6.4)) per recording; Δ against the P4
 ensemble with its 95 % bootstrap interval (Eq. (6.5)), negative when the added model helps. The
 first row is the number of weights of all models of an ensemble: a P4 model has 5.8 M, a REVE
 model 69.3 M, the CBraMod model 12.5 M (4.9 M encoder and 7.6 M all-token readout).
 
-| Cohort | $n$ | P4 ensemble (LaBraM CrossValid) | + `RV5_L1` (REVE) | Δ [95 % interval] | + `RV4DP_L1` (REVE) | Δ [95 % interval] | + `CB5_L1` (CBraMod) | Δ [95 % interval] |
+| Cohort | $n$ | P4ens (LaBraM) | + `RV5_L1` (REVE) | Δ [95 % interval] | + `RV4DP_L1` (REVE) | Δ [95 % interval] | + `CB5_L1` (CBraMod) | Δ [95 % interval] |
 |---|---|---|---|---|---|---|---|---|
 | Parameters | | 29.2 M | 98.5 M | +69.3 M | 98.5 M | +69.3 M | 41.7 M | +12.5 M |
 | Test, all | 7,612 | 5.94 | 5.83 | −0.12 [−0.13, −0.10] | 5.82 | −0.13 [−0.14, −0.11] | 5.94 | −0.00 [−0.02, +0.02] |
@@ -1541,7 +1544,10 @@ python scripts/eval_age_by_cohort.py --data-path /data/datasets/HEEDB/v4.1/cohor
 python scripts/fm_pathology_compare.py --reference P4 --pred P4:val=<json>#P4_L1_f0 \
     --pred REVE:val=<run>/analysis/val_bag_weights_epoch10.parquet ... \
     --out docs/data/fm_encoders/pathology_fold0.csv
-python scripts/fm_summary_figures.py && python scripts/md_to_pdf.py docs/fm_encoder_summary.md
+python scripts/make_fm_summary_notebook.py          # the report: notebook, then PDF and Markdown
+(cd notebooks && jupyter nbconvert --to notebook --execute --inplace fm_encoder_summary.ipynb)
+python scripts/notebook_to_pdf.py notebooks/fm_encoder_summary.ipynb
+python scripts/make_fm_summary_notebook.py --markdown
 # a job killed for host memory continues from its checkpoint folder (not on ml.g5.2xlarge: 32 GB is too little)
 RESUME=s3://sagemaker-us-east-1-574441342949/labram/checkpoints/<job folder> ONLY=RV5_L1 FOLD=0 SPOT=false \
     INSTANCE=ml.g5.8xlarge WORKERS=16 scripts/mil_runs/submit_grid.sh
