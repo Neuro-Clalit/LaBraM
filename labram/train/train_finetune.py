@@ -1233,6 +1233,16 @@ def train_loop(
         if log_writer is not None:
             log_writer.set_step(epoch * num_training_steps_per_epoch * config.trainer.update_freq)
 
+        # model.encoder.probe_epochs: a foreign encoder stays frozen for the first
+        # epochs (only readout, head and pool train), then is released.
+        probe_model = getattr(model, 'module', model)
+        probe_epochs = int(getattr(getattr(config.model, 'encoder', None), 'probe_epochs', 0) or 0)
+        if probe_epochs > 0 and hasattr(probe_model, 'set_encoder_trainable'):
+            probe_model.set_encoder_trainable(epoch >= probe_epochs)
+            if epoch < probe_epochs:
+                logger.info("Epoch %d: head-only (encoder frozen, model.encoder.probe_epochs=%d)",
+                            epoch, probe_epochs)
+
         train_timer = utils.PhaseTimer(device)
         window_phase = (getattr(config, 'mil', None) is not None and config.mil.enabled
                         and epoch < config.mil.window_epochs)

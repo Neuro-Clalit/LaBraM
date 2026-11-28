@@ -181,6 +181,16 @@
         "task": "regression",
         "target_stats": null,
         "trainable_prefixes": [],
+        "encoder": {
+            "readout": "",
+            "input_norm": "none",
+            "clip_sd": 15.0,
+            "drop_path": 0.0,
+            "readout_dropout": 0.0,
+            "lr_scale": 1.0,
+            "probe_epochs": 0,
+            "position_noise": 0.0
+        },
         "codebook_reg": {
             "py/object": "labram.configs.model_config.CodebookRegConfig",
             "enabled": false,

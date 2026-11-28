@@ -17,7 +17,7 @@ from timm.models import create_model
 import labram.models.registry  # noqa: F401  (registers timm factories)
 import labram.utils as utils
 from labram.configs.run_configs import FinetuneRunConfig
-from labram.runs.finetune_setup import enable_window_ids, required_time_patches
+from labram.runs.finetune_setup import enable_window_ids
 
 logger = utils.get_logger(__name__)
 
@@ -39,48 +39,11 @@ def build_finetune_model(
     config: FinetuneRunConfig,
     device: Optional[torch.device] = None,
 ) -> torch.nn.Module:
-    """Rebuild the fine-tune model from a run config (plain classifier path).
-
-    Mirrors :func:`labram.runs.run_finetune.get_model` for the non-codebook
-    case. For codebook-regularized runs use :func:`build_codebook_classifier`
-    directly; here we build the plain :class:`NeuralTransformer` classifier that
-    the notebook targets.
-    """
-    if config.model.codebook_reg.enabled:
-        from labram.runs.codebook_setup import build_codebook_classifier
-        model = build_codebook_classifier(config)
-    else:
-        m = config.model
-        model = create_model(
-            m.model, pretrained=False,
-            num_classes=m.nb_classes, drop_rate=m.drop,
-            drop_path_rate=m.drop_path, attn_drop_rate=m.attn_drop_rate,
-            use_mean_pooling=m.use_mean_pooling, init_scale=m.init_scale,
-            concat_cls_token=m.concat_cls_token,
-            head_type=m.head_type, attention_head=m.attention_head, mlp_head=m.mlp_head,
-            multitask_head=m.multitask_head,
-            condition_on_abnormal=m.condition_on_abnormal,
-            abnormal_embed_dim=m.abnormal_embed_dim,
-            session_features=m.session_features,
-            session_feature_groups=m.session_feature_groups,
-            session_feature_drop=m.session_feature_drop,
-            session_feature_norm=m.session_feature_norm,
-            session_token_gain=m.session_token_gain,
-            session_head_dim=m.session_head_dim,
-            use_rel_pos_bias=m.rel_pos_bias, use_abs_pos_emb=m.abs_pos_emb,
-            init_values=m.layer_scale_init_value, qkv_bias=m.qkv_bias,
-            labram_plus=config.labram_plus,
-            max_time_patches=required_time_patches(config.data),
-            **({'depth': m.depth} if m.depth is not None else {}),
-            input_clip=m.input_clip_uv / 100,
-        )
-        if m.fused_attention:
-            from labram.layers.attention import set_fused_attention
-            set_fused_attention(model, True)
-        if getattr(config, 'mil', None) is not None and config.mil.enabled:
-            # bag pooling of a MIL run (mirrors run_finetune.get_model)
-            from labram.train.train_mil import attach_mil
-            attach_mil(model, config.mil)
+    """Rebuild the fine-tune model of a run config, exactly as training built
+    it (:func:`labram.runs.model_factory.build_finetune_model`: LaBraM or a
+    foreign encoder, with its bag pool and LoRA factors when enabled)."""
+    from labram.runs.model_factory import build_finetune_model as _build
+    model = _build(config)
     if device is not None:
         model.to(device)
     return model

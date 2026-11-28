@@ -17,6 +17,7 @@
 #   scripts/mil_runs/submit_phased_cv.sh             # phased P_* jobs, all 5 folds
 #   RESUME=s3://.../<job>-<time>/ ONLY=P_W7 FOLD=1 ... # continue a failed job from its checkpoints
 #   ONLY="P4R_L1 P4Q_L1" FOLD=0 SPOT=false WORKERS=24 scripts/mil_runs/submit_grid.sh  # P4 + codebook_aux
+#   ONLY=CB4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh                      # P4 with the CBraMod encoder
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PY=${PY:-/data/code/LaBraM/.venv/bin/python}
@@ -114,6 +115,69 @@ PHASED4=(optimizer.lr=0.00028 optimizer.warmup_epochs=3 trainer.epochs=17
 #         Job capped at 24 h (P4R/P4Q sat in SageMaker's final upload for hours).
 AUX=(codebook_aux.enabled=true codebook_aux.freq_fraction=0.5
   codebook_aux.tokenizer_weight=${AUX_WEIGHT:-s3://eeg-data-public/HEEDB/v4.1/derived/models/codebook_aux/vqnsp_proj_labram_base_cls19_fold0.pth})
+# P4 with a foreign pretrained encoder instead of LaBraM (labram/models/fm_regressor.py,
+# docs/fm_encoder_onboarding.md): same split, bags, phases and evaluation; only the encoder,
+# its released weights and its input options change. The LaBraM-only BASE options (fused
+# attention, class-token readout) are not read by these models. The input options are the
+# ones the frozen-probe screening selected on validation (Table 6.2 of the doc): CBraMod
+# with a 0.3 Hz high-pass and a +-100 uV clip (its pretraining band and amplitude range),
+# REVE with a per-window z-score; both after the common average reference, as LaBraM.
+# CBraMod (12 layers) keeps P4's layer decay 0.65 and trains at 0.8x LaBraM's speed.
+# REVE-base (22 layers) takes layer decay 0.8, since 0.65^23 would leave its lower half
+# untrained; it trains at 0.29x LaBraM's speed. 256 windows per step do not fit a 24 GB GPU,
+# so each update is two accumulation steps of 16 recordings x 8 windows (15.9 GB), in the
+# window phase and in the bag phase: the windows per update stay P4's 256.
+#   ONLY=CB4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
+#   ONLY=RV4_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
+#   scripts/mil_runs/run_local_fm.sh                 # CB4_L1 fold 0 on the local GPU
+CBRAMOD=(model.model=cbramod_base_patch200 labram_plus.band_hz=[0.3,99.0] model.input_clip_uv=100
+  finetune_checkpoint.finetune=${CBRAMOD_CKPT:-s3://eeg-data-public/models/cbramod/pretrained_weights.pth})
+REVE=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window optimizer.layer_decay=0.8
+  trainer.batch_size=16 trainer.update_freq=2 mil.window_batch_size=128
+  finetune_checkpoint.finetune=${REVE_CKPT:-s3://eeg-data-public/models/reve/reve-base/model.safetensors})
+# REVE with only its last 6 of 22 layers trained (RV4T6_L1): the lower 16 layers and the input
+# stem stay at the released weights, the readout norm, head and bag pool train as usual
+# (model.trainable_prefixes -> finetune_setup.freeze_except). No gradient flows below layer 16,
+# so 256 windows per step fit (8.7 GB) and training runs at 503 windows/s instead of 234:
+# about 20 h per fold instead of 42 h. P4's batch, no accumulation.
+#   ONLY=RV4T6_L1 FOLD=0 SPOT=false scripts/mil_runs/submit_grid.sh
+REVE_TOP6='model.trainable_prefixes=["head.","mil.","fc_norm.","backbone.net.transformer.layers.16.","backbone.net.transformer.layers.17.","backbone.net.transformer.layers.18.","backbone.net.transformer.layers.19.","backbone.net.transformer.layers.20.","backbone.net.transformer.layers.21."]'
+REVE_T6=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window optimizer.layer_decay=0.8
+  finetune_checkpoint.finetune=${REVE_CKPT:-s3://eeg-data-public/models/reve/reve-base/model.safetensors}
+  "$REVE_TOP6")
+# REVE fully fine-tuned with the regularisation its released encoder lacks (RV4DP_L1): stochastic
+# depth, rising from 0 at the first layer to 0.1 at the last, as LaBraM's blocks use
+# (model.encoder.drop_path). RV4_L1 over-fitted early: 5.5 y on training recordings against
+# 7.7 y on validation after epoch 3 (LaBraM: 7.6 against 8.6).
+REVE_DP=("${REVE[@]}" model.encoder.drop_path=0.1)
+# The two encoders trained the way their authors fine-tune them (docs/fm_encoder_onboarding.md,
+# Sections 7.4 and 7.5, Tables 7.8 and 7.9), on P4's schedule, split, bags and evaluation. Common to both: no
+# layer-wise decay, every encoder layer at 1e-4 (model.encoder.lr_scale=0.2 of optimizer.lr=5e-4),
+# readout and head at 5e-4, gradient clipping, the input as uV / 100 after the average reference
+# (no amplitude clip, no z-score). In the bag phase the pool and head keep P4's rate
+# (mil.head_lr_scale=2.8: 2.8 x 5e-4 = P4's 5 x 2.8e-4).
+#   CB5_L1 (CBraMod): gradient clip 1; all 19 x 10 tokens of a window flattened into one linear
+#     layer + ELU + dropout 0.1 (38,000 -> 200) in place of their mean; 0.3 Hz high-pass; no mixup.
+#   RV5_L1 (REVE): first epoch head-only (encoder frozen; readout norm, head and the pooling
+#     query train), then all layers; gradient clip 2; attention pooling with the pretrained
+#     query; noise of 0.25 cm on the electrode positions; mixup with a uniform mixing weight.
+#     Two accumulation steps of 128 windows per update, as RV4_L1.
+#   ONLY=CB5_L1 FOLD=0 SPOT=false WORKERS=24 scripts/mil_runs/submit_grid.sh
+#   ONLY=RV5_L1 FOLD=0 SPOT=false INSTANCE=ml.g5.8xlarge WORKERS=16 scripts/mil_runs/submit_grid.sh
+# Host memory: ml.g5.2xlarge (32 GB) is too little for this cohort -- both jobs were killed there
+# within hours (10 workers), and RV4T6_L1 was killed after 20.7 h on ml.g5.4xlarge (64 GB) with
+# 32 workers. A killed job continues from its checkpoints with RESUME=<its checkpoint folder>.
+AUTHORS_LR=(optimizer.lr=0.0005 optimizer.layer_decay=1.0 model.encoder.lr_scale=0.2 mil.head_lr_scale=2.8)
+CBRAMOD5=(model.model=cbramod_base_patch200 labram_plus.band_hz=[0.3,99.0] "${AUTHORS_LR[@]}"
+  optimizer.clip_grad=1.0 model.encoder.readout=flatten model.encoder.readout_dropout=0.1 mixup.enabled=false
+  finetune_checkpoint.finetune=${CBRAMOD_CKPT:-s3://eeg-data-public/models/cbramod/pretrained_weights.pth})
+# (model.encoder.input_norm stays at its default "none": the override parser reads a bare
+# none as null.)
+REVE5=(model.model=reve_base_patch200 "${AUTHORS_LR[@]}"
+  optimizer.clip_grad=2.0 model.encoder.readout=attn model.encoder.probe_epochs=1
+  model.encoder.position_noise=0.0025 mixup.alpha=1.0
+  trainer.batch_size=16 trainer.update_freq=2 mil.window_batch_size=128
+  finetune_checkpoint.finetune=${REVE_CKPT:-s3://eeg-data-public/models/reve/reve-base/model.safetensors})
 # The window phase streams (FastFile) recording by recording: random single-window
 # reads ran ~95 windows/s on g5.2xlarge (W0), clustered bag reads ~370-570/s. File
 # mode is not possible: the 894 GB cohort exceeds g5's fixed local storage (450-600 GB).
@@ -154,6 +218,14 @@ declare -A JOBS=(
   [P4RB0_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.amplitude_weight=1.0 codebook_aux.freq_band_hz=[0.0,45.0] sagemaker.max_run_sec=86400"
   [P4Q_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${AUX[*]} codebook_aux.embedding_weight=10.0"
   [P_L1_K4]="${PHASED[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h mil.bag_size=4 trainer.batch_size=64"
+  # P4 with CBraMod / REVE as the encoder (FOLD=0: the same split as P4_L1 fold 0).
+  [CB4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${CBRAMOD[*]}"
+  [RV4_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE[*]}"
+  [RV4T6_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE_T6[*]}"
+  [RV4DP_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE_DP[*]}"
+  # ... and with the settings of each encoder's own fine-tuning recipe.
+  [CB5_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${CBRAMOD5[*]}"
+  [RV5_L1]="${PHASED4[*]} ${CV[*]} ${BAG[*]} mil.pool=gated mil.gated=false mil.score_input=h ${REVE5[*]}"
   [F0]="${SCRATCH[*]} ${WINDOW[*]}"
   [F1]="${SCRATCH[*]} ${BAG[*]} mil.pool=mean"
   [F2]="${SCRATCH[*]} ${BAG[*]} mil.pool=gated mil.score_input=q"

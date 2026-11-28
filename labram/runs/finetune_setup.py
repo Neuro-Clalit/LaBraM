@@ -264,6 +264,22 @@ def resize_time_embed(time_embed: torch.Tensor, n_patches: int) -> torch.Tensor:
     return resized.transpose(1, 2).to(time_embed.dtype)
 
 
+def _released_weights(path: str):
+    """The tensors of a released (upstream) weight file, or None when ``path``
+    is one of our own run checkpoints (``{'model': ...}``, possibly holding
+    non-tensor objects that ``weights_only`` loading refuses)."""
+    from labram.models.backbones.base import read_weight_file
+    if str(path).endswith('.safetensors'):
+        return read_weight_file(path)
+    try:
+        state = read_weight_file(path)
+    except Exception:                          # a pickled run checkpoint
+        return None
+    if not isinstance(state, dict) or any(k in state for k in ('model', 'module', 'model_ema')):
+        return None
+    return state
+
+
 def load_finetune_checkpoint(model: torch.nn.Module, ckpt_cfg) -> None:
     """Load weights from ckpt_cfg.finetune into model.
 
@@ -272,6 +288,21 @@ def load_finetune_checkpoint(model: torch.nn.Module, ckpt_cfg) -> None:
     """
     if not ckpt_cfg.finetune:
         return
+
+    backbone = getattr(model, 'backbone', None)
+    if backbone is not None and hasattr(backbone, 'load_pretrained'):
+        # A foreign encoder (CBraMod, REVE): the released weight file loads
+        # strictly into the backbone. One of our own run checkpoints (a warm
+        # start) falls through to the generic path below.
+        if ckpt_cfg.finetune.startswith(('http://', 'https://')):
+            raise ValueError("finetune_checkpoint.finetune must be a local or s3:// weight file "
+                             f"for model {backbone.name!r}, got {ckpt_cfg.finetune!r}")
+        state = _released_weights(ckpt_cfg.finetune)
+        if state is not None:
+            backbone.load_pretrained(state)
+            logger.info("Loaded released %s weights from %s (%d tensors)",
+                        backbone.name, ckpt_cfg.finetune, len(state))
+            return
 
     if ckpt_cfg.finetune.startswith('https'):
         checkpoint = torch.hub.load_state_dict_from_url(

@@ -46,14 +46,33 @@ def get_num_layer_for_vit(var_name, num_max_layer):
         return num_max_layer - 1
 
 
+def layer_scale_values(num_layers: int, layer_decay: float, encoder_scale: float = 1.0):
+    """LR scale per layer id ``0 .. num_layers + 1``: encoder layer ``i`` (0 = input
+    stem) gets ``encoder_scale * layer_decay ** (num_layers + 1 - i)``; the last id
+    (readout, head, pool) keeps 1. ``encoder_scale = 1`` is the usual layer-wise
+    decay; ``layer_decay = 1`` puts every encoder layer at ``encoder_scale``."""
+    return [encoder_scale * layer_decay ** (num_layers + 1 - i) for i in range(num_layers + 1)] + [1.0]
+
+
 class LayerDecayValueAssigner(object):
-    def __init__(self, values):
+    """LR scale per layer: ``values[i]`` for layer id ``i`` (0 = input stem,
+    ``k`` = block ``k``, ``len(values) - 1`` = head and everything after the
+    last block). ``layer_id_fn`` maps a parameter name to its layer id for a
+    model whose names are not LaBraM's (``FoundationRegressor.layer_id``)."""
+
+    def __init__(self, values, layer_id_fn=None):
         self.values = values
+        self.layer_id_fn = layer_id_fn
 
     def get_scale(self, layer_id):
         return self.values[layer_id]
 
     def get_layer_id(self, var_name):
+        if self.layer_id_fn is not None:
+            layer_id = int(self.layer_id_fn(var_name))
+            if not 0 <= layer_id < len(self.values):
+                raise ValueError(f"layer id {layer_id} of {var_name!r} is outside 0..{len(self.values) - 1}")
+            return layer_id
         return get_num_layer_for_vit(var_name, len(self.values))
 
 

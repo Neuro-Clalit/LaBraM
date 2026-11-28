@@ -200,7 +200,7 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
                  train_data_path=None, window_qc=True, session_features=None, return_windows=False,
                  tokenizer_weight="./checkpoints/vqnsp.pth", stage_dir=None, num_workers=8,
                  class_probs=False, pred_stats=None, eval_minutes=None, windows_path=None,
-                 bag_batch_size=None, trim_start_sec=None, trim_end_sec=None):
+                 bag_batch_size=None, trim_start_sec=None, trim_end_sec=None, cv_fold=False):
     """Score one run on ``splits``. With ``return_windows`` each split also
     carries its window-level predictions (``windows``: names, recording ids,
     predicted / true age in years) and the result the run's window settings
@@ -212,7 +212,9 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     predictions (default: from ``train_data_path``, else the scored data's own).
     ``trim_start_sec`` / ``trim_end_sec`` override the run's trims (short
     external recordings, e.g. TDBRAIN's 2-min files, would otherwise lose
-    every window to the training 60 s + 60 s)."""
+    every window to the training 60 s + 60 s). ``cv_fold`` rebuilds the run's
+    cross-validation fold from its ``cv_split.json`` (val = the fold's validation
+    recordings, as training scored them; test = the held-out test split)."""
     cfg = load_run_config(os.path.join(run_dir, "run_config.yaml"))
     cfg.data.data_path = data_path
     if stage_dir is not None:                 # e.g. "none": read in place, no NVMe copy
@@ -228,6 +230,10 @@ def evaluate_run(run_dir, data_path, checkpoint, splits, device, batch_size, dat
     if cfg.model.codebook_reg.enabled:
         cfg.model.codebook_reg.tokenizer_weight = tokenizer_weight
     bundle = get_dataset_bundle(cfg.data.dataset, data_path, data_format=cfg.data.data_format)
+    if cv_fold:                               # the fold as training built it (runs/finetune_cv.py)
+        from labram.data.cross_validation import apply_cv_split, materialize_fold
+        split = json.load(open(os.path.join(run_dir, "cv_split.json")))
+        bundle = materialize_fold(apply_cv_split(bundle, split), int(cfg.cross_validation.fold), bundle)
     selection = WindowSelection.from_data_config(cfg.data)
     if not window_qc:
         selection = dataclasses.replace(selection, max_abs_uv=0.0, min_std_uv=0.0)
@@ -387,6 +393,15 @@ def main():
     ap.add_argument("--bag-batch-size", type=int, default=None,
                     help="recordings per batch for bag runs (default 12, 2 with --eval-minutes 0)")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--cv-fold", action="store_true",
+                    help="score a cross-validation fold run on its own fold (val = its validation "
+                         "fold, from the run's cv_split.json) instead of the cohort's default splits")
+    ap.add_argument("--gpu-memory-fraction", type=float, default=0.0,
+                    help="cap this process at that share of the GPU's memory (0 = no cap): for scoring "
+                         "next to a training run, so that an out-of-memory error hits the scoring")
+    ap.add_argument("--bag-encode-chunk", type=int, default=0,
+                    help="windows encoded per pass for bag runs (0 = the model's default, 256); "
+                         "windows are encoded independently, so the result does not change")
     ap.add_argument("--nproc-per-node", type=int, default=1,
                     help="GPUs to predict on (one DDP process each; -1 = all visible GPUs). "
                          "Windows are sharded across processes and gathered on rank 0.")
@@ -400,6 +415,11 @@ def main():
         device = torch.device("cuda", ns.gpu)
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if args.gpu_memory_fraction > 0 and device.type == "cuda":
+        torch.cuda.set_per_process_memory_fraction(args.gpu_memory_fraction)   # the current device
+    if args.bag_encode_chunk > 0:
+        from labram.models.bag_forward import BagForwardMixin
+        BagForwardMixin.BAG_ENCODE_CHUNK = args.bag_encode_chunk
     results = {}
     for item in args.run:
         name, run_dir = item.split("=", 1)
@@ -414,7 +434,8 @@ def main():
                                      trim_start_sec=args.trim_start_sec, trim_end_sec=args.trim_end_sec,
                                      windows_path=(os.path.join(args.save_windows, f"{name}_{{split}}.parquet")
                                                    if args.save_windows else None),
-                                     bag_batch_size=args.bag_batch_size, num_workers=args.num_workers)
+                                     bag_batch_size=args.bag_batch_size, num_workers=args.num_workers,
+                                     cv_fold=args.cv_fold)
         if not utils.is_main_process():
             continue
         for split, cohorts in results[name]["splits"].items():
