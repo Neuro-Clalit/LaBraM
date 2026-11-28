@@ -7,6 +7,8 @@
 #   ENCODER=reve scripts/mil_runs/run_local_fm.sh         # REVE-base (about 3.5x the time)
 #   JOB=RV4DP_L1 ENCODER=reve scripts/mil_runs/run_local_fm.sh model.encoder.drop_path=0.1
 #                                                         # a variant: JOB names its folder and task
+#   ENCODER=reve5 FOLD=1 scripts/mil_runs/run_local_fm.sh # RV5_L1: REVE with its authors' protocol
+#                                                         # (docs Section 7.5, Table 7.9), any fold
 #   scripts/mil_runs/run_local_fm.sh output.auto_resume=true   # continue after an interruption
 #
 # The run writes to /data/runs/heedb/fm_encoders/heedb_mil_<JOB>_fold<FOLD>_local_cv5/fold_<FOLD>
@@ -35,7 +37,16 @@ case $ENCODER in
     ENC=(model.model=reve_base_patch200 model.encoder.input_norm=zscore_window optimizer.layer_decay=0.8
          trainer.batch_size=16 trainer.update_freq=2 mil.window_batch_size=128
          finetune_checkpoint.finetune=./checkpoints/reve-base.safetensors) ;;
-  *) echo "ENCODER: cbramod | reve" >&2; exit 1 ;;
+  # RV5_L1 of submit_grid.sh: every encoder layer at 1e-4 (lr_scale 0.2 of 5e-4), head-only epoch 0,
+  # gradient clip 2, attention pooling with the pretrained query, uV / 100 input (input_norm stays
+  # at its default "none": a bare none in an override is read as null), position noise, uniform mixup.
+  reve5) JOB=${JOB:-RV5_L1}
+    ENC=(model.model=reve_base_patch200 optimizer.lr=0.0005 optimizer.layer_decay=1.0
+         model.encoder.lr_scale=0.2 mil.head_lr_scale=2.8 optimizer.clip_grad=2.0
+         model.encoder.readout=attn model.encoder.probe_epochs=1 model.encoder.position_noise=0.0025
+         mixup.alpha=1.0 trainer.batch_size=16 trainer.update_freq=2 mil.window_batch_size=128
+         finetune_checkpoint.finetune=./checkpoints/reve-base.safetensors) ;;
+  *) echo "ENCODER: cbramod | reve | reve5" >&2; exit 1 ;;
 esac
 OUT=${OUT:-/data/runs/heedb/fm_encoders/$JOB}
 # BASE, PHASED4, CV and BAG of submit_grid.sh, then the encoder
