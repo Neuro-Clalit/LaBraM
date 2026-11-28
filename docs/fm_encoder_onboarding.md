@@ -5,6 +5,9 @@ brain-age model? The review "Replacing LaBraM for EEG Brain-Age Regression" rank
 CBraMod second. This document covers what each model needs as input, how our train and test
 cohorts supply it, the code that makes the encoder a configuration choice, and the first results.
 
+A short report comparing P4 with the best CBraMod and REVE models, with brain age per pathology
+group: **`docs/fm_encoder_summary.md`** ([PDF](fm_encoder_summary.pdf)).
+
 **Status.**
 
 - **Preprocessing: no re-conversion.** The stored cohorts serve both models. Each encoder gets
@@ -140,9 +143,11 @@ check them against the source before citing.
   SHHS). The authors conclude that "pretrained models perform largely on par, with only narrow
   advantages for a few".
 
-For brain age this agrees with our own results: frozen, REVE is slightly better than LaBraM and
-CBraMod is level with it (Table 6.3); fine-tuned, neither has beaten LaBraM so far (Tables 7.5
-and 7.10).
+For brain age our own results match the independent benchmarks better than the authors' papers.
+Frozen, REVE is slightly better than LaBraM and CBraMod is level with it (Table 6.3). Fine-tuned,
+CBraMod stays behind LaBraM with either recipe (Tables 7.5 and 7.13), and REVE beats it only with
+its authors' fine-tuning protocol: on the in-domain test recordings by 0.24 years, level outside
+(Table 7.18).
 
 ## 2. Cohorts
 
@@ -709,7 +714,8 @@ both runs scored with `scripts/eval_age_by_cohort.py`. Validation is each run's 
 - **Untested candidates for the cause:** the readout averages over channels (the per-channel
   readout was 0.6 to 1.5 years better in Table 6.2); the ±100 µV clip removes amplitude a
   fine-tuned model could use; CBraMod's own recipe uses a learning rate of 1e-4 without layer
-  decay. A second run with these changes is not started.
+  decay. `CB5_L1` tested these changes together (Section 7.5): 1.5 years better, still behind
+  LaBraM (Table 7.13).
 
 ### 7.2 Training only the last layers of REVE
 
@@ -787,7 +793,7 @@ recordings, at the same epoch of a run; "gap" is validation minus training.
 - **REVE over-fits early.** After epoch 3 it fits the training recordings 2 years better than
   LaBraM does at the same epoch, and its gap is already 2.2 years (Table 7.6). With 12 times
   LaBraM's parameters and no dropout or stochastic depth in its released encoder, it has more
-  room to memorise. The two runs in progress limit that in different ways:
+  room to memorise. Two runs limit that in different ways:
   - `RV4T6_L1` trains only the last 6 layers (Section 7.2);
   - `RV4DP_L1` keeps all layers trainable and adds stochastic depth: during training each sample
     drops the attention or feed-forward branch of layer $l$ with probability
@@ -863,7 +869,7 @@ Reading Table 7.7:
   predictions and P4's has a test MAE of 5.75 years, 0.31 years below P4 alone (interval −0.36
   to −0.26), with the two predictions correlated at 0.97. The last-6-layers model and CBraMod
   gave no such gain (Sections 7.5 and 7.6).
-- **The authors' protocol starts slower (interim).** At epoch 3 `RV5_L1` has 8.07 / 7.95: 0.5
+- **The authors' protocol starts slower.** At epoch 3 `RV5_L1` has 8.07 / 7.95: 0.5
   years ahead of P4 and 0.4 to 0.6 behind the two full fine-tunes with our recipe. It spent
   epoch 0 on the head alone, so it has had one encoder epoch less; against `RV4DP_L1` at epoch 2
   (7.76 / 7.45) it is still 0.3 to 0.5 behind. Its gap between training recordings and
@@ -940,8 +946,8 @@ What follows for our task:
 - **Not covered by either group:** age or any recording-level target, pooling over windows, and a
   labelled set of our size (their largest is TUAB). These parts stay our own design.
 
-`CB5_L1` and `RV5_L1` are implemented and running (Section 7.5). `RV5L_L1` needs LoRA for REVE's
-layers, which does not exist yet; it is not started.
+`CB5_L1` and `RV5_L1` were implemented and run (Section 7.5); both are finished (Tables 7.13 and
+7.18). `RV5L_L1` needs LoRA for REVE's layers, which does not exist yet; it is not started.
 
 ### 7.5 Runs with the authors' settings: `CB5_L1` and `RV5_L1`
 
@@ -1025,9 +1031,8 @@ Learning rates are peak values; all follow P4's warm-up and cosine. Layer $i$ as
 - The dry runs stage the same weight files as `CB4_L1` and `RV4_L1`.
 
 **Status.** `CB4_L1` is finished (Table 7.5). `RV4_L1` was stopped after epoch 5 (Table 7.3).
-`RV4T6_L1` is finished (Section 7.6). `RV4DP_L1` is in progress (Tables 7.2 and 7.7). `CB5_L1`
-and `RV5_L1` were restarted on 26 Nov after their first jobs were killed for host memory
-(Table 7.2). `CB5_L1` is finished (Tables 7.11 and 7.13) and so is `RV5_L1` (Tables 7.7 and 7.18),
+`RV4T6_L1` (Section 7.6) and `RV4DP_L1` (Section 7.8) are finished. `CB5_L1` and `RV5_L1` were
+restarted on 26 Nov after their first jobs were killed for host memory (Table 7.2). `CB5_L1` is finished (Tables 7.11 and 7.13) and so is `RV5_L1` (Tables 7.7 and 7.18),
 which ran on the local GPU from epoch 7 (Table 7.2). Neither showed a numerical problem under
 mixed precision; reported host memory stayed at 74 to 83 % of 64 GB for `CB5_L1` and at 26 to
 32 % of 128 GB for `RV5_L1`.
@@ -1155,7 +1160,7 @@ protocol (Table 7.12).
 
 ### Table 7.12. Stage B runs per cohort at their best validation epoch
 
-Recording-level MAE in years (Eq. (6.4)) as each run logs it at its best validation epoch so far:
+Recording-level MAE in years (Eq. (6.4)) as each run logs it at its best validation epoch:
 the fold-0 validation recordings and the 7,612 held-out test recordings (first 5 minutes), split
 by source dataset (by report status: Table 7.14), and the two standing external test sets as scored
 during training: LEMON with the run's window selection (60 s trims, first 5 minutes, so it
@@ -1526,6 +1531,17 @@ AWS_PROFILE=mfa scripts/mil_runs/resume_local_from_sagemaker.sh fetch RV5_L1 \
 systemd-run --user --unit=labram-rv5-l1-f0 --collect --working-directory=$PWD \
     --setenv=WEIGHTS=./checkpoints/reve-base.safetensors /bin/bash -c \
     'scripts/mil_runs/resume_local_from_sagemaker.sh run RV5_L1 >> /data/runs/heedb/fm_encoders/RV5_L1_fold0.log 2>&1'
+# REVE with its authors' protocol on the other folds (Table 7.2): SageMaker, or the local GPU
+ONLY=RV5_L1 FOLD=2 SPOT=false INSTANCE=ml.g5.8xlarge WORKERS=16 scripts/mil_runs/submit_grid.sh
+ENCODER=reve5 FOLD=1 scripts/mil_runs/run_local_fm.sh output.auto_resume=true
+# a fold run re-scored on its own validation fold (exact: reproduces the logged validation MAE)
+python scripts/eval_age_by_cohort.py --data-path /data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1 \
+    --splits val --cv-fold --pred-stats-from-log --run P4_L1_f0=<fold dir> --out <json>
+# brain age per pathology group, several models paired on the same recordings, and the summary
+python scripts/fm_pathology_compare.py --reference P4 --pred P4:val=<json>#P4_L1_f0 \
+    --pred REVE:val=<run>/analysis/val_bag_weights_epoch10.parquet ... \
+    --out docs/data/fm_encoders/pathology_fold0.csv
+python scripts/fm_summary_figures.py && python scripts/md_to_pdf.py docs/fm_encoder_summary.md
 # a job killed for host memory continues from its checkpoint folder (not on ml.g5.2xlarge: 32 GB is too little)
 RESUME=s3://sagemaker-us-east-1-574441342949/labram/checkpoints/<job folder> ONLY=RV5_L1 FOLD=0 SPOT=false \
     INSTANCE=ml.g5.8xlarge WORKERS=16 scripts/mil_runs/submit_grid.sh
@@ -1554,5 +1570,6 @@ Weights: `./checkpoints/cbramod-base.pth` (Hugging Face `weighting666/CBraMod`,
 
 Re-conversion of the cohorts from raw; LaBraM's own pre-training phases; EEGPT, LUNA and FEMBA;
 hybrids with handcrafted features; 30 s windows (HEEDB recordings are spliced where flat windows
-were dropped, and the compact training cohort stores listed windows only); 5-fold
-cross-validation of a new encoder.
+were dropped, and the compact training cohort stores listed windows only). The 5-fold
+cross-validation of REVE with its authors' protocol was out of scope at the start; it was started
+on 28 Nov after the fold-0 result (Table 7.2).

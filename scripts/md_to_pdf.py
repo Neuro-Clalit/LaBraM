@@ -173,9 +173,17 @@ class Converter:
         plain = [[re.sub(r"\$[^$]*\$", "xxxxx", re.sub(r"[`*]", "", c)) for c in r]
                  for r in [header] + body]
         # Every column is at least as wide as its longest word (so words never
-        # split); the remaining width goes to columns in proportion to text length.
-        floor = [max(pdfmetrics.stringWidth(w, "Body-Bold", 8.6)
-                     for r in plain for w in (r[i].split() or [""])) + 9 for i in range(n)]
+        # split; a bracketed group such as an interval "[+0.56, +0.76]" counts as
+        # one word and is kept on one line); the remaining width goes to columns in
+        # proportion to text length.
+        # A short cell (up to 10 characters, e.g. "98.5 M") is one word as well.
+        words = lambda c: [c] if len(c) <= 10 else (re.findall(r"\[[^\]]*\]|\S+", c) or [""])  # noqa: E731
+        floor = [max(pdfmetrics.stringWidth(w, "Body-Bold", 8.6) for r in plain for w in words(r[i])) + 9
+                 for i in range(n)]
+        keep = lambda c: (c.replace(" ", "\u00a0") if len(c) <= 10 else  # noqa: E731
+                          re.sub(r"\[[^\]]*\]", lambda m: m.group(0).replace(" ", "\u00a0"), c))
+        header = [keep(c) for c in header]
+        body = [[keep(c) for c in r] for r in body]
         length = [max(len(r[i]) for r in plain) + 2 for i in range(n)]
         spare = self.width - sum(floor)
         if spare > 0:
