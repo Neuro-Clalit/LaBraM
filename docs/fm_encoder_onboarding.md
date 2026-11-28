@@ -43,8 +43,10 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
   - **Cost.** A REVE fold takes about 39 hours on one A10G against 13 for P4, and the model has
     69.3 M weights against 5.8 M.
   - **Not shown yet.** One fold only: whether REVE is better on the other folds, and how a
-    5-fold REVE ensemble compares with the 5-fold P4 ensemble, needs the other four folds
-    (Section 7.9, next steps).
+    5-fold REVE ensemble compares with the 5-fold P4 ensemble, needs the other four folds.
+    **They are running since 28 Nov, 11:20 UTC** (folds 1 and 4 on the local GPU one after the
+    other, folds 2 and 3 on SageMaker; Table 7.2): folds 1 to 3 end about 30 Nov, 03:00 UTC,
+    fold 4 about 1 Dec, 19:00 UTC.
 
 The target of every comparison is the best single model on the same split: **P4_L1 fold 0,
 validation 6.59 years, test 6.06 years** (`docs/mil_stage1_results.md`, Table 13.14).
@@ -611,6 +613,9 @@ All on fold 0 with P4's schedule of 17 epochs (8 window epochs, 1 epoch that tra
 | `RV4DP_L1` | local A10G, systemd unit `labram-rv4dp-l1-f0` | `/data/runs/heedb/fm_encoders/heedb_mil_RV4DP_L1_fold0_local_cv5/fold_0`; [ClearML](https://app.clear.ml/projects/e76a506be53e426aa0d95e90ad79855c/experiments/b2b8c98e12c044a59710f37372e5815c) | finished 27 Nov, 14:15 UTC after 40.8 h (2.9 h per window epoch, 1.9 h per joint epoch); best epoch 12 (Tables 7.7 and 7.12) |
 | `CB5_L1` | SageMaker, on-demand `ml.g5.4xlarge`, 24 loader workers | `labram-mil-cb5-l1-f0-fold-0-2026-11-26-19-26-48-628`; ClearML task `heedb_mil_CB5_L1_fold0` | finished: all 17 epochs trained and scored by 27 Nov, 08:30 UTC (59 min per window epoch, 33 min per joint epoch); the job then spent 2.7 h in SageMaker's final upload, 15.7 h billed; results in `/data/runs/heedb/fm_encoders/CB5_L1/fold_0` (Table 7.13). A first job on `ml.g5.2xlarge` (`…-12-51-19-517`) was killed for host memory after 1.3 h, before the end of epoch 0 |
 | `RV5_L1` | SageMaker, on-demand `ml.g5.8xlarge`, for epochs 1–6; then local A10G, systemd unit `labram-rv5-l1-f0` | SageMaker `labram-mil-rv5-l1-f0-fold-0-2026-11-26-19-05-37-271` (ClearML task `heedb_mil_RV5_L1_fold0`); local `/data/runs/heedb/fm_encoders/heedb_mil_RV5_L1_fold0_local_cv5/fold_0` (ClearML task `heedb_mil_RV5_L1_fold0_local`), log `/data/runs/heedb/fm_encoders/RV5_L1_fold0.log` | finished 28 Nov, 08:34 UTC; best epoch 10 (Table 7.18). About 39 h of training in total: the head-only epoch 0 on `ml.g5.2xlarge` (1.6 h), epochs 1–6 on `ml.g5.8xlarge` (19.4 h billed), epochs 7–16 on the local GPU (18.1 h; moved at the start of epoch 7 from the SageMaker job's epoch-6 checkpoint with `scripts/mil_runs/resume_local_from_sagemaker.sh`, same step time on both). The first job on `ml.g5.2xlarge` (`…-12-51-36-446`) was killed for host memory in epoch 1 |
+| `RV5_L1` fold 1, then fold 4 | local A10G, one systemd unit `labram-rv5-l1-f1f4` (`ENCODER=reve5 FOLD=k scripts/mil_runs/run_local_fm.sh`) | `/data/runs/heedb/fm_encoders/heedb_mil_RV5_L1_fold<k>_local_cv5/fold_<k>`, logs `/data/runs/heedb/fm_encoders/RV5_L1_fold<k>.log` | fold 1 started 28 Nov, 11:24 UTC, about 40 h; fold 4 starts when fold 1 has finished, about 40 h more |
+| `RV5_L1` fold 2 | SageMaker, on-demand `ml.g5.8xlarge`, 16 loader workers | `labram-mil-rv5-l1-f2-fold-2-2026-11-28-11-18-59-818` | started 28 Nov, 11:19 UTC, about 40 h |
+| `RV5_L1` fold 3 | SageMaker, on-demand `ml.g5.4xlarge`, 10 loader workers | `labram-mil-rv5-l1-f3-fold-3-2026-11-28-11-19-16-501` | started 28 Nov, 11:19 UTC, about 40 h |
 
 - The CBraMod run was stopped from outside on 25 Nov at 04:19 UTC, in epoch 5: the nightly Claude
   Code update restarted the service the run had been started from, and systemd stopped the run
@@ -1468,11 +1473,13 @@ Reading Table 7.20:
   14 rows; the interval excludes 0 in 12 of them (not for Temple abnormal and LEMON). Abnormal
   recordings gain as much as normal ones (0.11 against 0.10 years on test).
 
-**Next steps (none is started; each needs a decision).**
+**Next steps.**
 
-1. **`RV5_L1` on folds 1 to 4.** It decides whether the result of Table 7.18 holds across folds,
-   and gives the 5-fold REVE ensemble to compare with the 5-fold P4 ensemble and with both
-   together. About 39 hours per fold on one A10G.
+1. **`RV5_L1` on folds 1 to 4 (started 28 Nov, Table 7.2).** It decides whether the result of
+   Table 7.18 holds across folds, and gives the 5-fold REVE ensemble to compare with the 5-fold
+   P4 ensemble and with both together. About 40 hours per fold on one A10G. Each fold is
+   compared with P4 on the same fold (its validation recordings) and on the shared test and
+   external cohorts, with the scripts of Section 8.
 2. **A sixth LaBraM model as a control for Tables 7.16 and 7.17** (P4 on fold 0 with another
    seed, about 13 hours): how much of the ensemble gain any additional model would give.
 3. **Why REVE is worse on SRM**, from the saved predictions (a constant offset or scattered
