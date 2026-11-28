@@ -1423,6 +1423,51 @@ Reading Table 7.19:
   0), and are 1.4 years worse on SRM. REVE alone is not a safe replacement outside the training
   domain yet; REVE next to LaBraM is.
 
+### Table 7.20. `RV5_L1` against P4 by cohort and report status
+
+Tables 7.17 and 7.18 split by the report verdict of a recording (normal, abnormal, or unlabelled
+= no verdict in the source data; `scripts/fm_external_compare.py --by-report`). Single models:
+P4 fold 0 and `RV5_L1` with Δ = `RV5_L1` − P4. Ensembles: the 5-fold P4 ensemble and that
+ensemble with `RV5_L1` as a sixth member, with Δ against the P4 ensemble. MAE in years
+(Eq. (6.4)); intervals 95 %, 2,000 bootstrap resamples (Eq. (6.5)); negative Δ = lower error
+with REVE. Validation rows are each run's logged values, and have no ensemble: the other P4
+folds trained on these recordings. LEMON, Dortmund, SRM and CHBP hold healthy participants only;
+in TDBRAIN "normal" are the healthy participants.
+
+| Cohort | Report | $n$ | P4 fold 0 | `RV5_L1` | Δ [95 % interval] | P4 ensemble | + `RV5_L1` | Δ [95 % interval] |
+|---|---|---|---|---|---|---|---|---|
+| Validation | normal | 4,927 | 6.01 | 5.86 | −0.15 | – | – | – |
+| Validation | abnormal | 7,320 | 7.42 | 7.29 | −0.13 | – | – | – |
+| Validation | unlabelled | 6,824 | 6.12 | 5.93 | −0.19 | – | – | – |
+| Test | normal | 1,667 | 5.62 | 5.44 | −0.18 [−0.33, −0.02] | 5.59 | 5.50 | −0.10 [−0.12, −0.07] |
+| Test | abnormal | 2,378 | 6.71 | 6.49 | −0.22 [−0.38, −0.05] | 6.56 | 6.45 | −0.11 [−0.14, −0.08] |
+| Test | unlabelled | 3,567 | 5.82 | 5.53 | −0.29 [−0.41, −0.17] | 5.70 | 5.56 | −0.13 [−0.15, −0.11] |
+| Test, Harvard | normal | 1,518 | 5.71 | 5.52 | −0.19 [−0.35, −0.02] | 5.70 | 5.60 | −0.09 [−0.12, −0.07] |
+| Test, Harvard | abnormal | 2,253 | 6.62 | 6.37 | −0.25 [−0.42, −0.08] | 6.49 | 6.38 | −0.12 [−0.15, −0.09] |
+| Test, Harvard | unlabelled | 3,567 | 5.82 | 5.53 | −0.29 [−0.41, −0.17] | 5.70 | 5.56 | −0.13 [−0.15, −0.11] |
+| Test, Temple | normal | 149 | 4.65 | 4.65 | −0.00 [−0.55, +0.56] | 4.53 | 4.42 | −0.11 [−0.21, −0.01] |
+| Test, Temple | abnormal | 125 | 8.31 | 8.64 | +0.32 [−0.60, +1.24] | 7.80 | 7.78 | −0.02 [−0.18, +0.15] |
+| LEMON | normal | 214 | 4.73 | 4.82 | +0.09 [−0.38, +0.57] | 4.67 | 4.59 | −0.08 [−0.16, +0.01] |
+| Dortmund | normal | 3,262 | 5.29 | 5.33 | +0.04 [−0.10, +0.17] | 5.16 | 5.01 | −0.15 [−0.18, −0.12] |
+| TDBRAIN | normal | 354 | 5.43 | 5.41 | −0.02 [−0.49, +0.46] | 5.30 | 5.16 | −0.14 [−0.23, −0.06] |
+| TDBRAIN | unlabelled | 1,868 | 5.49 | 5.36 | −0.13 [−0.31, +0.05] | 5.37 | 5.19 | −0.17 [−0.21, −0.14] |
+| SRM | normal | 152 | 5.01 | 6.26 | +1.25 [+0.37, +2.11] | 4.84 | 4.60 | −0.25 [−0.43, −0.07] |
+| CHBP | normal | 250 | 7.45 | 7.93 | +0.48 [−0.44, +1.37] | 7.95 | 7.55 | −0.40 [−0.57, −0.25] |
+
+Reading Table 7.20:
+
+- **On the test recordings REVE is better in every report group**, with intervals that exclude
+  0: normal −0.18, abnormal −0.22, unlabelled −0.29 years. The same holds for the Harvard part
+  alone.
+- **On Temple test it is level.** Normal reports are equal (4.65), abnormal ones +0.32 years;
+  both intervals are wide (149 and 125 recordings) and include 0.
+- **Outside the training data only healthy participants and TDBRAIN's unlabelled group exist.**
+  REVE is level with P4 on the healthy groups of LEMON, Dortmund and TDBRAIN and on TDBRAIN's
+  other recordings; SRM (+1.25) is the exception.
+- **In the ensemble REVE helps in every group.** As a sixth member it lowers the error in all
+  14 rows; the interval excludes 0 in 12 of them (not for Temple abnormal and LEMON). Abnormal
+  recordings gain as much as normal ones (0.11 against 0.10 years on test).
+
 **Next steps (none is started; each needs a decision).**
 
 1. **`RV5_L1` on folds 1 to 4.** It decides whether the result of Table 7.18 holds across folds,

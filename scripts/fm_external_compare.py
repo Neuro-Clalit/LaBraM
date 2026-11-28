@@ -16,6 +16,10 @@ interval (``labram.eval.cv_compare.bootstrap_delta_mae``), and the same for aver
 
     python scripts/fm_external_compare.py --tag rv4dp --name RV4DP_L1_f0 \\
         --test-parquet <run>/analysis/test_bag_weights_epoch12.parquet
+
+``--by-report`` adds one row per report status of a cohort (normal / abnormal / unlabelled, the
+``label`` of the cohort's ``age_metadata.json``): ``test_normal``, ``test_harvard_abnormal``,
+``tdbrain_unlabelled``, ... -> ``<tag>_vs_p4_by_report.csv``.
 """
 import argparse
 import glob
@@ -62,6 +66,13 @@ def _p4_test_file(fold_dir):
     return files[-1]
 
 
+def _report_labels(cohort_dir):
+    """recording -> normal / abnormal / unlabelled (no verdict in the source data)."""
+    meta = json.load(open(os.path.join(cohort_dir, "age_metadata.json")))["recordings"]
+    return pd.Series({r: (v.get("label") if v.get("label") in ("normal", "abnormal") else "unlabelled")
+                      for r, v in meta.items()})
+
+
 def _delta(pred, ref, age):
     b = bootstrap_delta_mae(pred - age, ref - age)
     return float((pred - age).abs().mean()), b["dMAE"], b["lo"], b["hi"]
@@ -93,6 +104,9 @@ def main():
     ap.add_argument("--p4-cv", default="/data/runs/heedb/mil_phased_cv/P4_L1")
     ap.add_argument("--cohorts-root", default="/data/datasets/EEG-public")
     ap.add_argument("--min-age", type=float, default=18.0)
+    ap.add_argument("--by-report", action="store_true", help="add one row per report status of a cohort")
+    ap.add_argument("--train-cohort", default="/data/datasets/HEEDB/v4.1/cohorts/tuh_heedb_v1",
+                    help="the cohort of the test split (its age_metadata.json has the report labels)")
     ap.add_argument("--out", default=None, help="CSV (default <eval-dir>/<tag>_vs_p4.csv)")
     args = ap.parse_args()
 
@@ -108,7 +122,13 @@ def main():
         if p4.isna().any().any():
             raise ValueError("the run and P4 were not scored on the same test recordings")
         temple = run.index.to_series().str.match(r"^[a-z]{8}_s\d+_t\d+$").to_numpy()
-        for name, m in (("test", np.ones(len(run), bool)), ("test_harvard", ~temple), ("test_temple", temple)):
+        groups = [("test", np.ones(len(run), bool)), ("test_harvard", ~temple), ("test_temple", temple)]
+        if args.by_report:
+            label = _report_labels(args.train_cohort).reindex(run.index).fillna("unlabelled").to_numpy()
+            for base, m in list(groups):
+                groups += [(f"{base}_{g}", m & (label == g)) for g in ("normal", "abnormal", "unlabelled")
+                           if (m & (label == g)).any()]
+        for name, m in groups:
             rows.append(compare(name, run.age[m], p4[m], run.pred[m]))
     for cohort, folder in COHORTS.items():
         path = os.path.join(args.eval_dir, f"{cohort}_all_{args.tag}.json")
@@ -127,8 +147,15 @@ def main():
         if run.isna().any() or p4.isna().any().any():
             raise ValueError(f"{cohort}: the run and P4 were not scored on the same recordings")
         rows.append(compare(cohort, age[keep], p4[keep], run[keep]))
+        if args.by_report:
+            label = _report_labels(os.path.join(args.cohorts_root, folder, "cohorts", f"{cohort}_v1"))
+            label = label.reindex(p4.index).fillna("unlabelled").to_numpy()
+            for g in ("normal", "abnormal", "unlabelled"):
+                m = keep & (label == g)
+                if m.any():
+                    rows.append(compare(f"{cohort}_{g}", age[m], p4[m], run[m]))
     table = pd.DataFrame(rows)
-    out = args.out or os.path.join(args.eval_dir, f"{args.tag}_vs_p4.csv")
+    out = args.out or os.path.join(args.eval_dir, f"{args.tag}_vs_p4{'_by_report' if args.by_report else ''}.csv")
     table.to_csv(out, index=False)
     print(table.round(2).to_string(index=False))
     print("->", out)
