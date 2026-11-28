@@ -50,9 +50,11 @@ cohorts supply it, the code that makes the encoder a configuration choice, and t
   - **REVE (`RV5_L1`): in epoch 11 of 0–16 on the local GPU, and ahead of every other run
     (interim).** At epoch 10 it has 6.43 years on validation and 5.81 on test, against 6.59 and
     6.06 for P4's best epoch and 6.55 and 5.94 for `RV4DP_L1`'s; paired on test −0.24 years
-    against P4 (95 % interval −0.33 to −0.16). On LEMON and TDBRAIN, as logged during training,
-    it has 4.97 and 5.37 years, against 4.87 and 5.48 for P4 (Table 7.7). Six epochs remain; the
-    run was moved from SageMaker to the local GPU at the start of epoch 7 (Table 7.2).
+    against P4 (95 % interval −0.33 to −0.16). Its epoch-10 checkpoint scored on the external
+    cohorts is level with P4 on LEMON, Dortmund, TDBRAIN and CHBP and 1.25 years worse on SRM
+    (Table 7.18): by the decision rule it would replace LaBraM on this fold, if the finished run
+    confirms it. Five epochs remain; the run was moved from SageMaker to the local GPU at the
+    start of epoch 7 (Table 7.2).
 
 The target of every comparison is the best single model on the same split: **P4_L1 fold 0,
 validation 6.59 years, test 6.06 years** (`docs/mil_stage1_results.md`, Table 13.14).
@@ -1349,6 +1351,53 @@ model 12.5 M (4.9 M encoder and 7.6 M all-token readout).
   98.5 M weights, and that model takes 3.3 times a P4 model's inference time (Table 7.1) and 41
   hours to train against 13 for one P4 fold (Table 7.2). The CBraMod model adds 12.5 M weights
   and trains in 13 hours.
+
+### 7.9 REVE with its authors' protocol against P4 (interim)
+
+### Table 7.18. `RV5_L1` against P4 on fold 0 (interim)
+
+`RV5_L1` at its best validation epoch so far (epoch 10; the run is in epoch 12 of 0–16, so **this
+table is not final**), P4 at its best epoch (15). MAE in years (Eq. (6.4)) per recording; Δ =
+`RV5_L1` − P4 on the same recordings (Eq. (6.5)) with its 95 % interval from 2,000 bootstrap
+resamples, positive when `RV5_L1` is worse. Test and external cohorts as in Table 7.15; the
+external cohorts were scored with a copy of the epoch-10 checkpoint
+(`/data/runs/heedb/fm_encoders/RV5_L1_snap_e10`). Rows by report status are each run's logged
+values (Table 7.14). State of 28 Nov, 00:05 UTC.
+
+| Cohort | $n$ | P4 MAE | `RV5_L1` MAE | Δ [95 % interval] |
+|---|---|---|---|---|
+| Validation (fold 0) | 19,071 | 6.59 | 6.43 | −0.16 |
+| Test, all | 7,612 | 6.06 | 5.81 | −0.24 [−0.33, −0.16] |
+| Test, Harvard | 7,338 | 6.05 | 5.79 | −0.26 [−0.34, −0.17] |
+| Test, Temple | 274 | 6.32 | 6.47 | +0.15 [−0.39, +0.66] |
+| Test, normal report | 1,667 | 5.62 | 5.44 | −0.18 |
+| Test, abnormal report | 2,378 | 6.71 | 6.49 | −0.22 |
+| Test, unlabelled | 3,567 | 5.82 | 5.53 | −0.29 |
+| LEMON | 214 | 4.73 | 4.82 | +0.09 [−0.38, +0.57] |
+| Dortmund | 3,262 | 5.29 | 5.33 | +0.04 [−0.10, +0.17] |
+| TDBRAIN | 2,222 | 5.48 | 5.37 | −0.11 [−0.27, +0.05] |
+| SRM | 152 | 5.01 | 6.26 | +1.25 [+0.37, +2.11] |
+| CHBP | 250 | 7.45 | 7.93 | +0.48 [−0.44, +1.37] |
+
+Reading Table 7.18 (interim):
+
+- **By the decision rule this checkpoint would replace LaBraM on fold 0.** It wins on Harvard
+  test (−0.26 years, interval excludes 0) and does not lose on LEMON (+0.09) or on Dortmund
+  (+0.04), both with intervals that include 0. No earlier run passed all three.
+- **It is level with P4 outside the training data, except on SRM.** TDBRAIN −0.11 and CHBP +0.48
+  have intervals that include 0. On SRM it is 1.25 years worse (interval +0.37 to +2.11, 152
+  recordings), as the other REVE run was (+1.97, Table 7.15).
+- **The gain is on the Harvard recordings, in every report group** (normal −0.19, abnormal
+  −0.25, unlabelled −0.29 years on Harvard test). On Temple test it is level on normal reports
+  (4.65 in both) and 0.32 years worse on abnormal ones (8.64 against 8.31, 125 recordings).
+- **Against the other REVE recipe** (`RV4DP_L1`, Table 7.15) it is better on every cohort but
+  CHBP: 0.13 years on test, 0.23 on LEMON, 0.51 on Dortmund, 0.31 on TDBRAIN and 0.72 on SRM;
+  on CHBP it has 7.93 against 7.21.
+- **As one more ensemble member** it lowers the P4 ensemble's MAE on every cohort: by 0.12
+  years on test, 0.08 on LEMON, 0.15 on Dortmund, 0.17 on TDBRAIN, 0.25 on SRM and 0.40 on CHBP
+  (`/data/runs/heedb/fm_encoders/eval/rv5_e10_vs_p4.csv`).
+- **Open.** The run is not finished, and this is one fold: the comparison on the other folds and
+  of five-model ensembles is a separate step.
 
 ## 8. How to run
 
