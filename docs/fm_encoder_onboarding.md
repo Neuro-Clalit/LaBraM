@@ -1415,9 +1415,9 @@ cross-validation ensemble of REVE.
 
 Reading Table 7.19:
 
-- **Together the two families give the lowest error on every cohort but SRM and CHBP.** With
-  both REVE models added, the P4 ensemble improves by 0.20 years on test, 0.20 on Dortmund,
-  0.26 on TDBRAIN and 0.67 on CHBP.
+- **With both REVE models added, the P4 ensemble improves on every cohort:** by 0.20 years on
+  test, 0.20 on Dortmund, 0.26 on TDBRAIN and 0.67 on CHBP; the LEMON, SRM and Temple intervals
+  include 0. It is the lowest error of all combinations on LEMON, Dortmund and TDBRAIN.
 - **Two REVE models already beat five LaBraM models in the training domain** (5.68 against
   5.94 years on test) and on CHBP, are level on TDBRAIN, LEMON and Dortmund (intervals include
   0), and are 1.4 years worse on SRM. REVE alone is not a safe replacement outside the training
